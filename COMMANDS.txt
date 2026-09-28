@@ -1,0 +1,75 @@
+kana — build commands
+=====================
+
+The engine is built separately from the app, and it is built PER PLATFORM. A
+Windows engine build followed by an Android app build (or the reverse) does not
+work: rde_config.h and shaders.h are regenerated per platform. Build the engine
+for the platform you are about to target, first.
+
+
+DESKTOP (Windows) — for developing the ink without a tablet in hand
+-------------------------------------------------------------------
+Left-click drags as a stand-in for the pen. It CANNOT answer the questions the
+spike exists for — no pressure, no tilt, and desktop latency says nothing about
+a tablet's. Use it to iterate on the code, then measure on a device.
+
+  cd C:\Users\borja\Programming\RDE
+  builder.exe --engine --debug
+
+  cd C:\Users\borja\Programming\Projects\kana
+  C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
+    --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
+    --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
+    kana.c src/ink.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    -Werror -Wall -Wextra
+
+  build\windows\debug\project\exe\runnable.exe
+
+
+ANDROID — the real test
+-----------------------
+ENGINE FIRST. An app build without rebuilding the engine for Android keeps the
+old .so, and the change simply is not in the APK.
+
+  cd C:\Users\borja\Programming\RDE
+  builder.exe --engine --debug --android --abi_armv8a ^
+    --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
+    --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
+    --android_api_level=37
+
+  cd C:\Users\borja\Programming\Projects\kana
+  C:/Users/borja/Programming/RDE/builder.exe --project --debug --android ^
+    --android_app_name=Kana --android_package_name=com.rde.kana ^
+    --assets_path=./assets/ --abi_armv8a ^
+    --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
+    --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
+    --android_api_level=37 ^
+    kana.c src/ink.c -Iinclude -Wall -Wextra ^
+    --output_path=C:\Users\borja\Programming\Projects\kana\build\
+
+No --android_internet: the spike talks to nothing. Add it only when something
+actually needs the network, and never by default.
+
+
+WHAT TO LOOK FOR ON THE DEVICE
+------------------------------
+1. The top line of the HUD. "PEN" means stylus events arrive and the shared-ink
+   plan holds. "TOUCH ONLY" on an iPad with an Apple Pencil is the answer to
+   open question 1 in docs/design.md, and it is a bad one.
+
+2. Pressure moving as you press harder, and the stroke visibly thickening. If
+   pressure stays 0.00 the PEN_AXIS events are not arriving even though position
+   is — a different failure from no pen at all, and worth knowing apart.
+
+3. INPUT HZ while drawing continuously. A pen sampling at 120-240 Hz that shows
+   ~60 here is being coalesced to the frame rate: fast strokes will come out as
+   visible polygons however low the lag is. Press M and draw fast — evenly
+   spaced dots mean the full rate is arriving, long gaps on the quick parts mean
+   it is not.
+
+4. THE GAP. Press H to hide the HUD, draw a fast circle, and look at the
+   distance between the nib and the end of the ink. That distance IS the latency
+   and it is the only honest measure of it — the numbers on screen cover the
+   app's half only, because everything before the event reaches the process is
+   invisible from inside it. Photograph it if you want a number: gap in mm,
+   divided by pen speed in mm/ms.
