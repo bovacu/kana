@@ -42,12 +42,57 @@
 // exponential average; this is the weight of each new sample.
 #define KANA_INK_PRESSURE_SMOOTH 0.35f
 
+// How a stroke's width is chosen. CONSTANT is the default: one width for every
+// stroke, `constant_radius` (a setting a UI will expose later). PRESSURE follows
+// the pen's pressure, or its speed on a pen that has none (see below).
+typedef enum {
+    KANA_INK_WIDTH_MODE_CONSTANT = 0,
+    KANA_INK_WIDTH_MODE_PRESSURE
+} KANA_INK_WIDTH_MODE_;
+
+// What the width is constant IN, on a zoomable canvas:
+//   PAGE   — fixed on the page, like a pen on paper: zoom is a magnifier, so ink
+//            written at any zoom looks the same once you zoom back.
+//   SCREEN — fixed on the screen while writing: the stroke always looks the same
+//            thickness as it goes down, so ink written zoomed out is thick on the
+//            page (and huge when zoomed back in).
+// Only affects NEW strokes: each point keeps the width it was written with.
+typedef enum {
+    KANA_INK_BRUSH_SCALE_PAGE = 0,
+    KANA_INK_BRUSH_SCALE_SCREEN
+} KANA_INK_BRUSH_SCALE_;
+
+// Default half-width for KANA_INK_WIDTH_MODE_CONSTANT: page units in PAGE mode
+// (screen units at 100% zoom), screen units in SCREEN mode.
+#define KANA_INK_RADIUS_DEFAULT      3.0f
+
+// Ink is never DRAWN thinner than this half-width in screen units, so a stroke
+// seen very zoomed out doesn't vanish. Display only — the stored width is kept.
+#define KANA_INK_MIN_SCREEN_RADIUS   0.5f
+
+// PENS WITHOUT PRESSURE. Most "Apple Pencil compatible" styluses deliver position
+// and tilt but no pressure: UIKit gives them a fixed nominal force, which reads as
+// a flat ~0.05-0.07 here. A pen counts as having REAL pressure once its readings
+// while touching spread wider than this; until then its width comes from speed —
+// slow and deliberate is thick, fast is thin, the way a brush behaves.
+#define KANA_INK_PRESSURE_LIVE_RANGE 0.1f
+// The simulated pressure a stroke starts at, and the range speed maps into: at
+// rest it tends to _MAX, at _FAST_SPEED (world units per second) and above, _MIN.
+#define KANA_INK_SIM_START           0.45f
+#define KANA_INK_SIM_MIN             0.15f
+#define KANA_INK_SIM_MAX             0.70f
+#define KANA_INK_SIM_FAST_SPEED      1200.0f
+// Weight of each new sample in the simulated pressure's exponential average, so
+// the width eases instead of twitching with every sample's speed.
+#define KANA_INK_SIM_SMOOTH          0.2f
+
 // @struct kana_ink_point
 // @desc One sample. `time` is the engine clock at the moment the event was
 // HANDLED, not the OS timestamp — see kana_ink.stale_ms for what that is for.
 RDE_STRUCT {
-    rde_vec_2F position;   // 2D world space (centre-origin, Y up), not window pixels
-    f32        pressure;   // 0..1, already smoothed
+    rde_vec_2F position;   // CANVAS space (see canvas.h), not the screen
+    f32        pressure;   // 0..1, already smoothed — what the PEN reported, even a flat one
+    f32        radius;     // drawn half-width, canvas units (see kana_ink.width_mode)
     f64        time;       // seconds, engine monotonic clock
 } kana_ink_point;
 
@@ -60,6 +105,7 @@ RDE_STRUCT {
 RDE_STRUCT {
     kana_ink_point points[KANA_INK_MAX_POINTS];
     u32            point_count;
+    rde_color      color;       // the brush colour when the stroke was written
     b8             from_pen;
     b8             eraser;
 } kana_ink_stroke;
@@ -81,6 +127,32 @@ RDE_STRUCT {
 
     // Has a pen event EVER arrived? The headline readout of the spike.
     b8              pen_seen;
+
+    // Event time (seconds, OS clock) of the sample being handled. Set by the caller
+    // before begin/extend, like pressure is kept live: several pen samples arrive
+    // per frame, so the engine clock would call them all simultaneous.
+    f64             sample_time;
+
+    // Width choice (settings; kana_ink_init sets the defaults).
+    KANA_INK_WIDTH_MODE_  width_mode;
+    KANA_INK_BRUSH_SCALE_ brush_scale;
+    rde_color             color;             // brush colour for NEW strokes
+    f32                   constant_radius;   // for KANA_INK_WIDTH_MODE_CONSTANT; units per brush_scale
+    // The canvas zoom at the moment of capture, set by the caller like
+    // sample_time. Turns screen units into the canvas units points are stored in:
+    // always for the min step (a sampling density), and for the width in SCREEN
+    // brush scale.
+    f32                   zoom;
+
+    // Has this pen shown real pressure? Latched once its readings while touching
+    // spread past KANA_INK_PRESSURE_LIVE_RANGE; never un-latched.
+    b8              pressure_live;
+    f32             _pressure_seen_min;
+    f32             _pressure_seen_max;
+    b8              _pressure_seen_any;
+    // Speed-derived pressure for the open stroke (pens without real pressure).
+    f32             _sim_pressure;
+    f64             _sim_last_time;
 
     // --- measurement -------------------------------------------------------
     //
@@ -123,15 +195,23 @@ void kana_ink_begin(kana_ink* _ink, rde_vec_2F _position, b8 _from_pen, b8 _eras
 void kana_ink_extend(kana_ink* _ink, rde_vec_2F _position);
 void kana_ink_end(kana_ink* _ink);
 
+// @func kana_ink_erase_at
+// @desc Stroke eraser: deletes every stroke whose edge passes within _radius of
+// _point (both CANVAS units), anywhere along it — not just at its samples.
+// Whole strokes go, as in most note apps: scoring works on strokes, so a stroke
+// is the unit of writing. Returns how many were deleted. Not while one is open.
+u32 kana_ink_erase_at(kana_ink* _ink, rde_vec_2F _point, f32 _radius);
+
 // @func kana_ink_frame_begin
 // @desc Resets the per-frame counters and advances the sample-rate window. Call
 // once per frame before handling events.
 void kana_ink_frame_begin(kana_ink* _ink, f64 _now);
 
 // @func kana_ink_render
-// @desc Draws every stroke. Call inside a 2D drawing block. Also updates
-// stale_ms, since "now" at draw time is exactly what that measures.
-void kana_ink_render(kana_ink* _ink, f64 _now, b8 _show_samples);
+// @desc Draws every stroke through the canvas view (screen = canvas * _zoom +
+// _offset). Call inside a 2D drawing block. Also updates stale_ms, since "now"
+// at draw time is exactly what that measures.
+void kana_ink_render(kana_ink* _ink, rde_vec_2F _offset, f32 _zoom, f64 _now, b8 _show_samples);
 
 // @func kana_ink_total_points
 u32 kana_ink_total_points(const kana_ink* _ink);

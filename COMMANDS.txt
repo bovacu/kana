@@ -20,7 +20,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c -IC:/Users/borja/Programming/Projects/kana/include ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,11 +44,46 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c -Iinclude -Wall -Wextra ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c -Iinclude -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
 actually needs the network, and never by default.
+
+
+iOS (from the Mac) — the iPad
+-----------------------------
+ENGINE FIRST, same rule as Android. Run the builder from the project root; the
+paths are absolute on purpose.
+
+  cd ~/RDE
+  ./builder --engine --ios --debug
+
+  cd ~/kana
+  ~/RDE/builder --project --debug --ios \
+    --assets_path=/Users/borjavazquez/kana/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/ \
+    --ios_package_name=com.rde.kana --ios_app_name=Kana \
+    "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
+    "--ios_provisioning_profile=<~/Library/MobileDevice/Provisioning Profiles/....mobileprovision>" \
+    kana.c src/ink.c src/canvas.c src/toolbar.c -I/Users/borjavazquez/kana/include -Wall -Wextra
+
+--apple_development_name WITHOUT the "Apple Development: " prefix — the builder
+adds it. --ios_package_name must match the profile's app id (com.rde.kana). The
+profile is a free-team one and EXPIRES AFTER 7 DAYS: regenerate it in Xcode with
+the iPad connected, then point the command at the new file.
+
+Install and launch (devicectl installs the .app, not the .ipa):
+
+  unzip -o build/Kana.ipa -d /tmp/kana_ipa
+  xcrun devicectl device install app --device <UDID> /tmp/kana_ipa/Payload/Kana.app
+  xcrun devicectl device process launch --device <UDID> --terminate-existing com.rde.kana
+
+`xcrun devicectl list devices` shows the UDID. First launch on a device needs
+Settings > General > VPN & Device Management > trust the developer.
+
+If the builder was just rebuilt (rde_build.c changed), the FIRST run can fail on
+the name's spaces/parentheses — it re-runs itself unquoted. Run it again.
 
 
 WHAT TO LOOK FOR ON THE DEVICE

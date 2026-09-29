@@ -12,13 +12,24 @@
 #define KANA_INK_ERASER_COLOR (rde_color){ 200,  90,  90, 255 }
 #define KANA_INK_SAMPLE_COLOR (rde_color){  40, 160, 220, 255 }
 
-// Round joins and caps come free from stamping a disc at every sample; this is
-// how many triangles each gets. Eight is invisible at these widths and keeps the
-// draw count sane.
-#define KANA_INK_CIRCLE_SEGS  8u
-
 void kana_ink_init(kana_ink* _ink) {
     memset(_ink, 0, sizeof(*_ink));
+    _ink->width_mode      = KANA_INK_WIDTH_MODE_CONSTANT;
+    _ink->brush_scale     = KANA_INK_BRUSH_SCALE_PAGE;
+    _ink->color           = KANA_INK_COLOR;
+    _ink->constant_radius = KANA_INK_RADIUS_DEFAULT;
+    _ink->zoom            = 1.0f;
+}
+
+// Screen units → the canvas units points are stored in.
+RDE_INTERNAL f32 kana_ink_to_canvas_units(const kana_ink* _ink, f32 _screen_units) {
+    return _ink->zoom > 0.0f ? _screen_units / _ink->zoom : _screen_units;
+}
+
+// A brush WIDTH → the canvas units it is stored in. PAGE widths already are;
+// SCREEN widths are held constant on screen, so they shrink by the zoom.
+RDE_INTERNAL f32 kana_ink_width_to_canvas(const kana_ink* _ink, f32 _radius) {
+    return _ink->brush_scale == KANA_INK_BRUSH_SCALE_SCREEN ? kana_ink_to_canvas_units(_ink, _radius) : _radius;
 }
 
 void kana_ink_clear(kana_ink* _ink) {
@@ -30,6 +41,74 @@ void kana_ink_clear(kana_ink* _ink) {
     _ink->dropped_points  = false;
     _ink->dropped_strokes = false;
     _ink->stale_ms_max    = 0.0f;
+}
+
+RDE_INTERNAL f32 kana_ink_radius_from_pressure(f32 _pressure) {
+    return KANA_INK_WIDTH_BASE + KANA_INK_WIDTH_PRESSURE * _pressure;
+}
+
+RDE_INTERNAL kana_ink_stroke* kana_ink_open_pen_stroke(kana_ink* _ink) {
+    if(!_ink->drawing || _ink->stroke_count == 0) {
+        return NULL;
+    }
+
+    kana_ink_stroke* _stroke = &_ink->strokes[_ink->stroke_count - 1];
+    return _stroke->from_pen ? _stroke : NULL;
+}
+
+// Only readings taken WHILE TOUCHING count: SDL also reports the pressure axis
+// just before the down and just after the up, and those would fake a spread.
+RDE_INTERNAL void kana_ink_track_pressure_range(kana_ink* _ink, f32 _raw) {
+    if(_ink->pressure_live || kana_ink_open_pen_stroke(_ink) == NULL) {
+        return;
+    }
+
+    if(!_ink->_pressure_seen_any) {
+        _ink->_pressure_seen_min = _raw;
+        _ink->_pressure_seen_max = _raw;
+        _ink->_pressure_seen_any = true;
+    } else {
+        if(_raw < _ink->_pressure_seen_min) { _ink->_pressure_seen_min = _raw; }
+        if(_raw > _ink->_pressure_seen_max) { _ink->_pressure_seen_max = _raw; }
+    }
+
+    if(_ink->_pressure_seen_max - _ink->_pressure_seen_min > KANA_INK_PRESSURE_LIVE_RANGE) {
+        _ink->pressure_live = true;
+
+        // In pressure mode, the stroke that proved it started on simulated widths;
+        // redraw it from the real pressure it recorded all along, so it has no seam.
+        if(_ink->width_mode == KANA_INK_WIDTH_MODE_PRESSURE) {
+            kana_ink_stroke* _stroke = kana_ink_open_pen_stroke(_ink);
+            for(u32 _p = 0; _p < _stroke->point_count; _p++) {
+                _stroke->points[_p].radius = kana_ink_width_to_canvas(_ink, kana_ink_radius_from_pressure(_stroke->points[_p].pressure));
+            }
+        }
+    }
+}
+
+// Width from speed, for a pen with no pressure. Speed from the EVENT times,
+// between accepted samples, eased so a single fast or slow sample can't twitch it.
+RDE_INTERNAL f32 kana_ink_simulated_pressure(kana_ink* _ink, const kana_ink_stroke* _stroke, rde_vec_2F _position) {
+    if(_stroke->point_count == 0) {
+        _ink->_sim_pressure = KANA_INK_SIM_START;
+    } else {
+        const f64 _dt = _ink->sample_time - _ink->_sim_last_time;
+
+        if(_dt > 1e-5) {
+            const rde_vec_2F _last  = _stroke->points[_stroke->point_count - 1].position;
+            const f32        _dx    = _position.x - _last.x;
+            const f32        _dy    = _position.y - _last.y;
+            // Canvas distance back to screen units: the feel is the hand's speed.
+            const f32        _speed = (f32)((f64)(sqrtf(_dx * _dx + _dy * _dy) * _ink->zoom) / _dt);
+            const f32        _slow  = 1.0f - rde_math_clamp_f32(_speed / KANA_INK_SIM_FAST_SPEED, 0.0f, 1.0f);
+            const f32        _target = KANA_INK_SIM_MIN + (KANA_INK_SIM_MAX - KANA_INK_SIM_MIN) * _slow;
+
+            _ink->_sim_pressure += (_target - _ink->_sim_pressure) * KANA_INK_SIM_SMOOTH;
+        }
+    }
+
+    _ink->_sim_last_time = _ink->sample_time;
+    return _ink->_sim_pressure;
 }
 
 void kana_ink_pen_axis(kana_ink* _ink, const rde_event_pen* _pen) {
@@ -46,6 +125,7 @@ void kana_ink_pen_axis(kana_ink* _ink, const rde_event_pen* _pen) {
     // on which field this event is actually carrying.
     if(_pen->axis == 0) {
         _ink->pressure_raw = _pen->pressure;
+        kana_ink_track_pressure_range(_ink, _pen->pressure);
 
         // Smoothed, because raw pressure jitters by a few percent sample to
         // sample and an unsmoothed width makes the stroke visibly lumpy.
@@ -72,9 +152,21 @@ RDE_INTERNAL void kana_ink_push_point(kana_ink* _ink, rde_vec_2F _position) {
         return;
     }
 
+    f32 _radius = _ink->constant_radius;
+
+    if(_ink->width_mode == KANA_INK_WIDTH_MODE_PRESSURE) {
+        // A pen without real pressure takes its width from speed. Mouse and touch
+        // strokes keep the pressure begin() gave them (zero: the base width).
+        const f32 _width_pressure = (_stroke->from_pen && !_ink->pressure_live)
+                                  ? kana_ink_simulated_pressure(_ink, _stroke, _position)
+                                  : _ink->pressure;
+        _radius = kana_ink_radius_from_pressure(_width_pressure);
+    }
+
     kana_ink_point* _point = &_stroke->points[_stroke->point_count++];
     _point->position = _position;
     _point->pressure = _ink->pressure;
+    _point->radius   = kana_ink_width_to_canvas(_ink, _radius);
     _point->time     = rde_engine_get_time_now();
 
     _ink->samples_this_frame++;
@@ -98,6 +190,7 @@ void kana_ink_begin(kana_ink* _ink, rde_vec_2F _position, b8 _from_pen, b8 _eras
     _stroke->point_count = 0;
     _stroke->from_pen    = _from_pen;
     _stroke->eraser      = _eraser;
+    _stroke->color       = _ink->color;
 
     _ink->drawing = true;
 
@@ -127,7 +220,8 @@ void kana_ink_extend(kana_ink* _ink, rde_vec_2F _position) {
         // Coincident samples make the segment direction undefined, and
         // normalising a zero vector is a NaN that spreads through the whole
         // quad. Dropping them costs nothing: they carry no new shape.
-        if((_dx * _dx + _dy * _dy) < (KANA_INK_MIN_STEP_PX * KANA_INK_MIN_STEP_PX)) {
+        const f32 _min_step = kana_ink_to_canvas_units(_ink, KANA_INK_MIN_STEP_PX);
+        if((_dx * _dx + _dy * _dy) < (_min_step * _min_step)) {
             return;
         }
     }
@@ -145,6 +239,61 @@ void kana_ink_end(kana_ink* _ink) {
     // A stroke with a single point is a tap, not a mark. Kept anyway — in
     // Japanese it may well be a legitimate short stroke, and the renderer stamps
     // a dot for it.
+}
+
+// Squared distance from _p to the segment _a-_b.
+RDE_INTERNAL f32 kana_ink_dist2_to_segment(rde_vec_2F _p, rde_vec_2F _a, rde_vec_2F _b) {
+    const f32 _abx = _b.x - _a.x;
+    const f32 _aby = _b.y - _a.y;
+    const f32 _len2 = _abx * _abx + _aby * _aby;
+    f32 _t = 0.0f;
+
+    if(_len2 > 0.0f) {
+        _t = rde_math_clamp_f32(((_p.x - _a.x) * _abx + (_p.y - _a.y) * _aby) / _len2, 0.0f, 1.0f);
+    }
+
+    const f32 _dx = _p.x - (_a.x + _abx * _t);
+    const f32 _dy = _p.y - (_a.y + _aby * _t);
+    return _dx * _dx + _dy * _dy;
+}
+
+RDE_INTERNAL b8 kana_ink_stroke_touches(const kana_ink_stroke* _stroke, rde_vec_2F _point, f32 _radius) {
+    for(u32 _p = 0; _p < _stroke->point_count; _p++) {
+        const kana_ink_point* _a = &_stroke->points[_p];
+        const kana_ink_point* _b = &_stroke->points[_p + 1 < _stroke->point_count ? _p + 1 : _p];
+        const f32 _reach = _radius + (_a->radius > _b->radius ? _a->radius : _b->radius);
+
+        if(kana_ink_dist2_to_segment(_point, _a->position, _b->position) <= _reach * _reach) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+u32 kana_ink_erase_at(kana_ink* _ink, rde_vec_2F _point, f32 _radius) {
+    if(_ink->drawing) {
+        return 0;
+    }
+
+    u32 _erased = 0;
+    u32 _kept   = 0;
+
+    for(u32 _s = 0; _s < _ink->stroke_count; _s++) {
+        if(kana_ink_stroke_touches(&_ink->strokes[_s], _point, _radius)) {
+            _erased++;
+            continue;
+        }
+
+        // Compact in place; order is preserved — it is the stroke ORDER scoring reads.
+        if(_kept != _s) {
+            memmove(&_ink->strokes[_kept], &_ink->strokes[_s], sizeof(kana_ink_stroke));
+        }
+        _kept++;
+    }
+
+    _ink->stroke_count = _kept;
+    return _erased;
 }
 
 void kana_ink_frame_begin(kana_ink* _ink, f64 _now) {
@@ -177,35 +326,14 @@ u32 kana_ink_total_points(const kana_ink* _ink) {
 }
 
 RDE_INTERNAL f32 kana_ink_width_at(const kana_ink_point* _point) {
-    return KANA_INK_WIDTH_BASE + KANA_INK_WIDTH_PRESSURE * _point->pressure;
+    return _point->radius;
 }
 
-// One segment as a quad, with the two ends at their own widths so the stroke
-// tapers with pressure rather than stepping.
-RDE_INTERNAL void kana_ink_draw_segment(rde_vec_2F _a, f32 _wa, rde_vec_2F _b, f32 _wb, rde_color _color) {
-    const f32 _dx  = _b.x - _a.x;
-    const f32 _dy  = _b.y - _a.y;
-    const f32 _len = sqrtf(_dx * _dx + _dy * _dy);
+// Scratch for one stroke in the shape rde_rendering_2d_draw_stroke takes.
+RDE_INTERNAL rde_vec_2F kana_ink_scratch_positions[KANA_INK_MAX_POINTS];
+RDE_INTERNAL f32        kana_ink_scratch_radii[KANA_INK_MAX_POINTS];
 
-    if(_len < 0.0001f) {
-        return;
-    }
-
-    // Left-hand normal of the segment direction.
-    const f32 _nx = -_dy / _len;
-    const f32 _ny =  _dx / _len;
-
-    const rde_vec_2F _quad[4] = {
-        { _a.x + _nx * _wa, _a.y + _ny * _wa },
-        { _b.x + _nx * _wb, _b.y + _ny * _wb },
-        { _b.x - _nx * _wb, _b.y - _ny * _wb },
-        { _a.x - _nx * _wa, _a.y - _ny * _wa }
-    };
-
-    rde_rendering_2d_draw_polygon(_quad, 4, _color, NULL);
-}
-
-void kana_ink_render(kana_ink* _ink, f64 _now, b8 _show_samples) {
+void kana_ink_render(kana_ink* _ink, rde_vec_2F _offset, f32 _zoom, f64 _now, b8 _show_samples) {
     f64 _newest = 0.0;
 
     for(u32 _s = 0; _s < _ink->stroke_count; _s++) {
@@ -215,28 +343,26 @@ void kana_ink_render(kana_ink* _ink, f64 _now, b8 _show_samples) {
             continue;
         }
 
-        const rde_color _color = _stroke->eraser ? KANA_INK_ERASER_COLOR : KANA_INK_COLOR;
+        const rde_color _color = _stroke->eraser ? KANA_INK_ERASER_COLOR : _stroke->color;
 
-        // A disc at every sample gives round caps AND round joins for free. The
-        // alternative — mitring the quads — is more code and looks worse at the
-        // sharp reversals Japanese strokes are full of.
+        // The whole stroke as ONE antialiased shape (round caps and joins, a
+        // one-pixel fringe on the outline). It used to be a disc per sample plus a
+        // quad per segment: hard-edged, and it can't simply be softened — every
+        // piece would bring its own fringe and they'd stack into beads at each joint.
         for(u32 _p = 0; _p < _stroke->point_count; _p++) {
             const kana_ink_point* _point = &_stroke->points[_p];
 
-            rde_rendering_2d_draw_circle(_point->position, kana_ink_width_at(_point),
-                                         KANA_INK_CIRCLE_SEGS, _color, NULL);
-
-            if(_p > 0) {
-                const kana_ink_point* _prev = &_stroke->points[_p - 1];
-
-                kana_ink_draw_segment(_prev->position, kana_ink_width_at(_prev),
-                                      _point->position, kana_ink_width_at(_point), _color);
-            }
+            // Canvas → screen: points and widths scale with the zoom, like ink on
+            // a page under a magnifier.
+            kana_ink_scratch_positions[_p] = (rde_vec_2F){ _point->position.x * _zoom + _offset.x, _point->position.y * _zoom + _offset.y };
+            kana_ink_scratch_radii[_p]     = rde_math_clamp_f32(kana_ink_width_at(_point) * _zoom, KANA_INK_MIN_SCREEN_RADIUS, 1e6f);
 
             if(_point->time > _newest) {
                 _newest = _point->time;
             }
         }
+
+        rde_rendering_2d_draw_stroke(kana_ink_scratch_positions, kana_ink_scratch_radii, _stroke->point_count, _color);
 
         // Every raw sample as a dot. THIS IS THE DIAGNOSTIC THAT MATTERS: draw a
         // fast stroke and look at the spacing. Evenly spaced dots mean the pen's
@@ -244,7 +370,7 @@ void kana_ink_render(kana_ink* _ink, f64 _now, b8 _show_samples) {
         // being coalesced to the frame rate and quick strokes will be polygons.
         if(_show_samples) {
             for(u32 _p = 0; _p < _stroke->point_count; _p++) {
-                rde_rendering_2d_draw_circle(_stroke->points[_p].position, 1.5f, 6u,
+                rde_rendering_2d_draw_circle(kana_ink_scratch_positions[_p], 1.5f, 6u,
                                              KANA_INK_SAMPLE_COLOR, NULL);
             }
         }
