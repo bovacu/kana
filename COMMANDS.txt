@@ -20,7 +20,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c -IC:/Users/borja/Programming/Projects/kana/include ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,7 +44,7 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c -Iinclude -Wall -Wextra ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c -Iinclude -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
@@ -66,7 +66,7 @@ paths are absolute on purpose.
     --ios_package_name=com.rde.kana --ios_app_name=Kana \
     "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
     "--ios_provisioning_profile=<~/Library/MobileDevice/Provisioning Profiles/....mobileprovision>" \
-    kana.c src/ink.c src/canvas.c src/toolbar.c -I/Users/borjavazquez/kana/include -Wall -Wextra
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c -I/Users/borjavazquez/kana/include -Wall -Wextra
 
 --apple_development_name WITHOUT the "Apple Development: " prefix — the builder
 adds it. --ios_package_name must match the profile's app id (com.rde.kana). The

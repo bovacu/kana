@@ -41,15 +41,31 @@ RDE_INTERNAL kana_canvas_finger* kana_canvas_find_finger(kana_canvas* _canvas, u
     return NULL;
 }
 
-// The other active finger, if there is one.
-RDE_INTERNAL kana_canvas_finger* kana_canvas_other_finger(kana_canvas* _canvas, const kana_canvas_finger* _finger) {
+RDE_INTERNAL u32 kana_canvas_active_fingers(const kana_canvas* _canvas) {
+    u32 _count = 0;
+
     for(u32 _i = 0; _i < KANA_CANVAS_MAX_FINGERS; _i++) {
-        if(_canvas->fingers[_i].active && &_canvas->fingers[_i] != _finger) {
-            return &_canvas->fingers[_i];
+        _count += _canvas->fingers[_i].active ? 1u : 0u;
+    }
+
+    return _count;
+}
+
+// The fingers that move the page are the first two active slots. Returns the
+// other one of that pair for _finger, NULL if it is alone; *_drives is false for
+// a finger outside the pair (a third finger), which moves nothing.
+RDE_INTERNAL kana_canvas_finger* kana_canvas_pair_partner(kana_canvas* _canvas, const kana_canvas_finger* _finger, b8* _drives) {
+    kana_canvas_finger* _pair[2] = { NULL, NULL };
+    u32                 _found   = 0;
+
+    for(u32 _i = 0; _i < KANA_CANVAS_MAX_FINGERS && _found < 2; _i++) {
+        if(_canvas->fingers[_i].active) {
+            _pair[_found++] = &_canvas->fingers[_i];
         }
     }
 
-    return NULL;
+    *_drives = _pair[0] == _finger || _pair[1] == _finger;
+    return _pair[0] == _finger ? _pair[1] : _pair[0];
 }
 
 void kana_canvas_finger_down(kana_canvas* _canvas, u64 _finger_id, rde_vec_2F _screen) {
@@ -57,12 +73,24 @@ void kana_canvas_finger_down(kana_canvas* _canvas, u64 _finger_id, rde_vec_2F _s
         return;
     }
 
+    // The first finger starts a gesture that might turn out to be a tap.
+    if(kana_canvas_active_fingers(_canvas) == 0) {
+        _canvas->tap_start    = rde_engine_get_time_now();
+        _canvas->tap_fingers  = 0;
+        _canvas->tap_spoiled  = false;
+        _canvas->tap_view     = _canvas->view;
+        _canvas->long_pressed = false;
+    }
+
     for(u32 _i = 0; _i < KANA_CANVAS_MAX_FINGERS; _i++) {
         if(!_canvas->fingers[_i].active) {
-            _canvas->fingers[_i] = (kana_canvas_finger){ .active = true, .finger_id = _finger_id, .position = _screen };
-            return;
+            _canvas->fingers[_i] = (kana_canvas_finger){ .active = true, .finger_id = _finger_id, .position = _screen, .start = _screen };
+            break;
         }
     }
+
+    const u32 _down = kana_canvas_active_fingers(_canvas);
+    _canvas->tap_fingers = _down > _canvas->tap_fingers ? _down : _canvas->tap_fingers;
 }
 
 void kana_canvas_finger_moved(kana_canvas* _canvas, u64 _finger_id, rde_vec_2F _screen) {
@@ -72,9 +100,21 @@ void kana_canvas_finger_moved(kana_canvas* _canvas, u64 _finger_id, rde_vec_2F _
         return;
     }
 
-    const rde_vec_2F          _old   = _finger->position;
-    const kana_canvas_finger* _other = kana_canvas_other_finger(_canvas, _finger);
-    kana_view*                _view  = &_canvas->view;
+    const f32 _travel_x = _screen.x - _finger->start.x;
+    const f32 _travel_y = _screen.y - _finger->start.y;
+    if(_travel_x * _travel_x + _travel_y * _travel_y > KANA_CANVAS_TAP_SLOP * KANA_CANVAS_TAP_SLOP) {
+        _canvas->tap_spoiled = true;
+    }
+
+    b8                        _drives = false;
+    const rde_vec_2F          _old    = _finger->position;
+    const kana_canvas_finger* _other  = kana_canvas_pair_partner(_canvas, _finger, &_drives);
+    kana_view*                _view   = &_canvas->view;
+
+    if(!_drives) {
+        _finger->position = _screen;
+        return;
+    }
 
     if(_other == NULL) {
         // One finger: the page follows it.
@@ -108,18 +148,63 @@ void kana_canvas_finger_moved(kana_canvas* _canvas, u64 _finger_id, rde_vec_2F _
     _finger->position = _screen;
 }
 
-void kana_canvas_finger_up(kana_canvas* _canvas, u64 _finger_id) {
+KANA_CANVAS_TAP_ kana_canvas_finger_up(kana_canvas* _canvas, u64 _finger_id) {
     kana_canvas_finger* _finger = kana_canvas_find_finger(_canvas, _finger_id);
 
-    if(_finger != NULL) {
-        _finger->active = false;
+    if(_finger == NULL) {
+        return KANA_CANVAS_TAP_NONE;
     }
+
+    _finger->active = false;
+
+    // Not over until the LAST finger lifts: fingers of one tap never lift at
+    // exactly the same moment.
+    if(kana_canvas_active_fingers(_canvas) > 0 || _canvas->tap_spoiled) {
+        return KANA_CANVAS_TAP_NONE;
+    }
+
+    if(rde_engine_get_time_now() - _canvas->tap_start > KANA_CANVAS_TAP_MAX_TIME) {
+        return KANA_CANVAS_TAP_NONE;
+    }
+
+    const KANA_CANVAS_TAP_ _tap = _canvas->tap_fingers == 2 ? KANA_CANVAS_TAP_TWO
+                                : _canvas->tap_fingers == 3 ? KANA_CANVAS_TAP_THREE
+                                                            : KANA_CANVAS_TAP_NONE;
+    if(_tap != KANA_CANVAS_TAP_NONE) {
+        // Two resting fingers still wobble the pinch a little: put the page back.
+        _canvas->view = _canvas->tap_view;
+    }
+
+    return _tap;
+}
+
+b8 kana_canvas_long_press(kana_canvas* _canvas, rde_vec_2F* _screen) {
+    if(_canvas->long_pressed || _canvas->tap_spoiled || _canvas->tap_fingers != 1 || kana_canvas_active_fingers(_canvas) != 1 ||
+       rde_engine_get_time_now() - _canvas->tap_start < KANA_CANVAS_LONG_PRESS_TIME) {
+        return false;
+    }
+
+    for(u32 _i = 0; _i < KANA_CANVAS_MAX_FINGERS; _i++) {
+        if(_canvas->fingers[_i].active) {
+            *_screen = _canvas->fingers[_i].position;
+            // Done with this finger: it neither pans nor, on lifting, taps.
+            _canvas->fingers[_i].active = false;
+        }
+    }
+
+    _canvas->long_pressed = true;
+    _canvas->tap_spoiled  = true;
+    _canvas->view         = _canvas->tap_view;
+    return true;
 }
 
 void kana_canvas_release_fingers(kana_canvas* _canvas) {
     for(u32 _i = 0; _i < KANA_CANVAS_MAX_FINGERS; _i++) {
         _canvas->fingers[_i].active = false;
     }
+
+    // The pen came down: whatever the fingers were doing, it wasn't a tap.
+    _canvas->tap_spoiled = true;
 }
 
 void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) {

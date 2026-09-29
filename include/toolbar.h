@@ -4,6 +4,7 @@
 #include "rde.h"
 #include "ink.h"
 #include "canvas.h"
+#include "lasso.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -21,7 +22,8 @@
 
 typedef enum {
     KANA_TOOL_DRAW = 0,
-    KANA_TOOL_ERASE
+    KANA_TOOL_ERASE,
+    KANA_TOOL_LASSO
 } KANA_TOOL_;
 
 #define KANA_TOOLBAR_PALETTE_COUNT 8
@@ -31,6 +33,19 @@ typedef enum {
 #define KANA_TOOLBAR_SIZE_MAX 12.0f
 
 typedef struct kana_toolbar kana_toolbar;
+
+#define KANA_TOOLBAR_MENU_MAX 6
+
+// A floating row of buttons: the menu over a lasso selection, the page's
+// context menu.
+RDE_STRUCT {
+    rde_ui_image*  panel;
+    rde_ui_button* buttons[KANA_TOOLBAR_MENU_MAX];
+    u32            count;
+    b8             open;
+    rde_vec_2F     center;   // UI canvas units
+    rde_vec_2F     size;
+} kana_toolbar_menu;
 
 // One swatch's callback context: which toolbar, which colour.
 RDE_STRUCT {
@@ -46,6 +61,7 @@ struct kana_toolbar {
     // What the toolbar drives.
     kana_ink*      ink;
     kana_canvas*   view;
+    kana_lasso*    lasso;
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -56,8 +72,11 @@ struct kana_toolbar {
 
     rde_ui_image*  panel;
     rde_ui_image*  grip;
+    rde_ui_button* undo;
+    rde_ui_button* redo;
     rde_ui_button* draw;
     rde_ui_button* erase;
+    rde_ui_button* lasso_tool;
     rde_ui_button* clear;
     rde_ui_slider* size;
     rde_ui_button* color;
@@ -73,19 +92,48 @@ struct kana_toolbar {
     rde_vec_2F               palette_center;   // UI canvas units, set whenever it is placed
     rde_vec_2F               palette_size;
 
+    // Over a lasso selection: Cut, Copy, Duplicate, Delete.
+    kana_toolbar_menu        selection_menu;
+    f64                      copied_until;     // Copy reads "Copied" until then (engine clock)
+    // The page's context menu, opened by a long press: Paste, Select all.
+    kana_toolbar_menu        context_menu;
+    rde_vec_2F               context_canvas;   // where it was opened, on the page — where Paste lands
+
     // Grip drag.
     rde_vec_2F     drag_start_center;
     rde_vec_2F     drag_press;
+
+    // What Undo/Redo currently show, so kana_toolbar_update only touches them on
+    // a change.
+    b8             _history_shown;
+    b8             _can_undo_shown;
+    b8             _can_redo_shown;
 };
 
-void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, b8* _show_hud);
+void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
-// Is this point on the toolbar or its open palette? _screen is Kana's screen
-// space (centre-origin, Y up) — what pen positions convert to.
+// Is this point on the toolbar, its open palette or an open menu? _screen is
+// Kana's screen space (centre-origin, Y up) — what pen positions convert to.
 b8         kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen);
 
 // Re-reads ink state into the widgets (after a keyboard shortcut changed it).
 void       kana_toolbar_sync(kana_toolbar* _toolbar);
+
+// The page's context menu, for a long press at _screen (Kana screen space).
+// _canvas is the same point on the page: where Paste will land. It floats just
+// above the finger so the finger doesn't cover it. Closed by choosing an item or
+// by kana_toolbar_close_context_menu (the caller closes it on any other press).
+void       kana_toolbar_open_context_menu(kana_toolbar* _toolbar, rde_vec_2F _screen, rde_vec_2F _canvas);
+void       kana_toolbar_close_context_menu(kana_toolbar* _toolbar);
+
+// Puts the bar back where a save left it (orientation, then centre in UI canvas
+// units). Clamped on screen, so a centre from a bigger or rotated screen is fine.
+void       kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_vec_2F _center);
+
+// Once a frame: greys Undo/Redo out when there is nothing to undo/redo, and
+// shows the selection menu over a lasso selection. Cheap — it only touches the
+// widgets when something changed.
+void       kana_toolbar_update(kana_toolbar* _toolbar);
 
 #endif
