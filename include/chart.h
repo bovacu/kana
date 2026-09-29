@@ -64,6 +64,11 @@ b8         kana_chart_take_tap(kana_chart* _chart, u32* _position);
 const u32* kana_chart_list(const kana_chart* _chart);
 u32        kana_chart_count(const kana_chart* _chart);
 
+// The section mostly in view, and where its kana are in the list (the list is
+// in chart order: all of hiragana, then all of katakana).
+KANA_CHART_SECTION_ kana_chart_section_in_view(const kana_chart* _chart);
+void       kana_chart_section_range(const kana_chart* _chart, KANA_CHART_SECTION_ _section, u32* _first, u32* _count);
+
 // A kana's romaji as the chart labels it ("ka", "(tsu)" for small っ), hiragana
 // or katakana; a short name for the marks it leaves out (ー "long", 々 "repeat");
 // NULL for anything else.

@@ -109,3 +109,8 @@ b8 kana_theme_is_ink(rde_color _color) {
 rde_color kana_theme_resolve(rde_color _color) {
     return kana_theme_is_ink(_color) ? kana_theme_active()->ink : _color;
 }
+
+rde_color kana_theme_grade(f32 _score) {
+    const kana_theme* _t = kana_theme_active();
+    return _score >= KANA_THEME_GRADE_GOOD ? _t->score_good : _score >= KANA_THEME_GRADE_FAIR ? _t->score_fair : _t->score_poor;
+}

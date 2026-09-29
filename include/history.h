@@ -49,4 +49,50 @@ b8 kana_history_save(u32 _codepoint, u64 _time, u32 _squares, const kana_score* 
 // Reads a character's sessions down to a summary. False when it has none.
 b8 kana_history_summarize(u32 _codepoint, kana_history_summary* _out);
 
+// Goes up by one on every save: whoever shows history re-reads it when this moved.
+u32 kana_history_revision(void);
+
+// Every character with a history file, as code points (appended to _out, a u32
+// rde_arr), in no particular order.
+void kana_history_list(rde_arr* _out);
+
+// --- a character's whole history, for the album ------------------------------------
+
+RDE_STRUCT {
+    u16 x, y;         // a fraction of the square's side, times 65535; Y up
+    f32 time;         // seconds since the stroke began
+} kana_history_point;
+
+RDE_STRUCT {
+    u32 first_point;  // into kana_history.points
+    u32 point_count;
+} kana_history_stroke;
+
+RDE_STRUCT {
+    kana_score score;        // as scored then; .empty when the square was left empty
+    u32        first_stroke; // into kana_history.strokes
+    u32        stroke_count;
+} kana_history_square;
+
+RDE_STRUCT {
+    u64 time;                // Unix seconds, UTC
+    f32 average;
+    u32 first_square;        // into kana_history.squares
+    u32 square_count;
+} kana_history_session;
+
+RDE_STRUCT {
+    u32 codepoint;
+    rde_arr TYPE(kana_history_session) sessions;   // oldest first
+    rde_arr TYPE(kana_history_square)  squares;
+    rde_arr TYPE(kana_history_stroke)  strokes;
+    rde_arr TYPE(kana_history_point)   points;
+} kana_history;
+
+void kana_history_init(kana_history* _history);
+void kana_history_destroy(kana_history* _history);
+// Replaces _history's contents with _codepoint's sessions. False (and empty)
+// when it has none or the file is unreadable.
+b8   kana_history_load(kana_history* _history, u32 _codepoint);
+
 #endif

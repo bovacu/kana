@@ -106,6 +106,23 @@ static const struct { u32 cp; const c8* name; } KANA_CHART_OTHERS[] = {
     { 0x3001, "comma" }, { 0x3002, "period" },          // 、 。
 };
 
+KANA_CHART_SECTION_ kana_chart_section_in_view(const kana_chart* _chart) {
+    // Katakana once its title is in the top third of the view.
+    const f32 _view = _chart->view_top - _chart->view_bottom;
+    return _chart->scroller.offset + _view / 3.0f >= _chart->katakana_at && _chart->katakana_at > 0.0f ? KANA_CHART_KATAKANA : KANA_CHART_HIRAGANA;
+}
+
+void kana_chart_section_range(const kana_chart* _chart, KANA_CHART_SECTION_ _section, u32* _first, u32* _count) {
+    const u32* _cps   = (const u32*)_chart->codepoints.memory;
+    const u32  _total = kana_chart_count(_chart);
+    u32        _split = 0;   // the first katakana
+    while(_split < _total && _cps[_split] < 0x30A0u) {
+        _split++;
+    }
+    *_first = _section == KANA_CHART_KATAKANA ? _split : 0u;
+    *_count = _section == KANA_CHART_KATAKANA ? _total - _split : _split;
+}
+
 const c8* kana_chart_romaji(u32 _codepoint) {
     for(u32 _i = 0; _i < sizeof(KANA_CHART_OTHERS) / sizeof(KANA_CHART_OTHERS[0]); _i++) {
         if(KANA_CHART_OTHERS[_i].cp == _codepoint) {

@@ -9,6 +9,7 @@
 #include "browse.h"
 #include "chart.h"
 #include "practice.h"
+#include "album.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -78,6 +79,7 @@ struct kana_toolbar {
     kana_browse*   browse;
     kana_chart*    chart;
     kana_practice* practice;
+    kana_album*    album;
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -102,6 +104,7 @@ struct kana_toolbar {
     rde_ui_button* reset_view;
     rde_ui_button* kanji;
     rde_ui_button* kana;
+    rde_ui_button* album_button;
     rde_ui_button* theme;
     rde_ui_button* hud;
 
@@ -126,6 +129,17 @@ struct kana_toolbar {
     kana_toolbar_menu        chart_menu;
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
+    // The album's rows: the overview's (the sorts, Close) and a character page's
+    // (Back, Practice).
+    kana_toolbar_menu        album_menu;
+    kana_toolbar_menu        album_page_menu;
+    kana_toolbar_chip_ref    album_sort_refs[KANA_ALBUM_SORT_COUNT];
+    u32                      _album_practice_shown;   // the count "Practice n" shows
+    // Practice over a set: Back, Undo, Clear, Score, Next (Finish on the last);
+    // and the set's summary: Weakest again, Done.
+    kana_toolbar_menu        practice_set_menu;
+    kana_toolbar_menu        practice_summary_menu;
+    b8                       _finish_shown;
     // The Theme button's row: one button per theme (theme.h).
     kana_toolbar_menu        theme_menu;
     kana_toolbar_swatch_ref  theme_refs[KANA_TOOLBAR_MENU_MAX];
@@ -138,6 +152,7 @@ struct kana_toolbar {
     rde_ui_button*           sort_chips[KANA_SORT_COUNT];
     kana_toolbar_chip_ref    sort_refs[KANA_SORT_COUNT];
     rde_ui_button*           browse_close;
+    rde_ui_button*           browse_practice;     // Browse's list as a practice set
     rde_ui_text_editor*      search_field;
     rde_ui_button*           draw_toggle;
     rde_ui_button*           pad_clear;
@@ -157,7 +172,7 @@ struct kana_toolbar {
 };
 
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
-                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, b8* _show_hud);
+                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
 // Is this point on the toolbar, its open palette or an open menu? _screen is

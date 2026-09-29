@@ -59,4 +59,8 @@ RDE_STRUCT {
 // Scores the alive strokes of _drawing (any units, Y up) against a character.
 kana_score kana_score_drawing(const kana_kanji_db* _db, const kana_kanji_info* _info, const kana_ink* _drawing);
 
+// Writes _s->feedback from its other fields — so a score read back from the
+// practice history (which does not store the line) says the same thing again.
+void       kana_score_describe(kana_score* _s);
+
 #endif

@@ -21,11 +21,18 @@
 // Each square keeps its drawing in its own KANA_PRACTICE_UNITS-wide space, so a
 // rotation of the screen resizes the squares without distorting what is in them.
 // Only the pen writes; Undo takes back the last stroke, wherever it went.
+//
+// A SET is practice over a list — a chart section, a Browse list, the album's
+// weakest: Next scores (and saves) what was written but not scored, then moves
+// on; after the last, the set's SUMMARY shows how each character went this run,
+// and "weakest again" makes a new set of the ones under good. One character (the
+// viewer's Practice) is a set of one, and has none of that.
 // ===========================================================================
 
 #define KANA_PRACTICE_MAX_SQUARES     12
 #define KANA_PRACTICE_DEFAULT_SQUARES 6
 #define KANA_PRACTICE_UNITS           1000.0f
+#define KANA_PRACTICE_SET_MAX         100u      // a longer list is cut to its first this many
 
 RDE_STRUCT {
     const kana_kanji_db* db;
@@ -49,6 +56,12 @@ RDE_STRUCT {
 
     i32                  writing;         // the square the pen is in, or -1
 
+    // The set (one record: plain practice).
+    rde_arr TYPE(u32)    set;             // records, in order
+    rde_arr TYPE(f32)    set_results;     // per position: this run's average, or < 0 (not scored)
+    u32                  set_position;
+    b8                   summary_open;    // the set is done: its summary shows
+
     // Layout of the last frame (screen space).
     rde_vec_2F           square_tl[KANA_PRACTICE_MAX_SQUARES];
     f32                  square_size;
@@ -59,7 +72,21 @@ void kana_practice_destroy(kana_practice* _practice);
 
 // Opens on a character (a record index): empty squares, its history summary.
 void kana_practice_open(kana_practice* _practice, u32 _record);
+// Opens on a list of characters (records, copied; at most KANA_PRACTICE_SET_MAX),
+// the first first.
+void kana_practice_open_set(kana_practice* _practice, const u32* _records, u32 _count);
 void kana_practice_close(kana_practice* _practice);
+
+// A set of more than one.
+b8   kana_practice_in_set(const kana_practice* _practice);
+// On the set's last character: Next finishes.
+b8   kana_practice_at_last(const kana_practice* _practice);
+// Scores what was written and not yet scored (saving it), then the next
+// character — or, after the last, the summary.
+void kana_practice_next(kana_practice* _practice);
+// From the summary: how many scored under good; a new set of them, weakest first.
+u32  kana_practice_weak_count(const kana_practice* _practice);
+void kana_practice_weakest_again(kana_practice* _practice);
 
 void kana_practice_set_squares(kana_practice* _practice, u32 _count);
 void kana_practice_undo(kana_practice* _practice);

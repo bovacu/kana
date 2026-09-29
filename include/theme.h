@@ -82,6 +82,12 @@ KANA_THEME_       kana_theme_index(void);
 void              kana_theme_set(KANA_THEME_ _theme);
 const kana_theme* kana_theme_get(KANA_THEME_ _theme);
 
+// A score's colour (0..100): good from 80, fair from 55, poor below — Practice
+// and the Album grade alike.
+#define KANA_THEME_GRADE_GOOD 80.0f
+#define KANA_THEME_GRADE_FAIR 55.0f
+rde_color         kana_theme_grade(f32 _score);
+
 // A stroke or brush colour as drawn: KANA_THEME_INK becomes the theme's ink.
 rde_color         kana_theme_resolve(rde_color _color);
 b8                kana_theme_is_ink(rde_color _color);

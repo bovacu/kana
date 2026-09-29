@@ -93,6 +93,27 @@ RDE_INTERNAL u32 kana_score_lis(const u32* _seq, u32 _n) {
     return _len;
 }
 
+void kana_score_describe(kana_score* _s) {
+    // One line: the most important thing first.
+    if(_s->empty) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "Empty");
+    } else if(_s->expected == 0) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "No reference for this character");
+    } else if(_s->drawn != _s->expected) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "%u stroke%s, should be %u", _s->drawn, _s->drawn == 1 ? "" : "s", _s->expected);
+    } else if(_s->misplaced > 0 && _s->swap_a != 0) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "Order: stroke %u before %u", _s->swap_a, _s->swap_b);
+    } else if(_s->misplaced > 0) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "Order: %u stroke%s out of place", _s->misplaced, _s->misplaced == 1 ? "" : "s");
+    } else if(_s->reversed > 0) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "Stroke %u drawn backwards%s", _s->first_reversed, _s->reversed > 1 ? " (and more)" : "");
+    } else if(_s->shape < 70.0f && _s->worst != 0) {
+        snprintf(_s->feedback, sizeof(_s->feedback), "Stroke %u's shape is off", _s->worst);
+    } else {
+        snprintf(_s->feedback, sizeof(_s->feedback), "%s", _s->score >= 90.0f ? "Excellent" : _s->score >= 75.0f ? "Good" : "OK, keep practising");
+    }
+}
+
 kana_score kana_score_drawing(const kana_kanji_db* _db, const kana_kanji_info* _info, const kana_ink* _drawing) {
     static kana_match_stroke _user[KANA_SCORE_MAX];
     static kana_match_stroke _ref[KANA_SCORE_MAX];
@@ -199,20 +220,6 @@ kana_score kana_score_drawing(const kana_kanji_db* _db, const kana_kanji_info* _
                                   - KANA_SCORE_MISPLACED * (f32)_s.misplaced
                                   - KANA_SCORE_REVERSED  * (f32)_s.reversed, 0.0f, 100.0f);
 
-    // One line: the most important thing first.
-    if(_n != _m) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "%u stroke%s, should be %u", _n, _n == 1 ? "" : "s", _m);
-    } else if(_s.misplaced > 0 && _s.swap_a != 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "Order: stroke %u before %u", _s.swap_a, _s.swap_b);
-    } else if(_s.misplaced > 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "Order: %u stroke%s out of place", _s.misplaced, _s.misplaced == 1 ? "" : "s");
-    } else if(_s.reversed > 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "Stroke %u drawn backwards%s", _s.first_reversed, _s.reversed > 1 ? " (and more)" : "");
-    } else if(_s.shape < 70.0f && _s.worst != 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "Stroke %u's shape is off", _s.worst);
-    } else {
-        snprintf(_s.feedback, sizeof(_s.feedback), "%s", _s.score >= 90.0f ? "Excellent" : _s.score >= 75.0f ? "Good" : "OK, keep practising");
-    }
-
+    kana_score_describe(&_s);
     return _s;
 }
