@@ -1,4 +1,5 @@
 #include "canvas.h"
+#include "theme.h"
 
 #include <math.h>
 #include <string.h>
@@ -228,7 +229,7 @@ void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) 
     for(f32 _y = _y0; _y <= _max.y; _y += _spacing) {
         for(f32 _x = _x0; _x <= _max.x; _x += _spacing) {
             const rde_vec_2F _screen = kana_canvas_to_screen(_canvas, (rde_vec_2F){ _x, _y });
-            rde_rendering_2d_draw_rectangle(_screen, (rde_vec_2F){ KANA_CANVAS_GRID_DOT, KANA_CANVAS_GRID_DOT }, KANA_CANVAS_GRID_COLOR);
+            rde_rendering_2d_draw_rectangle(_screen, (rde_vec_2F){ KANA_CANVAS_GRID_DOT, KANA_CANVAS_GRID_DOT }, kana_theme_active()->page_dots);
         }
     }
 }

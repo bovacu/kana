@@ -1,0 +1,298 @@
+#include "kanji.h"
+
+#include <math.h>
+#include <string.h>
+
+// ===========================================================================
+// See kanji.h.
+// ===========================================================================
+
+#define KANA_KANJI_STROKE_HEADER 8u     // 4 bytes of counts/types + start x, y
+#define KANA_KANJI_SEGMENT_SIZE  12u    // 6 x i16
+#define KANA_KANJI_MAX_DEPTH     10u    // Bézier subdivision limit
+
+void kana_kanji_unload(kana_kanji_db* _db) {
+    kana_file_free(_db->_file);
+    memset(_db, 0, sizeof(*_db));
+}
+
+b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
+    memset(_db, 0, sizeof(*_db));
+
+    if(!rde_file_exists(_path)) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: no character data at %s (run the desktop build with --bake)", _path);
+        return false;
+    }
+
+    _db->_file = kana_file_read(_path, &_db->_file_size);
+    kana_reader _r = kana_reader_make(_db->_file, _db->_file_size);
+
+    if(!kana_read_header(&_r, KANA_KANJI_VERSION, KANA_KANJI_KIND)) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s is not a character data file this build reads", _path);
+        kana_kanji_unload(_db);
+        return false;
+    }
+
+    u32         _tag;
+    kana_reader _chunk;
+    while(kana_next_chunk(&_r, &_tag, &_chunk)) {
+        if(_tag == KANA_KANJI_CHUNK_CHARS) {
+            const u32 _count  = kana_get_u32(&_chunk);
+            const u32 _record = kana_get_u32(&_chunk);
+            if(_chunk.ok && _record == KANA_KANJI_RECORD_SIZE && (u64)_count * _record <= (u64)(_chunk.size - _chunk.pos)) {
+                _db->count    = _count;
+                _db->_records = &_chunk.data[_chunk.pos];
+            }
+        } else if(_tag == KANA_KANJI_CHUNK_GEOM) {
+            _db->_geometry      = _chunk.data;
+            _db->_geometry_size = _chunk.size;
+        } else if(_tag == KANA_KANJI_CHUNK_TEXT) {
+            _db->_text      = (const c8*)_chunk.data;
+            _db->_text_size = _chunk.size;
+        }
+    }
+
+    if(!_r.ok || _db->_records == NULL || _db->_geometry == NULL) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s is damaged", _path);
+        kana_kanji_unload(_db);
+        return false;
+    }
+
+    return true;
+}
+
+// --- records ---------------------------------------------------------------------
+
+RDE_INTERNAL void kana_kanji_decode(const u8* _record, kana_kanji_info* _out) {
+    kana_reader _r = kana_reader_make(_record, KANA_KANJI_RECORD_SIZE);
+    _out->codepoint = kana_get_u32(&_r);
+    _out->geometry  = kana_get_u32(&_r);
+    _out->text      = kana_get_u32(&_r);
+    _out->frequency = kana_get_u16(&_r);
+    _out->strokes   = kana_get_u8(&_r);
+    _out->grade     = kana_get_u8(&_r);
+    _out->jlpt      = kana_get_u8(&_r);
+    _out->radical   = kana_get_u8(&_r);
+    _out->jlpt_n    = kana_get_u8(&_r);
+}
+
+b8 kana_kanji_at(const kana_kanji_db* _db, u32 _index, kana_kanji_info* _out) {
+    if(_index >= _db->count) {
+        return false;
+    }
+
+    kana_kanji_decode(&_db->_records[(usize)_index * KANA_KANJI_RECORD_SIZE], _out);
+    return true;
+}
+
+b8 kana_kanji_find(const kana_kanji_db* _db, u32 _codepoint, kana_kanji_info* _out) {
+    u32 _index = 0;
+    return kana_kanji_find_index(_db, _codepoint, &_index) && kana_kanji_at(_db, _index, _out);
+}
+
+b8 kana_kanji_find_index(const kana_kanji_db* _db, u32 _codepoint, u32* _index) {
+    u32 _lo = 0;
+    u32 _hi = _db->count;
+
+    // The records are sorted by code point.
+    while(_lo < _hi) {
+        const u32 _mid = _lo + (_hi - _lo) / 2u;
+        kana_kanji_info _info;
+        kana_kanji_decode(&_db->_records[(usize)_mid * KANA_KANJI_RECORD_SIZE], &_info);
+
+        if(_info.codepoint == _codepoint) {
+            *_index = _mid;
+            return true;
+        }
+
+        if(_info.codepoint < _codepoint) {
+            _lo = _mid + 1u;
+        } else {
+            _hi = _mid;
+        }
+    }
+
+    return false;
+}
+
+// --- strokes ---------------------------------------------------------------------
+
+RDE_INTERNAL u32 kana_kanji_type(u8 _stored) {
+    return _stored == 0 ? 0u : KANA_KANJI_STROKE_BASE + (u32)_stored - 1u;
+}
+
+RDE_INTERNAL f32 kana_kanji_coord(kana_reader* _r) {
+    return (f32)kana_get_i16(_r) / KANA_KANJI_FIXED;
+}
+
+b8 kana_kanji_stroke_at(const kana_kanji_db* _db, const kana_kanji_info* _info, u32 _index, kana_kanji_stroke* _out) {
+    if(_index >= _info->strokes || _info->geometry >= _db->_geometry_size) {
+        return false;
+    }
+
+    kana_reader _r = kana_reader_make(_db->_geometry, _db->_geometry_size);
+    _r.pos = _info->geometry;
+
+    // Strokes are variable length: walk past the ones before.
+    for(u32 _s = 0; _s < _index; _s++) {
+        const u32 _segments = kana_get_u8(&_r);
+        const u32 _skip     = (KANA_KANJI_STROKE_HEADER - 1u) + _segments * KANA_KANJI_SEGMENT_SIZE;
+        if(!kana_reader_has(&_r, _skip)) {
+            return false;
+        }
+        _r.pos += _skip;
+    }
+
+    _out->segments    = kana_get_u8(&_r);
+    _out->type        = kana_kanji_type(kana_get_u8(&_r));
+    _out->variant     = (c8)kana_get_u8(&_r);
+    _out->alternative = kana_kanji_type(kana_get_u8(&_r));
+    _out->start.x     = kana_kanji_coord(&_r);
+    _out->start.y     = kana_kanji_coord(&_r);
+    _out->_data       = &_r.data[_r.pos];
+
+    return _r.ok && kana_reader_has(&_r, _out->segments * KANA_KANJI_SEGMENT_SIZE);
+}
+
+// Distance from _p to the line through _a and _b (to _a when they coincide).
+RDE_INTERNAL f32 kana_kanji_line_distance(rde_vec_2F _p, rde_vec_2F _a, rde_vec_2F _b) {
+    const f32 _dx  = _b.x - _a.x;
+    const f32 _dy  = _b.y - _a.y;
+    const f32 _len = sqrtf(_dx * _dx + _dy * _dy);
+
+    if(_len < 1e-6f) {
+        return sqrtf((_p.x - _a.x) * (_p.x - _a.x) + (_p.y - _a.y) * (_p.y - _a.y));
+    }
+
+    return fabsf(_dx * (_p.y - _a.y) - _dy * (_p.x - _a.x)) / _len;
+}
+
+// Emits the curve's points after p0: split in half until the control points lie
+// within _tolerance of the chord, which is then close enough to the curve.
+RDE_INTERNAL void kana_kanji_flatten(rde_vec_2F _p0, rde_vec_2F _p1, rde_vec_2F _p2, rde_vec_2F _p3,
+                                     f32 _tolerance, u32 _depth, rde_vec_2F* _out, u32 _max, u32* _count) {
+    const f32 _d1 = kana_kanji_line_distance(_p1, _p0, _p3);
+    const f32 _d2 = kana_kanji_line_distance(_p2, _p0, _p3);
+
+    if(_depth >= KANA_KANJI_MAX_DEPTH || (_d1 <= _tolerance && _d2 <= _tolerance)) {
+        if(*_count < _max) {
+            _out[(*_count)++] = _p3;
+        }
+        return;
+    }
+
+    // de Casteljau at t = 0.5.
+    const rde_vec_2F _a   = { (_p0.x + _p1.x) * 0.5f, (_p0.y + _p1.y) * 0.5f };
+    const rde_vec_2F _b   = { (_p1.x + _p2.x) * 0.5f, (_p1.y + _p2.y) * 0.5f };
+    const rde_vec_2F _c   = { (_p2.x + _p3.x) * 0.5f, (_p2.y + _p3.y) * 0.5f };
+    const rde_vec_2F _ab  = { (_a.x + _b.x) * 0.5f, (_a.y + _b.y) * 0.5f };
+    const rde_vec_2F _bc  = { (_b.x + _c.x) * 0.5f, (_b.y + _c.y) * 0.5f };
+    const rde_vec_2F _mid = { (_ab.x + _bc.x) * 0.5f, (_ab.y + _bc.y) * 0.5f };
+
+    kana_kanji_flatten(_p0, _a, _ab, _mid, _tolerance, _depth + 1u, _out, _max, _count);
+    kana_kanji_flatten(_mid, _bc, _c, _p3, _tolerance, _depth + 1u, _out, _max, _count);
+}
+
+u32 kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, rde_vec_2F* _out, u32 _max) {
+    if(_max == 0) {
+        return 0;
+    }
+
+    u32        _count = 0;
+    rde_vec_2F _p0    = _stroke->start;
+    _out[_count++]    = _p0;
+
+    kana_reader _r = kana_reader_make(_stroke->_data, _stroke->segments * KANA_KANJI_SEGMENT_SIZE);
+    for(u32 _s = 0; _s < _stroke->segments; _s++) {
+        // One read per statement: the order of side effects inside an initializer
+        // list is unspecified in C, and x and y could swap.
+        f32 _v[6];
+        for(u32 _i = 0; _i < 6u; _i++) {
+            _v[_i] = kana_kanji_coord(&_r);
+        }
+        const rde_vec_2F _p1 = { _v[0], _v[1] };
+        const rde_vec_2F _p2 = { _v[2], _v[3] };
+        const rde_vec_2F _p3 = { _v[4], _v[5] };
+        kana_kanji_flatten(_p0, _p1, _p2, _p3, _tolerance > 1e-4f ? _tolerance : 1e-4f, 0u, _out, _max, &_count);
+        _p0 = _p3;
+    }
+
+    return _count;
+}
+
+// --- text ------------------------------------------------------------------------
+
+// The _nth NUL-terminated string at the character's text offset.
+RDE_INTERNAL const c8* kana_kanji_text(const kana_kanji_db* _db, const kana_kanji_info* _info, u32 _nth) {
+    if(_db->_text == NULL || _info->text >= _db->_text_size) {
+        return "";
+    }
+
+    u32 _at = _info->text;
+    for(u32 _i = 0; _i < _nth; _i++) {
+        const c8* _nul = memchr(&_db->_text[_at], 0, _db->_text_size - _at);
+        if(_nul == NULL) {
+            return "";
+        }
+        _at = (u32)(_nul - _db->_text) + 1u;
+        if(_at >= _db->_text_size) {
+            return "";
+        }
+    }
+
+    // Only a string that ends inside the chunk.
+    return memchr(&_db->_text[_at], 0, _db->_text_size - _at) != NULL ? &_db->_text[_at] : "";
+}
+
+const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info)       { return kana_kanji_text(_db, _info, 0); }
+const c8* kana_kanji_kun(const kana_kanji_db* _db, const kana_kanji_info* _info)      { return kana_kanji_text(_db, _info, 1); }
+const c8* kana_kanji_meanings(const kana_kanji_db* _db, const kana_kanji_info* _info) { return kana_kanji_text(_db, _info, 2); }
+
+u32 kana_kanji_utf8_next(const c8** _s) {
+    const u8* _u = (const u8*)*_s;
+
+    if(_u[0] == 0) {
+        return 0;
+    }
+    if(_u[0] < 0x80u) {
+        *_s += 1;
+        return _u[0];
+    }
+    if((_u[0] & 0xE0u) == 0xC0u && _u[1] != 0) {
+        *_s += 2;
+        return ((u32)(_u[0] & 0x1Fu) << 6) | (u32)(_u[1] & 0x3Fu);
+    }
+    if((_u[0] & 0xF0u) == 0xE0u && _u[1] != 0 && _u[2] != 0) {
+        *_s += 3;
+        return ((u32)(_u[0] & 0x0Fu) << 12) | ((u32)(_u[1] & 0x3Fu) << 6) | (u32)(_u[2] & 0x3Fu);
+    }
+    if((_u[0] & 0xF8u) == 0xF0u && _u[1] != 0 && _u[2] != 0 && _u[3] != 0) {
+        *_s += 4;
+        return ((u32)(_u[0] & 0x07u) << 18) | ((u32)(_u[1] & 0x3Fu) << 12) | ((u32)(_u[2] & 0x3Fu) << 6) | (u32)(_u[3] & 0x3Fu);
+    }
+
+    *_s += 1;          // malformed: skip the byte
+    return 0xFFFDu;
+}
+
+void kana_kanji_utf8(u32 _cp, c8* _out) {
+    if(_cp < 0x80u) {
+        _out[0] = (c8)_cp;
+        _out[1] = 0;
+    } else if(_cp < 0x800u) {
+        _out[0] = (c8)(0xC0u | (_cp >> 6));
+        _out[1] = (c8)(0x80u | (_cp & 0x3Fu));
+        _out[2] = 0;
+    } else if(_cp < 0x10000u) {
+        _out[0] = (c8)(0xE0u | (_cp >> 12));
+        _out[1] = (c8)(0x80u | ((_cp >> 6) & 0x3Fu));
+        _out[2] = (c8)(0x80u | (_cp & 0x3Fu));
+        _out[3] = 0;
+    } else {
+        _out[0] = (c8)(0xF0u | (_cp >> 18));
+        _out[1] = (c8)(0x80u | ((_cp >> 12) & 0x3Fu));
+        _out[2] = (c8)(0x80u | ((_cp >> 6) & 0x3Fu));
+        _out[3] = (c8)(0x80u | (_cp & 0x3Fu));
+        _out[4] = 0;
+    }
+}

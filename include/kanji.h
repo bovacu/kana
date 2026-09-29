@@ -1,0 +1,119 @@
+#ifndef KANA_KANJI
+#define KANA_KANJI
+
+#include "rde.h"
+#include "kfile.h"
+
+// ===========================================================================
+// The character data: every kana and kanji Kana knows how to write, with its
+// strokes in order, and what KANJIDIC2 says about it. Baked offline from KanjiVG
+// and KANJIDIC2 (`--bake`, see bake.h) into one small file the app ships.
+//
+// LICENCE: derived from KanjiVG (CC BY-SA 3.0, Ulrich Apel) and KANJIDIC2 (CC
+// BY-SA 4.0, EDRDG), with JLPT N5-N1 levels from Jonathan Waller's JLPT
+// Resources (CC BY). The baked file carries the same licences, and the app MUST
+// show the attribution (assets/data/LICENSE-data.txt).
+//
+// STROKES ARE STORED AS CURVES, not points: KanjiVG's own cubic Béziers, as
+// 16-bit fixed point. All ~6,700 characters come to a few MB, several times
+// smaller than points at scoring density; turning one character's curves into
+// points costs microseconds, and only the character on screen is ever turned.
+//
+// FILE ('KANA' header, kind 'CHAR', see kfile.h):
+//   'CHRS'  u32 count, u32 record size, then per character, SORTED by codepoint:
+//             u32 codepoint, u32 geometry offset, u32 text offset (or UINT32_MAX),
+//             u16 frequency rank (0: none), u8 stroke count, u8 school grade (0),
+//             u8 old JLPT level 4..1 (0), u8 classical radical (0),
+//             u8 JLPT N-level 5..1 (0: not on the lists), 1 reserved
+//           (The N-level took a byte that was reserved and zero: files baked
+//           before it simply read as "not on the lists".)
+//   'GEOM'  the strokes, back to back. Per stroke:
+//             u8 segment count, u8 type, u8 type variant, u8 alternative type,
+//             i16 start x, y, then per segment i16 c1x c1y c2x c2y x y
+//           Coordinates: KanjiVG's 109-unit box, Y DOWN (as in SVG), times
+//           KANA_KANJI_FIXED. Types: the CJK Strokes block (U+31C0..U+31EF) as
+//           code - 0x31C0 + 1, 0 when none; the variant is KanjiVG's letter
+//           ('a', 'b', ...) or 0; the alternative is the type after a '/'.
+//   'TEXT'  per character with text: three NUL-terminated UTF-8 strings — on
+//           readings joined by "、", kun readings joined by "、", English
+//           meanings joined by ", ".
+// ===========================================================================
+
+#define KANA_KANJI_VERSION      1u
+#define KANA_KANJI_FILE         "assets/data/characters.kana"
+#define KANA_KANJI_BOX          109.0f     // KanjiVG's coordinate box
+#define KANA_KANJI_FIXED        64.0f      // stored coordinate = units * this
+#define KANA_KANJI_RECORD_SIZE  20u
+#define KANA_KANJI_STROKE_BASE  0x31C0u    // the CJK Strokes block
+
+#define KANA_KANJI_KIND         KANA_TAG('C', 'H', 'A', 'R')
+#define KANA_KANJI_CHUNK_CHARS  KANA_TAG('C', 'H', 'R', 'S')
+#define KANA_KANJI_CHUNK_GEOM   KANA_TAG('G', 'E', 'O', 'M')
+#define KANA_KANJI_CHUNK_TEXT   KANA_TAG('T', 'E', 'X', 'T')
+
+// One character's record, decoded.
+RDE_STRUCT {
+    u32 codepoint;
+    u32 geometry;       // offset into GEOM
+    u32 text;           // offset into TEXT, or UINT32_MAX
+    u16 frequency;      // rank among ~2,500 newspaper kanji; 0 = not ranked
+    u8  strokes;
+    u8  grade;          // 1..6 Kyouiku, 8 = rest of Jouyou, 9/10 = Jinmeiyou; 0 = none
+    u8  jlpt;           // the OLD 4..1 levels; 0 = none
+    u8  radical;        // classical (Kangxi) radical number; 0 = none
+    u8  jlpt_n;         // N5..N1 as 5..1 (Waller's community lists; since 2010 the
+                        // JLPT publishes no official kanji lists); 0 = not listed
+} kana_kanji_info;
+
+// One stroke, as stored (units: KanjiVG's box, Y down).
+RDE_STRUCT {
+    rde_vec_2F start;
+    u32        segments;       // cubic Bézier segments after start
+    const u8*  _data;          // the segments, still fixed point
+    u32        type;           // stroke type code point (U+31C0..), 0 = none
+    c8         variant;        // 'a', 'b', ... or 0
+    u32        alternative;    // an equally valid type, 0 = none
+} kana_kanji_stroke;
+
+// The loaded file. Kept whole in memory (a few MB) and read in place.
+RDE_STRUCT {
+    u8*       _file;
+    u32       _file_size;
+    const u8* _records;
+    u32       count;
+    const u8* _geometry;
+    u32       _geometry_size;
+    const c8* _text;
+    u32       _text_size;
+} kana_kanji_db;
+
+b8   kana_kanji_load(kana_kanji_db* _db, const c8* _path);
+void kana_kanji_unload(kana_kanji_db* _db);
+
+// By position (codepoint order) or by codepoint.
+b8   kana_kanji_at(const kana_kanji_db* _db, u32 _index, kana_kanji_info* _out);
+b8   kana_kanji_find(const kana_kanji_db* _db, u32 _codepoint, kana_kanji_info* _out);
+// The record index of a code point (for lists of records). False when absent.
+b8   kana_kanji_find_index(const kana_kanji_db* _db, u32 _codepoint, u32* _index);
+
+// Stroke _index (0-based, in writing order) of a character.
+b8   kana_kanji_stroke_at(const kana_kanji_db* _db, const kana_kanji_info* _info, u32 _index, kana_kanji_stroke* _out);
+
+// A stroke as points (KanjiVG units, Y down), fine enough that no chord strays
+// more than _tolerance units from the curve. Writes at most _max points and
+// returns how many.
+u32  kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, rde_vec_2F* _out, u32 _max);
+
+// The character's text, "" when there is none.
+const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info);
+const c8* kana_kanji_kun(const kana_kanji_db* _db, const kana_kanji_info* _info);
+const c8* kana_kanji_meanings(const kana_kanji_db* _db, const kana_kanji_info* _info);
+
+// UTF-8 of a code point into _out (at least 5 bytes), NUL-terminated.
+void kana_kanji_utf8(u32 _codepoint, c8* _out);
+
+// The next code point of a UTF-8 string, advancing *_s past it. 0 at the end (or
+// on a malformed byte, which is skipped).
+u32  kana_kanji_utf8_next(const c8** _s);
+
+#endif

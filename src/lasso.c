@@ -1,4 +1,5 @@
 #include "lasso.h"
+#include "theme.h"
 
 #include <string.h>
 
@@ -6,10 +7,6 @@
 // See lasso.h.
 // ===========================================================================
 
-#define KANA_LASSO_COLOR       (rde_color){  40, 120, 230, 255 }
-#define KANA_LASSO_CLOSE_COLOR (rde_color){  40, 120, 230, 110 }   // the closing edge, still open
-#define KANA_LASSO_GLOW_COLOR  (rde_color){  80, 150, 255,  80 }
-#define KANA_LASSO_FILL_COLOR  (rde_color){  80, 150, 255,  20 }
 #define KANA_LASSO_LINE_PX     1.2f
 #define KANA_LASSO_GLOW_PX     4.0f
 
@@ -334,7 +331,7 @@ void kana_lasso_render_under(kana_lasso* _lasso, kana_ink* _ink, rde_vec_2F _off
 
     const u32* _ids = kana_lasso_ids(_lasso);
     for(u32 _i = 0; _i < kana_lasso_count(_lasso); _i++) {
-        kana_ink_draw_stroke(_ink, _ids[_i], _offset, _zoom, KANA_LASSO_GLOW_PX, KANA_LASSO_GLOW_COLOR);
+        kana_ink_draw_stroke(_ink, _ids[_i], _offset, _zoom, KANA_LASSO_GLOW_PX, kana_theme_active()->select_glow);
     }
 }
 
@@ -367,11 +364,13 @@ void kana_lasso_render_over(kana_lasso* _lasso, const kana_ink* _ink, rde_vec_2F
             _screen[_i] = (rde_vec_2F){ _loop[_i].x * _zoom + _offset.x, _loop[_i].y * _zoom + _offset.y };
         }
 
-        kana_lasso_line(_lasso, _screen, _n, KANA_LASSO_COLOR);
+        kana_lasso_line(_lasso, _screen, _n, kana_theme_active()->select);
 
         // Where the loop will close, fainter.
         const rde_vec_2F _close[2] = { _screen[_n - 1], _screen[0] };
-        kana_lasso_line(_lasso, _close, 2, KANA_LASSO_CLOSE_COLOR);
+        rde_color        _faint    = kana_theme_active()->select;
+        _faint.a                   = 110;
+        kana_lasso_line(_lasso, _close, 2, _faint);
         return;
     }
 
@@ -386,8 +385,8 @@ void kana_lasso_render_over(kana_lasso* _lasso, const kana_ink* _ink, rde_vec_2F
     const rde_vec_2F _hi  = { _max.x * _zoom + _offset.x + _pad, _max.y * _zoom + _offset.y + _pad };
 
     rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_lo.x + _hi.x) * 0.5f, (_lo.y + _hi.y) * 0.5f },
-                                    (rde_vec_2F){ _hi.x - _lo.x, _hi.y - _lo.y }, KANA_LASSO_FILL_COLOR);
+                                    (rde_vec_2F){ _hi.x - _lo.x, _hi.y - _lo.y }, kana_theme_active()->select_fill);
 
     const rde_vec_2F _box[5] = { _lo, { _hi.x, _lo.y }, _hi, { _lo.x, _hi.y }, _lo };
-    kana_lasso_line(_lasso, _box, 5, KANA_LASSO_COLOR);
+    kana_lasso_line(_lasso, _box, 5, kana_theme_active()->select);
 }

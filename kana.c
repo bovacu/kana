@@ -37,6 +37,7 @@
 #include "rde.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ink.h"
@@ -44,16 +45,38 @@
 #include "toolbar.h"
 #include "lasso.h"
 #include "save.h"
+#include "bake.h"
+#include "kanji.h"
+#include "viewer.h"
+#include "theme.h"
 
 #define KANA_CONFIG_PATH "./assets/config.rdef"
 
 RDE_INTERNAL rde_window* window;
 RDE_INTERNAL rde_camera  camera;
+// All of Kana's own text (HUD, viewer) uses the UI font — Roboto with Slug, the
+// toolbar's — at sizes in screen units, scaled from the size it was loaded at.
+// The engine's default atlas font is only the fallback if that failed to load.
 RDE_INTERNAL rde_font*   font;
+RDE_INTERNAL f32         font_px = 14.0f;
 RDE_INTERNAL kana_ink    ink;
 RDE_INTERNAL kana_canvas canvas;
 RDE_INTERNAL kana_toolbar toolbar;
 RDE_INTERNAL kana_lasso   lasso;
+RDE_INTERNAL kana_kanji_db kanji_db;
+RDE_INTERNAL kana_viewer  viewer;
+RDE_INTERNAL kana_browse  browse;
+RDE_INTERNAL kana_chart   chart;
+RDE_INTERNAL kana_practice practice;
+
+// Browse, the chart and Practice follow one pointer at a time: whichever pressed first.
+typedef enum { KANA_POINTER_NONE = 0, KANA_POINTER_PEN, KANA_POINTER_FINGER, KANA_POINTER_MOUSE } KANA_POINTER_;
+RDE_INTERNAL KANA_POINTER_ browse_pointer = KANA_POINTER_NONE;
+RDE_INTERNAL u64           browse_finger  = 0;
+
+// Running as the offline data bake (--bake, desktop): nothing else is set up, so
+// every callback returns at once.
+RDE_INTERNAL b8 baking = false;
 
 // The pen went down ON the toolbar: it is pressing a button, so nothing it does
 // until it lifts may write, erase or pan.
@@ -121,8 +144,8 @@ RDE_INTERNAL rde_vec_2F kana_screen_to_canvas(rde_vec_2F _screen) {
     return kana_canvas_from_screen(&canvas, _screen);
 }
 
-// HUD text: dark, on the paper page.
-#define KANA_HUD_TEXT_COLOR (rde_color){ 60, 60, 70, 255 }
+// HUD text, in the theme's HUD colour, this many screen units tall.
+#define KANA_HUD_TEXT_PX    17.0f
 
 // Touch events report centre-origin with Y DOWN; the screen space is Y up.
 RDE_INTERNAL rde_vec_2F kana_touch_to_screen(rde_vec_2I _touch) {
@@ -157,6 +180,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.color          = ink.color;
     _s.radius         = ink.constant_radius;
     _s.toolbar_center = toolbar.center;
+    _s.theme          = (u8)kana_theme_index();
     return _s;
 }
 
@@ -167,8 +191,9 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     ink.width_mode       = _s->width_mode == KANA_INK_WIDTH_MODE_PRESSURE ? KANA_INK_WIDTH_MODE_PRESSURE : KANA_INK_WIDTH_MODE_CONSTANT;
     ink.color            = _s->color;
     ink.constant_radius  = rde_math_clamp_f32(_s->radius, KANA_TOOLBAR_SIZE_MIN, KANA_TOOLBAR_SIZE_MAX);
+    kana_theme_set((KANA_THEME_)_s->theme);
     kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center);
-    kana_toolbar_sync(&toolbar);
+    kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
 
 // Writes whatever changed since the last save (_force: both files regardless).
@@ -278,8 +303,14 @@ RDE_INTERNAL void kana_load_saves(void) {
 }
 
 void init_func(i32 _argc, c8** _argv, rde_window* _window) {
-    RDE_UNUSED(_argc);
-    RDE_UNUSED(_argv);
+    if(kana_bake_requested(_argc, _argv)) {
+        baking = true;
+        const i32 _rc = kana_bake_run(_argc, _argv);
+        rde_log_level(_rc == 0 ? RDE_LOG_LEVEL_INFO : RDE_LOG_LEVEL_ERROR, "bake %s", _rc == 0 ? "finished" : "FAILED");
+        // Not rde_engine_destroy_engine: rde_run carries on after init_func.
+        rde_engine_set_running(false);
+        return;
+    }
 
     window = _window;
     font   = rde_font_get_default_missing();
@@ -288,9 +319,43 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_ink_init(&ink);
     kana_canvas_init(&canvas);
     kana_lasso_init(&lasso);
-    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &show_hud);
 
-    rde_rendering_clear_background_color(KANA_CANVAS_PAGE_COLOR);
+    // The baked character data (see bake.h). Without it the app still draws; the
+    // Kanji button just stays greyed out.
+    const b8 _have_kanji = kana_kanji_load(&kanji_db, KANA_KANJI_FILE);
+    kana_viewer_init(&viewer, _have_kanji ? &kanji_db : NULL);
+    kana_browse_init(&browse, _have_kanji ? &kanji_db : NULL);
+    kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
+    kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
+    if(_have_kanji) {
+        rde_log_color(RDE_LOG_COLOR_GREEN, "kana: %u characters loaded", kanji_db.count);
+    }
+
+    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &show_hud);
+    if(toolbar.font != NULL) {
+        font    = toolbar.font;
+        font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
+    }
+
+    // Development: --browse / --kana open Browse / the kana chart at start;
+    // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice.
+    for(i32 _i = 1; _i < _argc; _i++) {
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--browse") == 0) {
+            kana_browse_open(&browse);
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--kana") == 0) {
+            kana_chart_open(&chart);
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--practice=", 11) == 0) {
+            u32 _record = 0;
+            if(_have_kanji && kana_kanji_find_index(&kanji_db, (u32)strtoul(_argv[_i] + 11, NULL, 16), &_record)) {
+                kana_practice_open(&practice, _record);
+            }
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--viewer=", 9) == 0) {
+            kana_viewer_show_codepoint(&viewer, (u32)strtoul(_argv[_i] + 9, NULL, 16));
+        }
+    }
 
     kana_load_saves();
 
@@ -298,10 +363,159 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
                   "kana - ink spike. Pen writes, fingers move the page (2-finger tap undo, 3 redo), the toolbar has the rest. Keys: C clear, Z undo, Y redo, M raw samples, H HUD, R reset view, B brush scale.");
 }
 
+// A pointer for Browse or the chart, whichever is open.
+RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
+    if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); } else { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
+}
+RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
+    if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); } else { kana_browse_pointer_moved(&browse, _screen, _now); }
+}
+RDE_INTERNAL void kana_list_up(f64 _now) {
+    if(chart.open) { kana_chart_pointer_up(&chart, _now); } else { kana_browse_pointer_up(&browse, _now); }
+}
+
+// Practice: only the pen (and the desktop mouse) writes; a resting hand does nothing.
+RDE_INTERNAL void kana_practice_event(rde_event* _event) {
+    switch(_event->type) {
+        case RDE_EVENT_TYPE_PEN_DOWN: {
+            const rde_vec_2F _screen = kana_window_to_world(_event->data.pen_event_data.position);
+            if(browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _screen)) {
+                browse_pointer = KANA_POINTER_PEN;
+                kana_practice_pen_down(&practice, _screen);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_PEN_MOVED: {
+            if(browse_pointer == KANA_POINTER_PEN) {
+                kana_practice_pen_moved(&practice, kana_window_to_world(_event->data.pen_event_data.position));
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_PEN_UP: {
+            if(browse_pointer == KANA_POINTER_PEN) {
+                kana_practice_pen_up(&practice);
+                browse_pointer = KANA_POINTER_NONE;
+            }
+        } break;
+
+#if !defined(RDE_PLATFORM_MOBILE)
+        case RDE_EVENT_TYPE_MOUSE_BUTTON_PRESSED: {
+            const rde_vec_2I _m      = rde_input_mouse_get_position(window);
+            const rde_vec_2F _screen = { (f32)_m.x, (f32)_m.y };
+            if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_LEFT && browse_pointer == KANA_POINTER_NONE &&
+               !_event->handled && !kana_toolbar_hit(&toolbar, _screen)) {
+                browse_pointer = KANA_POINTER_MOUSE;
+                kana_practice_pen_down(&practice, _screen);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOUSE_BUTTON_RELEASED: {
+            if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_LEFT && browse_pointer == KANA_POINTER_MOUSE) {
+                kana_practice_pen_up(&practice);
+                browse_pointer = KANA_POINTER_NONE;
+            }
+        } break;
+#endif
+
+        default: break;
+    }
+}
+
+// Browse's (or the chart's) input: one pointer — pen, finger or (desktop) mouse —
+// to the grid and the drawing pad. Presses on the bars are the UI's.
+RDE_INTERNAL void kana_browse_event(rde_event* _event) {
+    const f64 _now = rde_engine_get_time_now();
+
+    switch(_event->type) {
+        case RDE_EVENT_TYPE_PEN_DOWN: {
+            const rde_vec_2F _screen = kana_window_to_world(_event->data.pen_event_data.position);
+            if(browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _screen)) {
+                browse_pointer = KANA_POINTER_PEN;
+                kana_list_down(_screen, true, _now);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_PEN_MOVED: {
+            if(browse_pointer == KANA_POINTER_PEN) {
+                kana_list_moved(kana_window_to_world(_event->data.pen_event_data.position), _now);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_PEN_UP: {
+            if(browse_pointer == KANA_POINTER_PEN) {
+                kana_list_up(_now);
+                browse_pointer = KANA_POINTER_NONE;
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_DOWN: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            const rde_vec_2F        _pos   = kana_touch_to_screen(_touch->init_touch_position);
+            if(!_touch->from_pen && browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _pos)) {
+                browse_pointer = KANA_POINTER_FINGER;
+                browse_finger  = _touch->finger_id;
+                kana_list_down(_pos, false, _now);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_MOVED: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            if(!_touch->from_pen && browse_pointer == KANA_POINTER_FINGER && _touch->finger_id == browse_finger) {
+                kana_list_moved(kana_touch_to_screen(_touch->moved_touch_position), _now);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_UP: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            if(!_touch->from_pen && browse_pointer == KANA_POINTER_FINGER && _touch->finger_id == browse_finger) {
+                kana_list_up(_now);
+                browse_pointer = KANA_POINTER_NONE;
+            }
+        } break;
+
+#if !defined(RDE_PLATFORM_MOBILE)
+        case RDE_EVENT_TYPE_MOUSE_BUTTON_PRESSED: {
+            const rde_vec_2I _m      = rde_input_mouse_get_position(window);
+            const rde_vec_2F _screen = { (f32)_m.x, (f32)_m.y };
+            if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_LEFT && browse_pointer == KANA_POINTER_NONE &&
+               !_event->handled && !kana_toolbar_hit(&toolbar, _screen)) {
+                browse_pointer = KANA_POINTER_MOUSE;
+                kana_list_down(_screen, true, _now);   // the mouse draws on the pad, like the pen
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOUSE_BUTTON_RELEASED: {
+            if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_LEFT && browse_pointer == KANA_POINTER_MOUSE) {
+                kana_list_up(_now);
+                browse_pointer = KANA_POINTER_NONE;
+            }
+        } break;
+#endif
+
+        default: break;
+    }
+}
+
 void on_event(rde_window* _window, rde_event* _event) {
     RDE_UNUSED(_window);
 
-    if(_event == NULL) {
+    if(baking || _event == NULL) {
+        return;
+    }
+
+    // The screens have the whole screen: nothing reaches the page (their buttons
+    // are UI and have had the event already). Leaving the app still saves. The
+    // top screen gets the pointer.
+    if(practice.open || viewer.open || browse.open || chart.open) {
+        if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
+           _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
+            kana_save_on_exit();
+        }
+        if(practice.open) {
+            kana_practice_event(_event);
+        } else if(!viewer.open) {
+            kana_browse_event(_event);   // Browse or the chart, whichever is open
+        }
         return;
     }
 
@@ -515,10 +729,68 @@ void on_fixed_update(f32 _fixed_dt) {
 }
 
 void on_update(f32 _dt) {
+    if(baking) {
+        return;
+    }
     kana_ink_frame_begin(&ink);
 
     // Smoothed hard: an unsmoothed frame time is unreadable on screen.
     frame_ms += ((_dt * 1000.0f) - frame_ms) * 0.1f;
+
+    // Practice is over everything else.
+    if(practice.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_practice_pen_moved(&practice, (rde_vec_2F){ (f32)_m.x, (f32)_m.y });
+        }
+#endif
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_practice_close(&practice); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    // The viewer's keys, for the desktop; the page's are off while it is open.
+    if(viewer.open) {
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_RIGHT)) { kana_viewer_next(&viewer); }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_LEFT))  { kana_viewer_prev(&viewer); }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_SPACE)) { kana_viewer_replay(&viewer); }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_viewer_close(&viewer); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    if(browse.open || chart.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {   // the mouse is polled, like on the page
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        // A tapped character opens the viewer, walking the grid's (or chart's) list.
+        u32 _position = 0;
+        if(browse.open) {
+            kana_browse_update(&browse, _dt);
+            if(kana_browse_take_tap(&browse, &_position)) {
+                kana_viewer_show(&viewer, kana_browse_list(&browse), kana_browse_count(&browse), _position);
+            }
+        } else {
+            kana_chart_update(&chart, _dt);
+            if(kana_chart_take_tap(&chart, &_position)) {
+                kana_viewer_show(&viewer, kana_chart_list(&chart), kana_chart_count(&chart), _position);
+            }
+        }
+
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) {
+            kana_browse_close(&browse);
+            kana_chart_close(&chart);
+        }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
 
     if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_C)) {
         kana_ink_clear(&ink);
@@ -590,7 +862,8 @@ void on_late_update(f32 _dt) {
 }
 
 RDE_INTERNAL void kana_draw_text(const c8* _text, f32 _x, f32 _y) {
-    rde_rendering_2d_draw_text_1(font, _text, (rde_vec_3F){ _x, _y, 0.0f }, KANA_HUD_TEXT_COLOR);
+    const f32 _scale = KANA_HUD_TEXT_PX / font_px;
+    rde_rendering_2d_draw_text_2(font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, kana_theme_active()->hud);
 }
 
 RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
@@ -666,8 +939,28 @@ RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
 void on_render(rde_window* _window, f32 _dt) {
     RDE_UNUSED(_dt);
 
+    if(baking) {
+        return;
+    }
+
+    // EVERY frame: the engine resets the clear colour at the start of each one,
+    // and a frame nobody sets it for clears to black.
+    rde_rendering_clear_background_color(kana_theme_active()->page);
+
     rde_rendering_2d_begin_drawing(_window, &camera);
-    {
+    const rde_vec_4I _safe = rde_window_get_safe_area_insets(_window);
+    const f32        _hh   = (f32)rde_window_get_size(_window).y * 0.5f;
+    if(practice.open) {
+        kana_practice_render(&practice, _window, font, font_px, _hh - (f32)_safe.y - 8.0f,
+                             -_hh + (f32)_safe.w + toolbar.practice_menu.size.y + 24.0f);
+    } else if(viewer.open) {
+        kana_viewer_render(&viewer, font, font_px, rde_window_get_size(_window), rde_window_get_safe_area_insets(_window),
+                           toolbar.viewer_menu.size.y + 16.0f);
+    } else if(browse.open) {
+        kana_browse_render(&browse, _window, font, font_px, _hh - toolbar.browse_bar_height);
+    } else if(chart.open) {
+        kana_chart_render(&chart, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.chart_menu.size.y + 24.0f);
+    } else {
         const rde_vec_2I _size = rde_window_get_size(_window);
         kana_canvas_draw_grid(&canvas, _size);
         kana_lasso_render_under(&lasso, &ink, canvas.view.offset, canvas.view.zoom);
@@ -688,9 +981,17 @@ void on_crash(const c8* _error, const c8* _callstack) {
 }
 
 void end_func(void) {
+    if(baking) {
+        return;
+    }
     kana_save_on_exit();
     kana_toolbar_destroy(&toolbar);
     kana_lasso_destroy(&lasso);
+    kana_viewer_destroy(&viewer);
+    kana_browse_destroy(&browse);
+    kana_chart_destroy(&chart);
+    kana_practice_destroy(&practice);
+    kana_kanji_unload(&kanji_db);
     kana_ink_destroy(&ink);
 }
 

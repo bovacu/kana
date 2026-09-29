@@ -1,4 +1,5 @@
 #include "ink.h"
+#include "theme.h"
 
 #include <math.h>
 #include <string.h>
@@ -7,10 +8,6 @@
 // See ink.h. Two halves: capture (cheap, exact, keeps everything) and render
 // (throwaway quality for now — the spike is about feel and timing, not beauty).
 // ===========================================================================
-
-#define KANA_INK_COLOR        (rde_color){  30,  30,  36, 255 }
-#define KANA_INK_ERASER_COLOR (rde_color){ 200,  90,  90, 255 }
-#define KANA_INK_SAMPLE_COLOR (rde_color){  40, 160, 220, 255 }
 
 // Typed views of the arrays, read the way rde_arr_foreach reads them. An add may
 // move an array, so take these again after adding to it.
@@ -35,7 +32,7 @@ void kana_ink_init(kana_ink* _ink) {
     memset(_ink, 0, sizeof(*_ink));
     _ink->width_mode      = KANA_INK_WIDTH_MODE_CONSTANT;
     _ink->brush_scale     = KANA_INK_BRUSH_SCALE_PAGE;
-    _ink->color           = KANA_INK_COLOR;
+    _ink->color           = KANA_THEME_INK;
     _ink->constant_radius = KANA_INK_RADIUS_DEFAULT;
     _ink->zoom            = 1.0f;
 
@@ -828,7 +825,7 @@ void kana_ink_render(kana_ink* _ink, rde_vec_2F _offset, f32 _zoom, rde_vec_2F _
             continue;
         }
 
-        const rde_color   _color     = _stroke->eraser ? KANA_INK_ERASER_COLOR : _stroke->color;
+        const rde_color   _color     = _stroke->eraser ? kana_theme_active()->eraser : kana_theme_resolve(_stroke->color);
         const rde_vec_2F* _positions = kana_ink_emit_stroke(_ink, _stroke, _offset, _zoom, 0.0f, _color);
 
         // Every raw sample as a dot. THIS IS THE DIAGNOSTIC THAT MATTERS: draw a
@@ -837,8 +834,7 @@ void kana_ink_render(kana_ink* _ink, rde_vec_2F _offset, f32 _zoom, rde_vec_2F _
         // being coalesced to the frame rate and quick strokes will be polygons.
         if(_show_samples) {
             for(u32 _p = 0; _p < _stroke->point_count; _p++) {
-                rde_rendering_2d_draw_circle(_positions[_p], 1.5f, 6u,
-                                             KANA_INK_SAMPLE_COLOR, NULL);
+                rde_rendering_2d_draw_circle(_positions[_p], 1.5f, 6u, kana_theme_active()->samples, NULL);
             }
         }
     }

@@ -31,6 +31,8 @@
 //   'VIEW'  f32 offset.x, offset.y, zoom
 //   'STRK'  u32 count, u32 record size, then per stroke:
 //           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen), 3 reserved
+//           (r g b a all 0: the theme's ink; 30 30 36 255, from before themes,
+//           is read as that too)
 //   'PNTS'  u32 count, u32 record size, then every point of those strokes in
 //           order: f32 x, y, pressure, radius, time   (canvas units, seconds)
 // Only ALIVE strokes are written, and not the undo history: a loaded page is
@@ -38,7 +40,8 @@
 //
 // SETTINGS ('SETT'): the tools and the toolbar, apart from any one page.
 //   'PREF'  u8 tool, vertical, show_hud, brush_scale, width_mode, u8 r g b a,
-//           f32 radius, f32 toolbar_center.x, toolbar_center.y
+//           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme
+//           (new fields go at the END: an older file just ends sooner)
 // ===========================================================================
 
 #define KANA_SAVE_VERSION        1u
@@ -61,6 +64,7 @@ RDE_STRUCT {
     rde_color  color;
     f32        radius;
     rde_vec_2F toolbar_center;   // UI canvas units
+    u8         theme;            // KANA_THEME_
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

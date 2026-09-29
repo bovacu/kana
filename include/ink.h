@@ -111,7 +111,7 @@ RDE_STRUCT {
     u32            point_count;
     rde_vec_2F     bounds_min;  // the ink's extent (points ± radius), canvas units
     rde_vec_2F     bounds_max;
-    rde_color      color;       // the brush colour when the stroke was written
+    rde_color      color;       // the brush colour when the stroke was written; KANA_THEME_INK: the theme's ink
     b8             from_pen;
     b8             eraser;
     b8             alive;
@@ -182,7 +182,7 @@ RDE_STRUCT {
     // Width choice (settings; kana_ink_init sets the defaults).
     KANA_INK_WIDTH_MODE_  width_mode;
     KANA_INK_BRUSH_SCALE_ brush_scale;
-    rde_color             color;             // brush colour for NEW strokes
+    rde_color             color;             // brush colour for NEW strokes (KANA_THEME_INK by default)
     f32                   constant_radius;   // for KANA_INK_WIDTH_MODE_CONSTANT; units per brush_scale
     // The canvas zoom at the moment of capture, set by the caller like
     // sample_time. Turns screen units into the canvas units points are stored in:

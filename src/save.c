@@ -1,4 +1,6 @@
 #include "save.h"
+#include "kfile.h"
+#include "theme.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -8,8 +10,6 @@
 // See save.h.
 // ===========================================================================
 
-#define KANA_TAG(_a, _b, _c, _d) ((u32)(u8)(_a) | ((u32)(u8)(_b) << 8) | ((u32)(u8)(_c) << 16) | ((u32)(u8)(_d) << 24))
-
 #define KANA_KIND_DOCUMENT  KANA_TAG('D', 'O', 'C', ' ')
 #define KANA_KIND_SETTINGS  KANA_TAG('S', 'E', 'T', 'T')
 
@@ -18,138 +18,18 @@
 #define KANA_CHUNK_POINTS   KANA_TAG('P', 'N', 'T', 'S')
 #define KANA_CHUNK_PREFS    KANA_TAG('P', 'R', 'E', 'F')
 
-#define KANA_HEADER_SIZE        12u
 #define KANA_STROKE_RECORD_SIZE 12u
 #define KANA_POINT_RECORD_SIZE  20u
 
 #define KANA_STROKE_FLAG_FROM_PEN 0x01u
 
-// --- writing -------------------------------------------------------------------
-//
-// The file is built in an rde_arr of bytes, then written in one go.
+// Before themes, the default ink was saved as this colour; it now means "the
+// theme's ink" (KANA_THEME_INK), so old pages and settings follow the theme too.
+#define KANA_LEGACY_INK (rde_color){ 30, 30, 36, 255 }
 
-typedef rde_arr TYPE(u8) kana_bytes;
-
-RDE_INTERNAL kana_bytes kana_bytes_new(u32 _capacity) {
-    // The standard heap, like the ink: a page's size is the user's to decide.
-    return rde_arr_new_with_capacity(sizeof(u8), _capacity, rde_memory_allocator_get_default_std());
-}
-
-RDE_INTERNAL u32 kana_bytes_size(const kana_bytes* _b) {
-    return (u32)rde_arr_length(_b);
-}
-
-RDE_INTERNAL void kana_put_u8(kana_bytes* _b, u8 _v) {
-    rde_arr_add(_b, &_v);
-}
-
-RDE_INTERNAL void kana_put_u32(kana_bytes* _b, u32 _v) {
-    u8* _p = rde_arr_add_n(_b, 4u);
-    _p[0] = (u8)(_v);
-    _p[1] = (u8)(_v >> 8);
-    _p[2] = (u8)(_v >> 16);
-    _p[3] = (u8)(_v >> 24);
-}
-
-RDE_INTERNAL void kana_put_f32(kana_bytes* _b, f32 _v) {
-    u32 _bits;
-    memcpy(&_bits, &_v, sizeof(_bits));
-    kana_put_u32(_b, _bits);
-}
-
-RDE_INTERNAL void kana_put_color(kana_bytes* _b, rde_color _c) {
-    kana_put_u8(_b, _c.r);
-    kana_put_u8(_b, _c.g);
-    kana_put_u8(_b, _c.b);
-    kana_put_u8(_b, _c.a);
-}
-
-RDE_INTERNAL void kana_put_header(kana_bytes* _b, u32 _kind) {
-    kana_put_u8(_b, 'K');
-    kana_put_u8(_b, 'A');
-    kana_put_u8(_b, 'N');
-    kana_put_u8(_b, 'A');
-    kana_put_u32(_b, KANA_SAVE_VERSION);
-    kana_put_u32(_b, _kind);
-}
-
-// Returns where the size goes; kana_chunk_end fills it in.
-RDE_INTERNAL u32 kana_chunk_begin(kana_bytes* _b, u32 _tag) {
-    kana_put_u32(_b, _tag);
-    const u32 _at = kana_bytes_size(_b);
-    kana_put_u32(_b, 0u);
-    return _at;
-}
-
-RDE_INTERNAL void kana_chunk_end(kana_bytes* _b, u32 _at) {
-    const u32 _size = kana_bytes_size(_b) - (_at + 4u);
-    u8*       _p    = rde_arr_at(_b, _at);
-    _p[0] = (u8)(_size);
-    _p[1] = (u8)(_size >> 8);
-    _p[2] = (u8)(_size >> 16);
-    _p[3] = (u8)(_size >> 24);
-}
-
-// Writes the finished bytes (see kana_save_write_atomic) and frees them.
-RDE_INTERNAL b8 kana_bytes_write_and_free(kana_bytes* _b, const c8* _path, u32* _out_bytes);
-
-// --- reading -------------------------------------------------------------------
-
-typedef struct {
-    const u8* data;
-    u32       size;
-    u32       pos;
-    b8        ok;     // false once anything read past the end
-} kana_reader;
-
-RDE_INTERNAL b8 kana_reader_has(kana_reader* _r, u32 _n) {
-    if(!_r->ok || _r->size - _r->pos < _n) {
-        _r->ok = false;
-        return false;
-    }
-    return true;
-}
-
-RDE_INTERNAL u8 kana_get_u8(kana_reader* _r) {
-    return kana_reader_has(_r, 1u) ? _r->data[_r->pos++] : 0u;
-}
-
-RDE_INTERNAL u32 kana_get_u32(kana_reader* _r) {
-    if(!kana_reader_has(_r, 4u)) {
-        return 0u;
-    }
-
-    const u8* _p = &_r->data[_r->pos];
-    _r->pos += 4u;
-    return (u32)_p[0] | ((u32)_p[1] << 8) | ((u32)_p[2] << 16) | ((u32)_p[3] << 24);
-}
-
-RDE_INTERNAL f32 kana_get_f32(kana_reader* _r) {
-    const u32 _bits = kana_get_u32(_r);
-    f32 _v;
-    memcpy(&_v, &_bits, sizeof(_v));
-    return _v;
-}
-
-RDE_INTERNAL rde_color kana_get_color(kana_reader* _r) {
-    rde_color _c;
-    _c.r = kana_get_u8(_r);
-    _c.g = kana_get_u8(_r);
-    _c.b = kana_get_u8(_r);
-    _c.a = kana_get_u8(_r);
-    return _c;
-}
-
-// "KANA", a version this build reads, and the expected kind.
-RDE_INTERNAL b8 kana_read_header(kana_reader* _r, u32 _kind) {
-    if(!kana_reader_has(_r, KANA_HEADER_SIZE) || memcmp(_r->data, "KANA", 4) != 0) {
-        return false;
-    }
-
-    _r->pos = 4u;
-    const u32 _version = kana_get_u32(_r);
-    const u32 _file_kind = kana_get_u32(_r);
-    return _r->ok && _version >= 1u && _version <= KANA_SAVE_VERSION && _file_kind == _kind;
+RDE_INTERNAL rde_color kana_saved_color(rde_color _c) {
+    const rde_color _legacy = KANA_LEGACY_INK;
+    return (_c.r == _legacy.r && _c.g == _legacy.g && _c.b == _legacy.b && _c.a == _legacy.a) ? KANA_THEME_INK : _c;
 }
 
 // --- files ---------------------------------------------------------------------
@@ -190,91 +70,6 @@ const c8* kana_save_dir(void) {
     return _dir;
 }
 
-RDE_INTERNAL b8 kana_save_write_atomic(const c8* _path, const u8* _data, u32 _size) {
-    c8 _tmp[RDE_MAX_PATH];
-    c8 _bak[RDE_MAX_PATH];
-    snprintf(_tmp, sizeof(_tmp), "%s.tmp", _path);
-    snprintf(_bak, sizeof(_bak), "%s.bak", _path);
-
-    b8 _written = false;
-    RDE_TRY({
-        rde_file* _file = rde_file_open(_tmp, RDE_FILE_MODE_WRITE_BYTES);
-        if(_file != NULL && !rde_failed()) {
-            rde_file_write_bytes(_file, _data, _size);
-            _written = !rde_failed();
-            rde_file_close(_file);
-        }
-    });
-
-    if(!_written) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: could not write %s", _tmp);
-        return false;
-    }
-
-    // The previous version becomes the backup, then the new one takes its name.
-    // Rename replaces the destination atomically.
-    if(rde_file_exists(_path)) {
-        rde_file_move(_path, _bak);
-    }
-
-    if(!rde_file_move(_tmp, _path)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: could not move %s into place", _tmp);
-        if(!rde_file_exists(_path) && rde_file_exists(_bak)) {
-            rde_file_move(_bak, _path);
-        }
-        return false;
-    }
-
-    return true;
-}
-
-RDE_INTERNAL b8 kana_bytes_write_and_free(kana_bytes* _b, const c8* _path, u32* _out_bytes) {
-    const u32 _size = kana_bytes_size(_b);
-    const b8  _ok   = kana_save_write_atomic(_path, (const u8*)_b->memory, _size);
-    if(_out_bytes != NULL) {
-        *_out_bytes = _size;
-    }
-    rde_arr_free(_b);
-    return _ok;
-}
-
-// The whole file, or NULL when it cannot be read. Free with kana_save_free.
-RDE_INTERNAL u8* kana_save_read(const c8* _path, u32* _size) {
-    u8*   _data = NULL;
-    usize _len  = 0;
-    RDE_TRY({
-        rde_file* _file = rde_file_open(_path, RDE_FILE_MODE_READ_BYTES);
-        if(_file != NULL && !rde_failed()) {
-            _data = rde_file_read_full_file_bytes(_file, &_len, rde_memory_allocator_get_default());
-            rde_file_close(_file);
-        }
-    });
-
-    if(_data != NULL && _len > 0xFFFFFFF0u) {
-        rde_memory_allocator* _allocator = rde_memory_allocator_get_default();
-        _allocator->free(_allocator->allocator, _data);
-        _data = NULL;
-    }
-
-    *_size = (u32)_len;
-    return _data;
-}
-
-RDE_INTERNAL void kana_save_free(u8* _data) {
-    if(_data != NULL) {
-        rde_memory_allocator* _allocator = rde_memory_allocator_get_default();
-        _allocator->free(_allocator->allocator, _data);
-    }
-}
-
-// Keeps a file that did not parse, so nothing can overwrite it.
-RDE_INTERNAL void kana_save_set_aside(const c8* _path) {
-    c8 _bad[RDE_MAX_PATH];
-    snprintf(_bad, sizeof(_bad), "%s.bad", _path);
-    rde_file_move(_path, _bad);
-    rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s could not be read; kept as %s", _path, _bad);
-}
-
 // --- document ------------------------------------------------------------------
 
 b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, u32* _out_bytes) {
@@ -291,8 +86,8 @@ b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, u3
 
     // Sized up front (+1: rde_arr grows when an add reaches its capacity), so the
     // whole file is built without a single reallocation.
-    kana_bytes _b = kana_bytes_new(KANA_HEADER_SIZE + 20u + (16u + _strokes * KANA_STROKE_RECORD_SIZE) + (16u + _points * KANA_POINT_RECORD_SIZE) + 1u);
-    kana_put_header(&_b, KANA_KIND_DOCUMENT);
+    kana_bytes _b = kana_bytes_new(KANA_FILE_HEADER_SIZE + 20u + (16u + _strokes * KANA_STROKE_RECORD_SIZE) + (16u + _points * KANA_POINT_RECORD_SIZE) + 1u);
+    kana_put_header(&_b, KANA_SAVE_VERSION, KANA_KIND_DOCUMENT);
 
     u32 _chunk = kana_chunk_begin(&_b, KANA_CHUNK_VIEW);
     kana_put_f32(&_b, _view.offset.x);
@@ -352,7 +147,7 @@ typedef struct {
 // Parses the whole document before touching _ink, so a damaged file changes nothing.
 RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, kana_view* _view) {
     kana_reader _r = { .data = _data, .size = _size, .pos = 0, .ok = true };
-    if(!kana_read_header(&_r, KANA_KIND_DOCUMENT)) {
+    if(!kana_read_header(&_r, KANA_SAVE_VERSION, KANA_KIND_DOCUMENT)) {
         return false;
     }
 
@@ -398,7 +193,7 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
             for(u32 _i = 0; _i < _count; _i++) {
                 const u32 _start = _c.pos;
                 _strokes[_i].point_count = kana_get_u32(&_c);
-                _strokes[_i].color       = kana_get_color(&_c);
+                _strokes[_i].color       = kana_saved_color(kana_get_color(&_c));
                 _strokes[_i].from_pen    = (kana_get_u8(&_c) & KANA_STROKE_FLAG_FROM_PEN) != 0;
                 _c.pos = _start + _record;   // skip fields a newer build added
                 if(_strokes[_i].point_count == 0) {
@@ -470,12 +265,12 @@ RDE_INTERNAL KANA_LOAD_ kana_load_document_file(const c8* _file, kana_ink* _ink,
     }
 
     u32 _size = 0;
-    u8* _data = kana_save_read(_file, &_size);
+    u8* _data = kana_file_read(_file, &_size);
     const b8 _ok = _data != NULL && kana_parse_document(_data, _size, _ink, _view);
-    kana_save_free(_data);
+    kana_file_free(_data);
 
     if(!_ok) {
-        kana_save_set_aside(_file);
+        kana_file_set_aside(_file);
         return KANA_LOAD_CORRUPT;
     }
 
@@ -505,7 +300,7 @@ KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view)
 
 b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_bytes _b = kana_bytes_new(64u);
-    kana_put_header(&_b, KANA_KIND_SETTINGS);
+    kana_put_header(&_b, KANA_SAVE_VERSION, KANA_KIND_SETTINGS);
 
     const u32 _chunk = kana_chunk_begin(&_b, KANA_CHUNK_PREFS);
     kana_put_u8(&_b, _settings->tool);
@@ -517,6 +312,7 @@ b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_put_f32(&_b, _settings->radius);
     kana_put_f32(&_b, _settings->toolbar_center.x);
     kana_put_f32(&_b, _settings->toolbar_center.y);
+    kana_put_u8(&_b, _settings->theme);
     kana_chunk_end(&_b, _chunk);
 
     return kana_bytes_write_and_free(&_b, _path, NULL);
@@ -535,12 +331,12 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
     }
 
     u32 _size = 0;
-    u8* _data = kana_save_read(_from, &_size);
+    u8* _data = kana_file_read(_from, &_size);
 
     kana_reader _r = { .data = _data, .size = _size, .pos = 0, .ok = _data != NULL };
-    if(_data == NULL || !kana_read_header(&_r, KANA_KIND_SETTINGS)) {
-        kana_save_free(_data);
-        kana_save_set_aside(_from);
+    if(_data == NULL || !kana_read_header(&_r, KANA_SAVE_VERSION, KANA_KIND_SETTINGS)) {
+        kana_file_free(_data);
+        kana_file_set_aside(_from);
         return KANA_LOAD_CORRUPT;
     }
 
@@ -573,15 +369,17 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
         const u8 _width = kana_get_u8(&_c);
         if(_c.ok && _width <= 1u) { _s.width_mode = _width; }
         const rde_color _color = kana_get_color(&_c);
-        if(_c.ok) { _s.color = _color; }
+        if(_c.ok) { _s.color = kana_saved_color(_color); }
         const f32 _radius = kana_get_f32(&_c);
         if(_c.ok && kana_finite(_radius) && _radius > 0.0f) { _s.radius = _radius; }
         const f32 _cx = kana_get_f32(&_c);
         const f32 _cy = kana_get_f32(&_c);
         if(_c.ok && kana_finite(_cx) && kana_finite(_cy)) { _s.toolbar_center = (rde_vec_2F){ _cx, _cy }; }
+        const u8 _theme = kana_get_u8(&_c);
+        if(_c.ok && _theme < KANA_THEME_COUNT) { _s.theme = _theme; }
     }
 
-    kana_save_free(_data);
+    kana_file_free(_data);
     *_settings = _s;
     return KANA_LOAD_OK;
 }
@@ -595,5 +393,6 @@ b8 kana_settings_equal(const kana_settings* _a, const kana_settings* _b) {
            _a->brush_scale == _b->brush_scale && _a->width_mode == _b->width_mode &&
            _a->color.r == _b->color.r && _a->color.g == _b->color.g && _a->color.b == _b->color.b && _a->color.a == _b->color.a &&
            kana_same_f32(_a->radius, _b->radius) &&
-           kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y);
+           kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
+           _a->theme == _b->theme;
 }

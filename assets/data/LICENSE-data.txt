@@ -1,0 +1,41 @@
+Character data (characters.kana)
+================================
+
+characters.kana is baked from the works below and is a derived work of them.
+It is distributed under the same licences, and this attribution must be shown
+to the app's users (an attribution / about screen).
+
+
+KanjiVG
+-------
+Stroke data: the strokes of every kana and kanji, in writing order.
+
+  Copyright (C) 2009-2025 Ulrich Apel.
+  KanjiVG is distributed under the Creative Commons Attribution-Share Alike 3.0
+  licence: https://creativecommons.org/licenses/by-sa/3.0/
+  Website: https://kanjivg.tagaini.net
+  Source used: release r20250816 (kanjivg-20250816.xml.gz).
+
+
+KANJIDIC2
+---------
+Readings, meanings, school grades, JLPT levels, frequency ranks and radicals.
+
+  This app uses the KANJIDIC2 dictionary file. This file is the property of the
+  Electronic Dictionary Research and Development Group (EDRDG), and is used in
+  conformance with the Group's licence: Creative Commons Attribution-ShareAlike
+  4.0 International, https://creativecommons.org/licenses/by-sa/4.0/
+  Licence details: https://www.edrdg.org/edrdg/licence.html
+  Project page: https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
+
+
+JLPT levels
+-----------
+The JLPT N5-N1 level of each kanji.
+
+  From Jonathan Waller's JLPT Resources, http://www.tanos.co.uk/jlpt/
+  Licensed under Creative Commons Attribution ("BY"), as stated on
+  http://www.tanos.co.uk/jlpt/sharing/ ("use anything here however you like
+  (commercial or non-commercial), but credit my site").
+  These are community lists: since 2010 the JLPT publishes no official kanji
+  lists, and the levels are Waller's best estimate.

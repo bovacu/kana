@@ -28,11 +28,7 @@
 #define KANA_CANVAS_GRID_MIN_SCREEN 24.0f
 #define KANA_CANVAS_GRID_MAX_SCREEN 96.0f
 #define KANA_CANVAS_GRID_DOT        2.0f
-#define KANA_CANVAS_GRID_COLOR      (rde_color){ 200, 198, 190, 255 }
-
-// The page itself: paper, slightly warm. Ink and the practice guides to come are
-// dark on it.
-#define KANA_CANVAS_PAGE_COLOR      (rde_color){ 248, 247, 243, 255 }
+// The page and dot colours are the theme's (theme.h).
 
 // Fingers tracked at once. Only the first two move the page; the rest are just
 // counted, so a three-finger tap works and a third finger doesn't drag the page.

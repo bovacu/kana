@@ -5,6 +5,10 @@
 #include "ink.h"
 #include "canvas.h"
 #include "lasso.h"
+#include "viewer.h"
+#include "browse.h"
+#include "chart.h"
+#include "practice.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -25,6 +29,11 @@ typedef enum {
     KANA_TOOL_ERASE,
     KANA_TOOL_LASSO
 } KANA_TOOL_;
+
+// The UI font: Roboto, rendered with Slug (curves, sharp at any size). Loaded at
+// this size; everything that draws text with it scales from here. The rest of the
+// app draws its text with toolbar.font too — see kana.c.
+#define KANA_TOOLBAR_FONT_SIZE   32
 
 #define KANA_TOOLBAR_PALETTE_COUNT 8
 
@@ -53,6 +62,9 @@ RDE_STRUCT {
     u32           index;
 } kana_toolbar_swatch_ref;
 
+// One Browse chip's callback context: which toolbar, which filter or sort.
+typedef kana_toolbar_swatch_ref kana_toolbar_chip_ref;
+
 struct kana_toolbar {
     rde_ui_canvas* ui;
     rde_font*      font;
@@ -62,6 +74,10 @@ struct kana_toolbar {
     kana_ink*      ink;
     kana_canvas*   view;
     kana_lasso*    lasso;
+    kana_viewer*   viewer;
+    kana_browse*   browse;
+    kana_chart*    chart;
+    kana_practice* practice;
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -69,6 +85,7 @@ struct kana_toolbar {
     rde_vec_2F     center;          // panel centre, UI canvas units (bottom-left origin, Y up)
     rde_vec_2F     panel_size;
     rde_vec_2F     color_button_center;   // panel-local, for placing the palette
+    rde_vec_2F     theme_button_center;   // panel-local, for placing the theme row
 
     rde_ui_image*  panel;
     rde_ui_image*  grip;
@@ -83,6 +100,9 @@ struct kana_toolbar {
     rde_ui_button* brush_scale;
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
+    rde_ui_button* kanji;
+    rde_ui_button* kana;
+    rde_ui_button* theme;
     rde_ui_button* hud;
 
     rde_ui_image*            palette;
@@ -98,6 +118,32 @@ struct kana_toolbar {
     // The page's context menu, opened by a long press: Paste, Select all.
     kana_toolbar_menu        context_menu;
     rde_vec_2F               context_canvas;   // where it was opened, on the page — where Paste lands
+    // Under the character viewer: Prev, Replay, Next, Close. While the viewer is
+    // open the bar itself and every other menu hide.
+    kana_toolbar_menu        viewer_menu;
+    b8                       _viewer_shown;     // a full-screen scene is up: the floating bar is hidden
+    // The kana chart's row: Hiragana, Katakana (jumps), Close.
+    kana_toolbar_menu        chart_menu;
+    // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
+    kana_toolbar_menu        practice_menu;
+    // The Theme button's row: one button per theme (theme.h).
+    kana_toolbar_menu        theme_menu;
+    kana_toolbar_swatch_ref  theme_refs[KANA_TOOLBAR_MENU_MAX];
+
+    // Browse's bar, across the top of the screen: filters, sorts, the search
+    // field, Draw/Clear, Close.
+    rde_ui_image*            browse_bar;
+    rde_ui_button*           filter_chips[KANA_FILTER_COUNT];
+    kana_toolbar_chip_ref    filter_refs[KANA_FILTER_COUNT];
+    rde_ui_button*           sort_chips[KANA_SORT_COUNT];
+    kana_toolbar_chip_ref    sort_refs[KANA_SORT_COUNT];
+    rde_ui_button*           browse_close;
+    rde_ui_text_editor*      search_field;
+    rde_ui_button*           draw_toggle;
+    rde_ui_button*           pad_clear;
+    b8                       _browse_shown;
+    rde_vec_2F               _browse_laid_out;   // the screen size the bar was laid out for
+    f32                      browse_bar_height;  // UI units, including the top safe inset
 
     // Grip drag.
     rde_vec_2F     drag_start_center;
@@ -110,14 +156,16 @@ struct kana_toolbar {
     b8             _can_redo_shown;
 };
 
-void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso, b8* _show_hud);
+void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
+                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
 // Is this point on the toolbar, its open palette or an open menu? _screen is
 // Kana's screen space (centre-origin, Y up) — what pen positions convert to.
 b8         kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen);
 
-// Re-reads ink state into the widgets (after a keyboard shortcut changed it).
+// Re-reads ink state into the widgets (after a keyboard shortcut changed it), and
+// restyles every widget from the current theme (after kana_theme_set).
 void       kana_toolbar_sync(kana_toolbar* _toolbar);
 
 // The page's context menu, for a long press at _screen (Kana screen space).
