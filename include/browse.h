@@ -23,11 +23,33 @@
 // Input: one pointer at a time. A finger or the pen drags the grid (with
 // inertia) and taps a character; on the pad, the PEN writes (a finger still
 // scrolls). Every stroke finished on the pad re-ranks the grid by resemblance.
+//
+// PARTS (the design's "search by component"): instead of the pad, a panel of
+// the parts characters are built from (kanji.h, 'PART'), by stroke count. Tap
+// parts to keep only the characters containing ALL of them; parts no listed
+// character has are dimmed, so each pick narrows what is left to pick.
 // ===========================================================================
 
 #define KANA_BROWSE_MATCHES   60        // how many draw-search results the grid shows
 #define KANA_BROWSE_CELL_MIN  88.0f     // screen units: the grid fits as many columns as this allows
 #define KANA_BROWSE_PAD       230.0f    // the drawing pad's side
+#define KANA_BROWSE_MAX_PICKED 6        // parts picked at once
+#define KANA_BROWSE_PART_USES  5        // a part in fewer characters than this is not offered
+
+// A part the panel offers.
+RDE_STRUCT {
+    u32 codepoint;
+    u16 uses;          // characters containing it
+    u8  strokes;
+    b8  usable;        // some listed character contains it (or it is picked)
+} kana_browse_part;
+
+// A part's cell on the panel, as laid out for the last frame (content space: y
+// down from the top of the panel's content).
+RDE_STRUCT {
+    f32 x, y, size;
+    u32 part;          // into parts
+} kana_browse_part_hit;
 
 RDE_STRUCT {
     const kana_kanji_db* db;
@@ -41,6 +63,16 @@ RDE_STRUCT {
     b8                   drawing;       // the pad is shown and searches
     kana_ink             pad;           // what was drawn on it (pad-local units, Y up)
 
+    b8                   picking;       // the parts panel is shown
+    rde_arr TYPE(kana_browse_part)     parts;       // offered, by stroke count then uses
+    u32                  picked[KANA_BROWSE_MAX_PICKED];
+    u32                  picked_count;
+    kana_scroller        parts_scroller;
+    b8                   on_parts;      // the pointer is on the panel
+    rde_arr TYPE(kana_browse_part_hit) part_hits;
+    f32                  parts_height;  // the panel's content height
+    u8*                  _marks;        // scratch: a flag per code point (see kana_browse_recompute)
+
     rde_arr TYPE(u32)    list;          // what the grid shows: record indices, in order
     b8                   dirty;         // list must be recomputed
 
@@ -52,6 +84,8 @@ RDE_STRUCT {
     rde_vec_2F           grid_max;
     rde_vec_2F           pad_min;
     rde_vec_2F           pad_max;
+    rde_vec_2F           panel_min;
+    rde_vec_2F           panel_max;
     f32                  cell;
     u32                  columns;
 
@@ -70,6 +104,11 @@ void kana_browse_set_sort(kana_browse* _browse, KANA_SORT_ _sort);
 void kana_browse_set_search(kana_browse* _browse, const c8* _text);
 void kana_browse_set_drawing(kana_browse* _browse, b8 _drawing);
 void kana_browse_clear_pad(kana_browse* _browse);
+// The parts panel: shown or not (the pad goes when it comes), and no parts picked.
+void kana_browse_set_picking(kana_browse* _browse, b8 _picking);
+void kana_browse_clear_parts(kana_browse* _browse);
+// The data has parts to pick from.
+b8   kana_browse_parts_available(const kana_browse* _browse);
 
 // Pointer input, screen space. _pen: the pen (writes on the pad) or a finger.
 void kana_browse_pointer_down(kana_browse* _browse, rde_vec_2F _screen, b8 _pen, f64 _time);

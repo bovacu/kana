@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ===========================================================================
@@ -13,6 +14,54 @@
 #define KANA_BROWSE_MARGIN     16.0f     // screen units at the sides and bottom
 #define KANA_BROWSE_STATUS_H   34.0f     // the status line above the pad/grid
 #define KANA_BROWSE_CAPTION_PX 15.0f     // the line under each character
+#define KANA_BROWSE_PART_CELL  44.0f     // a part on the panel
+#define KANA_BROWSE_PANEL_H    270.0f    // the parts panel, at most
+#define KANA_BROWSE_MARKS      0x30000u  // code points the part marks cover (all of KanjiVG's)
+
+RDE_INTERNAL int kana_browse_part_order(const void* _a, const void* _b) {
+    const kana_browse_part* _x = (const kana_browse_part*)_a;
+    const kana_browse_part* _y = (const kana_browse_part*)_b;
+    if(_x->strokes != _y->strokes) { return _x->strokes < _y->strokes ? -1 : 1; }
+    if(_x->uses != _y->uses)       { return _x->uses > _y->uses ? -1 : 1; }
+    return _x->codepoint < _y->codepoint ? -1 : _x->codepoint > _y->codepoint ? 1 : 0;
+}
+
+// Every part worth offering: drawable (it has strokes of its own) and in at
+// least KANA_BROWSE_PART_USES characters Browse lists.
+RDE_INTERNAL void kana_browse_build_parts(kana_browse* _browse) {
+    if(_browse->db == NULL || !kana_kanji_has_parts(_browse->db)) {
+        return;
+    }
+
+    u16* _uses = (u16*)calloc(KANA_BROWSE_MARKS, sizeof(u16));
+    if(_uses == NULL) {
+        return;
+    }
+    const kana_catalog_entry* _entries = (const kana_catalog_entry*)_browse->catalog.entries.memory;
+    for(u32 _e = 0; _e < (u32)rde_arr_length(&_browse->catalog.entries); _e++) {
+        u32       _parts[KANA_KANJI_MAX_PARTS];
+        const u32 _n = kana_kanji_parts(_browse->db, _entries[_e].record, _parts, KANA_KANJI_MAX_PARTS);
+        for(u32 _i = 0; _i < _n; _i++) {
+            if(_parts[_i] < KANA_BROWSE_MARKS && _uses[_parts[_i]] < 65535u) {
+                _uses[_parts[_i]]++;
+            }
+        }
+    }
+
+    for(u32 _cp = 0; _cp < KANA_BROWSE_MARKS; _cp++) {
+        kana_kanji_info _info;
+        if(_uses[_cp] >= KANA_BROWSE_PART_USES && kana_kanji_find(_browse->db, _cp, &_info)) {
+            const kana_browse_part _part = { .codepoint = _cp, .uses = _uses[_cp], .strokes = _info.strokes, .usable = true };
+            rde_arr_add(&_browse->parts, &_part);
+        }
+    }
+    free(_uses);
+
+    if(rde_arr_length(&_browse->parts) > 1) {
+        qsort(_browse->parts.memory, rde_arr_length(&_browse->parts), sizeof(kana_browse_part), kana_browse_part_order);
+    }
+    _browse->_marks = (u8*)calloc(KANA_BROWSE_MARKS, 1);
+}
 
 void kana_browse_init(kana_browse* _browse, const kana_kanji_db* _db) {
     memset(_browse, 0, sizeof(*_browse));
@@ -25,12 +74,20 @@ void kana_browse_init(kana_browse* _browse, const kana_kanji_db* _db) {
     kana_catalog_init(&_browse->catalog, _db);
     kana_glyph_init(&_browse->glyph, _db);
     kana_ink_init(&_browse->pad);
+
+    _browse->parts     = rde_arr_new(sizeof(kana_browse_part), rde_memory_allocator_get_default_std());
+    _browse->part_hits = rde_arr_new(sizeof(kana_browse_part_hit), rde_memory_allocator_get_default_std());
+    kana_browse_build_parts(_browse);
 }
 
 void kana_browse_destroy(kana_browse* _browse) {
-    if(rde_arr_is_inited(&_browse->list)) {
-        rde_arr_free(&_browse->list);
+    rde_arr* _arrays[] = { &_browse->list, &_browse->parts, &_browse->part_hits };
+    for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
+        if(rde_arr_is_inited(_arrays[_i])) {
+            rde_arr_free(_arrays[_i]);
+        }
     }
+    free(_browse->_marks);
     kana_catalog_destroy(&_browse->catalog);
     kana_glyph_destroy(&_browse->glyph);
     kana_ink_destroy(&_browse->pad);
@@ -85,8 +142,56 @@ void kana_browse_set_drawing(kana_browse* _browse, b8 _drawing) {
     _browse->drawing = _drawing;
     if(!_drawing) {
         kana_browse_clear_pad(_browse);
+    } else {
+        _browse->picking      = false;   // one search panel at a time
+        _browse->picked_count = 0;
     }
     kana_browse_changed(_browse);
+}
+
+b8 kana_browse_parts_available(const kana_browse* _browse) {
+    return rde_arr_length(&_browse->parts) > 0 && _browse->_marks != NULL;
+}
+
+void kana_browse_clear_parts(kana_browse* _browse) {
+    _browse->picked_count = 0;
+    kana_browse_changed(_browse);
+}
+
+void kana_browse_set_picking(kana_browse* _browse, b8 _picking) {
+    _browse->picking      = _picking && kana_browse_parts_available(_browse);
+    _browse->picked_count = 0;   // hidden picks would filter unseen
+    if(_browse->picking && _browse->drawing) {
+        _browse->drawing = false;
+        kana_browse_clear_pad(_browse);
+    }
+    kana_scroller_stop(&_browse->parts_scroller);
+    _browse->parts_scroller.offset = 0.0f;
+    kana_browse_changed(_browse);
+}
+
+RDE_INTERNAL b8 kana_browse_is_picked(const kana_browse* _browse, u32 _codepoint) {
+    for(u32 _i = 0; _i < _browse->picked_count; _i++) {
+        if(_browse->picked[_i] == _codepoint) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RDE_INTERNAL void kana_browse_toggle_part(kana_browse* _browse, u32 _part) {
+    const kana_browse_part* _p = &((const kana_browse_part*)_browse->parts.memory)[_part];
+    for(u32 _i = 0; _i < _browse->picked_count; _i++) {
+        if(_browse->picked[_i] == _p->codepoint) {
+            _browse->picked[_i] = _browse->picked[--_browse->picked_count];
+            kana_browse_changed(_browse);
+            return;
+        }
+    }
+    if(_p->usable && _browse->picked_count < KANA_BROWSE_MAX_PICKED) {
+        _browse->picked[_browse->picked_count++] = _p->codepoint;
+        kana_browse_changed(_browse);
+    }
 }
 
 const u32* kana_browse_list(const kana_browse* _browse) {
@@ -129,6 +234,46 @@ RDE_INTERNAL void kana_browse_recompute(kana_browse* _browse) {
         }
     }
 
+    if(_browse->picking && kana_browse_parts_available(_browse)) {
+        // Only characters with every picked part (a character counts as its own part).
+        u32* _list = (u32*)_browse->list.memory;
+        u32  _kept = 0;
+        memset(_browse->_marks, 0, KANA_BROWSE_MARKS);
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_browse->list); _i++) {
+            u32             _parts[KANA_KANJI_MAX_PARTS + 1];
+            u32             _n = kana_kanji_parts(_browse->db, _list[_i], _parts, KANA_KANJI_MAX_PARTS);
+            kana_kanji_info _info;
+            if(kana_kanji_at(_browse->db, _list[_i], &_info)) {
+                _parts[_n++] = _info.codepoint;
+            }
+
+            b8 _all = true;
+            for(u32 _k = 0; _k < _browse->picked_count && _all; _k++) {
+                b8 _has = false;
+                for(u32 _j = 0; _j < _n && !_has; _j++) {
+                    _has = _parts[_j] == _browse->picked[_k];
+                }
+                _all = _has;
+            }
+            if(!_all) {
+                continue;
+            }
+
+            _list[_kept++] = _list[_i];
+            for(u32 _j = 0; _j < _n; _j++) {
+                if(_parts[_j] < KANA_BROWSE_MARKS) {
+                    _browse->_marks[_parts[_j]] = 1;   // what is left to pick
+                }
+            }
+        }
+        _browse->list.count = _kept;   // rde_arr has no truncate: rde_arr_clear's operation, to a length
+
+        kana_browse_part* _parts = (kana_browse_part*)_browse->parts.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_browse->parts); _i++) {
+            _parts[_i].usable = _browse->_marks[_parts[_i].codepoint] != 0 || kana_browse_is_picked(_browse, _parts[_i].codepoint);
+        }
+    }
+
     _browse->dirty = false;
 }
 
@@ -155,7 +300,8 @@ void kana_browse_pointer_down(kana_browse* _browse, rde_vec_2F _screen, b8 _pen,
         return;
     }
 
-    kana_scroller_down(&_browse->scroller, _screen, _time);
+    _browse->on_parts = _browse->picking && kana_browse_inside(_screen, _browse->panel_min, _browse->panel_max);
+    kana_scroller_down(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
 }
 
 void kana_browse_pointer_moved(kana_browse* _browse, rde_vec_2F _screen, f64 _time) {
@@ -164,7 +310,7 @@ void kana_browse_pointer_moved(kana_browse* _browse, rde_vec_2F _screen, f64 _ti
         return;
     }
 
-    kana_scroller_moved(&_browse->scroller, _screen, _time);
+    kana_scroller_moved(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
 }
 
 void kana_browse_pointer_up(kana_browse* _browse, f64 _time) {
@@ -173,6 +319,24 @@ void kana_browse_pointer_up(kana_browse* _browse, f64 _time) {
         _browse->on_pad          = false;
         _browse->dirty           = true;   // re-rank with the new stroke
         _browse->scroller.offset = 0.0f;
+        return;
+    }
+
+    if(_browse->on_parts) {
+        _browse->on_parts = false;
+        kana_scroller_up(&_browse->parts_scroller, _time);
+
+        rde_vec_2F _at;
+        if(kana_scroller_take_tap(&_browse->parts_scroller, &_at) && kana_browse_inside(_at, _browse->panel_min, _browse->panel_max)) {
+            const f32                   _content_y = _browse->panel_max.y - _at.y + _browse->parts_scroller.offset;
+            const kana_browse_part_hit* _hits      = (const kana_browse_part_hit*)_browse->part_hits.memory;
+            for(u32 _i = 0; _i < (u32)rde_arr_length(&_browse->part_hits); _i++) {
+                if(_at.x >= _hits[_i].x && _at.x < _hits[_i].x + _hits[_i].size && _content_y >= _hits[_i].y && _content_y < _hits[_i].y + _hits[_i].size) {
+                    kana_browse_toggle_part(_browse, _hits[_i].part);
+                    break;
+                }
+            }
+        }
         return;
     }
 
@@ -200,6 +364,9 @@ void kana_browse_update(kana_browse* _browse, f32 _dt) {
 
     const u32 _rows = _browse->columns > 0 ? (kana_browse_count(_browse) + _browse->columns - 1u) / _browse->columns : 0u;
     kana_scroller_update(&_browse->scroller, _dt, (f32)_rows * _browse->cell, _browse->grid_max.y - _browse->grid_min.y);
+    if(_browse->picking) {
+        kana_scroller_update(&_browse->parts_scroller, _dt, _browse->parts_height, _browse->panel_max.y - _browse->panel_min.y);
+    }
 }
 
 // --- drawing -----------------------------------------------------------------------
@@ -229,6 +396,75 @@ RDE_INTERNAL void kana_browse_draw_pad(kana_browse* _browse, rde_vec_2F _tl, f32
 
     // The pad's strokes are stored from its bottom-left corner.
     kana_ink_render(&_browse->pad, _browse->pad_min, 1.0f, _screen_half, rde_engine_get_time_now(), false);
+}
+
+// The parts panel: the sheet, and on it every offered part by stroke count — a
+// small stroke number where a new count starts — picked ones marked, ones no
+// listed character has dimmed. Scrolls on its own.
+RDE_INTERNAL void kana_browse_draw_parts(kana_browse* _browse, rde_window* _window, rde_font* _font, f32 _font_px,
+                                         f32 _left, f32 _right, f32 _top, f32 _height) {
+    const kana_theme* _theme = kana_theme_active();
+    _browse->panel_min = (rde_vec_2F){ _left, _top - _height };
+    _browse->panel_max = (rde_vec_2F){ _right, _top };
+
+    rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_left + _right) * 0.5f, _top - _height * 0.5f }, (rde_vec_2F){ _right - _left, _height }, _theme->sheet);
+    const rde_vec_2F _box[5] = { { _left, _top }, { _right, _top }, { _right, _top - _height }, { _left, _top - _height }, { _left, _top } };
+    const f32        _r[5]   = { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
+    rde_rendering_2d_draw_stroke(_box, _r, 5, _theme->sheet_outline);
+
+    rde_arr_clear(&_browse->part_hits);
+    const f32 _cell   = KANA_BROWSE_PART_CELL;
+    const f32 _inner  = _left + 6.0f;
+    const u32 _cols   = (u32)fmaxf(1.0f, floorf((_right - _left - 12.0f) / _cell));
+    const f32 _scroll = _browse->parts_scroller.offset;
+
+    rde_rendering_begin_clipping_rect(_window,
+                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)(_top - _height * 0.5f) },
+                                      (rde_vec_2UI){ (u32)(_right - _left - 2.0f), (u32)(_height - 2.0f) });
+
+    const kana_browse_part* _parts   = (const kana_browse_part*)_browse->parts.memory;
+    u32                     _slot    = 0;
+    u32                     _strokes = 0;
+    c8                      _label[8];
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_browse->parts); _i++) {
+        const kana_browse_part* _p = &_parts[_i];
+
+        if(_p->strokes != _strokes) {   // a new stroke count: its number, in a cell of its own
+            _strokes = _p->strokes;
+            const f32 _cy = 4.0f + (f32)(_slot / _cols) * _cell;
+            const f32 _y  = _top - (_cy - _scroll);
+            if(_y > _top - _height - _cell && _y - _cell < _top) {
+                snprintf(_label, sizeof(_label), "%u", _strokes);
+                kana_browse_text(_font, _font_px, _label, _inner + (f32)(_slot % _cols) * _cell + 12.0f, _y - _cell * 0.62f, 14.0f, _theme->select);
+            }
+            _slot++;
+        }
+
+        const f32 _x  = _inner + (f32)(_slot % _cols) * _cell;
+        const f32 _cy = 4.0f + (f32)(_slot / _cols) * _cell;
+        const f32 _y  = _top - (_cy - _scroll);
+        _slot++;
+        if(_y - _cell > _top || _y < _top - _height) {
+            continue;
+        }
+
+        const kana_browse_part_hit _hit = { _x, _cy, _cell, _i };
+        rde_arr_add(&_browse->part_hits, &_hit);
+
+        if(kana_browse_is_picked(_browse, _p->codepoint)) {
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _cell * 0.5f, _y - _cell * 0.5f }, (rde_vec_2F){ _cell - 4.0f, _cell - 4.0f }, _theme->select_fill);
+            const rde_vec_2F _sel[5] = { { _x + 2.0f, _y - 2.0f }, { _x + _cell - 2.0f, _y - 2.0f }, { _x + _cell - 2.0f, _y - _cell + 2.0f },
+                                         { _x + 2.0f, _y - _cell + 2.0f }, { _x + 2.0f, _y - 2.0f } };
+            const f32        _sr[5]  = { 1.2f, 1.2f, 1.2f, 1.2f, 1.2f };
+            rde_rendering_2d_draw_stroke(_sel, _sr, 5, _theme->select);
+        }
+        const f32 _glyph = _cell * 0.7f;
+        kana_glyph_character(&_browse->glyph, _p->codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - (_cell - _glyph) * 0.5f }, _glyph,
+                             _p->usable ? _theme->ink : _theme->ghost);
+    }
+    _browse->parts_height = 8.0f + (f32)((_slot + _cols - 1u) / _cols) * _cell;
+
+    rde_rendering_end_clipping_rect();
 }
 
 // What a cell shows under the character, depending on how the list is ordered.
@@ -301,6 +537,10 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
     const u32 _count = kana_browse_count(_browse);
     if(kana_browse_pad_used(_browse)) {
         snprintf(_status, sizeof(_status), "Best matches for your drawing: %u", _count);
+    } else if(_browse->picking && _browse->picked_count > 0) {
+        snprintf(_status, sizeof(_status), "%u character%s with the %s", _count, _count == 1 ? "" : "s", _browse->picked_count == 1 ? "picked part" : "picked parts");
+    } else if(_browse->picking) {
+        snprintf(_status, sizeof(_status), "Tap parts: only characters that have all of them stay (dimmed parts: none left has them)");
     } else if(_browse->drawing) {
         snprintf(_status, sizeof(_status), "Write a character in the box with the pen: every stroke re-ranks the list");
     } else {
@@ -317,6 +557,15 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
         _grid_top -= _pad + 20.0f;
     } else {
         _browse->pad_min = _browse->pad_max = (rde_vec_2F){ 0.0f, 0.0f };
+    }
+
+    // --- the parts panel -----------------------------------------------------------------
+    if(_browse->picking) {
+        const f32 _panel = fminf(KANA_BROWSE_PANEL_H, (_grid_top - _bottom) * 0.5f);
+        kana_browse_draw_parts(_browse, _window, _font, _font_px, _left, _right, _grid_top - 4.0f, _panel);
+        _grid_top -= _panel + 16.0f;
+    } else {
+        _browse->panel_min = _browse->panel_max = (rde_vec_2F){ 0.0f, 0.0f };
     }
 
     // --- the grid ------------------------------------------------------------------------

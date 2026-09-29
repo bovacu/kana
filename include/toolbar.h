@@ -155,6 +155,7 @@ struct kana_toolbar {
     rde_ui_button*           browse_practice;     // Browse's list as a practice set
     rde_ui_text_editor*      search_field;
     rde_ui_button*           draw_toggle;
+    rde_ui_button*           parts_toggle;        // the parts panel (search by component)
     rde_ui_button*           pad_clear;
     b8                       _browse_shown;
     rde_vec_2F               _browse_laid_out;   // the screen size the bar was laid out for

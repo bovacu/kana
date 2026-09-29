@@ -971,6 +971,8 @@ RDE_INTERNAL void kana_toolbar_refresh_browse(kana_toolbar* _toolbar) {
     }
     if(_toolbar->browse->drawing) { kana_toolbar_button_selected(_toolbar->draw_toggle); }
     else                          { kana_toolbar_button_plain(_toolbar->draw_toggle); }
+    if(_toolbar->browse->picking) { kana_toolbar_button_selected(_toolbar->parts_toggle); }
+    else                          { kana_toolbar_button_plain(_toolbar->parts_toggle); }
 }
 
 RDE_INTERNAL void kana_toolbar_layout_browse(kana_toolbar* _toolbar) {
@@ -1007,9 +1009,10 @@ RDE_INTERNAL void kana_toolbar_layout_browse(kana_toolbar* _toolbar) {
     kana_toolbar_place(rde_ui_button_as_node(_toolbar->browse_close), (rde_vec_2F){ _left + _width - _sort * 0.5f, _y }, (rde_vec_2F){ _sort, KANA_BROWSE_ROW_H });
 
     _y -= (KANA_BROWSE_ROW_H + KANA_BROWSE_FIELD_H) * 0.5f + _gap;
-    const f32 _field = _width - 2.0f * (KANA_BROWSE_SIDE_W + _gap);
+    const f32 _field = _width - 3.0f * (KANA_BROWSE_SIDE_W + _gap);
     kana_toolbar_place(rde_ui_text_editor_as_node(_toolbar->search_field), (rde_vec_2F){ _left + _field * 0.5f, _y }, (rde_vec_2F){ _field, KANA_BROWSE_FIELD_H });
     kana_toolbar_place(rde_ui_button_as_node(_toolbar->draw_toggle), (rde_vec_2F){ _left + _field + _gap + KANA_BROWSE_SIDE_W * 0.5f, _y }, (rde_vec_2F){ KANA_BROWSE_SIDE_W, KANA_BROWSE_FIELD_H });
+    kana_toolbar_place(rde_ui_button_as_node(_toolbar->parts_toggle), (rde_vec_2F){ _left + _field + 2.0f * _gap + KANA_BROWSE_SIDE_W * 1.5f, _y }, (rde_vec_2F){ KANA_BROWSE_SIDE_W, KANA_BROWSE_FIELD_H });
     kana_toolbar_place(rde_ui_button_as_node(_toolbar->pad_clear), (rde_vec_2F){ _left + _width - KANA_BROWSE_SIDE_W * 0.5f, _y }, (rde_vec_2F){ KANA_BROWSE_SIDE_W, KANA_BROWSE_FIELD_H });
 }
 
@@ -1045,7 +1048,16 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_draw_toggle(rde_ui_node* _node
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-// Clear: the drawing and the typed search both.
+// Parts: the panel of parts instead of the pad (one or the other).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_parts_toggle(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_browse_set_picking(_toolbar->browse, !_toolbar->browse->picking);
+    kana_toolbar_refresh_browse(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Clear: the drawing, the typed search and the picked parts.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_pad_clear(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
@@ -1055,6 +1067,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_pad_clear(rde_ui_node* _node, 
     }
     kana_browse_set_search(_toolbar->browse, "");
     kana_browse_clear_pad(_toolbar->browse);
+    kana_browse_clear_parts(_toolbar->browse);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -1163,7 +1176,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     rde_ui_button* const _buttons[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
         _toolbar->brush_scale, _toolbar->rotate, _toolbar->reset_view, _toolbar->kanji, _toolbar->kana, _toolbar->album_button, _toolbar->theme,
-        _toolbar->hud, _toolbar->browse_close, _toolbar->browse_practice, _toolbar->draw_toggle, _toolbar->pad_clear,
+        _toolbar->hud, _toolbar->browse_close, _toolbar->browse_practice, _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
     };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         kana_toolbar_restyle_button(_buttons[_i]);
@@ -1409,6 +1422,10 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         _toolbar->browse_close    = kana_toolbar_button(_toolbar, _bar, "Close", kana_toolbar_on_browse_close);
         _toolbar->browse_practice = kana_toolbar_button(_toolbar, _bar, "Practice", kana_toolbar_on_browse_practice);
         _toolbar->draw_toggle  = kana_toolbar_button(_toolbar, _bar, "Draw",  kana_toolbar_on_draw_toggle);
+        _toolbar->parts_toggle = kana_toolbar_button(_toolbar, _bar, "Parts", kana_toolbar_on_parts_toggle);
+        if(!kana_browse_parts_available(_browse)) {
+            kana_toolbar_set_enabled(_toolbar->parts_toggle, false);   // character data baked before parts
+        }
         _toolbar->pad_clear    = kana_toolbar_button(_toolbar, _bar, "Clear", kana_toolbar_on_pad_clear);
 
         _toolbar->search_field = rde_ui_text_editor_create(_toolbar->font, NULL);

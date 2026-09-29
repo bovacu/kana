@@ -35,6 +35,7 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
 
     u32         _tag;
     kana_reader _chunk;
+    u32         _parts_count = 0;
     while(kana_next_chunk(&_r, &_tag, &_chunk)) {
         if(_tag == KANA_KANJI_CHUNK_CHARS) {
             const u32 _count  = kana_get_u32(&_chunk);
@@ -49,6 +50,14 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         } else if(_tag == KANA_KANJI_CHUNK_TEXT) {
             _db->_text      = (const c8*)_chunk.data;
             _db->_text_size = _chunk.size;
+        } else if(_tag == KANA_KANJI_CHUNK_PARTS) {
+            const u32 _count = kana_get_u32(&_chunk);
+            if(_chunk.ok && (u64)_count * 4u <= (u64)(_chunk.size - _chunk.pos)) {
+                _db->_parts_index = &_chunk.data[_chunk.pos];
+                _db->_parts       = &_chunk.data[_chunk.pos + _count * 4u];
+                _db->_parts_size  = _chunk.size - _chunk.pos - _count * 4u;
+                _parts_count      = _count;
+            }
         }
     }
 
@@ -57,8 +66,41 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         kana_kanji_unload(_db);
         return false;
     }
+    if(_parts_count != _db->count) {
+        _db->_parts_index = NULL;   // parts for another set of records: none rather than wrong ones
+        _db->_parts       = NULL;
+        _db->_parts_size  = 0;
+    }
 
     return true;
+}
+
+b8 kana_kanji_has_parts(const kana_kanji_db* _db) {
+    return _db->_parts_index != NULL;
+}
+
+u32 kana_kanji_parts(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
+    if(_db->_parts_index == NULL || _index >= _db->count) {
+        return 0;
+    }
+
+    kana_reader _ix = kana_reader_make(&_db->_parts_index[(usize)_index * 4u], 4u);
+    const u32 _at   = kana_get_u32(&_ix);
+    if(_at == UINT32_MAX || _at >= _db->_parts_size) {
+        return 0;
+    }
+
+    kana_reader _r = kana_reader_make(&_db->_parts[_at], _db->_parts_size - _at);
+    const u32   _n = kana_get_u8(&_r);
+    u32         _k = 0;
+    for(u32 _i = 0; _i < _n && _k < _max; _i++) {
+        const u32 _cp = kana_get_u32(&_r);
+        if(!_r.ok) {
+            break;
+        }
+        _out[_k++] = _cp;
+    }
+    return _k;
 }
 
 // --- records ---------------------------------------------------------------------

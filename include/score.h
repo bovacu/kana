@@ -29,15 +29,23 @@
 #define KANA_SCORE_SHAPE_ZERO     18.0f   // ...and scoring 0
 #define KANA_SCORE_REVERSE_MARGIN 3.0f    // backwards must beat forwards by this to count
 #define KANA_SCORE_GAP            30.0f   // pairing cost of "no partner"
+#define KANA_SCORE_FIT_STRETCH    1.25f   // the best fit: how much one axis may stretch against the other
+#define KANA_SCORE_FIT_SIZE       1.35f   // ...and the size change it may make, either way
 
 // A missing or extra stroke usually makes ANOTHER character (日 + a stroke is
 // 目): it has to fail clearly. Order and direction are what the app is for
 // ("the pedagogically valuable ones", design.md): they must outweigh a small
 // wobble of shape, and bar an "Excellent" on their own.
-#define KANA_SCORE_MISSING        25.0f   // points off per missing stroke
-#define KANA_SCORE_EXTRA          25.0f   // ...per extra stroke
-#define KANA_SCORE_MISPLACED      15.0f   // ...per stroke out of order
-#define KANA_SCORE_REVERSED       15.0f   // ...per stroke drawn backwards
+// Tuned 2026-09-30 on real attempts (5 characters, 41 squares) once shape was
+// judged after a best fit: stroke errors are counted here only — the fit no
+// longer lets an extra stroke drag the shape down too — so a missing or extra
+// stroke takes perfect writing to the fair/poor edge (another character written
+// must not score above 60), and order or direction, the point of the app, keeps
+// a perfect shape out of "good" (80) and says which stroke.
+#define KANA_SCORE_MISSING        40.0f   // points off per missing stroke
+#define KANA_SCORE_EXTRA          40.0f   // ...per extra stroke
+#define KANA_SCORE_MISPLACED      25.0f   // ...per stroke out of order
+#define KANA_SCORE_REVERSED       25.0f   // ...per stroke drawn backwards
 
 RDE_STRUCT {
     b8  empty;          // nothing was drawn: not scored

@@ -37,6 +37,12 @@
 //   'TEXT'  per character with text: three NUL-terminated UTF-8 strings — on
 //           readings joined by "、", kun readings joined by "、", English
 //           meanings joined by ", ".
+//   'PART'  (optional: files baked before it have none) u32 count (the CHRS
+//           count), then count u32 offsets into the lists after them (UINT32_MAX:
+//           none), then the lists: u8 n, then n u32 code points — the PARTS a
+//           character is built from, every element of KanjiVG's group tree
+//           (and a variant's original: 亻 brings 人), the character itself left
+//           out. 語 is 言 口 吾 五 二; 休 is 亻 人 木.
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -50,6 +56,8 @@
 #define KANA_KANJI_CHUNK_CHARS  KANA_TAG('C', 'H', 'R', 'S')
 #define KANA_KANJI_CHUNK_GEOM   KANA_TAG('G', 'E', 'O', 'M')
 #define KANA_KANJI_CHUNK_TEXT   KANA_TAG('T', 'E', 'X', 'T')
+#define KANA_KANJI_CHUNK_PARTS  KANA_TAG('P', 'A', 'R', 'T')
+#define KANA_KANJI_MAX_PARTS    32u
 
 // One character's record, decoded.
 RDE_STRUCT {
@@ -85,6 +93,9 @@ RDE_STRUCT {
     u32       _geometry_size;
     const c8* _text;
     u32       _text_size;
+    const u8* _parts_index;    // count u32 offsets into _parts, or NULL (no PART chunk)
+    const u8* _parts;
+    u32       _parts_size;
 } kana_kanji_db;
 
 b8   kana_kanji_load(kana_kanji_db* _db, const c8* _path);
@@ -103,6 +114,11 @@ b8   kana_kanji_stroke_at(const kana_kanji_db* _db, const kana_kanji_info* _info
 // more than _tolerance units from the curve. Writes at most _max points and
 // returns how many.
 u32  kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, rde_vec_2F* _out, u32 _max);
+
+// The parts of record _index (see 'PART'): up to _max code points into _out;
+// how many. 0 when it has none, or the file has no parts.
+u32  kana_kanji_parts(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
+b8   kana_kanji_has_parts(const kana_kanji_db* _db);
 
 // The character's text, "" when there is none.
 const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info);

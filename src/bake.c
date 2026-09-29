@@ -29,12 +29,14 @@ typedef struct {
     u8  jlpt;
     u8  radical;
     u8  jlpt_n;
+    u32 parts;         // offset into the PART lists, or UINT32_MAX
 } kana_bake_char;
 
 typedef struct {
     rde_arr TYPE(kana_bake_char) chars;
     kana_bytes                   geometry;
     kana_bytes                   text;
+    kana_bytes                   parts;
 
     // Report.
     u32 strokes;
@@ -45,6 +47,8 @@ typedef struct {
     u32 jlpt_listed[6];     // characters per N-level (index 1..5)
     u32 jlpt_missing;       // listed, but KanjiVG has no strokes for it
     u32 max_segments;
+    u32 with_parts;         // characters with at least one part
+    u32 part_refs;          // parts over all characters
     f32 min_coord;
     f32 max_coord;
 } kana_bake;
@@ -258,6 +262,37 @@ RDE_INTERNAL void kana_bake_collect(const rde_xml_entry* _e, kana_bake_stroke_re
     }
 }
 
+// A part: one code point, not the character itself, not seen yet.
+RDE_INTERNAL void kana_bake_add_part(u32* _parts, u32* _count, const c8* _s, u32 _self) {
+    if(_s == NULL || _s[0] == 0) {
+        return;
+    }
+    u32       _len = 0;
+    const u32 _cp  = kana_bake_decode_utf8(_s, &_len);
+    if(_cp == 0 || _cp == _self || _s[_len] != 0) {
+        return;
+    }
+    for(u32 _i = 0; _i < *_count; _i++) {
+        if(_parts[_i] == _cp) {
+            return;
+        }
+    }
+    if(*_count < KANA_KANJI_MAX_PARTS) {
+        _parts[(*_count)++] = _cp;
+    }
+}
+
+// Every element of the group tree, at any depth, and a variant's original.
+RDE_INTERNAL void kana_bake_collect_parts(const rde_xml_entry* _e, u32* _parts, u32* _count, u32 _self) {
+    for(const rde_xml_entry* _c = _e->child; _c != NULL; _c = _c->next) {
+        if(kana_xml_is(_c, "g")) {
+            kana_bake_add_part(_parts, _count, kana_xml_attr(_c, "kvg:element"), _self);
+            kana_bake_add_part(_parts, _count, kana_xml_attr(_c, "kvg:original"), _self);
+            kana_bake_collect_parts(_c, _parts, _count, _self);
+        }
+    }
+}
+
 RDE_INTERNAL i16 kana_bake_fixed(kana_bake* _bake, f32 _v) {
     _bake->min_coord = _v < _bake->min_coord ? _v : _bake->min_coord;
     _bake->max_coord = _v > _bake->max_coord ? _v : _bake->max_coord;
@@ -321,7 +356,20 @@ RDE_INTERNAL b8 kana_bake_kanjivg(kana_bake* _bake, const c8* _path) {
             continue;
         }
 
-        kana_bake_char _char = { .codepoint = _cp, .geometry = kana_bytes_size(&_bake->geometry), .text = UINT32_MAX, .strokes = (u8)_count };
+        kana_bake_char _char = { .codepoint = _cp, .geometry = kana_bytes_size(&_bake->geometry), .text = UINT32_MAX, .strokes = (u8)_count, .parts = UINT32_MAX };
+
+        u32 _parts[KANA_KANJI_MAX_PARTS];
+        u32 _part_count = 0;
+        kana_bake_collect_parts(_k, _parts, &_part_count, _cp);
+        if(_part_count > 0) {
+            _char.parts = kana_bytes_size(&_bake->parts);
+            kana_put_u8(&_bake->parts, (u8)_part_count);
+            for(u32 _i = 0; _i < _part_count; _i++) {
+                kana_put_u32(&_bake->parts, _parts[_i]);
+            }
+            _bake->with_parts++;
+            _bake->part_refs += _part_count;
+        }
 
         for(u32 _i = 0; _i < _count; _i++) {
             const kana_bake_path* _p = &_parsed[_i];
@@ -584,6 +632,7 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         .chars     = rde_arr_new(sizeof(kana_bake_char), _heap),
         .geometry  = kana_bytes_new(4u * 1024u * 1024u),
         .text      = kana_bytes_new(512u * 1024u),
+        .parts     = kana_bytes_new(256u * 1024u),
         .min_coord = 1e9f,
         .max_coord = -1e9f,
     };
@@ -609,7 +658,8 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
 
     if(_rc == 0) {
         const u32   _count = (u32)rde_arr_length(&_bake.chars);
-        kana_bytes  _file  = kana_bytes_new(KANA_FILE_HEADER_SIZE + 16u + _count * KANA_KANJI_RECORD_SIZE + 8u + kana_bytes_size(&_bake.geometry) + 8u + kana_bytes_size(&_bake.text) + 1u);
+        kana_bytes  _file  = kana_bytes_new(KANA_FILE_HEADER_SIZE + 16u + _count * KANA_KANJI_RECORD_SIZE + 8u + kana_bytes_size(&_bake.geometry) + 8u + kana_bytes_size(&_bake.text) +
+                                            12u + _count * 4u + kana_bytes_size(&_bake.parts) + 1u);
         kana_put_header(&_file, KANA_KANJI_VERSION, KANA_KANJI_KIND);
 
         u32 _chunk = kana_chunk_begin(&_file, KANA_KANJI_CHUNK_CHARS);
@@ -638,6 +688,14 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         kana_put_data(&_file, _bake.text.memory, kana_bytes_size(&_bake.text));
         kana_chunk_end(&_file, _chunk);
 
+        _chunk = kana_chunk_begin(&_file, KANA_KANJI_CHUNK_PARTS);
+        kana_put_u32(&_file, _count);
+        for(u32 _i = 0; _i < _count; _i++) {
+            kana_put_u32(&_file, _chars[_i].parts);
+        }
+        kana_put_data(&_file, _bake.parts.memory, kana_bytes_size(&_bake.parts));
+        kana_chunk_end(&_file, _chunk);
+
         const u32 _geometry_bytes = kana_bytes_size(&_bake.geometry);
         const u32 _text_bytes     = kana_bytes_size(&_bake.text);
         rde_file_create_missing_dirs(_out);
@@ -645,16 +703,25 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         if(!kana_bytes_write_and_free(&_file, _out, &_bytes)) {
             _rc = 1;
         } else {
+            // The atomic write keeps the previous file as .bak; the data ships in
+            // the app's assets, where a backup would ship too — and the sources
+            // can always bake it again.
+            c8 _bak[RDE_MAX_PATH];
+            snprintf(_bak, sizeof(_bak), "%s.bak", _out);
+            remove(_bak);
+
             rde_log_color(RDE_LOG_COLOR_GREEN,
                           "bake: wrote %s: %.2f MB in %.2f s\n"
                           "  %u characters (%u skipped), %u with KANJIDIC2 info, %u stroke-count disagreements\n"
                           "  JLPT N5 %u, N4 %u, N3 %u, N2 %u, N1 %u (%u listed but without strokes)\n"
                           "  %u strokes, %u curve segments (max %u in one stroke)\n"
+                          "  %u characters with parts, %u parts in all\n"
                           "  geometry %.2f MB, text %.2f MB; coordinates %.2f .. %.2f",
                           _out, (f64)_bytes / (1024.0 * 1024.0), rde_engine_get_time_now() - _t0,
                           _count, _bake.skipped, _bake.with_info, _bake.count_mismatch,
                           _bake.jlpt_listed[5], _bake.jlpt_listed[4], _bake.jlpt_listed[3], _bake.jlpt_listed[2], _bake.jlpt_listed[1], _bake.jlpt_missing,
                           _bake.strokes, _bake.segments, _bake.max_segments,
+                          _bake.with_parts, _bake.part_refs,
                           (f64)_geometry_bytes / (1024.0 * 1024.0), (f64)_text_bytes / (1024.0 * 1024.0),
                           (f64)_bake.min_coord, (f64)_bake.max_coord);
         }
@@ -663,6 +730,7 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
     rde_arr_free(&_bake.chars);
     rde_arr_free(&_bake.geometry);
     rde_arr_free(&_bake.text);
+    rde_arr_free(&_bake.parts);
     return _rc;
 }
 

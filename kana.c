@@ -68,6 +68,7 @@ RDE_INTERNAL kana_viewer  viewer;
 RDE_INTERNAL kana_browse  browse;
 RDE_INTERNAL kana_chart   chart;
 RDE_INTERNAL kana_practice practice;
+RDE_INTERNAL kana_album    album;
 
 // Browse, the chart and Practice follow one pointer at a time: whichever pressed first.
 typedef enum { KANA_POINTER_NONE = 0, KANA_POINTER_PEN, KANA_POINTER_FINGER, KANA_POINTER_MOUSE } KANA_POINTER_;
@@ -327,11 +328,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_browse_init(&browse, _have_kanji ? &kanji_db : NULL);
     kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
+    kana_album_init(&album, _have_kanji ? &kanji_db : NULL);
     if(_have_kanji) {
         rde_log_color(RDE_LOG_COLOR_GREEN, "kana: %u characters loaded", kanji_db.count);
     }
 
-    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &show_hud);
+    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &show_hud);
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
@@ -340,6 +342,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     // Development: --browse / --kana open Browse / the kana chart at start;
     // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice.
     for(i32 _i = 1; _i < _argc; _i++) {
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--album") == 0) {
+            kana_album_open(&album);
+        }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--browse") == 0) {
             kana_browse_open(&browse);
         }
@@ -363,15 +368,21 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
                   "kana - ink spike. Pen writes, fingers move the page (2-finger tap undo, 3 redo), the toolbar has the rest. Keys: C clear, Z undo, Y redo, M raw samples, H HUD, R reset view, B brush scale.");
 }
 
-// A pointer for Browse or the chart, whichever is open.
+// A pointer for Browse, the chart or the album, whichever is open.
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
-    if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); } else { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
+    if(album.open)      { kana_album_pointer_down(&album, _screen, _now); }
+    else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
+    else                { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
 }
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
-    if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); } else { kana_browse_pointer_moved(&browse, _screen, _now); }
+    if(album.open)      { kana_album_pointer_moved(&album, _screen, _now); }
+    else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
+    else                { kana_browse_pointer_moved(&browse, _screen, _now); }
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
-    if(chart.open) { kana_chart_pointer_up(&chart, _now); } else { kana_browse_pointer_up(&browse, _now); }
+    if(album.open)      { kana_album_pointer_up(&album, _now); }
+    else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
+    else                { kana_browse_pointer_up(&browse, _now); }
 }
 
 // Practice: only the pen (and the desktop mouse) writes; a resting hand does nothing.
@@ -506,7 +517,7 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(practice.open || viewer.open || browse.open || chart.open) {
+    if(practice.open || viewer.open || browse.open || chart.open || album.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -514,7 +525,7 @@ void on_event(rde_window* _window, rde_event* _event) {
         if(practice.open) {
             kana_practice_event(_event);
         } else if(!viewer.open) {
-            kana_browse_event(_event);   // Browse or the chart, whichever is open
+            kana_browse_event(_event);   // Browse, the chart or the album, whichever is open
         }
         return;
     }
@@ -762,6 +773,22 @@ void on_update(f32 _dt) {
         return;
     }
 
+    if(album.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_album_update(&album, _dt);
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) {
+            if(album.page_open) { kana_album_close_page(&album); } else { kana_album_close(&album); }
+        }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
     if(browse.open || chart.open) {
 #if !defined(RDE_PLATFORM_MOBILE)
         if(browse_pointer == KANA_POINTER_MOUSE) {   // the mouse is polled, like on the page
@@ -956,6 +983,8 @@ void on_render(rde_window* _window, f32 _dt) {
     } else if(viewer.open) {
         kana_viewer_render(&viewer, font, font_px, rde_window_get_size(_window), rde_window_get_safe_area_insets(_window),
                            toolbar.viewer_menu.size.y + 16.0f);
+    } else if(album.open) {
+        kana_album_render(&album, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.album_menu.size.y + 24.0f);
     } else if(browse.open) {
         kana_browse_render(&browse, _window, font, font_px, _hh - toolbar.browse_bar_height);
     } else if(chart.open) {
@@ -991,6 +1020,7 @@ void end_func(void) {
     kana_browse_destroy(&browse);
     kana_chart_destroy(&chart);
     kana_practice_destroy(&practice);
+    kana_album_destroy(&album);
     kana_kanji_unload(&kanji_db);
     kana_ink_destroy(&ink);
 }

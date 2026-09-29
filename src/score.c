@@ -93,6 +93,73 @@ RDE_INTERNAL u32 kana_score_lis(const u32* _seq, u32 _n) {
     return _len;
 }
 
+// The best fit of the drawing onto the reference, given the pairs: per axis, a
+// scale and a shift (least squares over every corresponding point), so SHAPE is
+// judged without the character's placement, size or a little stretch — a 日 a
+// bit wide, a ま whose tail runs on and so stretches the box both are fitted
+// by. Kept honest: the axes stay within KANA_SCORE_FIT_STRETCH of each other
+// and the size within KANA_SCORE_FIT_SIZE of the box fit, so a character can be
+// moved and resized, not remade.
+typedef struct {
+    f32 sx, sy;   // scale
+    f32 tx, ty;   // then shift
+} kana_score_fit;
+
+RDE_INTERNAL kana_score_fit kana_score_best_fit(const kana_match_stroke* _user, const kana_match_stroke* _ref, const u32* _ref_of_user,
+                                                const b8* _backwards, u32 _n) {
+    f64 _count = 0.0, _ux = 0.0, _uy = 0.0, _rx = 0.0, _ry = 0.0;
+    for(u32 _i = 0; _i < _n; _i++) {
+        if(_ref_of_user[_i] == UINT32_MAX) { continue; }
+        for(u32 _k = 0; _k < KANA_MATCH_POINTS; _k++) {
+            const rde_vec_2F _u = _user[_i].p[_k];
+            const rde_vec_2F _r = _ref[_ref_of_user[_i]].p[_backwards[_i] ? KANA_MATCH_POINTS - 1u - _k : _k];
+            _ux += _u.x; _uy += _u.y; _rx += _r.x; _ry += _r.y; _count += 1.0;
+        }
+    }
+    kana_score_fit _fit = { 1.0f, 1.0f, 0.0f, 0.0f };
+    if(_count < 2.0) {
+        return _fit;
+    }
+    _ux /= _count; _uy /= _count; _rx /= _count; _ry /= _count;
+
+    f64 _vx = 0.0, _vy = 0.0, _cx = 0.0, _cy = 0.0;
+    for(u32 _i = 0; _i < _n; _i++) {
+        if(_ref_of_user[_i] == UINT32_MAX) { continue; }
+        for(u32 _k = 0; _k < KANA_MATCH_POINTS; _k++) {
+            const rde_vec_2F _u = _user[_i].p[_k];
+            const rde_vec_2F _r = _ref[_ref_of_user[_i]].p[_backwards[_i] ? KANA_MATCH_POINTS - 1u - _k : _k];
+            _vx += (_u.x - _ux) * (_u.x - _ux); _vy += (_u.y - _uy) * (_u.y - _uy);
+            _cx += (_u.x - _ux) * (_r.x - _rx); _cy += (_u.y - _uy) * (_r.y - _ry);
+        }
+    }
+
+    // One size for both axes first; then each axis may differ from it a little
+    // (an axis with almost no extent — 一's height — keeps the shared size).
+    const f64 _shared = (_vx + _vy) > 1e-6 ? (_cx + _cy) / (_vx + _vy) : 1.0;
+    const f32 _size   = rde_math_clamp_f32((f32)_shared, 1.0f / KANA_SCORE_FIT_SIZE, KANA_SCORE_FIT_SIZE);
+    const f64 _flat   = 0.05 * (_vx + _vy);
+    const f32 _ax     = _vx > _flat ? (f32)(_cx / _vx) : _size;
+    const f32 _ay     = _vy > _flat ? (f32)(_cy / _vy) : _size;
+    _fit.sx = _size * rde_math_clamp_f32(_ax / _size, 1.0f / KANA_SCORE_FIT_STRETCH, KANA_SCORE_FIT_STRETCH);
+    _fit.sy = _size * rde_math_clamp_f32(_ay / _size, 1.0f / KANA_SCORE_FIT_STRETCH, KANA_SCORE_FIT_STRETCH);
+    _fit.tx = (f32)(_rx - (f64)_fit.sx * _ux);
+    _fit.ty = (f32)(_ry - (f64)_fit.sy * _uy);
+    return _fit;
+}
+
+// A drawn stroke's distance to its reference stroke once fitted.
+RDE_INTERNAL f32 kana_score_fitted_distance(const kana_match_stroke* _user, const kana_match_stroke* _ref, b8 _backwards, kana_score_fit _fit) {
+    f32 _sum = 0.0f;
+    for(u32 _k = 0; _k < KANA_MATCH_POINTS; _k++) {
+        const rde_vec_2F _u  = _user->p[_k];
+        const rde_vec_2F _r  = _ref->p[_backwards ? KANA_MATCH_POINTS - 1u - _k : _k];
+        const f32        _dx = _u.x * _fit.sx + _fit.tx - _r.x;
+        const f32        _dy = _u.y * _fit.sy + _fit.ty - _r.y;
+        _sum += sqrtf(_dx * _dx + _dy * _dy);
+    }
+    return _sum / (f32)KANA_MATCH_POINTS;
+}
+
 void kana_score_describe(kana_score* _s) {
     // One line: the most important thing first.
     if(_s->empty) {
@@ -173,33 +240,43 @@ kana_score kana_score_drawing(const kana_kanji_db* _db, const kana_kanji_info* _
         }
     }
 
-    // Shape and direction over the pairs, in writing order; the reference order
-    // they came in, for the order check.
+    // Direction over the pairs, in writing order; the reference order they came
+    // in, for the order check.
     u32 _sequence[KANA_SCORE_MAX];
-    u32 _pairs     = 0;
-    f32 _total     = 0.0f;
-    f32 _worst_d   = 0.0f;
+    b8  _backwards[KANA_SCORE_MAX];
+    u32 _pairs = 0;
     for(u32 _i = 0; _i < _n; _i++) {
         const u32 _j = _ref_of_user[_i];
+        _backwards[_i] = false;
         if(_j == UINT32_MAX) {
             continue;
         }
 
-        const b8  _backwards = _rev[_i][_j] + KANA_SCORE_REVERSE_MARGIN < _fwd[_i][_j];
-        const f32 _d         = _backwards ? _rev[_i][_j] : _fwd[_i][_j];
-        if(_backwards) {
+        _backwards[_i] = _rev[_i][_j] + KANA_SCORE_REVERSE_MARGIN < _fwd[_i][_j];
+        if(_backwards[_i]) {
             _s.reversed++;
             if(_s.first_reversed == 0) {
                 _s.first_reversed = (u8)(_j + 1u);
             }
         }
+        _sequence[_pairs++] = _j;
+    }
+
+    // Shape: the pairs' distance once the drawing is fitted onto the reference.
+    const kana_score_fit _fit     = kana_score_best_fit(_user, _ref, _ref_of_user, _backwards, _n);
+    f32                  _total   = 0.0f;
+    f32                  _worst_d = 0.0f;
+    for(u32 _i = 0; _i < _n; _i++) {
+        const u32 _j = _ref_of_user[_i];
+        if(_j == UINT32_MAX) {
+            continue;
+        }
+        const f32 _d = kana_score_fitted_distance(&_user[_i], &_ref[_j], _backwards[_i], _fit);
         if(_d > _worst_d) {
             _worst_d = _d;
             _s.worst = (u8)(_j + 1u);
         }
-
         _total += _d;
-        _sequence[_pairs++] = _j;
     }
 
     // Order: whatever is not on the longest in-order run was written out of place.

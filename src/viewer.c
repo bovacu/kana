@@ -128,8 +128,22 @@ void kana_viewer_render(kana_viewer* _viewer, rde_font* _font, f32 _font_px, rde
              _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
     kana_viewer_text(_font, _font_px, _line, _left, _top - 16.0f, 22.0f, kana_theme_active()->text);
 
+    // The parts it is built from, those that can be drawn.
+    u32 _parts[KANA_KANJI_MAX_PARTS];
+    u32 _part_count = 0;
+    if(!_kana) {
+        u32 _all[KANA_KANJI_MAX_PARTS];
+        const u32 _n = kana_kanji_parts(_viewer->db, _record, _all, KANA_KANJI_MAX_PARTS);
+        for(u32 _i = 0; _i < _n; _i++) {
+            u32 _index;
+            if(kana_kanji_find_index(_viewer->db, _all[_i], &_index)) {
+                _parts[_part_count++] = _all[_i];
+            }
+        }
+    }
+
     // --- the character ---------------------------------------------------------------
-    const f32        _text_lines = _kana ? 0.0f : 3.0f;
+    const f32        _text_lines = _kana ? 0.0f : (_part_count > 0 ? 4.0f : 3.0f);
     const f32        _room_h     = (_top - 48.0f) - (_bottom + _text_lines * KANA_VIEWER_LINE);
     const f32        _size       = fmaxf(120.0f, fminf(_right - _left, _room_h));
     const rde_vec_2F _tl         = { -_size * 0.5f, _top - 48.0f };
@@ -150,5 +164,15 @@ void kana_viewer_render(kana_viewer* _viewer, rde_font* _font, f32 _font_px, rde
         const c8* _meanings = kana_kanji_meanings(_viewer->db, &_info);
         snprintf(_line, sizeof(_line), "%s", _meanings[0] != 0 ? _meanings : "(no meaning listed)");
         kana_viewer_text(_font, _font_px, _line, _left, _y0 - 2.0f * KANA_VIEWER_LINE - KANA_VIEWER_KANA_SIZE * 0.7f, 22.0f, kana_theme_active()->text);
+
+        if(_part_count > 0) {
+            const f32 _py = _y0 - 3.0f * KANA_VIEWER_LINE;
+            kana_viewer_text(_font, _font_px, "Parts", _left, _py - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
+            f32 _x = _left + 60.0f;
+            for(u32 _i = 0; _i < _part_count && _x + KANA_VIEWER_KANA_SIZE <= _right; _i++) {
+                kana_glyph_character(&_viewer->glyph, _parts[_i], (rde_vec_2F){ _x, _py }, KANA_VIEWER_KANA_SIZE, kana_theme_active()->ink);
+                _x += KANA_VIEWER_KANA_SIZE * 1.3f;
+            }
+        }
     }
 }
