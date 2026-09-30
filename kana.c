@@ -101,6 +101,9 @@ RDE_INTERNAL u64           browse_finger  = 0;
 // Running as the offline data bake (--bake, desktop): nothing else is set up, so
 // every callback returns at once.
 RDE_INTERNAL b8 baking = false;
+// --paper (desktop looks): the paper panel opened a few frames in.
+RDE_INTERNAL b8  look_paper  = false;
+RDE_INTERNAL u32 look_frames = 0;
 
 // The pen went down ON the toolbar: it is pressing a button, so nothing it does
 // until it lifts may write, erase or pan.
@@ -447,6 +450,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
     }
+    kana_draw_set_icon_fill(toolbar.font_icons_fill, (f32)KANA_TOOLBAR_FONT_SIZE);   // the screens' filled icons (the marks)
 
     // Development: --browse / --kana open Browse / the kana chart at start;
     // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice,
@@ -494,6 +498,38 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--viewer=", 9) == 0) {
             kana_viewer_show_codepoint(&viewer, (u32)strtoul(_argv[_i] + 9, NULL, 16));
+        }
+        // Looks, for the desktop: --size=744x1133 the window (an iPad mini's
+        // points), --theme=2 a theme, --side / --paper / --stats / --exam /
+        // --exam-start (an N5 exam, writing) a screen.
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--size=", 7) == 0) {
+            c8*       _end = NULL;
+            const i32 _w   = (i32)strtol(_argv[_i] + 7, &_end, 10);
+            const i32 _h   = _end != NULL && *_end == 'x' ? (i32)strtol(_end + 1, NULL, 10) : 0;
+            if(_w > 0 && _h > 0) {
+                rde_window_set_size(_window, (rde_vec_2I){ _w, _h });
+            }
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--theme=", 8) == 0) {
+            kana_theme_set((KANA_THEME_)strtol(_argv[_i] + 8, NULL, 10));
+            kana_toolbar_sync(&toolbar);
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--side") == 0) {
+            toolbar.side.open = true;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--paper") == 0) {
+            look_paper = true;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--stats") == 0) {
+            kana_stats_open(&stats);
+        }
+        if(_argv[_i] != NULL && (strcmp(_argv[_i], "--exam") == 0 || strcmp(_argv[_i], "--exam-start") == 0)) {
+            kana_exam_open(&exam);
+            if(strcmp(_argv[_i], "--exam-start") == 0) {
+                exam.source = KANA_EXAM_SOURCE_N5;
+                kana_exam_preview(&exam);
+                kana_exam_start(&exam);
+            }
         }
     }
 
@@ -936,6 +972,11 @@ void on_update(f32 _dt) {
     if(baking) {
         return;
     }
+    // --paper: the paper panel, open once the bar has been laid out.
+    if(look_paper && ++look_frames == 20u) {
+        kana_toolbar_open_paper(&toolbar);
+        look_paper = false;
+    }
     if(notes.open != current_canvas) {
         kana_switch_canvas();   // chosen (or made, or its canvas deleted) in the side panel
     }
@@ -1292,6 +1333,7 @@ void on_render(rde_window* _window, f32 _dt) {
     if(baking) {
         return;
     }
+
 
     // EVERY frame: the engine resets the clear colour at the start of each one,
     // and a frame nobody sets it for clears to black.

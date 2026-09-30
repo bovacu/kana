@@ -53,6 +53,7 @@ typedef enum {
 typedef struct kana_toolbar kana_toolbar;
 
 #define KANA_TOOLBAR_MENU_MAX 7
+#define KANA_TOOLBAR_SEPARATORS 4
 
 // A floating row of buttons: the menu over a lasso selection, the page's
 // context menu.
@@ -107,7 +108,7 @@ struct kana_toolbar {
     // The grip's end of the bar: what drags it, and a double tap there folds the
     // bar down to just this (minimized) and opens it again. The handle drawn in it.
     rde_ui_image*  grip_area;
-    rde_ui_image*  grip;
+    rde_ui_label*  grip;             // six dots (icons.h), across the bar
     b8             minimized;
     // The tools, in a strip that scrolls along the bar when they do not all fit
     // (and more can be added without the bar outgrowing the screen).
@@ -120,10 +121,12 @@ struct kana_toolbar {
     rde_ui_button* clear;
     rde_ui_slider* size;
     rde_ui_button* color;
+    rde_ui_image*  color_dot;       // in Color: the colour writing now
     rde_ui_button* brush_scale;
     rde_ui_button* paper;           // opens the paper panel: the page's dots, lines, squares or nothing (canvas.h)
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
+    rde_ui_image*  separators[KANA_TOOLBAR_SEPARATORS];   // between the groups of tools
 
     rde_ui_image*            palette;
     rde_ui_button*           swatches[KANA_TOOLBAR_PALETTE_COUNT];
@@ -268,5 +271,8 @@ void       kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_
 // shows the selection menu over a lasso selection. Cheap — it only touches the
 // widgets when something changed.
 void       kana_toolbar_update(kana_toolbar* _toolbar);
+
+// The paper panel, open (as Paper does).
+void       kana_toolbar_open_paper(kana_toolbar* _toolbar);
 
 #endif

@@ -63,7 +63,6 @@ RDE_STRUCT {
     b8              settings_open;
 
     rde_ui_button*  menu_button;          // top-left, on the page
-    rde_ui_image*   menu_bars[3];         // its icon
     rde_ui_button*  backdrop;             // under the panel: a tap closes it
     rde_ui_image*   panel;
 

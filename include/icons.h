@@ -78,5 +78,23 @@
 #define KANA_ICON_SLIDERS       "\xEE\x90\xB2"   // ph-sliders U+E432
 #define KANA_ICON_PEN           "\xEE\x8E\xAC"   // ph-pen-nib U+E3AC
 #define KANA_ICON_CARDS         "\xEE\x83\xB8"   // ph-cards U+E0F8
+#define KANA_ICON_GRIP_H        "\xEE\x9E\x94"   // ph-dots-six U+E794
+#define KANA_ICON_GRIP_V        "\xEE\xAB\xA2"   // ph-dots-six-vertical U+EAE2
+#define KANA_ICON_MORE          "\xEE\x87\xBE"   // ph-dots-three U+E1FE
+#define KANA_ICON_PASTE         "\xEE\x86\x96"   // ph-clipboard U+E196
+#define KANA_ICON_KEYBOARD      "\xEE\x8B\x98"   // ph-keyboard U+E2D8
+#define KANA_ICON_PAGE          "\xEE\x88\xB0"   // ph-file U+E230
+#define KANA_ICON_TABLET        "\xEE\x87\xA6"   // ph-device-tablet U+E1E6
+#define KANA_ICON_GUIDED        "\xEE\x8E\x9C"   // ph-path U+E39C
+#define KANA_ICON_WEAKEST       "\xEE\x92\xAC"   // ph-trend-down U+E4AC
+#define KANA_ICON_STROKE_ORDER  "\xEE\x8B\xB6"   // ph-list-numbers U+E2F6
+#define KANA_ICON_SCRIBBLE      "\xEE\xA0\x86"   // ph-scribble U+E806
+#define KANA_ICON_ARROW_RIGHT   "\xEE\x81\xAC"   // ph-arrow-right U+E06C
+#define KANA_ICON_RETRY         "\xEE\x82\x94"   // ph-arrows-clockwise U+E094
+#define KANA_ICON_FINISH        "\xEE\xA8\xB8"   // ph-flag-checkered U+EA38
+#define KANA_ICON_CUT           "\xEE\xAB\xA0"   // ph-scissors U+EAE0
+#define KANA_ICON_COPY          "\xEE\x87\x8A"   // ph-copy U+E1CA
+#define KANA_ICON_DUPLICATE     "\xEE\x87\x8C"   // ph-copy-simple U+E1CC
+#define KANA_ICON_FOLDER_OPEN   "\xEE\x89\x96"   // ph-folder-open U+E256
 
 #endif

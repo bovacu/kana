@@ -59,6 +59,17 @@ RDE_STRUCT {
     rde_color eraser;          // eraser strokes (the spike's red)
     rde_color samples;         // raw sample dots (diagnostic)
 
+    // The UI's surfaces and its one accent. Light themes have light panels (dark
+    // text on them), Night dark ones. The accent is the way on (a primary
+    // button), a chosen thing (a tint of it behind, the accent on top) and the
+    // study marks' Studying.
+    rde_color surface;         // panels, cards, the bar
+    rde_color surface_2;       // on a surface: a plain button, a chip, a track
+    rde_color outline;         // hairline borders
+    rde_color accent;
+    rde_color on_accent;       // text and icons on the accent
+    rde_color tint;            // the accent, faint: behind a chosen thing (translucent)
+
     // The UI chrome: toolbar, bars, menus.
     rde_color panel;
     rde_color panel_border;
@@ -68,7 +79,8 @@ RDE_STRUCT {
     rde_color button_text;
     rde_color button_text_disabled;
     rde_color danger;          // destructive buttons (Delete)
-    rde_color field;           // the search field
+    rde_color field;           // a text field's box
+    rde_color field_border;    // ...and its edge: clearer than a panel's hairline
     rde_color field_placeholder;
     rde_color slider_track;
     rde_color slider_fill;

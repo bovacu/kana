@@ -222,25 +222,109 @@ seen on the iPad.*
 
 ## 7. Study marks and exams
 
+*Built 2026-09-30 (marks.h/.c, examlog.h/.c, exam.h/.c; the viewer's Study, Select
+mode's Study and Exam, Browse's Studying / Known filters, the side panel's Exams),
+seen working on the iPad 2026-09-30.*
+
 Decided with Borja, 2026-09-30:
-- Marks: **Studying** and **Known** (e.g. after passing exams), per character,
-  saved; set from the viewer, filtered in Browse, shown in the album.
-- Exams: pick a source (Studying, N5..N1, hiragana, katakana, a selection) →
-  a preview of everything, ticked (untick to leave out) → each character once,
-  written in a blank square with no help → results, saved.
+- Marks: **Studying** and **Known**, per character (by code point: they survive
+  a re-bake), saved in `marks.kana`.
+- Exams: pick a source → a preview of everything, ticked (untick to leave out)
+  → each character once, no help → results, saved.
 - The prompt, kanji: meaning, readings, and an example word with the kanji
-  blanked (学○ がくせい "student"). Kana: the romaji.
-- Passing: the right character — recognition (ML Kit, the matcher behind it)
-  has it among its top candidates, not only first — and how well it was
-  written (Practice's score).
+  blanked (□生 がくせい "student"). Kana: the romaji ("ka", in hiragana).
+- Right: recognition (ML Kit, the matcher behind it) has it among its first 3
+  candidates. Points: how well it was written (Practice's score) when right, 0
+  when not. Passed with 80% right.
+
+- [x] **Marks:** the viewer's **Study** cycles Study → Studying → Known → none;
+      Select mode's **Study** marks the ticked Studying (all already are: none);
+      Browse's **Studying** and **Known** filters.
+- [x] **Exams** (side panel), the setup: What (Studying, Known, N5..N1,
+      Hiragana, Katakana — with their counts; Selection when opened from Select
+      mode), How many (10, 20, 50, All — an exam asks 100 at most), shuffled.
+- [x] Select mode's **Exam**: the ticked, straight to the preview.
+- [x] The preview: every one ticked, tap to leave one out; All / None; Start n.
+- [x] Writing: "3 of 20", the prompt, a blank square (the pen only); Undo,
+      Clear, Next (Finish on the last), Quit. Answers are read while the next
+      is written (ML Kit one at a time; the matcher alone without it).
+- [x] Results: "17 of 20 right - 78 points  Passed", each answer's writing
+      with what was asked in its corner, ✓ and points or ✗ and what it read
+      as; tap one: the viewer, walking the exam. Retry wrong (straight to
+      writing), Practice wrong (a set).
+- [x] Kept (`exams.kana`: each exam's results and the writing); marks follow:
+      right in 3 exams in a row → Known; a Known one wrong → Studying.
+- Tested (examtest): marks and the log round trip; the sources; an exam with
+  one written as another character (wrong, read as it, 0 points); Known after
+  three, back to Studying after a miss; Retry wrong; a hiragana exam.
+- [x] Marks shown: a badge in the top-right corner of Browse's and the chart's
+      cells (top-left in Select mode, the tick has the right) and of the
+      viewer's square — Studying a circle, Known a square, for now (icons with
+      the restyle, #9).
+- [x] The hiragana and katakana sources are the gojūon and its voiced forms,
+      71 each: no small kana (ぁ っ ゃ ゎ ゕ), no old ones (ゐ ゑ ゔ ヷ..ヺ).
+- Answers are not read while the viewer or Practice is over the results; they
+  go on when back (Borja: fine).
+- Open: exams in the album, and in the statistics (#8).
 
 ## 8. Statistics
 
-- [ ] An in-depth view of progress, from everything saved: practice sessions
-      (how many, when, scores and how they evolve, per character), exams
-      (taken, passed, accuracy over time), marks (studying / known), coverage
-      of each JLPT level, weakest characters, the kinds of mistakes made, streaks
-      and a calendar of activity. As much as there is data for.
+*Built 2026-09-30 (stats.h/.c, the side panel's Statistics), seen working on the
+iPad 2026-09-30.*
+
+Everything the app keeps, worked out when the screen opens (every practice
+history file read once, the exam log, the marks); local days. Cards, one column,
+or two on a wide screen, scrolling:
+
+- [x] **Overview:** practice sessions, characters practised, squares written,
+      writing time (the pen on the page), days active, day streak (up to today,
+      or yesterday: today may still come), best streak, exams taken and passed,
+      exam accuracy, studying, known. "since <the first day>" by the title.
+- [x] **Activity:** a calendar of the last 26 weeks, Monday first — squares
+      practised and exam answers each day, in four strengths.
+- [x] **Practice scores:** the last 30 days against the 30 before, all time; the
+      average score each week, as a line over lines at 0, 50 and 80.
+- [x] **Exams:** taken, passed, answers right, points; the last 12 as bars
+      (the share right, against the 80% pass line) and dots (points).
+- [x] **Levels:** hiragana and katakana (the 71 each exams use), N5..N1: known,
+      studying, practised, of all.
+- [x] **Mistakes:** the share of squares with each — stroke order, direction,
+      missing and extra strokes, a poor shape (under 60) — all time and the
+      last 30 days.
+- [x] **Characters:** the 10 weakest (by their latest session) and the 10 most
+      improved (first session to latest); a tap: the viewer, walking the list.
+- [x] **When you practise:** squares by hour of the day and by weekday.
+- Tested (statstest): a planted history (three characters over 40 days,
+  mistakes of each kind, two exams, marks): every number, the streaks, the
+  calendar, the lists; the screen in portrait and landscape, scrolled, a tap.
+- Open: exams in the album; marks over time (when each became Known) is not
+  kept — only the exams that made it so.
+
+## 8b. The learner's own words
+
+*Built 2026-09-30 (userwords.h/.c, the bake's longer word lists, the viewer's
+Add, the toolbar's word form), seen working on the iPad 2026-09-30.*
+
+Decided with Borja, 2026-09-30: both — pick from a longer JMdict list per kanji
+(20 words: the 6 examples, then more), and type your own; the list scrolls, Add
+by the Words title.
+
+- [x] The bake keeps up to 20 words a kanji: the examples as before (common,
+      up to 4 characters, the same 10,461), then the rest in rank order —
+      common ones, then uncommon ones (up to 5 characters). 51,705 words for
+      5,108 kanji; characters.kana 6.1 MB (+2.2 MB). 'WORD' lists say how many
+      of their words are examples.
+- [x] The viewer's Words: the learner's words first (a bar at their left), then
+      the examples; as many rows as fit, scrolling; **+ Add** at the right of
+      the title.
+- [x] **Add**: the character small, "n of yours", and every further word, a
+      tick each (tap: added, or taken off); words typed in listed first,
+      ticked. Its row: **Done**, **Type your own**.
+- [x] **Type your own**: a form high on the screen (the keyboard under it) —
+      the word (must have the kanji), its reading (kana, or romaji made
+      hiragana), its meaning (optional); Return goes to the next field.
+- [x] Kept in `words.kana` as text (a re-bake cannot lose them). Exams blank
+      the learner's words first; Statistics counts them.
 
 ## 9. UI restyle, icons, the string table
 
@@ -248,6 +332,17 @@ Decided with Borja, 2026-09-30:
       buttons, one panel style, across every screen. Icons (an icon font through
       Slug: sharp, theme-coloured, beside text in one label; Borja picks the
       set). Every UI string into a table, for translation.
+      - Done, to check on the iPad (from the mock-up Borja approved): light
+        surfaces and one accent per theme (theme.h: surface, surface_2,
+        outline, accent, on_accent, tint); the kit's looks (plain, quiet,
+        selected, primary, danger, chips) and Phosphor icons in buttons
+        (toolbar_kit.h: kana_toolbar_icon); the bar icon-only with
+        separators; every row an icon over its label; the side panel's rows
+        with icons (字, あ, 試 as characters); outlined fields; the viewer's
+        chips, 音 / 訓 / 部 written from their strokes, the words in a card;
+        the exam's header, progress and prompt card; statistics' cards; the
+        marks as icons (Studying an amber star, Known a green seal).
+      - Still to do: the string table.
 
 ## 10. Other languages
 
@@ -268,6 +363,20 @@ See `docs/app_store.md` for privacy, licences and permissions.
 - [ ] Check what ships in the bundle: no `.bak`/`.tmp`, only the assets needed.
 - [ ] Steps towards TestFlight (a paid developer account is needed for it).
 - [ ] Commit the data licence credits screen as done: Settings > About (in place).
+
+## 12. Engine: window screenshots fail on the Mac (last)
+
+- [ ] `rde_window_take_screenshot` and `rde_window_take_screenshot_bytes` die on
+      macOS (Metal, single-threaded rendering) with FATAL ASSERT "Couldn't
+      re-acquire the GPU swapchain texture after a screenshot ... 'Parameter
+      'command_buffer' is invalid'" (`rde_window.c`, the re-acquire after the
+      readback). Called from `on_update` and from `on_render`, same result: the
+      readback seems to leave the frame's command buffer submitted, so
+      re-acquiring on it is invalid. An ENGINE fix: other projects use the
+      engine, so check them (and Windows, Android) after. When it works, a
+      desktop `--shot=FILE` launch option lets screens be checked without the
+      device (Kana has the other look options already: `--size=744x1133`,
+      `--theme=`, `--side`, `--paper`, `--stats`, `--exam`, `--exam-start`).
 
 ---
 

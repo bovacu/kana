@@ -316,9 +316,9 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
     for(u32 _section = 0; _section < 2; _section++) {
         const f32 _at  = _section == KANA_CHART_KATAKANA ? _chart->katakana_at : 0.0f;
         const f32 _y   = _top - (_at - _scroll);
-        kana_draw_text(_font, _font_px, _section == KANA_CHART_KATAKANA ? "Katakana" : "Hiragana", _left, _y - 32.0f, 26.0f, kana_theme_active()->text);
+        kana_draw_text(_font, _font_px, _section == KANA_CHART_KATAKANA ? "Katakana" : "Hiragana", _left, _y - 32.0f, 24.0f, kana_theme_active()->text);
         const f32 _sub = _y - KANA_CHART_TITLE_H - (f32)KANA_CHART_ROWS * _cell - KANA_CHART_GAP * 0.5f;
-        kana_draw_text(_font, _font_px, "Voiced (dakuten, handakuten) and small kana", _left, _sub - 26.0f, 17.0f, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, "Voiced (dakuten, handakuten) and small kana", _left, _sub - 26.0f, 15.0f, kana_theme_active()->text_soft);
     }
 
     const kana_chart_cell* _cells  = (const kana_chart_cell*)_chart->cells.memory;
@@ -335,10 +335,11 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
         const u32  _record = ((const u32*)_chart->list.memory)[_c->position];
         const b8   _select = _chart->selection != NULL && _chart->selection->active;
         const b8   _ticked = _select && kana_selection_has(_chart->selection, _record);
+        kana_draw_card((rde_vec_2F){ _c->x + 3.0f, _y - _c->size + 3.0f }, (rde_vec_2F){ _c->x + _c->size - 3.0f, _y - 3.0f }, 10.0f,
+                       kana_theme_active()->surface, kana_theme_active()->outline);
         if(_select) {
             kana_selection_draw_behind(_ticked, (rde_vec_2F){ _c->x, _y }, _c->size);
         }
-        kana_draw_outline((rde_vec_2F){ _c->x + 2.0f, _y - _c->size + 2.0f }, (rde_vec_2F){ _c->x + _c->size - 2.0f, _y - 2.0f }, 0.5f, kana_theme_active()->line);
 
         kana_glyph_character(&_chart->glyph, _cps[_c->position], (rde_vec_2F){ _c->x + (_c->size - _glyph) * 0.5f, _y - _c->size * 0.08f }, _glyph, kana_theme_active()->ink);
         if(_romaji[_c->position] != NULL) {

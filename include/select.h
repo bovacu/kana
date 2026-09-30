@@ -41,8 +41,8 @@ void kana_selection_draw_behind(b8 _ticked, rde_vec_2F _tl, f32 _size);
 void kana_selection_draw_tick(b8 _ticked, rde_vec_2F _tl, f32 _size);
 
 // A character's study mark (marks.h) in a corner of its cell or square — the top
-// right, or the top left when a tick has that: Studying a circle, Known a
-// square (for now: icons when the UI has them). Nothing when not marked.
+// right, or the top left when a tick has that: Studying an amber star, Known a
+// green seal (icons.h, on a disc of the colour). Nothing when not marked.
 void kana_selection_draw_mark(KANA_MARK_ _mark, rde_vec_2F _tl, f32 _size, b8 _left);
 
 #endif

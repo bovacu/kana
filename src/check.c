@@ -517,7 +517,7 @@ void kana_check_render(kana_check* _check, rde_window* _window, rde_font* _font,
     const u32         _n      = kana_check_count(_check);
     c8                _line[200];
 
-    kana_draw_text(_font, _font_px, "Check", _left, _top - 30.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Check", _left, _top - 30.0f, 24.0f, _theme->text);
 
     if(_check->pending) {
         kana_draw_text(_font, _font_px, "Reading…", _left, _top - 60.0f, 17.0f, _theme->text_soft);

@@ -349,7 +349,7 @@ RDE_INTERNAL void kana_album_render_overview(kana_album* _album, rde_font* _font
     const u32         _count  = (u32)rde_arr_length(&_album->entries);
     #define KANA_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
-    kana_draw_text(_font, _font_px, "Album", _left, KANA_ALBUM_SY(0.0f) - 32.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Album", _left, KANA_ALBUM_SY(0.0f) - 32.0f, 24.0f, _theme->text);
     c8 _line[128];
     if(_count == 0) {
         snprintf(_line, sizeof(_line), "Nothing practised yet: open a character (Kanji or Kana), then Practice, then Score.");

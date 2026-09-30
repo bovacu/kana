@@ -23,9 +23,23 @@ void kana_draw_outline(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color 
 // A stroke through _count points, _radius wide all along (any number of points).
 void kana_draw_stroke_even(const rde_vec_2F* _points, u32 _count, f32 _radius, rde_color _color);
 
-// How wide _text is at _px, estimated rather than laid out: an advance per
-// character, measured once per font — Japanese (all one width) and Latin (the
-// average). Good for centring a label and stopping a line at an edge.
+// A card: a rounded box from _min to _max, _radius at the corners, filled, with
+// a hairline border.
+void kana_draw_card(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color _fill, rde_color _border);
+// A chip: _text in a pill starting at _x, centred on _mid. Returns its width.
+f32  kana_draw_chip(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, rde_color _fill, rde_color _color);
+// Slug draws a character's em about this many times the size asked for.
+#define KANA_DRAW_EM 1.31f
+// An icon (icons.h) centred on _center, _em across: in _font (Regular is the UI
+// font's fallback, so the UI font draws it), or Phosphor Fill — its font set
+// once by the app.
+void kana_draw_icon(rde_font* _font, f32 _font_px, const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color);
+void kana_draw_set_icon_fill(rde_font* _font, f32 _font_px);
+void kana_draw_icon_fill(const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color);
+
+// How wide _text is at _px: a short one (a label, a chip) measured for real
+// the first time and kept; a long one estimated — an advance per character,
+// measured once per font: Japanese (all one width) and Latin (the average).
 f32  kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px);
 // _text into _out, cut with "…" (at a word when one is near) where it would pass
 // _width at _px.

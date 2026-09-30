@@ -5,6 +5,8 @@
 #include "notes.h"
 #include "mlkit.h"
 #include "kfile.h"
+#include "icons.h"
+#include "draw.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -23,12 +25,20 @@
 #define KANA_SIDE_MENU_H    44.0f
 #define KANA_SIDE_CARD_W    580.0f
 #define KANA_SIDE_CARD_H    784.0f
-#define KANA_SIDE_LICENCE_PX 13.0f    // Licences' text
+#define KANA_SIDE_LICENCE_PX 11.0f    // Licences' text
+// Text sizes (the UI font's units; Slug draws an em ~1.31 x these).
+#define KANA_SIDE_TITLE_PX      20.0f   // a card's title: Settings, Licences
+#define KANA_SIDE_CARD_TITLE_PX 17.0f   // a small card's (a note's)
+#define KANA_SIDE_HEADER_PX     10.5f   // a section's: STUDY, THEME
+#define KANA_SIDE_ROW_PX        14.0f   // a setting's name
+#define KANA_SIDE_BODY_PX       13.0f
+#define KANA_SIDE_SMALL_PX      11.5f   // notes, the credits
 #define KANA_SIDE_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 #define KANA_SIDE_NOTE_H    40.0f     // a row of the notes list
 #define KANA_SIDE_DOTS_W    44.0f     // its "…"
 #define KANA_SIDE_INDENT    18.0f     // a canvas in a folder
-#define KANA_SIDE_NOTE_CARD (rde_vec_2F){ 540.0f, 230.0f }
+#define KANA_SIDE_NOTE_CARD (rde_vec_2F){ 540.0f, 196.0f }
+#define KANA_SIDE_CARD_PAD  22.0f     // inside a card
 #define KANA_SIDE_HANDLE_W  28.0f     // a row's drag handle
 #define KANA_SIDE_EDGE      44.0f     // a drag this near the list's top or bottom scrolls it
 #define KANA_SIDE_AUTOSCROLL 9.0f     // ...this many units a frame
@@ -392,7 +402,7 @@ RDE_INTERNAL void kana_side_licence_load(kana_toolbar* _toolbar, u32 _doc) {
     rde_ui_scroll_area_set_content_size(_side->licences_text, (rde_vec_2F){ _side->_licence_width, _content });
     rde_ui_scroll_area_set_scroll(_side->licences_text, (rde_vec_2F){ 0.0f, 0.0f });
     for(u32 _d = 0; _d < KANA_SIDE_LICENCE_DOCS; _d++) {
-        if(_d == _doc) { kana_toolbar_button_selected(_side->licences_docs[_d]); } else { kana_toolbar_button_plain(_side->licences_docs[_d]); }
+        kana_toolbar_button_chip(_side->licences_docs[_d], _d == _doc);
     }
 }
 
@@ -465,16 +475,6 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_licence_doc(rde_ui_node* _node, c
 }
 
 // --- notes -----------------------------------------------------------------------------
-
-// A button's text at its left, inside the button (buttons centre their label).
-RDE_INTERNAL void kana_side_left_text(rde_ui_button* _button, rde_vec_2F _size, f32 _inset) {
-    if(_button->internal_label == NULL) {
-        return;
-    }
-    rde_ui_label_set_alignment(_button->internal_label, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_MIDDLE);
-    kana_toolbar_place(rde_ui_label_as_node(_button->internal_label), (rde_vec_2F){ _size.x * 0.5f + _inset * 0.5f, _size.y * 0.5f },
-                       (rde_vec_2F){ _size.x - _inset - 6.0f, _size.y });
-}
 
 RDE_INTERNAL void kana_side_card(kana_toolbar* _toolbar, KANA_SIDE_CARD_ _mode, u32 _note);
 
@@ -611,6 +611,7 @@ RDE_INTERNAL void kana_side_card_layout(kana_toolbar* _toolbar) {
     const b8         _folder = kana_notes_find(_toolbar->notes, _side->card_note) != NULL &&
                                kana_notes_find(_toolbar->notes, _side->card_note)->kind == KANA_NOTE_FOLDER;
 
+    // From the right: Cancel at the end of the actions (the confirm first in its row).
     rde_ui_button* _row[6];
     u32            _count = 0;
     if(_side->card_mode == KANA_SIDE_CARD_ACTIONS) {
@@ -634,12 +635,23 @@ RDE_INTERNAL void kana_side_card_layout(kana_toolbar* _toolbar) {
         }
         rde_ui_node_set_active(rde_ui_button_as_node(_all[_i]), _used);
     }
-    const f32 _w = _count > 4 ? 88.0f : 100.0f;
+    // Each as wide as its label; squeezed when the row would not fit.
+    f32 _w[6];
+    f32 _total = KANA_SIDE_GAP * (f32)(_count - 1u);
     for(u32 _k = 0; _k < _count; _k++) {
-        kana_toolbar_place(rde_ui_button_as_node(_row[_k]), (rde_vec_2F){ _size.x - 20.0f - _w * 0.5f - (f32)_k * (_w + KANA_SIDE_GAP), 20.0f + 22.0f },
-                           (rde_vec_2F){ _w, 44.0f });
+        const c8* _text = _row[_k]->internal_label != NULL ? _row[_k]->internal_label->text : "";
+        _w[_k]  = fmaxf(84.0f, kana_draw_text_width(_toolbar->font, (f32)KANA_TOOLBAR_FONT_SIZE, _text != NULL ? _text : "", 13.0f) + 32.0f);
+        _total += _w[_k];
     }
-    rde_ui_node_set_active(rde_ui_text_editor_as_node(_side->note_field), _side->card_mode == KANA_SIDE_CARD_RENAME);
+    const f32 _room    = _size.x - 2.0f * KANA_SIDE_CARD_PAD;
+    const f32 _squeeze = _total > _room ? (_room - KANA_SIDE_GAP * (f32)(_count - 1u)) / (_total - KANA_SIDE_GAP * (f32)(_count - 1u)) : 1.0f;
+    f32 _x = _size.x - KANA_SIDE_CARD_PAD;
+    for(u32 _k = 0; _k < _count; _k++) {
+        const f32 _bw = _w[_k] * _squeeze;
+        kana_toolbar_place(rde_ui_button_as_node(_row[_k]), (rde_vec_2F){ _x - _bw * 0.5f, KANA_SIDE_CARD_PAD + 20.0f }, (rde_vec_2F){ _bw, 40.0f });
+        _x -= _bw + KANA_SIDE_GAP;
+    }
+    rde_ui_node_set_active(kana_toolbar_field_node(_side->note_field), _side->card_mode == KANA_SIDE_CARD_RENAME);
     rde_ui_node_set_active(rde_ui_label_as_node(_side->note_body), _side->card_mode != KANA_SIDE_CARD_RENAME);
 }
 
@@ -686,11 +698,11 @@ RDE_INTERNAL void kana_side_card(kana_toolbar* _toolbar, KANA_SIDE_CARD_ _mode, 
     }
     rde_ui_label_set_text(_side->note_title, _title);
     rde_ui_label_set_text(_side->note_body, _body);
-    rde_ui_button_set_text(_side->note_confirm, _mode == KANA_SIDE_CARD_DELETE ? "Delete" : "Save");
+    rde_ui_button_set_text(_side->note_confirm, _mode == KANA_SIDE_CARD_DELETE ? KANA_ICON_TRASH "  Delete" : KANA_ICON_CHECK "  Save");
     if(_mode == KANA_SIDE_CARD_DELETE) {
-        kana_toolbar_button_colors(_side->note_confirm, kana_theme_active()->danger, 0.0f, (rde_color){ 0, 0, 0, 0 });
+        kana_toolbar_button_danger(_side->note_confirm);
     } else {
-        kana_toolbar_button_selected(_side->note_confirm);
+        kana_toolbar_button_primary(_side->note_confirm);
     }
     kana_side_card_layout(_toolbar);
 
@@ -898,7 +910,7 @@ RDE_INTERNAL void kana_side_build_notes(kana_toolbar* _toolbar) {
         // The handle: three bars; a drag from it moves the row.
         rde_ui_image* _handle = rde_ui_image_create(NULL);
         rde_ui_node*  _h      = rde_ui_image_as_node(_handle);
-        rde_ui_image_set_style(_handle, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button, 8.0f));
+        rde_ui_image_set_style(_handle, RDE_UI_STATE_NORMAL, kana_toolbar_style((rde_color){ 0, 0, 0, 0 }, 8.0f));
         rde_ui_node_set_blocks_input(_h, true);
         rde_ui_node_set_user_data(_h, _ref);
         rde_ui_node_set_callback(_h, RDE_UI_EVENT_MOUSE_DRAG_BEGIN, kana_side_on_drag_begin);
@@ -906,18 +918,16 @@ RDE_INTERNAL void kana_side_build_notes(kana_toolbar* _toolbar) {
         rde_ui_node_set_callback(_h, RDE_UI_EVENT_MOUSE_DRAG_END,   kana_side_on_drag_end);
         rde_ui_node_add_child(_list, _h);
         kana_toolbar_place(_h, (rde_vec_2F){ _indent + KANA_SIDE_HANDLE_W * 0.5f, _y }, (rde_vec_2F){ KANA_SIDE_HANDLE_W, KANA_SIDE_NOTE_H });
-        for(u32 _b = 0; _b < 3; _b++) {
-            rde_ui_image* _bar = rde_ui_image_create(NULL);
-            rde_ui_image_set_style(_bar, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button_text_disabled, 1.0f));
-            rde_ui_node_set_raycast_target(rde_ui_image_as_node(_bar), false);
-            rde_ui_node_add_child(_h, rde_ui_image_as_node(_bar));
-            kana_toolbar_place(rde_ui_image_as_node(_bar), (rde_vec_2F){ KANA_SIDE_HANDLE_W * 0.5f, KANA_SIDE_NOTE_H * 0.5f + (1.0f - (f32)_b) * 5.0f },
-                               (rde_vec_2F){ 12.0f, 2.0f });
-        }
+        rde_ui_label* _dots6 = kana_side_label(_toolbar, _h, KANA_ICON_GRIP_V, 14.0f);
+        rde_ui_label_set_font(_dots6, _toolbar->font_icons != NULL ? _toolbar->font_icons : _toolbar->font);
+        rde_ui_label_set_alignment(_dots6, RDE_UI_LABEL_H_ALIGN_CENTER, RDE_UI_LABEL_V_ALIGN_MIDDLE);
+        rde_ui_label_set_color(_dots6, _t->grip);
+        const f32 _back = kana_toolbar_icon_bearing(KANA_ICON_GRIP_V) * 0.5f * 14.0f * KANA_TOOLBAR_EM;   // centred
+        kana_toolbar_place(rde_ui_label_as_node(_dots6), (rde_vec_2F){ KANA_SIDE_HANDLE_W * 0.5f - _back, KANA_SIDE_NOTE_H * 0.5f }, (rde_vec_2F){ KANA_SIDE_HANDLE_W, KANA_SIDE_NOTE_H });
 
         c8 _label[KANA_NOTE_NAME + 32];
         if(_folder) {
-            snprintf(_label, sizeof(_label), "%s %s  (%u)", _row->expanded ? "\xE2\x80\x93" : "+", _n->name, kana_notes_count_in(_notes, _n->id));   // – or +
+            snprintf(_label, sizeof(_label), "%s  (%u)", _n->name, kana_notes_count_in(_notes, _n->id));
         } else {
             snprintf(_label, sizeof(_label), "%s", _n->name);
         }
@@ -927,13 +937,18 @@ RDE_INTERNAL void kana_side_build_notes(kana_toolbar* _toolbar) {
         rde_ui_button*   _button   = kana_toolbar_button(_toolbar, _list, _label, kana_side_on_note);
         rde_ui_button_set_on_click(_button, kana_side_on_note, _ref);
         kana_toolbar_place(rde_ui_button_as_node(_button), (rde_vec_2F){ _x0 + _row_size.x * 0.5f, _y }, _row_size);
-        kana_side_left_text(_button, _row_size, 12.0f);
+        kana_toolbar_icon(_button, _folder ? (_row->expanded ? KANA_ICON_FOLDER_OPEN : KANA_ICON_FOLDER) : KANA_ICON_NOTE, KANA_TOOLBAR_ICON_LEFT, 15.0f);
         if(!_folder && _row->id == _notes->open) {
             kana_toolbar_button_selected(_button);   // the canvas on the page
+        } else {
+            kana_toolbar_button_quiet(_button);
+            kana_toolbar_icon_color(_button, _t->text_soft);
         }
 
         rde_ui_button* _dots = kana_toolbar_button(_toolbar, _list, "\xE2\x80\xA6", kana_side_on_note_dots);   // …
         rde_ui_button_set_on_click(_dots, kana_side_on_note_dots, _ref);
+        kana_toolbar_icon(_dots, KANA_ICON_MORE, KANA_TOOLBAR_ICON_ONLY, 17.0f);
+        kana_toolbar_button_quiet(_dots);
         kana_toolbar_place(rde_ui_button_as_node(_dots), (rde_vec_2F){ _width - KANA_SIDE_DOTS_W * 0.5f, _y }, (rde_vec_2F){ KANA_SIDE_DOTS_W, KANA_SIDE_NOTE_H });
     }
 }
@@ -952,10 +967,6 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     _side->_menu_center = (rde_vec_2F){ (f32)_insets.x + KANA_SIDE_MARGIN + KANA_SIDE_MENU_W * 0.5f,
                                         _screen.y - (f32)_insets.y - KANA_SIDE_MARGIN * 0.5f - KANA_SIDE_MENU_H * 0.5f };
     kana_toolbar_place(rde_ui_button_as_node(_side->menu_button), _side->_menu_center, _side->_menu_size);
-    for(u32 _i = 0; _i < 3; _i++) {
-        kana_toolbar_place(rde_ui_image_as_node(_side->menu_bars[_i]), (rde_vec_2F){ KANA_SIDE_MENU_W * 0.5f, KANA_SIDE_MENU_H * 0.5f + (1.0f - (f32)_i) * 7.0f },
-                           (rde_vec_2F){ 20.0f, 3.0f });
-    }
 
     // The backdrops cover the screen; the panel is the left edge, full height.
     kana_toolbar_place(rde_ui_button_as_node(_side->backdrop), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, _screen);
@@ -1080,9 +1091,9 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     const rde_vec_2F _nc = KANA_SIDE_NOTE_CARD;
     kana_toolbar_place(rde_ui_button_as_node(_side->note_backdrop), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, _screen);
     kana_toolbar_place(rde_ui_image_as_node(_side->note_card), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.6f }, _nc);
-    kana_toolbar_place(rde_ui_label_as_node(_side->note_title), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - 36.0f }, (rde_vec_2F){ _nc.x - 40.0f, 40.0f });
-    kana_toolbar_place(rde_ui_label_as_node(_side->note_body), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - 92.0f }, (rde_vec_2F){ _nc.x - 40.0f, 60.0f });
-    kana_toolbar_place(rde_ui_text_editor_as_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - 100.0f }, (rde_vec_2F){ _nc.x - 40.0f, 44.0f });
+    kana_toolbar_place(rde_ui_label_as_node(_side->note_title), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - KANA_SIDE_CARD_PAD - 14.0f }, (rde_vec_2F){ _nc.x - 2.0f * KANA_SIDE_CARD_PAD, 32.0f });
+    kana_toolbar_place(rde_ui_label_as_node(_side->note_body), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - KANA_SIDE_CARD_PAD - 54.0f }, (rde_vec_2F){ _nc.x - 2.0f * KANA_SIDE_CARD_PAD, 44.0f });
+    kana_toolbar_place(kana_toolbar_field_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - KANA_SIDE_CARD_PAD - 62.0f }, (rde_vec_2F){ _nc.x - 2.0f * KANA_SIDE_CARD_PAD, 44.0f });
     if(_side->card_mode != KANA_SIDE_CARD_NONE) {
         kana_side_card_layout(_toolbar);
     }
@@ -1104,20 +1115,28 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node_set_blocks_input(_panel, true);
     rde_ui_node_add_child(_root, _panel);
 
-    _side->study_label = kana_side_label(_toolbar, _panel, "STUDY", 14.0f);
+    _side->study_label = kana_side_label(_toolbar, _panel, "STUDY", KANA_SIDE_HEADER_PX);
     _side->kanji       = kana_toolbar_button(_toolbar, _panel, "Kanji", kana_side_on_kanji);
     _side->kana        = kana_toolbar_button(_toolbar, _panel, "Kana", kana_side_on_kana);
     _side->album       = kana_toolbar_button(_toolbar, _panel, "Album", kana_side_on_album);
     _side->exams       = kana_toolbar_button(_toolbar, _panel, "Exams", kana_side_on_exams);
     _side->statistics  = kana_toolbar_button(_toolbar, _panel, "Statistics", kana_side_on_statistics);
+    // The rows' icons: the Japanese ones as characters.
+    kana_toolbar_icon(_side->kanji, "\xE5\xAD\x97", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 字
+    kana_toolbar_icon(_side->kana, "\xE3\x81\x82", KANA_TOOLBAR_ICON_LEFT, 15.0f);         // あ
+    kana_toolbar_icon(_side->album, KANA_ICON_BOOKS, KANA_TOOLBAR_ICON_LEFT, 16.0f);
+    kana_toolbar_icon(_side->exams, "\xE8\xA9\xA6", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 試
+    kana_toolbar_icon(_side->statistics, KANA_ICON_CHART_LINE, KANA_TOOLBAR_ICON_LEFT, 16.0f);
     if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->kanji, false); }   // no character data
     if(kana_chart_count(_toolbar->chart) == 0)   { kana_toolbar_set_enabled(_side->kana, false); }
     if(_toolbar->album->db == NULL)              { kana_toolbar_set_enabled(_side->album, false); }
     if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->exams, false); }
 
-    _side->notes_label = kana_side_label(_toolbar, _panel, "NOTES", 14.0f);
-    _side->new_folder  = kana_toolbar_button(_toolbar, _panel, "+ Folder", kana_side_on_new_folder);
-    _side->new_canvas  = kana_toolbar_button(_toolbar, _panel, "+ Canvas", kana_side_on_new_canvas);
+    _side->notes_label = kana_side_label(_toolbar, _panel, "NOTES", KANA_SIDE_HEADER_PX);
+    _side->new_folder  = kana_toolbar_button(_toolbar, _panel, "Folder", kana_side_on_new_folder);
+    _side->new_canvas  = kana_toolbar_button(_toolbar, _panel, "Canvas", kana_side_on_new_canvas);
+    kana_toolbar_icon(_side->new_folder, KANA_ICON_FOLDER_ADD, KANA_TOOLBAR_ICON_LEFT, 14.0f);
+    kana_toolbar_icon(_side->new_canvas, KANA_ICON_FILE_ADD, KANA_TOOLBAR_ICON_LEFT, 14.0f);
     _side->notes_list  = rde_ui_scroll_area_create(NULL);
     rde_ui_scroll_area_set_bar_thickness(_side->notes_list, 3.0f);
     rde_ui_node_add_child(_panel, rde_ui_scroll_area_as_node(_side->notes_list));
@@ -1132,21 +1151,18 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
         rde_ui_node_add_child(_panel, _drag_nodes[_i]);
         rde_ui_node_set_active(_drag_nodes[_i], false);
     }
-    _side->drag_ghost_label = kana_side_label(_toolbar, rde_ui_image_as_node(_side->drag_ghost), "", 16.0f);
+    _side->drag_ghost_label = kana_side_label(_toolbar, rde_ui_image_as_node(_side->drag_ghost), "", 13.0f);
     kana_toolbar_place(rde_ui_label_as_node(_side->drag_ghost_label), (rde_vec_2F){ 85.0f, 18.0f }, (rde_vec_2F){ 150.0f, 36.0f });
 
     c8 _version[64];
     snprintf(_version, sizeof(_version), "Kana %s", KANA_VERSION);
-    _side->version         = kana_side_label(_toolbar, _panel, _version, 13.0f);
+    _side->version         = kana_side_label(_toolbar, _panel, _version, 11.0f);
     _side->settings_button = kana_toolbar_button(_toolbar, _panel, "Settings", kana_side_on_settings);
+    kana_toolbar_icon(_side->settings_button, KANA_ICON_SETTINGS, KANA_TOOLBAR_ICON_LEFT, 15.0f);
 
-    // The menu button, with three bars for an icon (they let the press through).
-    _side->menu_button = kana_toolbar_button(_toolbar, _root, "", kana_side_on_menu);
-    for(u32 _i = 0; _i < 3; _i++) {
-        _side->menu_bars[_i] = rde_ui_image_create(NULL);
-        rde_ui_node_set_raycast_target(rde_ui_image_as_node(_side->menu_bars[_i]), false);
-        rde_ui_node_add_child(rde_ui_button_as_node(_side->menu_button), rde_ui_image_as_node(_side->menu_bars[_i]));
-    }
+    // The menu button: an icon on a small card of its own, over the page.
+    _side->menu_button = kana_toolbar_button(_toolbar, _root, "Menu", kana_side_on_menu);
+    kana_toolbar_icon(_side->menu_button, KANA_ICON_MENU, KANA_TOOLBAR_ICON_ONLY, 17.0f);
 
     // Settings, over everything.
     _side->settings_backdrop = rde_ui_button_create(NULL, NULL);
@@ -1158,35 +1174,35 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node_set_blocks_input(_card, true);
     rde_ui_node_add_child(_root, _card);
 
-    _side->settings_title = kana_side_label(_toolbar, _card, "Settings", 26.0f);
-    _side->theme_label    = kana_side_label(_toolbar, _card, "THEME", 14.0f);
+    _side->settings_title = kana_side_label(_toolbar, _card, "Settings", KANA_SIDE_TITLE_PX);
+    _side->theme_label    = kana_side_label(_toolbar, _card, "THEME", KANA_SIDE_HEADER_PX);
     for(u32 _i = 0; _i < KANA_THEME_COUNT; _i++) {
         _side->theme_refs[_i] = (kana_side_theme_ref){ _toolbar, _i };
         _side->themes[_i]     = kana_toolbar_button(_toolbar, _card, kana_theme_get((KANA_THEME_)_i)->name, kana_side_on_theme);
         rde_ui_button_set_on_click(_side->themes[_i], kana_side_on_theme, &_side->theme_refs[_i]);
     }
-    _side->hud_label      = kana_side_label(_toolbar, _card, "Diagnostics HUD", 18.0f);
+    _side->hud_label      = kana_side_label(_toolbar, _card, "Diagnostics HUD", KANA_SIDE_ROW_PX);
     _side->hud_toggle     = kana_toolbar_button(_toolbar, _card, "Off", kana_side_on_hud);
-    _side->width_label    = kana_side_label(_toolbar, _card, "Pen width", 18.0f);
+    _side->width_label    = kana_side_label(_toolbar, _card, "Pen width", KANA_SIDE_ROW_PX);
     _side->width_even     = kana_toolbar_button(_toolbar, _card, "Even", kana_side_on_width_even);
     _side->width_pressure = kana_toolbar_button(_toolbar, _card, "Pressure", kana_side_on_width_pressure);
-    _side->paper_label  = kana_side_label(_toolbar, _card, "Lines & squares", 18.0f);
+    _side->paper_label  = kana_side_label(_toolbar, _card, "Lines & squares", KANA_SIDE_ROW_PX);
     _side->paper_sizes[KANA_PAPER_SMALL]  = kana_toolbar_button(_toolbar, _card, "Small",  kana_side_on_paper_small);
     _side->paper_sizes[KANA_PAPER_MEDIUM] = kana_toolbar_button(_toolbar, _card, "Medium", kana_side_on_paper_medium);
     _side->paper_sizes[KANA_PAPER_LARGE]  = kana_toolbar_button(_toolbar, _card, "Large",  kana_side_on_paper_large);
-    _side->about_label    = kana_side_label(_toolbar, _card, "ABOUT", 14.0f);
+    _side->about_label    = kana_side_label(_toolbar, _card, "ABOUT", KANA_SIDE_HEADER_PX);
 
-    _side->hand_label     = kana_side_label(_toolbar, _card, "HANDWRITING", 14.0f);
-    _side->mlkit_label    = kana_side_label(_toolbar, _card, "Read with Google ML Kit", 18.0f);
+    _side->hand_label     = kana_side_label(_toolbar, _card, "HANDWRITING", KANA_SIDE_HEADER_PX);
+    _side->mlkit_label    = kana_side_label(_toolbar, _card, "Read with Google ML Kit", KANA_SIDE_ROW_PX);
     _side->mlkit_toggle   = kana_toolbar_button(_toolbar, _card, "On", kana_side_on_mlkit);
-    _side->mlkit_status   = kana_side_label(_toolbar, _card, "", 14.0f);
+    _side->mlkit_status   = kana_side_label(_toolbar, _card, "", KANA_SIDE_SMALL_PX);
     rde_ui_label_set_wrap(_side->mlkit_status, true);
     _side->mlkit_download = kana_toolbar_button(_toolbar, _card, "Download", kana_side_on_mlkit_download);
     _side->_mlkit_shown   = -1;
 
     c8 _about[1536];
     snprintf(_about, sizeof(_about), "Kana %s, built %s.\n\n%s", KANA_VERSION, __DATE__, KANA_SIDE_CREDITS);
-    _side->about_text = kana_side_label(_toolbar, _card, _about, 14.0f);
+    _side->about_text = kana_side_label(_toolbar, _card, _about, KANA_SIDE_SMALL_PX);
     rde_ui_label_set_wrap(_side->about_text, true);
     // A short screen (landscape) gives it less room: smaller rather than over the buttons.
     rde_ui_label_set_auto_fit(_side->about_text, true);
@@ -1203,7 +1219,7 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node* _lcard = rde_ui_image_as_node(_side->licences_card);
     rde_ui_node_set_blocks_input(_lcard, true);
     rde_ui_node_add_child(_root, _lcard);
-    _side->licences_title = kana_side_label(_toolbar, _lcard, "Licences", 26.0f);
+    _side->licences_title = kana_side_label(_toolbar, _lcard, "Licences", KANA_SIDE_TITLE_PX);
     for(u32 _i = 0; _i < KANA_SIDE_LICENCE_DOCS; _i++) {
         _side->licences_refs[_i] = (kana_side_theme_ref){ _toolbar, _i };
         _side->licences_docs[_i] = kana_toolbar_button(_toolbar, _lcard, KANA_SIDE_LICENCES[_i].name, kana_side_on_licence_doc);
@@ -1227,21 +1243,21 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node* _note_card = rde_ui_image_as_node(_side->note_card);
     rde_ui_node_set_blocks_input(_note_card, true);
     rde_ui_node_add_child(_root, _note_card);
-    _side->note_title = kana_side_label(_toolbar, _note_card, "", 22.0f);
-    _side->note_body  = kana_side_label(_toolbar, _note_card, "", 16.0f);
+    _side->note_title = kana_side_label(_toolbar, _note_card, "", KANA_SIDE_CARD_TITLE_PX);
+    _side->note_body  = kana_side_label(_toolbar, _note_card, "", KANA_SIDE_BODY_PX);
     rde_ui_label_set_wrap(_side->note_body, true);
     _side->note_field = rde_ui_text_editor_create(_toolbar->font, NULL);
     rde_ui_text_editor_set_multiline(_side->note_field, false);
-    rde_ui_text_editor_set_font_size(_side->note_field, 18u);
+    rde_ui_text_editor_set_font_size(_side->note_field, 14u);
     rde_ui_text_editor_set_max_chars(_side->note_field, KANA_NOTE_NAME - 8);
-    rde_ui_text_editor_set_content_insets(_side->note_field, 10.0f, 8.0f, 10.0f, 8.0f);
+    rde_ui_text_editor_set_content_insets(_side->note_field, 12.0f, 8.0f, 12.0f, 8.0f);
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_side->note_field), _toolbar);
     rde_ui_text_editor_set_on_submit(_side->note_field, kana_side_on_field_submit);
-    rde_ui_node_add_child(_note_card, rde_ui_text_editor_as_node(_side->note_field));
-    _side->note_rename  = kana_toolbar_button(_toolbar, _note_card, "Rename", kana_side_on_card_rename);
-    _side->note_add     = kana_toolbar_button(_toolbar, _note_card, "+ Canvas", kana_side_on_card_add);
-    _side->note_add_folder = kana_toolbar_button(_toolbar, _note_card, "+ Folder", kana_side_on_card_add_folder);
-    _side->note_delete  = kana_toolbar_button(_toolbar, _note_card, "Delete", kana_side_on_card_delete);
+    kana_toolbar_field_box(_note_card, _side->note_field);
+    _side->note_rename  = kana_toolbar_button(_toolbar, _note_card, KANA_ICON_DRAW "  Rename", kana_side_on_card_rename);
+    _side->note_add     = kana_toolbar_button(_toolbar, _note_card, KANA_ICON_FILE_ADD "  Canvas", kana_side_on_card_add);
+    _side->note_add_folder = kana_toolbar_button(_toolbar, _note_card, KANA_ICON_FOLDER_ADD "  Folder", kana_side_on_card_add_folder);
+    _side->note_delete  = kana_toolbar_button(_toolbar, _note_card, KANA_ICON_TRASH "  Delete", kana_side_on_card_delete);
     _side->note_cancel  = kana_toolbar_button(_toolbar, _note_card, "Cancel", kana_side_on_card_cancel);
     _side->note_confirm = kana_toolbar_button(_toolbar, _note_card, "Save", kana_side_on_card_confirm);
 
@@ -1353,17 +1369,25 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     }
 
     kana_toolbar_style_panel(_side->panel, 0.0f, 1.0f);
-    kana_toolbar_style_panel(_side->card, 14.0f, 1.0f);
+    kana_toolbar_style_panel(_side->card, 18.0f, 1.0f);
     kana_toolbar_button_colors(_side->backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
     kana_toolbar_button_colors(_side->settings_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
 
-    kana_toolbar_restyle_button(_side->menu_button);
-    for(u32 _i = 0; _i < 3; _i++) {
-        rde_ui_image_set_style(_side->menu_bars[_i], RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button_text, 1.5f));
-    }
+    // The menu button: a small card on the page.
+    kana_toolbar_button_colors(_side->menu_button, _t->surface, 1.0f, _t->outline);
+    kana_toolbar_button_round(_side->menu_button, 12.0f);
 
-    rde_ui_button* const _buttons[] = { _side->kanji, _side->kana, _side->album, _side->exams, _side->statistics, _side->new_folder, _side->new_canvas, _side->settings_button,
-                                        _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
+    // The panel's rows are quiet, their icons in the accent.
+    rde_ui_button* const _rows[] = { _side->kanji, _side->kana, _side->album, _side->exams, _side->statistics };
+    for(u32 _i = 0; _i < sizeof(_rows) / sizeof(_rows[0]); _i++) {
+        kana_toolbar_restyle_quiet(_rows[_i]);
+        kana_toolbar_icon_color(_rows[_i], _t->accent);
+    }
+    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button };
+    for(u32 _i = 0; _i < sizeof(_quiet) / sizeof(_quiet[0]); _i++) {
+        kana_toolbar_restyle_quiet(_quiet[_i]);
+    }
+    rde_ui_button* const _buttons[] = { _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
                                         _side->paper_sizes[0], _side->paper_sizes[1], _side->paper_sizes[2],
                                         _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,
                                         _side->licences_docs[0], _side->licences_docs[1], _side->licences_docs[2], _side->licences_docs[3],
@@ -1371,8 +1395,10 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         kana_toolbar_restyle_button(_buttons[_i]);
     }
-    kana_toolbar_style_panel(_side->note_card, 14.0f, 1.0f);
-    kana_toolbar_style_panel(_side->licences_card, 14.0f, 1.0f);
+    kana_toolbar_button_primary(_side->settings_close);
+    kana_toolbar_button_primary(_side->licences_close);
+    kana_toolbar_style_panel(_side->note_card, 18.0f, 1.0f);
+    kana_toolbar_style_panel(_side->licences_card, 18.0f, 1.0f);
     kana_toolbar_button_colors(_side->licences_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_background_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_track_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
@@ -1381,8 +1407,8 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
         rde_ui_label_set_color(_side->licences_lines[_k], _t->button_text);
     }
     kana_toolbar_button_colors(_side->note_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
-    kana_toolbar_button_colors(_side->note_delete, _t->danger, 0.0f, (rde_color){ 0, 0, 0, 0 });
-    rde_ui_text_editor_set_background(_side->note_field, true, _t->field);
+    kana_toolbar_button_danger(_side->note_delete);
+    kana_toolbar_style_field(_side->note_field);
     rde_ui_scroll_area_set_background_color(_side->notes_list, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_track_color(_side->notes_list, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_thumb_colors(_side->notes_list, _t->grip, kana_toolbar_shade(_t->grip, 20), kana_toolbar_shade(_t->grip, 40));
@@ -1393,28 +1419,32 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     _box.border_width    = 2.0f;
     _box.border_color    = _t->select;
     rde_ui_image_set_style(_side->drop_box, RDE_UI_STATE_NORMAL, _box);
-    rde_ui_style _ghost  = kana_toolbar_style(_t->button_selected, 10.0f);
+    rde_ui_style _ghost  = kana_toolbar_style(_t->accent, 10.0f);
     rde_ui_image_set_style(_side->drag_ghost, RDE_UI_STATE_NORMAL, _ghost);
-    rde_ui_label_set_color(_side->drag_ghost_label, _t->button_text);
+    rde_ui_label_set_color(_side->drag_ghost_label, _t->on_accent);
 
     // Each theme's button previews it: its page, its text; the current one ringed.
     for(u32 _i = 0; _i < KANA_THEME_COUNT; _i++) {
         const kana_theme* _other   = kana_theme_get((KANA_THEME_)_i);
         const b8          _current = (KANA_THEME_)_i == kana_theme_index();
-        kana_toolbar_button_colors(_side->themes[_i], _other->page, _current ? 3.0f : 1.0f, _current ? _t->button_selected : _other->sheet_outline);
+        kana_toolbar_button_colors(_side->themes[_i], _other->page, _current ? 3.0f : 1.0f, _current ? _t->accent : _other->outline);
         rde_ui_label_set_color(_side->themes[_i]->internal_label, _other->text);
     }
 
     rde_ui_label* const _headers[] = { _side->study_label, _side->theme_label, _side->notes_label, _side->about_label, _side->hand_label };
     for(u32 _i = 0; _i < sizeof(_headers) / sizeof(_headers[0]); _i++) {
-        rde_ui_label_set_color(_headers[_i], _t->field_placeholder);
+        rde_ui_label_set_color(_headers[_i], _t->text_soft);
     }
-    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->paper_label, _side->about_text, _side->note_title, _side->note_body,
-                                     _side->mlkit_label, _side->mlkit_status, _side->licences_title };
+    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->paper_label, _side->note_title,
+                                     _side->mlkit_label, _side->licences_title };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
-        rde_ui_label_set_color(_texts[_i], _t->button_text);
+        rde_ui_label_set_color(_texts[_i], _t->text);
     }
-    rde_ui_label_set_color(_side->version, _t->button_text_disabled);
+    rde_ui_label* const _soft[] = { _side->about_text, _side->note_body, _side->mlkit_status };
+    for(u32 _i = 0; _i < sizeof(_soft) / sizeof(_soft[0]); _i++) {
+        rde_ui_label_set_color(_soft[_i], _t->text_soft);
+    }
+    rde_ui_label_set_color(_side->version, _t->text_soft);
 
     kana_side_refresh_settings(_toolbar);
 }

@@ -421,7 +421,7 @@ RDE_INTERNAL void kana_practice_render_summary(kana_practice* _practice, rde_fon
     const u32 _weak = kana_practice_weak_count(_practice);
 
     c8 _line[160];
-    kana_draw_text(_font, _font_px, "Set done", _left, _top - 32.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Set done", _left, _top - 32.0f, 24.0f, _theme->text);
     if(_done > 0) {
         snprintf(_line, sizeof(_line), "%u of %u practised, average %.0f", _done, _count, (f64)(_sum / (f32)_done));
     } else {

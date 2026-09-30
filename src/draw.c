@@ -1,6 +1,8 @@
 #include "draw.h"
 #include "kanji.h"
 
+#include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -52,6 +54,45 @@ void kana_draw_stroke_even(const rde_vec_2F* _points, u32 _count, f32 _radius, r
     }
 }
 
+// --- the UI's shapes ----------------------------------------------------------------
+
+RDE_INTERNAL rde_font* kana_draw_fill_font    = NULL;   // Phosphor Fill (kana_draw_set_icon_fill)
+RDE_INTERNAL f32       kana_draw_fill_font_px = 32.0f;
+
+void kana_draw_set_icon_fill(rde_font* _font, f32 _font_px) {
+    kana_draw_fill_font    = _font;
+    kana_draw_fill_font_px = _font_px;
+}
+
+// Phosphor's glyphs fill their em, from 1/16 of it under the baseline to 15/16
+// over: the middle is 7/16 up. Slug's em is KANA_DRAW_EM times the size.
+void kana_draw_icon(rde_font* _font, f32 _font_px, const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color) {
+    const f32 _px = _em / KANA_DRAW_EM;
+    kana_draw_text(_font, _font_px, _icon, _center.x - _em * 0.5f, _center.y - _em * 0.4375f, _px, _color);
+}
+
+void kana_draw_icon_fill(const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color) {
+    kana_draw_icon(kana_draw_fill_font, kana_draw_fill_font_px, _icon, _center, _em, _color);
+}
+
+void kana_draw_card(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color _fill, rde_color _border) {
+    const rde_vec_2F _size = { _max.x - _min.x, _max.y - _min.y };
+    if(_size.x <= 0.0f || _size.y <= 0.0f) {
+        return;
+    }
+    const f32 _roundness = fminf(1.0f, 2.0f * _radius / fminf(_size.x, _size.y));
+    rde_rendering_2d_draw_rounded_rectangle_with_border((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, _size, _roundness, 6,
+                                                        _fill, 1.0f, _border, NULL);
+}
+
+f32 kana_draw_chip(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, rde_color _fill, rde_color _color) {
+    const f32 _h = _px + 12.0f;
+    const f32 _w = kana_draw_text_width(_font, _font_px, _text, _px) + 22.0f;
+    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _w * 0.5f, _mid }, (rde_vec_2F){ _w, _h }, 1.0f, 8, _fill, NULL);
+    kana_draw_text(_font, _font_px, _text, _x + 11.0f, _mid - _px * 0.36f, _px, _color);
+    return _w;
+}
+
 // --- text widths -----------------------------------------------------------------
 
 // How wide _probe's characters are on average, per unit of size.
@@ -78,7 +119,63 @@ RDE_INTERNAL f32 kana_draw_advance(rde_font* _font, f32 _font_px, u32 _cp) {
     return _cp >= 0x2E80u ? _japanese : _latin;
 }
 
+// Short texts (labels, chips, titles) are measured for real — laid out once by
+// the engine, then kept: an estimate from average advances is off by a third
+// for capitals and digits ("N5"), which puts a chip's text off centre. Longer
+// ones (meanings, sentences) are estimated.
+#define KANA_DRAW_EXACT_BYTES 48u
+#define KANA_DRAW_EXACT_SLOTS 512u
+
+typedef struct {
+    const rde_font* font;
+    u32             hash;
+    f32             width;     // per unit of size
+    c8              text[KANA_DRAW_EXACT_BYTES];
+} kana_draw_exact;
+
+RDE_INTERNAL kana_draw_exact kana_draw_exact_cache[KANA_DRAW_EXACT_SLOTS];
+RDE_INTERNAL u32             kana_draw_exact_used = 0;
+
+RDE_INTERNAL f32 kana_draw_exact_width(rde_font* _font, f32 _font_px, const c8* _text, usize _len) {
+    u32 _hash = 2166136261u;
+    for(usize _i = 0; _i < _len; _i++) {
+        _hash = (_hash ^ (u8)_text[_i]) * 16777619u;
+    }
+    _hash ^= (u32)(uintptr_t)_font;
+    u32 _slot = _hash % KANA_DRAW_EXACT_SLOTS;
+    for(u32 _probe = 0; _probe < KANA_DRAW_EXACT_SLOTS; _probe++, _slot = (_slot + 1u) % KANA_DRAW_EXACT_SLOTS) {
+        kana_draw_exact* _e = &kana_draw_exact_cache[_slot];
+        if(_e->font == NULL) {
+            break;
+        }
+        if(_e->font == _font && _e->hash == _hash && strcmp(_e->text, _text) == 0) {
+            return _e->width;
+        }
+    }
+    const rde_vec_2F _m = rde_rich_text_measure(_text, _font, 1.0f, 100000.0f, false);
+    const f32        _w = _m.x > 0.0f ? _m.x / _font_px : -1.0f;
+    if(kana_draw_exact_used >= KANA_DRAW_EXACT_SLOTS * 3u / 4u) {
+        memset(kana_draw_exact_cache, 0, sizeof(kana_draw_exact_cache));   // full: start again
+        kana_draw_exact_used = 0;
+        _slot = _hash % KANA_DRAW_EXACT_SLOTS;
+    }
+    kana_draw_exact* _e = &kana_draw_exact_cache[_slot];
+    _e->font  = _font;
+    _e->hash  = _hash;
+    _e->width = _w;
+    memcpy(_e->text, _text, _len + 1u);
+    kana_draw_exact_used++;
+    return _w;
+}
+
 f32 kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px) {
+    const usize _len = strlen(_text);
+    if(_font != NULL && _len > 0 && _len < KANA_DRAW_EXACT_BYTES && strchr(_text, '[') == NULL) {
+        const f32 _w = kana_draw_exact_width(_font, _font_px, _text, _len);
+        if(_w > 0.0f) {
+            return _w * _px;
+        }
+    }
     f32 _w = 0.0f;
     for(u32 _cp = kana_kanji_utf8_next(&_text); _cp != 0; _cp = kana_kanji_utf8_next(&_text)) {
         _w += kana_draw_advance(_font, _font_px, _cp) * _px;

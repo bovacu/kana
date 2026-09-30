@@ -262,7 +262,7 @@ void kana_stats_compute(kana_stats_data* _d, const kana_kanji_db* _db, const kan
 
 // --- the screen ------------------------------------------------------------------------
 
-#define KANA_STATS_MARGIN    16.0f
+#define KANA_STATS_MARGIN    24.0f
 #define KANA_STATS_GAP       14.0f     // between cards
 #define KANA_STATS_PAD       16.0f     // inside a card
 #define KANA_STATS_TITLE     40.0f     // a card's title line
@@ -459,13 +459,13 @@ RDE_INTERNAL void kana_stats_draw_activity(const kana_stats_box* _b) {
             break;   // the rest of this week is still to come
         }
         const u32 _n = (u32)_d->day_squares[_i] + (u32)_d->day_exam_items[_i];
-        rde_color _c = _theme->line;
+        rde_color _c = _theme->surface_2;
         if(_n > 0) {
             _c = kana_stats_alpha(_theme->score_good, _n >= 30u ? 1.0f : _n >= 12u ? 0.75f : _n >= 4u ? 0.5f : 0.3f);
         }
         const f32 _x = _b->left + 22.0f + (f32)(_i / 7u) * _cell;
         const f32 _y = _b->top - (f32)(_i % 7u) * _cell;
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _dot * 0.5f, _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, _c);
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _dot * 0.5f, _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, 0.4f, 3, _c, NULL);
     }
     c8 _line[96];
     snprintf(_line, sizeof(_line), "The last %u weeks: squares practised and exam answers, a day each", KANA_STATS_WEEKS);
@@ -722,13 +722,13 @@ void kana_stats_render(kana_stats* _stats, rde_window* _window, rde_font* _font,
 
     // The header: since when.
     c8 _line[160];
-    kana_draw_text(_font, _font_px, "Statistics", _left, _top - 30.0f, 28.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Statistics", _left, _top - 30.0f, 24.0f, _theme->text);
     if(_d->first_time != 0) {
         const time_t _first = (time_t)_d->first_time;
         c8 _date[40];
         strftime(_date, sizeof(_date), "%d %b %Y", localtime(&_first));
         snprintf(_line, sizeof(_line), "since %s", _date);
-        kana_draw_text(_font, _font_px, _line, _left + kana_draw_text_width(_font, _font_px, "Statistics", 28.0f) + 16.0f, _top - 30.0f, 17.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, _line, _left + kana_draw_text_width(_font, _font_px, "Statistics", 24.0f) + 16.0f, _top - 30.0f, 14.0f, _theme->text_soft);
     }
     const f32 _view_top = _top - 50.0f;
     _stats->view_top    = _view_top;
@@ -754,9 +754,8 @@ void kana_stats_render(kana_stats* _stats, rde_window* _window, rde_font* _font,
         if(_y - _h > _view_top || _y < _bottom) {
             continue;
         }
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _cw * 0.5f, _y - _h * 0.5f }, (rde_vec_2F){ _cw, _h }, 24.0f / fminf(_cw, _h), 8,
-                                                _theme->sheet, NULL);
-        kana_draw_text(_font, _font_px, KANA_STATS_CARD_TITLES[_c], _x + KANA_STATS_PAD, _y - KANA_STATS_PAD - 20.0f, 20.0f, _theme->text);
+        kana_draw_card((rde_vec_2F){ _x, _y - _h }, (rde_vec_2F){ _x + _cw, _y }, 16.0f, _theme->surface, _theme->outline);
+        kana_draw_text(_font, _font_px, KANA_STATS_CARD_TITLES[_c], _x + KANA_STATS_PAD, _y - KANA_STATS_PAD - 18.0f, 16.0f, _theme->text);
         const kana_stats_box _box = {
             .stats = _stats, .font = _font, .font_px = _font_px, .left = _x + KANA_STATS_PAD, .width = _cw - 2.0f * KANA_STATS_PAD,
             .top = _y - KANA_STATS_PAD - KANA_STATS_TITLE, .content_y = _cy + KANA_STATS_PAD + KANA_STATS_TITLE

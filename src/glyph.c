@@ -98,9 +98,9 @@ b8 kana_glyph_character(kana_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
 }
 
 void kana_glyph_box(rde_vec_2F _tl, f32 _size) {
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - _size * 0.5f }, (rde_vec_2F){ _size, _size }, kana_theme_active()->sheet);
-
-    kana_draw_outline((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, 1.0f, kana_theme_active()->sheet_outline);
+    // A card: rounded a little (less when small), a hairline edge.
+    kana_draw_card((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, fminf(14.0f, _size * 0.06f),
+                   kana_theme_active()->sheet, kana_theme_active()->sheet_outline);
 
     const f32 _dash = fmaxf(4.0f, _size / 40.0f);
     const f32 _cx   = _tl.x + _size * 0.5f;

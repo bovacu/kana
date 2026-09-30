@@ -414,8 +414,7 @@ RDE_INTERNAL void kana_browse_draw_parts(kana_browse* _browse, rde_window* _wind
     _browse->panel_min = (rde_vec_2F){ _left, _top - _height };
     _browse->panel_max = (rde_vec_2F){ _right, _top };
 
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_left + _right) * 0.5f, _top - _height * 0.5f }, (rde_vec_2F){ _right - _left, _height }, _theme->sheet);
-    kana_draw_outline((rde_vec_2F){ _left, _top - _height }, (rde_vec_2F){ _right, _top }, 0.8f, _theme->sheet_outline);
+    kana_draw_card((rde_vec_2F){ _left, _top - _height }, (rde_vec_2F){ _right, _top }, 14.0f, _theme->surface, _theme->outline);
 
     rde_arr_clear(&_browse->part_hits);
     const f32 _cell   = KANA_BROWSE_PART_CELL;
