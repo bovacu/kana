@@ -1,5 +1,6 @@
 #include "toolbar.h"
 #include "theme.h"
+#include "toolbar_kit.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -66,14 +67,14 @@ RDE_INTERNAL const rde_color KANA_TOOLBAR_PALETTE[KANA_TOOLBAR_PALETTE_COUNT] = 
 
 // --- styles -------------------------------------------------------------------
 
-RDE_INTERNAL rde_ui_style kana_toolbar_style(rde_color _tint, f32 _radius) {
+rde_ui_style kana_toolbar_style(rde_color _tint, f32 _radius) {
     rde_ui_style _s  = rde_ui_style_default();
     _s.tint          = _tint;
     _s.corner_radius = _radius;
     return _s;
 }
 
-RDE_INTERNAL rde_color kana_toolbar_shade(rde_color _c, i32 _delta) {
+rde_color kana_toolbar_shade(rde_color _c, i32 _delta) {
     const i32 _r = (i32)_c.r + _delta;
     const i32 _g = (i32)_c.g + _delta;
     const i32 _b = (i32)_c.b + _delta;
@@ -83,7 +84,7 @@ RDE_INTERNAL rde_color kana_toolbar_shade(rde_color _c, i32 _delta) {
 }
 
 // Normal / hovered / pressed from one base colour, with an optional border.
-RDE_INTERNAL void kana_toolbar_button_colors(rde_ui_button* _button, rde_color _base, f32 _border_width, rde_color _border) {
+void kana_toolbar_button_colors(rde_ui_button* _button, rde_color _base, f32 _border_width, rde_color _border) {
     rde_ui_style _s  = kana_toolbar_style(_base, 10.0f);
     _s.border_width  = _border_width;
     _s.border_color  = _border;
@@ -96,21 +97,21 @@ RDE_INTERNAL void kana_toolbar_button_colors(rde_ui_button* _button, rde_color _
     rde_ui_button_set_style(_button, RDE_UI_STATE_DISABLED, _s);
 }
 
-RDE_INTERNAL void kana_toolbar_button_plain(rde_ui_button* _button) {
+void kana_toolbar_button_plain(rde_ui_button* _button) {
     kana_toolbar_button_colors(_button, kana_theme_active()->button, 0.0f, (rde_color){ 0, 0, 0, 0 });
 }
 
-RDE_INTERNAL void kana_toolbar_button_selected(rde_ui_button* _button) {
+void kana_toolbar_button_selected(rde_ui_button* _button) {
     kana_toolbar_button_colors(_button, kana_theme_active()->button_selected, 0.0f, (rde_color){ 0, 0, 0, 0 });
 }
 
-RDE_INTERNAL rde_color kana_toolbar_text_on(rde_color _background) {
+rde_color kana_toolbar_text_on(rde_color _background) {
     const f32 _luma = 0.299f * (f32)_background.r + 0.587f * (f32)_background.g + 0.114f * (f32)_background.b;
     return _luma > 140.0f ? (rde_color){ 20, 20, 24, 255 } : kana_theme_active()->button_text;
 }
 
 // A panel (the bar, the palette, a menu, Browse's bar) in the theme's colours.
-RDE_INTERNAL void kana_toolbar_style_panel(rde_ui_image* _panel, f32 _radius, f32 _border_width) {
+void kana_toolbar_style_panel(rde_ui_image* _panel, f32 _radius, f32 _border_width) {
     rde_ui_style _s = kana_toolbar_style(kana_theme_active()->panel, _radius);
     _s.border_width = _border_width;
     _s.border_color = kana_theme_active()->panel_border;
@@ -121,14 +122,14 @@ RDE_INTERNAL void kana_toolbar_style_panel(rde_ui_image* _panel, f32 _radius, f3
 
 // Every child is pinned bottom-left to its parent with a centre pivot, so
 // set_position places its CENTRE in parent-local units (bottom-left origin).
-RDE_INTERNAL void kana_toolbar_place(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size) {
+void kana_toolbar_place(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size) {
     rde_ui_node_set_anchor_preset(_node, RDE_UI_ANCHOR_PRESET_BOTTOM_LEFT);
     rde_ui_node_set_pivot(_node, (rde_vec_2F){ 0.5f, 0.5f });
     rde_ui_node_set_size(_node, _size);
     rde_ui_node_set_position(_node, _center);
 }
 
-RDE_INTERNAL rde_ui_button* kana_toolbar_button(kana_toolbar* _toolbar, rde_ui_node* _parent, const c8* _text, rde_ui_event_callback _on_click) {
+rde_ui_button* kana_toolbar_button(kana_toolbar* _toolbar, rde_ui_node* _parent, const c8* _text, rde_ui_event_callback _on_click) {
     rde_ui_button* _button = rde_ui_button_create(_toolbar->font, NULL);
     rde_ui_button_set_text(_button, _text);
     kana_toolbar_button_plain(_button);
@@ -166,27 +167,26 @@ RDE_INTERNAL void kana_toolbar_refresh(kana_toolbar* _toolbar) {
     rde_ui_label_set_color(_toolbar->color->internal_label, kana_toolbar_text_on(_ink));
 
     rde_ui_button_set_text(_toolbar->brush_scale, _toolbar->ink->brush_scale == KANA_INK_BRUSH_SCALE_PAGE ? "Page" : "Screen");
-    rde_ui_button_set_text(_toolbar->hud, (_toolbar->show_hud != NULL && *_toolbar->show_hud) ? "HUD on" : "HUD off");
 
     rde_ui_slider_set_value(_toolbar->size, _toolbar->ink->constant_radius);
 }
 
-RDE_INTERNAL void kana_toolbar_set_enabled(rde_ui_button* _button, b8 _enabled) {
+void kana_toolbar_set_enabled(rde_ui_button* _button, b8 _enabled) {
     rde_ui_node_set_interactable(rde_ui_button_as_node(_button), _enabled);
     rde_ui_label_set_color(_button->internal_label, _enabled ? kana_theme_active()->button_text : kana_theme_active()->button_text_disabled);
 }
 
 // A plain button again, its label coloured by whether it can be pressed.
-RDE_INTERNAL void kana_toolbar_restyle_button(rde_ui_button* _button) {
+void kana_toolbar_restyle_button(rde_ui_button* _button) {
     kana_toolbar_button_plain(_button);
     kana_toolbar_set_enabled(_button, rde_ui_button_as_node(_button)->interactable);
 }
 
 // Defined below.
-RDE_INTERNAL void       kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open);
-RDE_INTERNAL void       kana_toolbar_set_theme_menu_open(kana_toolbar* _toolbar, b8 _open);
-RDE_INTERNAL rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar);
-RDE_INTERNAL rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size);
+void       kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open);
+RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar);
+rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar);
+rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size);
 
 RDE_INTERNAL b8 kana_toolbar_same_vec(rde_vec_2F _a, rde_vec_2F _b) {
     return memcmp(&_a, &_b, sizeof(rde_vec_2F)) == 0;
@@ -289,7 +289,6 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
         rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->panel), !_full);
         if(_full) {
             kana_toolbar_set_palette_open(_toolbar, false);
-            kana_toolbar_set_theme_menu_open(_toolbar, false);
             kana_toolbar_close_context_menu(_toolbar);
         }
     }
@@ -297,6 +296,15 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
     const rde_vec_2F _center = { _screen.x * 0.5f, (f32)_insets.w + KANA_TOOLBAR_SCREEN_EDGE + _toolbar->viewer_menu.size.y * 0.5f };
+
+    // The safe area changed — at start iOS reports none (SDL has the whole
+    // window until the view is laid out) and the real one arrives a frame or two
+    // later: the bar is clamped again and Browse's bar laid out again.
+    if(memcmp(&_insets, &_toolbar->_insets_seen, sizeof(rde_vec_4I)) != 0) {
+        _toolbar->_insets_seen     = _insets;
+        _toolbar->_browse_laid_out = (rde_vec_2F){ 0.0f, 0.0f };
+        kana_toolbar_layout(_toolbar);
+    }
     kana_toolbar_menu_show(_toolbar, &_toolbar->viewer_menu, _viewing, _center);
     kana_toolbar_menu_show(_toolbar, &_toolbar->chart_menu, _charting, _center);
     const b8 _summary = _practicing && _toolbar->practice->summary_open;
@@ -342,6 +350,8 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     if(_browsing && !kana_toolbar_same_vec(_screen, _toolbar->_browse_laid_out)) {
         kana_toolbar_layout_browse(_toolbar);   // first time, or the screen rotated
     }
+
+    kana_side_update(_toolbar, _full);
 }
 
 void kana_toolbar_update(kana_toolbar* _toolbar) {
@@ -371,7 +381,7 @@ void kana_toolbar_update(kana_toolbar* _toolbar) {
 
 // --- layout ----------------------------------------------------------------------
 
-RDE_INTERNAL rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar) {
+rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar) {
     const rde_vec_2I _w = rde_window_get_size(_toolbar->window);
     return (rde_vec_2F){ (f32)_w.x, (f32)_w.y };
 }
@@ -379,7 +389,7 @@ RDE_INTERNAL rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar) 
 // Keeps a rect of _size centred at _center inside the SAFE AREA — clear of the
 // status bar, notch and home indicator. Done here rather than by the canvas: see
 // the safe-area note in kana_toolbar_init.
-RDE_INTERNAL rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size) {
+rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size) {
     const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
     const f32 _min_x = (f32)_insets.x + KANA_TOOLBAR_SCREEN_EDGE + _size.x * 0.5f;
@@ -393,12 +403,14 @@ RDE_INTERNAL rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec
 }
 
 // Where a pop-up of _size goes beside one of the bar's buttons (_button: its
-// panel-local centre): to the side of a vertical bar, above/below a horizontal
-// one — whichever side has room.
-RDE_INTERNAL rde_vec_2F kana_toolbar_beside(const kana_toolbar* _toolbar, rde_vec_2F _button_local, rde_vec_2F _size) {
+// centre, UI units — kept within the bar, as the strip may have scrolled it out
+// of sight): to the side of a vertical bar, above/below a horizontal one —
+// whichever side has room.
+RDE_INTERNAL rde_vec_2F kana_toolbar_beside(const kana_toolbar* _toolbar, rde_vec_2F _button_at, rde_vec_2F _size) {
     const rde_vec_2F _screen   = kana_toolbar_virtual_size(_toolbar);
     const rde_vec_2F _panel_bl = { _toolbar->center.x - _toolbar->panel_size.x * 0.5f, _toolbar->center.y - _toolbar->panel_size.y * 0.5f };
-    const rde_vec_2F _button   = { _panel_bl.x + _button_local.x, _panel_bl.y + _button_local.y };
+    const rde_vec_2F _button   = { rde_math_clamp_f32(_button_at.x, _panel_bl.x, _panel_bl.x + _toolbar->panel_size.x),
+                                   rde_math_clamp_f32(_button_at.y, _panel_bl.y, _panel_bl.y + _toolbar->panel_size.y) };
     rde_vec_2F       _center;
 
     if(_toolbar->vertical) {
@@ -419,7 +431,9 @@ RDE_INTERNAL void kana_toolbar_place_palette(kana_toolbar* _toolbar) {
     const f32        _rows   = (f32)((KANA_TOOLBAR_PALETTE_COUNT + KANA_TOOLBAR_SWATCH_COLS - 1) / KANA_TOOLBAR_SWATCH_COLS);
     const rde_vec_2F _size   = { _cols * KANA_TOOLBAR_SWATCH + (_cols - 1.0f) * KANA_TOOLBAR_SPACING + 2.0f * KANA_TOOLBAR_PADDING,
                                  _rows * KANA_TOOLBAR_SWATCH + (_rows - 1.0f) * KANA_TOOLBAR_SPACING + 2.0f * KANA_TOOLBAR_PADDING };
-    const rde_vec_2F _center = kana_toolbar_beside(_toolbar, _toolbar->color_button_center, _size);
+    const rde_ui_node* _button = rde_ui_button_as_node(_toolbar->color);   // as laid out last frame
+    const rde_vec_2F   _center = kana_toolbar_beside(_toolbar, (rde_vec_2F){ _button->rect.computed_position.x + _button->rect.computed_size.x * 0.5f,
+                                                                           _button->rect.computed_position.y + _button->rect.computed_size.y * 0.5f }, _size);
 
     _toolbar->palette_center = _center;
     _toolbar->palette_size   = _size;
@@ -436,35 +450,25 @@ RDE_INTERNAL void kana_toolbar_place_palette(kana_toolbar* _toolbar) {
     }
 }
 
-// The theme row, beside the Theme button (or hidden).
-RDE_INTERNAL void kana_toolbar_set_theme_menu_open(kana_toolbar* _toolbar, b8 _open) {
-    kana_toolbar_menu_show(_toolbar, &_toolbar->theme_menu, _open,
-                           _open ? kana_toolbar_beside(_toolbar, _toolbar->theme_button_center, _toolbar->theme_menu.size) : _toolbar->theme_menu.center);
-}
 
-// Lays the children out along the bar's axis, sizes the panel to them, and puts
-// the panel at _toolbar->center (clamped on screen). Rotation is just this again.
+// Lays the bar out along its axis — the grip, then the strip of tools, as long as
+// they need or as the screen allows (then the strip scrolls) — and puts it at
+// _toolbar->center, clamped on screen. Rotation is just this again.
 RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     const b8 _v = _toolbar->vertical;
 
     struct { rde_ui_node* node; rde_vec_2F size; } _items[] = {
-        { rde_ui_image_as_node(_toolbar->grip),       _v ? (rde_vec_2F){ KANA_TOOLBAR_BUTTON_W * 0.6f, KANA_TOOLBAR_GRIP } : (rde_vec_2F){ KANA_TOOLBAR_GRIP, KANA_TOOLBAR_BUTTON_H * 0.6f } },
-        { rde_ui_button_as_node(_toolbar->undo),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->redo),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->draw),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->erase),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->lasso_tool), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->clear),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_slider_as_node(_toolbar->size),      _v ? (rde_vec_2F){ KANA_TOOLBAR_SLIDER_W, KANA_TOOLBAR_SLIDER_LEN } : (rde_vec_2F){ KANA_TOOLBAR_SLIDER_LEN, KANA_TOOLBAR_SLIDER_W } },
-        { rde_ui_button_as_node(_toolbar->color),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->undo),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->redo),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->draw),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->erase),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->lasso_tool),  { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->clear),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_slider_as_node(_toolbar->size),        _v ? (rde_vec_2F){ KANA_TOOLBAR_SLIDER_W, KANA_TOOLBAR_SLIDER_LEN } : (rde_vec_2F){ KANA_TOOLBAR_SLIDER_LEN, KANA_TOOLBAR_SLIDER_W } },
+        { rde_ui_button_as_node(_toolbar->color),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->brush_scale), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->rotate),    { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->reset_view), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->kanji),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->kana),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->album_button), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->theme),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
-        { rde_ui_button_as_node(_toolbar->hud),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->rotate),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->reset_view),  { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
     };
     const u32 _count = sizeof(_items) / sizeof(_items[0]);
 
@@ -472,60 +476,50 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     rde_ui_slider_set_orientation(_toolbar->size, _v ? RDE_UI_ORIENTATION_VERTICAL : RDE_UI_ORIENTATION_HORIZONTAL);
     rde_ui_slider_set_thumb_size(_toolbar->size, _v ? (rde_vec_2F){ 28.0f, 14.0f } : (rde_vec_2F){ 14.0f, 28.0f });
 
-    // Longer than the screen allows (a horizontal bar on a portrait iPad mini):
-    // shrink every item ALONG the bar to fit, never off-screen. Button text
-    // auto-fits the narrower buttons.
-    {
-        const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
-        const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
-        const f32 _room  = (_v ? _screen.y - (f32)(_insets.y + _insets.w) : _screen.x - (f32)(_insets.x + _insets.z)) - 2.0f * KANA_TOOLBAR_SCREEN_EDGE;
-        const f32 _fixed = 2.0f * KANA_TOOLBAR_PADDING + KANA_TOOLBAR_SPACING * (f32)(_count - 1);
-        f32 _items_len = 0.0f;
-        for(u32 _i = 0; _i < _count; _i++) {
-            _items_len += _v ? _items[_i].size.y : _items[_i].size.x;
-        }
-
-        if(_items_len > 0.0f && _fixed + _items_len > _room) {
-            const f32 _k = rde_math_clamp_f32((_room - _fixed) / _items_len, 0.5f, 1.0f);
-            for(u32 _i = 0; _i < _count; _i++) {
-                if(_v) { _items[_i].size.y *= _k; } else { _items[_i].size.x *= _k; }
-            }
-        }
-    }
-
-    // Panel size: the items' lengths along the axis, the widest item across it.
+    // The strip's content: every tool at its full size, padding at both ends.
     f32 _along  = 2.0f * KANA_TOOLBAR_PADDING + KANA_TOOLBAR_SPACING * (f32)(_count - 1);
     f32 _across = 0.0f;
     for(u32 _i = 0; _i < _count; _i++) {
-        _along  += _v ? _items[_i].size.y : _items[_i].size.x;
+        _along += _v ? _items[_i].size.y : _items[_i].size.x;
         const f32 _cross = _v ? _items[_i].size.x : _items[_i].size.y;
         _across = _cross > _across ? _cross : _across;
     }
     _across += 2.0f * KANA_TOOLBAR_PADDING;
-    _toolbar->panel_size = _v ? (rde_vec_2F){ _across, _along } : (rde_vec_2F){ _along, _across };
+
+    // The bar: the grip, then as much of the strip as the screen has room for.
+    const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
+    const f32        _room   = (_v ? _screen.y - (f32)(_insets.y + _insets.w) : _screen.x - (f32)(_insets.x + _insets.z)) - 2.0f * KANA_TOOLBAR_SCREEN_EDGE;
+    const f32        _grip   = KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP;
+    const f32        _strip  = fmaxf(KANA_TOOLBAR_BUTTON_H * 2.0f, fminf(_along, _room - _grip));
+    _toolbar->panel_size = _v ? (rde_vec_2F){ _across, _grip + _strip } : (rde_vec_2F){ _grip + _strip, _across };
+
+    // The grip first: the top of a vertical bar, the left of a horizontal one.
+    kana_toolbar_place(rde_ui_image_as_node(_toolbar->grip),
+                       _v ? (rde_vec_2F){ _across * 0.5f, _toolbar->panel_size.y - KANA_TOOLBAR_PADDING - KANA_TOOLBAR_GRIP * 0.5f }
+                          : (rde_vec_2F){ KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP * 0.5f, _across * 0.5f },
+                       _v ? (rde_vec_2F){ KANA_TOOLBAR_BUTTON_W * 0.6f, KANA_TOOLBAR_GRIP } : (rde_vec_2F){ KANA_TOOLBAR_GRIP, KANA_TOOLBAR_BUTTON_H * 0.6f });
+
+    // Then the strip, and the tools in its content (bottom-left origin; the
+    // content's top is the strip's top when it has not scrolled).
+    kana_toolbar_place(rde_ui_scroll_area_as_node(_toolbar->strip),
+                       _v ? (rde_vec_2F){ _across * 0.5f, _strip * 0.5f } : (rde_vec_2F){ _grip + _strip * 0.5f, _across * 0.5f },
+                       _v ? (rde_vec_2F){ _across, _strip } : (rde_vec_2F){ _strip, _across });
+    rde_ui_scroll_area_set_content_size(_toolbar->strip, _v ? (rde_vec_2F){ _across, _along } : (rde_vec_2F){ _along, _across });
 
     // Vertical: top to bottom. Horizontal: left to right.
-    f32 _cursor = _v ? _toolbar->panel_size.y - KANA_TOOLBAR_PADDING : KANA_TOOLBAR_PADDING;
+    f32 _cursor = _v ? _along - KANA_TOOLBAR_PADDING : KANA_TOOLBAR_PADDING;
     for(u32 _i = 0; _i < _count; _i++) {
         const f32  _len = _v ? _items[_i].size.y : _items[_i].size.x;
         rde_vec_2F _c;
-
         if(_v) {
-            _c = (rde_vec_2F){ _toolbar->panel_size.x * 0.5f, _cursor - _len * 0.5f };
+            _c = (rde_vec_2F){ _across * 0.5f, _cursor - _len * 0.5f };
             _cursor -= _len + KANA_TOOLBAR_SPACING;
         } else {
-            _c = (rde_vec_2F){ _cursor + _len * 0.5f, _toolbar->panel_size.y * 0.5f };
+            _c = (rde_vec_2F){ _cursor + _len * 0.5f, _across * 0.5f };
             _cursor += _len + KANA_TOOLBAR_SPACING;
         }
-
         kana_toolbar_place(_items[_i].node, _c, _items[_i].size);
-
-        if(_items[_i].node == rde_ui_button_as_node(_toolbar->color)) {
-            _toolbar->color_button_center = _c;
-        }
-        if(_items[_i].node == rde_ui_button_as_node(_toolbar->theme)) {
-            _toolbar->theme_button_center = _c;
-        }
     }
 
     _toolbar->center = kana_toolbar_clamp(_toolbar, _toolbar->center, _toolbar->panel_size);
@@ -533,9 +527,6 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
 
     if(_toolbar->palette_open) {
         kana_toolbar_place_palette(_toolbar);
-    }
-    if(_toolbar->theme_menu.open) {
-        kana_toolbar_set_theme_menu_open(_toolbar, true);
     }
 }
 
@@ -683,7 +674,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_clear(rde_ui_node* _node, cons
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-RDE_INTERNAL void kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open) {
+void kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open) {
     _toolbar->palette_open = _open;
     rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->palette), _open);
     if(_open) {
@@ -694,28 +685,11 @@ RDE_INTERNAL void kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_color(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    kana_toolbar_set_theme_menu_open(_toolbar, false);
     kana_toolbar_set_palette_open(_toolbar, !_toolbar->palette_open);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_theme(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    kana_toolbar_set_palette_open(_toolbar, false);
-    kana_toolbar_set_theme_menu_open(_toolbar, !_toolbar->theme_menu.open);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
-// Picking a theme restyles everything at once; the row stays open, so themes
-// can be compared by tapping through them.
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_theme_pick(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    const kana_toolbar_swatch_ref* _ref = (const kana_toolbar_swatch_ref*)_user_data;
-    kana_theme_set((KANA_THEME_)_ref->index);
-    kana_toolbar_sync(_ref->toolbar);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_swatch(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -749,34 +723,8 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_reset_view(rde_ui_node* _node,
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_kanji(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
-    kana_chart_close(_toolbar->chart);
-    kana_browse_open(_toolbar->browse);
-    kana_toolbar_update(_toolbar);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_kana(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
-    kana_browse_close(_toolbar->browse);
-    kana_chart_open(_toolbar->chart);
-    kana_toolbar_update(_toolbar);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_album(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
-    kana_album_open(_toolbar->album);
-    kana_toolbar_update(_toolbar);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
 // --- the album's rows ----------------------------------------------------------------
 
@@ -1107,15 +1055,6 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_back(rde_ui_node* _node
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_hud(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    if(_toolbar->show_hud != NULL) {
-        *_toolbar->show_hud = !*_toolbar->show_hud;
-    }
-    kana_toolbar_refresh(_toolbar);
-    return RDE_UI_EVENT_RESULT_DEFAULT;
-}
 
 RDE_INTERNAL void kana_toolbar_on_size(rde_ui_node* _node, any _user_data) {
     RDE_UNUSED(_node);
@@ -1147,9 +1086,6 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_drag_move(rde_ui_node* _node, 
     if(_toolbar->palette_open) {
         kana_toolbar_place_palette(_toolbar);
     }
-    if(_toolbar->theme_menu.open) {
-        kana_toolbar_set_theme_menu_open(_toolbar, true);
-    }
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
@@ -1175,8 +1111,8 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     // Every button plain first; the ones that show a state are set after.
     rde_ui_button* const _buttons[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
-        _toolbar->brush_scale, _toolbar->rotate, _toolbar->reset_view, _toolbar->kanji, _toolbar->kana, _toolbar->album_button, _toolbar->theme,
-        _toolbar->hud, _toolbar->browse_close, _toolbar->browse_practice, _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
+        _toolbar->brush_scale, _toolbar->rotate, _toolbar->reset_view,
+        _toolbar->browse_close, _toolbar->browse_practice, _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
     };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         kana_toolbar_restyle_button(_buttons[_i]);
@@ -1185,7 +1121,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < KANA_SORT_COUNT; _i++)   { kana_toolbar_restyle_button(_toolbar->sort_chips[_i]); }
 
     kana_toolbar_menu* const _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
-                                          &_toolbar->chart_menu, &_toolbar->practice_menu, &_toolbar->theme_menu,
+                                          &_toolbar->chart_menu, &_toolbar->practice_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu };
     for(u32 _m = 0; _m < sizeof(_menus) / sizeof(_menus[0]); _m++) {
@@ -1202,14 +1138,12 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_button_selected(_toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_NEXT]);          // the way on
     kana_toolbar_button_selected(_toolbar->practice_summary_menu.buttons[KANA_PRACTICE_SUMMARY_AGAIN]);
 
-    // Each theme's button previews it: its page, its text; the current one ringed.
-    for(u32 _i = 0; _i < _toolbar->theme_menu.count; _i++) {
-        const kana_theme* _other   = kana_theme_get((KANA_THEME_)_i);
-        const b8          _current = (KANA_THEME_)_i == kana_theme_index();
-        kana_toolbar_button_colors(_toolbar->theme_menu.buttons[_i], _other->page, _current ? 3.0f : 1.0f,
-                                   _current ? _t->button_selected : _other->sheet_outline);
-        rde_ui_label_set_color(_toolbar->theme_menu.buttons[_i]->internal_label, _other->text);
-    }
+    // The strip: no track, a thin thumb in the grip's colour.
+    rde_ui_scroll_area_set_background_color(_toolbar->strip, (rde_color){ 0, 0, 0, 0 });
+    rde_ui_scroll_area_set_track_color(_toolbar->strip, (rde_color){ 0, 0, 0, 0 });
+    rde_ui_scroll_area_set_thumb_colors(_toolbar->strip, _t->grip, kana_toolbar_shade(_t->grip, 20), kana_toolbar_shade(_t->grip, 40));
+
+    kana_side_apply_theme(_toolbar);
 
     for(u32 _i = 0; _i < KANA_TOOLBAR_PALETTE_COUNT; _i++) {
         kana_toolbar_button_colors(_toolbar->swatches[_i], kana_theme_resolve(KANA_TOOLBAR_PALETTE[_i]), 2.0f, _t->swatch_border);
@@ -1228,7 +1162,7 @@ void kana_toolbar_sync(kana_toolbar* _toolbar) {
 // --- lifetime ------------------------------------------------------------------------
 
 void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
-                       kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, b8* _show_hud) {
+                       kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, b8* _show_hud) {
     memset(_toolbar, 0, sizeof(*_toolbar));
     _toolbar->window   = _window;
     _toolbar->ink      = _ink;
@@ -1239,6 +1173,7 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     _toolbar->chart    = _chart;
     _toolbar->practice = _practice;
     _toolbar->album    = _album;
+    _toolbar->notes    = _notes;
     _toolbar->_album_practice_shown = UINT32_MAX;   // not shown yet: the first update sets it
     _toolbar->show_hud = _show_hud;
     _toolbar->tool     = KANA_TOOL_DRAW;
@@ -1280,12 +1215,19 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         rde_ui_node_add_child(_panel, _g);
     }
 
-    _toolbar->undo  = kana_toolbar_button(_toolbar, _panel, "Undo",  kana_toolbar_on_undo);
-    _toolbar->redo  = kana_toolbar_button(_toolbar, _panel, "Redo",  kana_toolbar_on_redo);
-    _toolbar->draw  = kana_toolbar_button(_toolbar, _panel, "Draw",  kana_toolbar_on_draw);
-    _toolbar->erase = kana_toolbar_button(_toolbar, _panel, "Erase", kana_toolbar_on_erase);
-    _toolbar->lasso_tool = kana_toolbar_button(_toolbar, _panel, "Lasso", kana_toolbar_on_lasso);
-    _toolbar->clear = kana_toolbar_button(_toolbar, _panel, "Clear", kana_toolbar_on_clear);
+    // The tools, in a strip that scrolls along the bar (a drag that starts on a
+    // button scrolls it; a tap presses the button).
+    _toolbar->strip = rde_ui_scroll_area_create(NULL);
+    rde_ui_scroll_area_set_bar_thickness(_toolbar->strip, 3.0f);
+    rde_ui_node_add_child(_panel, rde_ui_scroll_area_as_node(_toolbar->strip));
+    rde_ui_node* _tools = rde_ui_scroll_area_as_node(_toolbar->strip);
+
+    _toolbar->undo  = kana_toolbar_button(_toolbar, _tools, "Undo",  kana_toolbar_on_undo);
+    _toolbar->redo  = kana_toolbar_button(_toolbar, _tools, "Redo",  kana_toolbar_on_redo);
+    _toolbar->draw  = kana_toolbar_button(_toolbar, _tools, "Draw",  kana_toolbar_on_draw);
+    _toolbar->erase = kana_toolbar_button(_toolbar, _tools, "Erase", kana_toolbar_on_erase);
+    _toolbar->lasso_tool = kana_toolbar_button(_toolbar, _tools, "Lasso", kana_toolbar_on_lasso);
+    _toolbar->clear = kana_toolbar_button(_toolbar, _tools, "Clear", kana_toolbar_on_clear);
 
     _toolbar->size = rde_ui_slider_create(NULL);
     {
@@ -1294,27 +1236,13 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         rde_ui_slider_set_step(_toolbar->size, 0.5f);
         rde_ui_node_set_user_data(_n, _toolbar);
         rde_ui_slider_set_on_value_changed(_toolbar->size, kana_toolbar_on_size);
-        rde_ui_node_add_child(_panel, _n);
+        rde_ui_node_add_child(_tools, _n);
     }
 
-    _toolbar->color       = kana_toolbar_button(_toolbar, _panel, "Color",  kana_toolbar_on_color);
-    _toolbar->brush_scale = kana_toolbar_button(_toolbar, _panel, "Page",   kana_toolbar_on_brush_scale);
-    _toolbar->rotate      = kana_toolbar_button(_toolbar, _panel, "Rotate", kana_toolbar_on_rotate);
-    _toolbar->reset_view  = kana_toolbar_button(_toolbar, _panel, "Reset",  kana_toolbar_on_reset_view);
-    _toolbar->kanji       = kana_toolbar_button(_toolbar, _panel, "Kanji",  kana_toolbar_on_kanji);
-    _toolbar->kana        = kana_toolbar_button(_toolbar, _panel, "Kana",   kana_toolbar_on_kana);
-    if(!kana_browse_available(_browse)) {
-        kana_toolbar_set_enabled(_toolbar->kanji, false);   // no character data: nothing to show
-    }
-    if(kana_chart_count(_chart) == 0) {
-        kana_toolbar_set_enabled(_toolbar->kana, false);
-    }
-    _toolbar->album_button = kana_toolbar_button(_toolbar, _panel, "Album", kana_toolbar_on_album);
-    if(_album->db == NULL) {
-        kana_toolbar_set_enabled(_toolbar->album_button, false);   // no character data: nothing to show
-    }
-    _toolbar->theme       = kana_toolbar_button(_toolbar, _panel, "Theme",  kana_toolbar_on_theme);
-    _toolbar->hud         = kana_toolbar_button(_toolbar, _panel, "HUD",    kana_toolbar_on_hud);
+    _toolbar->color       = kana_toolbar_button(_toolbar, _tools, "Color",  kana_toolbar_on_color);
+    _toolbar->brush_scale = kana_toolbar_button(_toolbar, _tools, "Page",   kana_toolbar_on_brush_scale);
+    _toolbar->rotate      = kana_toolbar_button(_toolbar, _tools, "Rotate", kana_toolbar_on_rotate);
+    _toolbar->reset_view  = kana_toolbar_button(_toolbar, _tools, "Reset",  kana_toolbar_on_reset_view);
 
     // The palette is its own panel under the root, so it can sit outside the bar.
     _toolbar->palette = rde_ui_image_create(NULL);
@@ -1386,20 +1314,6 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         const rde_ui_event_callback _callbacks[KANA_PRACTICE_SUMMARY_COUNT] = { kana_toolbar_on_practice_again, kana_toolbar_on_practice_done };
         kana_toolbar_menu_create(_toolbar, &_toolbar->practice_summary_menu, _root, _labels, _callbacks, KANA_PRACTICE_SUMMARY_COUNT);
     }
-    {
-        // One button per theme, each drawn in that theme's own page and text.
-        const c8*             _labels[KANA_THEME_COUNT];
-        rde_ui_event_callback _callbacks[KANA_THEME_COUNT];
-        for(u32 _i = 0; _i < KANA_THEME_COUNT; _i++) {
-            _labels[_i]    = kana_theme_get((KANA_THEME_)_i)->name;
-            _callbacks[_i] = kana_toolbar_on_theme_pick;
-        }
-        kana_toolbar_menu_create(_toolbar, &_toolbar->theme_menu, _root, _labels, _callbacks, KANA_THEME_COUNT);
-        for(u32 _i = 0; _i < KANA_THEME_COUNT; _i++) {
-            _toolbar->theme_refs[_i] = (kana_toolbar_swatch_ref){ _toolbar, _i };
-            rde_ui_button_set_on_click(_toolbar->theme_menu.buttons[_i], kana_toolbar_on_theme_pick, &_toolbar->theme_refs[_i]);
-        }
-    }
 
     // Browse's bar: a panel across the top; laid out when first shown (and when
     // the screen rotates), since it spans the screen.
@@ -1441,6 +1355,9 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         rde_ui_node_set_active(_bar, false);
     }
 
+    // The side panel and Settings last: over everything else.
+    kana_side_create(_toolbar, _root);
+
     // Start on the right edge, vertically centred.
     const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
     _toolbar->center = (rde_vec_2F){ _screen.x - 60.0f, _screen.y * 0.5f };
@@ -1477,6 +1394,11 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
     const rde_vec_2F _half = { kana_toolbar_virtual_size(_toolbar).x * 0.5f, kana_toolbar_virtual_size(_toolbar).y * 0.5f };
     const rde_vec_2F _p    = { _screen.x + _half.x, _screen.y + _half.y };
 
+    // The side panel and Settings (while either is open, the whole screen).
+    if(kana_side_hit(_toolbar, _p)) {
+        return true;
+    }
+
     // The floating bar only while it shows: under a full-screen scene it is hidden
     // but keeps its rect, and a press starting there was swallowed as the bar's.
     if(!_toolbar->_viewer_shown && kana_toolbar_rect_contains(_toolbar->center, _toolbar->panel_size, _p)) {
@@ -1495,7 +1417,7 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
     }
 
     const kana_toolbar_menu* _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
-                                          &_toolbar->chart_menu, &_toolbar->practice_menu, &_toolbar->theme_menu,
+                                          &_toolbar->chart_menu, &_toolbar->practice_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu };
     for(u32 _i = 0; _i < sizeof(_menus) / sizeof(_menus[0]); _i++) {

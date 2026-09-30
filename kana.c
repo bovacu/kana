@@ -36,6 +36,7 @@
 
 #include "rde.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,6 +92,12 @@ RDE_INTERNAL b8  show_hud     = true;
 // Frame time, smoothed. The raw value jitters too much to read off a screen.
 RDE_INTERNAL f32 frame_ms = 0.0f;
 
+// The zoom, shown for a moment at the bottom-right whenever it changes.
+#define KANA_ZOOM_TOAST_TIME 1.2    // seconds it stays...
+#define KANA_ZOOM_TOAST_FADE 0.4    // ...then fades out over this
+RDE_INTERNAL f32 zoom_seen     = -1.0f;   // < 0: not seen yet (no toast for the loaded zoom)
+RDE_INTERNAL f64 zoom_shown_at = -100.0;
+
 // --- saving --------------------------------------------------------------------
 //
 // The page and the settings save themselves this long after the last change, and
@@ -99,7 +106,9 @@ RDE_INTERNAL f32 frame_ms = 0.0f;
 // may not be handled before the app is suspended: the autosave is the guarantee.
 #define KANA_AUTOSAVE_DELAY 1.0
 
-RDE_INTERNAL c8            document_path[RDE_MAX_PATH];
+RDE_INTERNAL c8            document_path[RDE_MAX_PATH];   // the open canvas's page
+RDE_INTERNAL kana_notes    notes;                         // the canvases and their folders (notes.h)
+RDE_INTERNAL u32           current_canvas = 0;            // whose page is in `ink`
 RDE_INTERNAL c8            settings_path[RDE_MAX_PATH];
 
 // What was last written, and what was last seen (to time the quiet period).
@@ -276,8 +285,12 @@ RDE_INTERNAL void kana_save_on_exit(void) {
 
 RDE_INTERNAL void kana_load_saves(void) {
     const c8* _dir = kana_save_dir();
-    snprintf(document_path, sizeof(document_path), "%s%s", _dir, KANA_SAVE_DOCUMENT_FILE);
     snprintf(settings_path, sizeof(settings_path), "%s%s", _dir, KANA_SAVE_SETTINGS_FILE);
+
+    // The canvases (the first time, the old page.kana becomes the first one).
+    kana_notes_load(&notes);
+    current_canvas = notes.open;
+    kana_notes_canvas_path(current_canvas, document_path, sizeof(document_path));
 
     kana_settings _settings = kana_gather_settings();
     if(kana_load_settings(settings_path, &_settings) == KANA_LOAD_OK) {
@@ -290,7 +303,7 @@ RDE_INTERNAL void kana_load_saves(void) {
     } else if(_doc == KANA_LOAD_RECOVERED) {
         snprintf(load_note, sizeof(load_note), "PAGE FILE MISSING/DAMAGED - loaded the backup, %u strokes", kana_ink_alive_strokes(&ink));
     } else if(_doc == KANA_LOAD_CORRUPT) {
-        snprintf(load_note, sizeof(load_note), "PAGE FILE DAMAGED - kept as %s.bad, starting empty", KANA_SAVE_DOCUMENT_FILE);
+        snprintf(load_note, sizeof(load_note), "PAGE FILE DAMAGED - kept as .bad, starting empty");
     } else {
         snprintf(load_note, sizeof(load_note), "new page");
     }
@@ -301,6 +314,44 @@ RDE_INTERNAL void kana_load_saves(void) {
     saved_view       = seen_view      = canvas.view;
     saved_settings   = seen_settings  = kana_gather_settings();
     last_change_time = rde_engine_get_time_now();
+}
+
+// The canvas opened in the side panel (notes.open changed): the page leaving is
+// saved — unless it was just deleted — and the new one loaded, with its own view
+// and a fresh history. The brush is a setting, not the page's: it carries over;
+// so does the lasso's clipboard (copy on one canvas, paste on another).
+RDE_INTERNAL void kana_switch_canvas(void) {
+    kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
+    kana_ink_erase_end(&ink);
+    kana_ink_end(&ink);
+    pen_on_ui = false;
+    erasing   = false;
+    kana_canvas_release_fingers(&canvas);
+    if(kana_notes_find(&notes, current_canvas) != NULL) {
+        kana_save_now(false);
+    }
+    kana_lasso_clear(&lasso, &ink);
+
+    const KANA_INK_BRUSH_SCALE_ _scale  = ink.brush_scale;
+    const KANA_INK_WIDTH_MODE_  _width  = ink.width_mode;
+    const rde_color             _color  = ink.color;
+    const f32                   _radius = ink.constant_radius;
+    kana_ink_destroy(&ink);
+    kana_ink_init(&ink);
+    ink.brush_scale     = _scale;
+    ink.width_mode      = _width;
+    ink.color           = _color;
+    ink.constant_radius = _radius;
+
+    kana_canvas_reset_view(&canvas);
+    current_canvas = notes.open;
+    kana_notes_canvas_path(current_canvas, document_path, sizeof(document_path));
+    kana_load_document(document_path, &ink, &canvas.view);
+
+    saved_revision   = seen_revision = ink.revision;
+    saved_view       = seen_view     = canvas.view;
+    last_change_time = rde_engine_get_time_now();
+    zoom_seen        = -1.0f;   // the loaded zoom is not a change to show
 }
 
 void init_func(i32 _argc, c8** _argv, rde_window* _window) {
@@ -329,11 +380,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
     kana_album_init(&album, _have_kanji ? &kanji_db : NULL);
+    kana_notes_init(&notes);
     if(_have_kanji) {
         rde_log_color(RDE_LOG_COLOR_GREEN, "kana: %u characters loaded", kanji_db.count);
     }
 
-    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &show_hud);
+    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &show_hud);
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
@@ -743,6 +795,9 @@ void on_update(f32 _dt) {
     if(baking) {
         return;
     }
+    if(notes.open != current_canvas) {
+        kana_switch_canvas();   // chosen (or made, or its canvas deleted) in the side panel
+    }
     kana_ink_frame_begin(&ink);
 
     // Smoothed hard: an unsmoothed frame time is unreadable on screen.
@@ -893,6 +948,54 @@ RDE_INTERNAL void kana_draw_text(const c8* _text, f32 _x, f32 _y) {
     rde_rendering_2d_draw_text_2(font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, kana_theme_active()->hud);
 }
 
+// The zoom as a percentage, in a pill at the bottom-right, while it is changing
+// and for a moment after.
+RDE_INTERNAL void kana_draw_zoom_toast(rde_window* _window) {
+    const f64 _now = rde_engine_get_time_now();
+    if(zoom_seen < 0.0f) {
+        zoom_seen = canvas.view.zoom;
+    } else if(fabsf(canvas.view.zoom - zoom_seen) > 1e-5f) {
+        zoom_seen     = canvas.view.zoom;
+        zoom_shown_at = _now;
+    }
+
+    const f64 _age = _now - zoom_shown_at;
+    if(_age >= KANA_ZOOM_TOAST_TIME + KANA_ZOOM_TOAST_FADE || font == NULL) {
+        return;
+    }
+    const f32 _fade = _age <= KANA_ZOOM_TOAST_TIME ? 1.0f : 1.0f - (f32)((_age - KANA_ZOOM_TOAST_TIME) / KANA_ZOOM_TOAST_FADE);
+
+    // The text, measured (once per new value): the pill fits it, and it sits in
+    // the middle — across by its width, up and down by its digits' height.
+    static c8         _shown[16] = "";
+    static rde_vec_2F _measured  = { 0.0f, 0.0f };
+    c8 _text[16];
+    snprintf(_text, sizeof(_text), "%.0f%%", (f64)(canvas.view.zoom * 100.0f));
+    const f32 _px    = 20.0f;
+    const f32 _scale = _px / font_px;
+    if(strcmp(_text, _shown) != 0) {
+        snprintf(_shown, sizeof(_shown), "%s", _text);
+        _measured = rde_rich_text_measure(_text, font, _scale, 10000.0f, false);
+    }
+    const f32 _em     = _measured.y / 1.17f;          // the line is ~1.17 em in Roboto
+    const f32 _digits = _em * 0.711f;                 // Roboto's digit (cap) height, in em
+
+    const kana_theme* _t      = kana_theme_active();
+    const rde_vec_2I  _size   = rde_window_get_size(_window);
+    const rde_vec_4I  _safe   = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const rde_vec_2F  _pill   = { fmaxf(72.0f, _measured.x + 32.0f), fmaxf(40.0f, _digits + 26.0f) };
+    const rde_vec_2F  _center = { (f32)_size.x * 0.5f - (f32)_safe.z - 16.0f - _pill.x * 0.5f, -(f32)_size.y * 0.5f + (f32)_safe.w + 16.0f + _pill.y * 0.5f };
+
+    rde_color _back = _t->panel;
+    _back.a         = (u8)((f32)_back.a * _fade);
+    rde_rendering_2d_draw_rounded_rectangle(_center, _pill, 1.0f, 8u, _back, NULL);
+
+    rde_color _ink = _t->button_text;
+    _ink.a         = (u8)((f32)_ink.a * _fade);
+    // The position is where the text starts, on its baseline.
+    rde_rendering_2d_draw_text_2(font, _text, (rde_vec_3F){ _center.x - _measured.x * 0.5f, _center.y - _digits * 0.5f, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _ink);
+}
+
 RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
     const rde_vec_2I _size   = rde_window_get_size(_window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
@@ -1000,6 +1103,7 @@ void on_render(rde_window* _window, f32 _dt) {
         if(show_hud && font != NULL) {
             kana_draw_hud(_window);
         }
+        kana_draw_zoom_toast(_window);
     }
     rde_rendering_2d_end_drawing();
 }
@@ -1021,6 +1125,7 @@ void end_func(void) {
     kana_chart_destroy(&chart);
     kana_practice_destroy(&practice);
     kana_album_destroy(&album);
+    kana_notes_destroy(&notes);
     kana_kanji_unload(&kanji_db);
     kana_ink_destroy(&ink);
 }

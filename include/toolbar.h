@@ -10,6 +10,8 @@
 #include "chart.h"
 #include "practice.h"
 #include "album.h"
+#include "side.h"
+#include "notes.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -80,17 +82,19 @@ struct kana_toolbar {
     kana_chart*    chart;
     kana_practice* practice;
     kana_album*    album;
+    kana_notes*    notes;
     b8*            show_hud;
 
     KANA_TOOL_     tool;
     b8             vertical;
     rde_vec_2F     center;          // panel centre, UI canvas units (bottom-left origin, Y up)
     rde_vec_2F     panel_size;
-    rde_vec_2F     color_button_center;   // panel-local, for placing the palette
-    rde_vec_2F     theme_button_center;   // panel-local, for placing the theme row
 
     rde_ui_image*  panel;
     rde_ui_image*  grip;
+    // The tools, in a strip that scrolls along the bar when they do not all fit
+    // (and more can be added without the bar outgrowing the screen).
+    rde_ui_scroll_area* strip;
     rde_ui_button* undo;
     rde_ui_button* redo;
     rde_ui_button* draw;
@@ -102,11 +106,6 @@ struct kana_toolbar {
     rde_ui_button* brush_scale;
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
-    rde_ui_button* kanji;
-    rde_ui_button* kana;
-    rde_ui_button* album_button;
-    rde_ui_button* theme;
-    rde_ui_button* hud;
 
     rde_ui_image*            palette;
     rde_ui_button*           swatches[KANA_TOOLBAR_PALETTE_COUNT];
@@ -140,9 +139,6 @@ struct kana_toolbar {
     kana_toolbar_menu        practice_set_menu;
     kana_toolbar_menu        practice_summary_menu;
     b8                       _finish_shown;
-    // The Theme button's row: one button per theme (theme.h).
-    kana_toolbar_menu        theme_menu;
-    kana_toolbar_swatch_ref  theme_refs[KANA_TOOLBAR_MENU_MAX];
 
     // Browse's bar, across the top of the screen: filters, sorts, the search
     // field, Draw/Clear, Close.
@@ -159,7 +155,11 @@ struct kana_toolbar {
     rde_ui_button*           pad_clear;
     b8                       _browse_shown;
     rde_vec_2F               _browse_laid_out;   // the screen size the bar was laid out for
+    rde_vec_4I               _insets_seen;       // the safe area the layouts are for (see kana_toolbar_update_viewer)
     f32                      browse_bar_height;  // UI units, including the top safe inset
+
+    // Navigation, the themes, Settings: the side panel (side.h).
+    kana_side                side;
 
     // Grip drag.
     rde_vec_2F     drag_start_center;
@@ -173,7 +173,7 @@ struct kana_toolbar {
 };
 
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
-                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, b8* _show_hud);
+                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
 // Is this point on the toolbar, its open palette or an open menu? _screen is
