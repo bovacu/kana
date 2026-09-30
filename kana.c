@@ -206,6 +206,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.toolbar_center = toolbar.center;
     _s.theme          = (u8)kana_theme_index();
     _s.mlkit          = kana_mlkit_enabled();
+    _s.toolbar_minimized = toolbar.minimized;
     return _s;
 }
 
@@ -218,7 +219,7 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     ink.constant_radius  = rde_math_clamp_f32(_s->radius, KANA_TOOLBAR_SIZE_MIN, KANA_TOOLBAR_SIZE_MAX);
     kana_theme_set((KANA_THEME_)_s->theme);
     kana_mlkit_set_enabled(_s->mlkit);
-    kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center);
+    kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center, _s->toolbar_minimized);
     kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
 

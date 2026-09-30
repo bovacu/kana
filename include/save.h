@@ -41,7 +41,8 @@
 // SETTINGS ('SETT'): the tools and the toolbar, apart from any one page.
 //   'PREF'  u8 tool, vertical, show_hud, brush_scale, width_mode, u8 r g b a,
 //           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme,
-//           u8 mlkit (reading with Google ML Kit: 1 on, 0 off)
+//           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
+//           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0)
 //           (new fields go at the END: an older file just ends sooner)
 // ===========================================================================
 
@@ -67,6 +68,7 @@ RDE_STRUCT {
     rde_vec_2F toolbar_center;   // UI canvas units
     u8         theme;            // KANA_THEME_
     b8         mlkit;            // read handwriting with Google ML Kit (mlkit.h)
+    b8         toolbar_minimized;   // the bar folded to its grip
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

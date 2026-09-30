@@ -24,6 +24,9 @@
 #define KANA_TOOLBAR_SPACING     6.0f
 #define KANA_TOOLBAR_PADDING     8.0f
 #define KANA_TOOLBAR_SCREEN_EDGE 8.0f     // the bar is kept at least this far inside the screen
+#define KANA_TOOLBAR_MINIMIZED   48.0f    // the folded bar's length: just its grip, big enough for a finger
+#define KANA_TOOLBAR_DOUBLE_TAP  0.35     // seconds between a double tap's two taps
+#define KANA_TOOLBAR_DOUBLE_TAP_SLOP 32.0f   // and how far apart they can be
 
 #define KANA_TOOLBAR_MENU_GAP    6.0f     // between the selection box and its menu
 #define KANA_TOOLBAR_MENU_BUTTON_W 84.0f  // menu buttons: wider, "Duplicate" has to fit
@@ -474,8 +477,9 @@ RDE_INTERNAL void kana_toolbar_place_palette(kana_toolbar* _toolbar) {
 
 
 // Lays the bar out along its axis — the grip, then the strip of tools, as long as
-// they need or as the screen allows (then the strip scrolls) — and puts it at
-// _toolbar->center, clamped on screen. Rotation is just this again.
+// they need or as the screen allows (then the strip scrolls); minimized, just the
+// grip — and puts it at _toolbar->center, clamped on screen. Rotation is just
+// this again.
 RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     const b8 _v = _toolbar->vertical;
 
@@ -512,14 +516,21 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
     const f32        _room   = (_v ? _screen.y - (f32)(_insets.y + _insets.w) : _screen.x - (f32)(_insets.x + _insets.z)) - 2.0f * KANA_TOOLBAR_SCREEN_EDGE;
-    const f32        _grip   = KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP;
-    const f32        _strip  = fmaxf(KANA_TOOLBAR_BUTTON_H * 2.0f, fminf(_along, _room - _grip));
+    const b8         _min    = _toolbar->minimized;
+    const f32        _grip   = _min ? KANA_TOOLBAR_MINIMIZED : KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP;
+    const f32        _strip  = _min ? 0.0f : fmaxf(KANA_TOOLBAR_BUTTON_H * 2.0f, fminf(_along, _room - _grip));
     _toolbar->panel_size = _v ? (rde_vec_2F){ _across, _grip + _strip } : (rde_vec_2F){ _grip + _strip, _across };
+    rde_ui_node_set_active(rde_ui_scroll_area_as_node(_toolbar->strip), !_min);
 
-    // The grip first: the top of a vertical bar, the left of a horizontal one.
+    // The grip first: the top of a vertical bar, the left of a horizontal one —
+    // all of that end, for a finger. The handle drawn in it sits against the
+    // strip, or in the middle of a minimized bar.
+    const rde_vec_2F _area = _v ? (rde_vec_2F){ _across, _grip } : (rde_vec_2F){ _grip, _across };
+    kana_toolbar_place(rde_ui_image_as_node(_toolbar->grip_area),
+                       _v ? (rde_vec_2F){ _across * 0.5f, _strip + _grip * 0.5f } : (rde_vec_2F){ _grip * 0.5f, _across * 0.5f }, _area);
+    const f32 _handle = _min ? _grip * 0.5f : KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP * 0.5f;   // from the bar's end
     kana_toolbar_place(rde_ui_image_as_node(_toolbar->grip),
-                       _v ? (rde_vec_2F){ _across * 0.5f, _toolbar->panel_size.y - KANA_TOOLBAR_PADDING - KANA_TOOLBAR_GRIP * 0.5f }
-                          : (rde_vec_2F){ KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP * 0.5f, _across * 0.5f },
+                       _v ? (rde_vec_2F){ _across * 0.5f, _grip - _handle } : (rde_vec_2F){ _handle, _across * 0.5f },
                        _v ? (rde_vec_2F){ KANA_TOOLBAR_BUTTON_W * 0.6f, KANA_TOOLBAR_GRIP } : (rde_vec_2F){ KANA_TOOLBAR_GRIP, KANA_TOOLBAR_BUTTON_H * 0.6f });
 
     // Then the strip, and the tools in its content (bottom-left origin; the
@@ -552,6 +563,25 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     }
 }
 
+// Folds the bar down to its grip, or opens it again, with the grip's end staying
+// where it is (under the finger that double tapped it) — then clamped on screen,
+// so a bar opened near an edge moves back in.
+RDE_INTERNAL void kana_toolbar_set_minimized(kana_toolbar* _toolbar, b8 _minimized) {
+    const b8         _v    = _toolbar->vertical;
+    const rde_vec_2F _c    = _toolbar->center;
+    const f32        _edge = _v ? _c.y + _toolbar->panel_size.y * 0.5f : _c.x - _toolbar->panel_size.x * 0.5f;   // top / left
+
+    _toolbar->minimized = _minimized;
+    if(_minimized) {
+        kana_toolbar_set_palette_open(_toolbar, false);
+    }
+    kana_toolbar_layout(_toolbar);   // the new size
+
+    const rde_vec_2F _size = _toolbar->panel_size;
+    _toolbar->center = _v ? (rde_vec_2F){ _c.x, _edge - _size.y * 0.5f } : (rde_vec_2F){ _edge + _size.x * 0.5f, _c.y };
+    kana_toolbar_layout(_toolbar);   // and there
+}
+
 void kana_toolbar_open_context_menu(kana_toolbar* _toolbar, rde_vec_2F _screen, rde_vec_2F _canvas) {
     if(_toolbar->ui == NULL) {
         return;
@@ -581,9 +611,13 @@ void kana_toolbar_close_context_menu(kana_toolbar* _toolbar) {
     }
 }
 
-void kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_vec_2F _center) {
-    _toolbar->vertical = _vertical;
-    _toolbar->center   = _center;
+void kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_vec_2F _center, b8 _minimized) {
+    _toolbar->vertical  = _vertical;
+    _toolbar->center    = _center;
+    _toolbar->minimized = _minimized;
+    if(_minimized) {
+        kana_toolbar_set_palette_open(_toolbar, false);
+    }
     kana_toolbar_layout(_toolbar);
 }
 
@@ -1187,6 +1221,26 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_drag_move(rde_ui_node* _node, 
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// A tap on the grip (a drag is not one: the engine drops the click once the grip
+// drags). Two close together, in time and place, fold the bar or open it.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_grip_tap(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    const f64     _now     = rde_engine_get_time_now();
+    const f32     _dx      = _info->position.x - _toolbar->grip_tapped_at.x;
+    const f32     _dy      = _info->position.y - _toolbar->grip_tapped_at.y;
+
+    if(_toolbar->grip_tapped > 0.0 && _now - _toolbar->grip_tapped <= KANA_TOOLBAR_DOUBLE_TAP &&
+       _dx * _dx + _dy * _dy <= KANA_TOOLBAR_DOUBLE_TAP_SLOP * KANA_TOOLBAR_DOUBLE_TAP_SLOP) {
+        _toolbar->grip_tapped = 0.0;   // a third tap starts over
+        kana_toolbar_set_minimized(_toolbar, !_toolbar->minimized);
+    } else {
+        _toolbar->grip_tapped    = _now;
+        _toolbar->grip_tapped_at = _info->position;
+    }
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // --- the theme ---------------------------------------------------------------------
 
 // Every widget's colours from the current theme: once at start, and again on a
@@ -1197,6 +1251,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_style_panel(_toolbar->panel, 14.0f, 1.0f);
     kana_toolbar_style_panel(_toolbar->palette, 12.0f, 1.0f);
     kana_toolbar_style_panel(_toolbar->browse_bar, 0.0f, 0.0f);
+    rde_ui_image_set_style(_toolbar->grip_area, RDE_UI_STATE_NORMAL, kana_toolbar_style((rde_color){ 0, 0, 0, 0 }, 0.0f));
     rde_ui_image_set_style(_toolbar->grip, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->grip, 6.0f));
 
     rde_ui_slider_set_track_styles(_toolbar->size, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->slider_track, 4.0f));
@@ -1312,14 +1367,24 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     }
     rde_ui_node* _panel = rde_ui_image_as_node(_toolbar->panel);
 
+    // The grip's end of the bar takes the drags and the taps, not the handle drawn
+    // in it: a finger does not have to find the handle. A sibling of the strip, so
+    // no tap on a tool ever counts towards a double tap.
+    _toolbar->grip_area = rde_ui_image_create(NULL);
+    {
+        rde_ui_node* _a = rde_ui_image_as_node(_toolbar->grip_area);
+        rde_ui_node_set_blocks_input(_a, true);
+        rde_ui_node_set_user_data(_a, _toolbar);
+        rde_ui_node_set_callback(_a, RDE_UI_EVENT_MOUSE_DRAG_BEGIN, kana_toolbar_on_drag_begin);
+        rde_ui_node_set_callback(_a, RDE_UI_EVENT_MOUSE_DRAG_MOVE,  kana_toolbar_on_drag_move);
+        rde_ui_node_set_callback(_a, RDE_UI_EVENT_MOUSE_CLICK,      kana_toolbar_on_grip_tap);
+        rde_ui_node_add_child(_panel, _a);
+    }
     _toolbar->grip = rde_ui_image_create(NULL);
     {
         rde_ui_node* _g = rde_ui_image_as_node(_toolbar->grip);
-        rde_ui_node_set_blocks_input(_g, true);
-        rde_ui_node_set_user_data(_g, _toolbar);
-        rde_ui_node_set_callback(_g, RDE_UI_EVENT_MOUSE_DRAG_BEGIN, kana_toolbar_on_drag_begin);
-        rde_ui_node_set_callback(_g, RDE_UI_EVENT_MOUSE_DRAG_MOVE,  kana_toolbar_on_drag_move);
-        rde_ui_node_add_child(_panel, _g);
+        rde_ui_node_set_raycast_target(_g, false);
+        rde_ui_node_add_child(rde_ui_image_as_node(_toolbar->grip_area), _g);
     }
 
     // The tools, in a strip that scrolls along the bar (a drag that starts on a

@@ -314,6 +314,7 @@ b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_put_f32(&_b, _settings->toolbar_center.y);
     kana_put_u8(&_b, _settings->theme);
     kana_put_u8(&_b, _settings->mlkit ? 1u : 0u);
+    kana_put_u8(&_b, _settings->toolbar_minimized ? 1u : 0u);
     kana_chunk_end(&_b, _chunk);
 
     return kana_bytes_write_and_free(&_b, _path, NULL);
@@ -380,6 +381,8 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
         if(_c.ok && _theme < KANA_THEME_COUNT) { _s.theme = _theme; }
         const u8 _mlkit = kana_get_u8(&_c);
         if(_c.ok && _mlkit <= 1u) { _s.mlkit = _mlkit != 0; }
+        const u8 _minimized = kana_get_u8(&_c);
+        if(_c.ok && _minimized <= 1u) { _s.toolbar_minimized = _minimized != 0; }
     }
 
     kana_file_free(_data);
@@ -397,5 +400,5 @@ b8 kana_settings_equal(const kana_settings* _a, const kana_settings* _b) {
            _a->color.r == _b->color.r && _a->color.g == _b->color.g && _a->color.b == _b->color.b && _a->color.a == _b->color.a &&
            kana_same_f32(_a->radius, _b->radius) &&
            kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
-           _a->theme == _b->theme && _a->mlkit == _b->mlkit;
+           _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized;
 }

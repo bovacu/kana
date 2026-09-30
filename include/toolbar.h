@@ -95,7 +95,11 @@ struct kana_toolbar {
     rde_vec_2F     panel_size;
 
     rde_ui_image*  panel;
+    // The grip's end of the bar: what drags it, and a double tap there folds the
+    // bar down to just this (minimized) and opens it again. The handle drawn in it.
+    rde_ui_image*  grip_area;
     rde_ui_image*  grip;
+    b8             minimized;
     // The tools, in a strip that scrolls along the bar when they do not all fit
     // (and more can be added without the bar outgrowing the screen).
     rde_ui_scroll_area* strip;
@@ -172,9 +176,11 @@ struct kana_toolbar {
     // Navigation, the themes, Settings: the side panel (side.h).
     kana_side                side;
 
-    // Grip drag.
+    // Grip drag, and the grip's last tap (for a double tap).
     rde_vec_2F     drag_start_center;
     rde_vec_2F     drag_press;
+    f64            grip_tapped;        // engine clock (0: no tap waiting for its second)
+    rde_vec_2F     grip_tapped_at;
 
     // What Undo/Redo currently show, so kana_toolbar_update only touches them on
     // a change.
@@ -202,9 +208,10 @@ void       kana_toolbar_sync(kana_toolbar* _toolbar);
 void       kana_toolbar_open_context_menu(kana_toolbar* _toolbar, rde_vec_2F _screen, rde_vec_2F _canvas);
 void       kana_toolbar_close_context_menu(kana_toolbar* _toolbar);
 
-// Puts the bar back where a save left it (orientation, then centre in UI canvas
-// units). Clamped on screen, so a centre from a bigger or rotated screen is fine.
-void       kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_vec_2F _center);
+// Puts the bar back where a save left it (orientation, centre in UI canvas units,
+// folded to its grip or not). Clamped on screen, so a centre from a bigger or
+// rotated screen is fine.
+void       kana_toolbar_set_placement(kana_toolbar* _toolbar, b8 _vertical, rde_vec_2F _center, b8 _minimized);
 
 // Once a frame: greys Undo/Redo out when there is nothing to undo/redo, and
 // shows the selection menu over a lasso selection. Cheap — it only touches the
