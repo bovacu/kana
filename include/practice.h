@@ -7,6 +7,7 @@
 #include "ink.h"
 #include "score.h"
 #include "history.h"
+#include "guide.h"
 
 // ===========================================================================
 // Practice: one character, written over and over in practice-sheet squares.
@@ -27,6 +28,11 @@
 // on; after the last, the set's SUMMARY shows how each character went this run,
 // and "weakest again" makes a new set of the ones under good. One character (the
 // viewer's Practice) is a set of one, and has none of that.
+//
+// GUIDED (guide.h): one big square instead, and the character learnt in three
+// steps — traced, from its start dots, from memory; only the last is scored
+// and saved, as a session of one square. It stays on across a set's
+// characters until switched off.
 // ===========================================================================
 
 #define KANA_PRACTICE_MAX_SQUARES     12
@@ -62,6 +68,10 @@ RDE_STRUCT {
     u32                  set_position;
     b8                   summary_open;    // the set is done: its summary shows
 
+    b8                   guided;
+    kana_guide           guide;
+    c8                   feedback[96];    // guided: the scored attempt's line
+
     // Layout of the last frame (screen space).
     rde_vec_2F           square_tl[KANA_PRACTICE_MAX_SQUARES];
     f32                  square_size;
@@ -89,6 +99,12 @@ u32  kana_practice_weak_count(const kana_practice* _practice);
 void kana_practice_weakest_again(kana_practice* _practice);
 
 void kana_practice_set_squares(kana_practice* _practice, u32 _count);
+// Guided mode on or off: the squares cleared, the character from step 1.
+void kana_practice_set_guided(kana_practice* _practice, b8 _guided);
+// Guided, and on a step that is not scored (the squares' count and Score do nothing).
+b8   kana_practice_guiding(const kana_practice* _practice);
+// Once a frame (guided: a finished step moves on).
+void kana_practice_update(kana_practice* _practice);
 void kana_practice_undo(kana_practice* _practice);
 void kana_practice_clear(kana_practice* _practice);
 // Scores every square written in, and saves the session if anything is new.

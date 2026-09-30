@@ -96,13 +96,13 @@ Tick an item when it has been seen working on the iPad, not when it compiles.
 
 ## 2. Example vocabulary — the rest of design §2 (Reference)
 
-*Built 2026-09-30 (bake.c, kanji.h/.c 'WORD', viewer.h/.c), waiting to be seen on
-the iPad.*
+*Built 2026-09-30 (bake.c, kanji.h/.c 'WORD', viewer.h/.c), seen working on the
+iPad 2026-09-30.*
 
-- [ ] **The source:** JMdict (JMdict_e, English), EDRDG's Japanese–English
+- [x] **The source:** JMdict (JMdict_e, English), EDRDG's Japanese–English
       dictionary, CC BY-SA 4.0 like KANJIDIC2: credited in Settings › About and
       `assets/data/LICENSE-data.txt`.
-- [ ] **Same bake, one more input:** `--bake` also reads `data/raw/JMdict_e.xml`
+- [x] **Same bake, one more input:** `--bake` also reads `data/raw/JMdict_e.xml`
       (COMMANDS.txt has the download), a line at a time (60 MB of XML).
   - Only common written forms (news1, ichi1, spec1, spec2), up to four
     characters, whose kanji all have strokes.
@@ -116,28 +116,57 @@ the iPad.*
   - 8,818 words for 2,548 kanji: +0.45 MB (characters.kana 3.9 MB). The
     stale `characters.kana.bak` that was shipping (3.3 MB) is gone: the bake
     removes it.
-- [ ] **Viewer:** the words under the details (portrait), or in a column beside
+- [x] **Viewer:** the words under the details (portrait), or in a column beside
       the character (landscape, which also keeps the character big): each a
       row with its written form (Noto Sans JP), reading and meaning, cut to
       the screen with "…". Portrait drops words (down to three) before the
       character gets smaller than 300.
-- [ ] **Tap a word:** practises its kanji as a set (kana in it left out).
+- [x] **Tap a word:** practises its kanji as a set (kana in it left out).
+- Fixed on the first look (2026-09-30): the columns overlapped (Noto's
+  characters are 1.31× their size, not 1×: now measured through the font), and
+  録 was missing — Slug's default budgets (128 curves a glyph) left out 28% of
+  Noto's kanji, silently, everywhere Japanese text shows. The Japanese font now
+  has 304 curves / 1,280 band texels a glyph (every kana and kanji in the font
+  fits: measured) and 2,048 slots (~30 MB of GPU memory). A glyph keeps its
+  slot until the app quits, so a very long session could still run out; the
+  engine would need to recycle slots for that.
 - Open: words for kana (あ: あさ, あめ…)? JMdict has them, but which ones to
   show is a different choice (words that start with it?).
 
-## 3. Guided training mode — explore first
+## 3. Guided training mode
 
-To design properly before building. The first idea:
-- the model faint in the square;
-- a dot where the next stroke starts, and an arrow for its direction;
-- each stroke checked as the pen lifts, so "backwards" or "wrong stroke" shows at
-  once, not only at Score.
+*Built 2026-09-30 (guide.h/.c, Practice's guided mode), waiting to be seen on the
+iPad.*
 
-Questions to settle then:
-- Does it show one stroke at a time, or the whole character?
-- Does it let a wrong stroke stand, or ask again?
-- How does it progress: traced → half-faded → blank?
-- Is it scored and saved to the album like Practice?
+Decided (Claude's proposal, not objected to): one stroke at a time; a wrong
+stroke is taken back and written again; traced → start dots → from memory; only
+the last step is scored and saved.
+
+- [ ] **Guided** in Practice's row (both: one character and a set): one big
+      square instead of the squares, the squares' − / + off. It stays on across
+      a set's characters.
+- [ ] **Step 1, trace:** the character faint; the stroke to write stronger,
+      writing itself (red pen tip), a dot where it starts and an arrow beside
+      its first part for its direction.
+- [ ] **Step 2, start dots:** the character fainter, only the dot; the stroke
+      writes itself only after a miss.
+- [ ] **Each stroke checked as the pen lifts** (steps 1 and 2), in place
+      against the model: a later stroke ("That is stroke 3. Stroke 2 comes
+      first."), backwards, or not close enough. A wrong stroke flashes red and
+      goes, the reason shows under the square, the stroke shows itself again.
+      Undo takes back the last right one; Clear starts the step again.
+- [ ] **A step done:** a tick, and the next after a moment (or at once, with the
+      pen).
+- [ ] **Step 3, from memory:** a blank square, nothing checked on the way; with
+      all its strokes it is scored and saved like a Practice square (a session
+      of one square, in the album), the model faint behind it and the score in
+      the corner. Writing again starts another attempt. Score scores a short
+      one; it does nothing in steps 1 and 2.
+- Tested (guidetest): each mistake's message, Undo, the pause, steps 1-3, a
+  wrong order in step 3 scored (not stopped), a set moving on.
+- Open, to tune on the iPad: how close is close enough (10 units of 109
+  tracing, 13 from the dot); the arrow's look; whether Guided should be
+  remembered in the settings.
 
 ## 4. Practice squares on the canvas
 

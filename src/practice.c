@@ -18,6 +18,8 @@
 #define KANA_PRACTICE_SQUARE_MAX 190.0f
 #define KANA_PRACTICE_DEMO_MAX   190.0f
 #define KANA_PRACTICE_DEMO_REST  1.5       // seconds the finished demo rests before writing again
+#define KANA_PRACTICE_GUIDED_MAX 620.0f    // guided: the one square's size at most
+#define KANA_PRACTICE_GUIDED_TEXT 64.0f    // ...and the room under it for the step and what the stroke got
 
 // The width of the pen in a square's units: the reference's own stroke width.
 #define KANA_PRACTICE_PEN_RADIUS (KANA_PRACTICE_UNITS * KANA_GLYPH_WIDTH / KANA_KANJI_BOX * 0.5f)
@@ -55,17 +57,52 @@ void kana_practice_destroy(kana_practice* _practice) {
     memset(_practice, 0, sizeof(*_practice));
 }
 
-void kana_practice_clear(kana_practice* _practice) {
+// Guided, only the first square is used.
+RDE_INTERNAL u32 kana_practice_square_count(const kana_practice* _practice) {
+    return _practice->guided ? 1u : _practice->squares;
+}
+
+// Every square emptied (and its mark gone); the status stays.
+RDE_INTERNAL void kana_practice_clear_squares(kana_practice* _practice) {
     for(u32 _i = 0; _i < KANA_PRACTICE_MAX_SQUARES; _i++) {
         kana_ink_destroy(&_practice->inks[_i]);
         kana_practice_fresh_ink(&_practice->inks[_i]);
     }
     rde_arr_clear(&_practice->strokes_in);
     memset(_practice->scores, 0, sizeof(_practice->scores));
-    _practice->scored    = false;
-    _practice->changed   = false;
-    _practice->writing   = -1;
+    _practice->scored      = false;
+    _practice->changed     = false;
+    _practice->writing     = -1;
+    _practice->feedback[0] = 0;
+}
+
+void kana_practice_clear(kana_practice* _practice) {
+    kana_practice_clear_squares(_practice);
     _practice->status[0] = 0;
+    if(_practice->guided) {
+        kana_guide_restart(&_practice->guide, rde_engine_get_time_now());   // the step again
+    }
+}
+
+b8 kana_practice_guiding(const kana_practice* _practice) {
+    return _practice->guided && _practice->guide.stage != KANA_GUIDE_RECALL;
+}
+
+void kana_practice_set_guided(kana_practice* _practice, b8 _guided) {
+    if(_practice->writing >= 0) {
+        kana_practice_pen_up(_practice);
+    }
+    _practice->guided = _guided;
+    kana_practice_clear(_practice);
+    if(_guided) {
+        kana_guide_start(&_practice->guide, _practice->db, &_practice->info, rde_engine_get_time_now());
+    }
+}
+
+void kana_practice_update(kana_practice* _practice) {
+    if(_practice->open && _practice->guided && _practice->writing < 0 && kana_guide_update(&_practice->guide, rde_engine_get_time_now())) {
+        kana_practice_clear_squares(_practice);   // the next step, on a clean square
+    }
 }
 
 // Squares cleared, the demo restarted, the history re-read: one character.
@@ -78,6 +115,9 @@ RDE_INTERNAL b8 kana_practice_load(kana_practice* _practice, u32 _record) {
     _practice->demo_done   = 0.0;
     _practice->has_summary = kana_history_summarize(_practice->info.codepoint, &_practice->summary);
     kana_practice_clear(_practice);
+    if(_practice->guided) {
+        kana_guide_start(&_practice->guide, _practice->db, &_practice->info, _practice->demo_start);
+    }
     return true;
 }
 
@@ -123,7 +163,8 @@ void kana_practice_next(kana_practice* _practice) {
     }
 
     // Written and not scored: score it, which saves it — moving on loses nothing.
-    for(u32 _i = 0; _i < _practice->squares && _practice->changed; _i++) {
+    // (Guided, only a step 3 attempt counts: the others are help.)
+    for(u32 _i = 0; _i < kana_practice_square_count(_practice) && _practice->changed && !kana_practice_guiding(_practice); _i++) {
         if(kana_ink_stroke_count(&_practice->inks[_i]) > 0) {
             kana_practice_score(_practice);
             break;
@@ -223,6 +264,9 @@ void kana_practice_undo(kana_practice* _practice) {
     kana_ink_undo(&_practice->inks[_square]);
     _practice->scores[_square].empty = true;   // its mark no longer matches its drawing
     _practice->changed = true;
+    if(_practice->guided) {
+        kana_guide_took_back(&_practice->guide, rde_engine_get_time_now());
+    }
 }
 
 void kana_practice_score(kana_practice* _practice) {
@@ -230,9 +274,14 @@ void kana_practice_score(kana_practice* _practice) {
         kana_practice_pen_up(_practice);
     }
 
-    f32 _sum    = 0.0f;
-    u32 _scored = 0;
-    for(u32 _i = 0; _i < _practice->squares; _i++) {
+    if(kana_practice_guiding(_practice)) {
+        return;   // steps 1 and 2 are help, not scored
+    }
+
+    const u32 _squares = kana_practice_square_count(_practice);
+    f32       _sum     = 0.0f;
+    u32       _scored  = 0;
+    for(u32 _i = 0; _i < _squares; _i++) {
         _practice->scores[_i] = kana_score_drawing(_practice->db, &_practice->info, &_practice->inks[_i]);
         if(!_practice->scores[_i].empty) {
             _sum += _practice->scores[_i].score;
@@ -256,17 +305,22 @@ void kana_practice_score(kana_practice* _practice) {
     }
 
     const kana_ink* _drawings[KANA_PRACTICE_MAX_SQUARES];
-    for(u32 _i = 0; _i < _practice->squares; _i++) {
+    for(u32 _i = 0; _i < _squares; _i++) {
         _drawings[_i] = &_practice->inks[_i];
     }
-    const b8 _saved = kana_history_save(_practice->info.codepoint, (u64)time(NULL), _practice->squares, _practice->scores,
+    const b8 _saved = kana_history_save(_practice->info.codepoint, (u64)time(NULL), _squares, _practice->scores,
                                         _drawings, KANA_PRACTICE_UNITS);
     if(_saved) {
         _practice->changed     = false;
         _practice->has_summary = kana_history_summarize(_practice->info.codepoint, &_practice->summary);
     }
-    snprintf(_practice->status, sizeof(_practice->status), "Average %.0f over %u square%s  -  %s",
-             (f64)_average, _scored, _scored == 1 ? "" : "s", _saved ? "saved" : "COULD NOT SAVE");
+    if(_practice->guided) {
+        snprintf(_practice->feedback, sizeof(_practice->feedback), "%s", _practice->scores[0].feedback);
+        snprintf(_practice->status, sizeof(_practice->status), "From memory: %.0f  -  %s", (f64)_average, _saved ? "saved" : "COULD NOT SAVE");
+    } else {
+        snprintf(_practice->status, sizeof(_practice->status), "Average %.0f over %u square%s  -  %s",
+                 (f64)_average, _scored, _scored == 1 ? "" : "s", _saved ? "saved" : "COULD NOT SAVE");
+    }
 }
 
 // --- the pen -----------------------------------------------------------------------
@@ -287,7 +341,7 @@ void kana_practice_pen_down(kana_practice* _practice, rde_vec_2F _screen) {
         return;
     }
 
-    for(u32 _i = 0; _i < _practice->squares; _i++) {
+    for(u32 _i = 0; _i < kana_practice_square_count(_practice); _i++) {
         const rde_vec_2F _tl = _practice->square_tl[_i];
         if(_screen.x >= _tl.x && _screen.x <= _tl.x + _practice->square_size &&
            _screen.y <= _tl.y && _screen.y >= _tl.y - _practice->square_size) {
@@ -297,6 +351,18 @@ void kana_practice_pen_down(kana_practice* _practice, rde_vec_2F _screen) {
     }
     if(_practice->writing < 0) {
         return;
+    }
+
+    if(_practice->guided) {
+        const f64 _now = rde_engine_get_time_now();
+        if(kana_guide_skip_pause(&_practice->guide, _now)) {
+            kana_practice_clear_squares(_practice);   // a step was done: the pen starts the next
+            _practice->writing = 0;
+        } else if(_practice->guide.stage == KANA_GUIDE_RECALL && _practice->scored) {
+            kana_practice_clear_squares(_practice);   // a new attempt from memory
+            _practice->status[0] = 0;
+            _practice->writing   = 0;
+        }
     }
 
     kana_ink* _ink = &_practice->inks[_practice->writing];
@@ -316,9 +382,22 @@ void kana_practice_pen_moved(kana_practice* _practice, rde_vec_2F _screen) {
 }
 
 void kana_practice_pen_up(kana_practice* _practice) {
-    if(_practice->writing >= 0) {
-        kana_ink_end(&_practice->inks[_practice->writing]);
-        _practice->writing = -1;
+    if(_practice->writing < 0) {
+        return;
+    }
+    kana_ink* _ink = &_practice->inks[_practice->writing];
+    kana_ink_end(_ink);
+    _practice->writing = -1;
+
+    // Guided: checked as the pen lifts — a wrong stroke goes; the last stroke
+    // from memory is scored.
+    if(_practice->guided) {
+        const KANA_GUIDE_RESULT_ _result = kana_guide_stroke(&_practice->guide, _ink, KANA_PRACTICE_UNITS, rde_engine_get_time_now());
+        if(_result == KANA_GUIDE_TAKEN_BACK && rde_arr_length(&_practice->strokes_in) > 0) {
+            _practice->strokes_in.count--;
+        } else if(_result == KANA_GUIDE_COMPLETE) {
+            kana_practice_score(_practice);
+        }
     }
 }
 
@@ -432,6 +511,9 @@ void kana_practice_render(kana_practice* _practice, rde_window* _window, rde_fon
     f32       _ty = _top - 30.0f;
     c8        _line[160];
     c8 _where[32] = "Practice";
+    if(_practice->guided) {
+        snprintf(_where, sizeof(_where), "Guided");
+    }
     if(kana_practice_in_set(_practice)) {
         snprintf(_where, sizeof(_where), "%u of %u", _practice->set_position + 1u, (u32)rde_arr_length(&_practice->set));
     }
@@ -469,6 +551,42 @@ void kana_practice_render(kana_practice* _practice, rde_window* _window, rde_fon
 
     if(_practice->status[0] != 0) {
         kana_draw_text(_font, _font_px, _practice->status, _tx, _ty, 19.0f, kana_theme_active()->text);
+    }
+
+    // --- guided: one big square, the help in it, the step under it ---------------------
+    if(_practice->guided) {
+        const f32 _grid_top = _demo_tl.y - _demo - 24.0f;
+        f32       _square   = fminf(_width, _grid_top - _bottom - KANA_PRACTICE_GUIDED_TEXT);
+        _square             = fmaxf(120.0f, fminf(_square, KANA_PRACTICE_GUIDED_MAX));
+        const rde_vec_2F _tl = { (_left + _right) * 0.5f - _square * 0.5f, _grid_top };
+        _practice->square_tl[0] = _tl;
+        _practice->square_size  = _square;
+
+        const f64         _now   = rde_engine_get_time_now();
+        const kana_theme* _theme = kana_theme_active();
+        const b8          _shown = _practice->scored && !_practice->scores[0].empty;   // a step 3 attempt, scored
+        kana_glyph_box(_tl, _square);
+        kana_guide_render(&_practice->guide, &_practice->glyph, _tl, _square, _now);
+        if(_shown) {
+            kana_glyph_character(&_practice->glyph, _info->codepoint, _tl, _square, _theme->reference);   // the model, behind
+        }
+        kana_ink_render(&_practice->inks[0], (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / KANA_PRACTICE_UNITS,
+                        (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, _now, false);
+        kana_guide_render_over(&_practice->guide, _tl, _square, KANA_PRACTICE_UNITS, _now);
+        if(_shown) {
+            snprintf(_line, sizeof(_line), "%.0f", (f64)_practice->scores[0].score);
+            kana_draw_text(_font, _font_px, _line, _tl.x + _square - 52.0f, _tl.y - 40.0f, 32.0f, kana_theme_grade(_practice->scores[0].score));
+        }
+
+        kana_guide_prompt(&_practice->guide, _line, sizeof(_line));
+        kana_draw_text(_font, _font_px, _line, _tl.x, _tl.y - _square - 26.0f, 16.0f, _theme->text);
+        if(_practice->guide.message[0] != 0) {
+            kana_draw_text(_font, _font_px, _practice->guide.message, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->score_poor);
+        } else if(_shown) {
+            snprintf(_line, sizeof(_line), "%s  -  write again for another try", _practice->feedback);
+            kana_draw_text(_font, _font_px, _line, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->text_soft);
+        }
+        return;
     }
 
     // --- the squares ------------------------------------------------------------------

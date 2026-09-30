@@ -41,9 +41,9 @@ enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
 enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
 enum { KANA_CHART_MENU_HIRAGANA = 0, KANA_CHART_MENU_KATAKANA, KANA_CHART_MENU_PRACTICE, KANA_CHART_MENU_CLOSE, KANA_CHART_MENU_COUNT };
 enum { KANA_BROWSE_MENU_PRACTICE = 0, KANA_BROWSE_MENU_CLOSE, KANA_BROWSE_MENU_COUNT };
-enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_COUNT };
+enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_GUIDED, KANA_PRACTICE_COUNT };
 enum { KANA_ALBUM_MENU_PRACTICE = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
-enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
+enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
 enum { KANA_PRACTICE_SUMMARY_AGAIN = 0, KANA_PRACTICE_SUMMARY_DONE, KANA_PRACTICE_SUMMARY_COUNT };
 
 #define KANA_ALBUM_PRACTICE_MAX 10u   // the album's "Practice n": its weakest this many
@@ -192,6 +192,7 @@ void kana_toolbar_restyle_button(rde_ui_button* _button) {
 
 // Defined below.
 void       kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open);
+RDE_INTERNAL void kana_toolbar_show_guided(kana_toolbar* _toolbar);
 RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar);
 rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar);
 rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size);
@@ -329,6 +330,17 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     if(_in_set && _finish != _toolbar->_finish_shown) {
         _toolbar->_finish_shown = _finish;
         rde_ui_button_set_text(_toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_NEXT], _finish ? "Finish" : "Next");
+    }
+    // Guided: on or off; and Score only where there is something to score (not
+    // steps 1 and 2, which are help).
+    if(_toolbar->practice->guided != _toolbar->_guided_shown) {
+        kana_toolbar_show_guided(_toolbar);
+    }
+    const b8 _can_score = !kana_practice_guiding(_toolbar->practice);
+    if(_can_score != _toolbar->_can_score_shown) {
+        _toolbar->_can_score_shown = _can_score;
+        kana_toolbar_set_enabled(_toolbar->practice_menu.buttons[KANA_PRACTICE_SCORE], _can_score);
+        kana_toolbar_set_enabled(_toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_SCORE], _can_score);
     }
     if(_summary) {
         const b8 _weak = kana_practice_weak_count(_toolbar->practice) > 0;
@@ -974,6 +986,30 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_practice_more(rde_ui_node* _no
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
+// Guided: its buttons show it on (both rows), and the squares' count means nothing then.
+RDE_INTERNAL void kana_toolbar_show_guided(kana_toolbar* _toolbar) {
+    const b8       _on        = _toolbar->practice->guided;
+    rde_ui_button* _toggles[] = { _toolbar->practice_menu.buttons[KANA_PRACTICE_GUIDED], _toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_GUIDED] };
+    for(u32 _i = 0; _i < sizeof(_toggles) / sizeof(_toggles[0]); _i++) {
+        if(_on) {
+            kana_toolbar_button_selected(_toggles[_i]);
+        } else {
+            kana_toolbar_button_plain(_toggles[_i]);
+        }
+    }
+    kana_toolbar_set_enabled(_toolbar->practice_menu.buttons[KANA_PRACTICE_FEWER], !_on);
+    kana_toolbar_set_enabled(_toolbar->practice_menu.buttons[KANA_PRACTICE_MORE], !_on);
+    _toolbar->_guided_shown = _on;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_practice_guided(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_practice_set_guided(_toolbar->practice, !_toolbar->practice->guided);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
 // --- sets ------------------------------------------------------------------------------
 
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_practice_next(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
@@ -1294,6 +1330,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_button_selected(_toolbar->album_page_menu.buttons[KANA_ALBUM_PAGE_PRACTICE]);
     kana_toolbar_button_selected(_toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_NEXT]);          // the way on
     kana_toolbar_button_selected(_toolbar->practice_summary_menu.buttons[KANA_PRACTICE_SUMMARY_AGAIN]);
+    kana_toolbar_show_guided(_toolbar);
 
     // The strip: no track, a thin thumb in the grip's colour.
     rde_ui_scroll_area_set_background_color(_toolbar->strip, (rde_color){ 0, 0, 0, 0 });
@@ -1490,9 +1527,10 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         kana_toolbar_menu_create(_toolbar, &_toolbar->browse_menu, _root, _labels, _callbacks, KANA_BROWSE_MENU_COUNT);
     }
     {
-        const c8* const             _labels[KANA_PRACTICE_COUNT]    = { "Back", "Undo", "Clear", "Score", "-", "+" };
+        const c8* const             _labels[KANA_PRACTICE_COUNT]    = { "Back", "Undo", "Clear", "Score", "-", "+", "Guided" };
         const rde_ui_event_callback _callbacks[KANA_PRACTICE_COUNT] = { kana_toolbar_on_practice_back, kana_toolbar_on_practice_undo, kana_toolbar_on_practice_clear,
-                                                                        kana_toolbar_on_practice_score, kana_toolbar_on_practice_fewer, kana_toolbar_on_practice_more };
+                                                                        kana_toolbar_on_practice_score, kana_toolbar_on_practice_fewer, kana_toolbar_on_practice_more,
+                                                                        kana_toolbar_on_practice_guided };
         kana_toolbar_menu_create(_toolbar, &_toolbar->practice_menu, _root, _labels, _callbacks, KANA_PRACTICE_COUNT);
     }
     {
@@ -1511,9 +1549,9 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         kana_toolbar_menu_create(_toolbar, &_toolbar->album_page_menu, _root, _labels, _callbacks, KANA_ALBUM_PAGE_COUNT);
     }
     {
-        const c8* const             _labels[KANA_PRACTICE_SET_COUNT]    = { "Back", "Undo", "Clear", "Score", "Next" };
+        const c8* const             _labels[KANA_PRACTICE_SET_COUNT]    = { "Back", "Undo", "Clear", "Score", "Guided", "Next" };
         const rde_ui_event_callback _callbacks[KANA_PRACTICE_SET_COUNT] = { kana_toolbar_on_practice_done, kana_toolbar_on_practice_undo, kana_toolbar_on_practice_clear,
-                                                                            kana_toolbar_on_practice_score, kana_toolbar_on_practice_next };
+                                                                            kana_toolbar_on_practice_score, kana_toolbar_on_practice_guided, kana_toolbar_on_practice_next };
         kana_toolbar_menu_create(_toolbar, &_toolbar->practice_set_menu, _root, _labels, _callbacks, KANA_PRACTICE_SET_COUNT);
     }
     {

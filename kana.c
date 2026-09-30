@@ -410,8 +410,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     // Development: --browse / --kana open Browse / the kana chart at start;
-    // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice;
-    // --settings Settings; --licences=3 Settings and Licences on document 3.
+    // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice,
+    // --guided=6728 guided; --settings Settings; --licences=3 Settings and
+    // Licences on document 3.
     for(i32 _i = 1; _i < _argc; _i++) {
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--mlkit-samples=", 16) == 0) {
             const c8* _p = _argv[_i] + 16;
@@ -438,6 +439,13 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--kana") == 0) {
             kana_chart_open(&chart);
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--guided=", 9) == 0) {
+            u32 _record = 0;
+            if(_have_kanji && kana_kanji_find_index(&kanji_db, (u32)strtoul(_argv[_i] + 9, NULL, 16), &_record)) {
+                kana_practice_open(&practice, _record);
+                kana_practice_set_guided(&practice, true);
+            }
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--practice=", 11) == 0) {
             u32 _record = 0;
@@ -902,6 +910,7 @@ void on_update(f32 _dt) {
         }
 #endif
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_practice_close(&practice); }
+        kana_practice_update(&practice);   // guided: a finished step moves on
         kana_toolbar_update(&toolbar);
         kana_autosave();
         return;

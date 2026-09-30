@@ -48,7 +48,7 @@ typedef enum {
 
 typedef struct kana_toolbar kana_toolbar;
 
-#define KANA_TOOLBAR_MENU_MAX 6
+#define KANA_TOOLBAR_MENU_MAX 7
 
 // A floating row of buttons: the menu over a lasso selection, the page's
 // context menu.
@@ -156,6 +156,8 @@ struct kana_toolbar {
     kana_toolbar_menu        practice_set_menu;
     kana_toolbar_menu        practice_summary_menu;
     b8                       _finish_shown;
+    b8                       _guided_shown;      // what the Guided buttons show
+    b8                       _can_score_shown;   // Score pressable (not in guided steps 1 and 2)
 
     // Browse's bar, across the top of the screen: filters, sorts, the search
     // field, Draw/Clear, Close.
