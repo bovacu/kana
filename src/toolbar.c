@@ -176,6 +176,14 @@ RDE_INTERNAL void kana_toolbar_refresh(kana_toolbar* _toolbar) {
 
     rde_ui_button_set_text(_toolbar->brush_scale, _toolbar->ink->brush_scale == KANA_INK_BRUSH_SCALE_PAGE ? "Page" : "Screen");
 
+    // Squares: the page's own, so it follows the canvas open.
+    if(_toolbar->view->page.squares) {
+        kana_toolbar_button_selected(_toolbar->squares);
+    } else {
+        kana_toolbar_button_plain(_toolbar->squares);
+    }
+    _toolbar->_squares_shown = _toolbar->view->page.squares;
+
     rde_ui_slider_set_value(_toolbar->size, _toolbar->ink->constant_radius);
 }
 
@@ -401,6 +409,11 @@ void kana_toolbar_update(kana_toolbar* _toolbar) {
 
     kana_toolbar_update_selection_menu(_toolbar);
 
+    // Another canvas opened (or its file loaded): Squares shows that page's.
+    if(_toolbar->view->page.squares != _toolbar->_squares_shown) {
+        kana_toolbar_refresh(_toolbar);
+    }
+
     const b8 _can_undo = kana_ink_can_undo(_toolbar->ink);
     const b8 _can_redo = kana_ink_can_redo(_toolbar->ink);
 
@@ -488,6 +501,13 @@ RDE_INTERNAL void kana_toolbar_place_palette(kana_toolbar* _toolbar) {
     }
 }
 
+// The palette, when open, placed against the bar where it is now.
+RDE_INTERNAL void kana_toolbar_place_popups(kana_toolbar* _toolbar) {
+    if(_toolbar->palette_open) {
+        kana_toolbar_place_palette(_toolbar);
+    }
+}
+
 
 // Lays the bar out along its axis — the grip, then the strip of tools, as long as
 // they need or as the screen allows (then the strip scrolls); minimized, just the
@@ -506,6 +526,7 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
         { rde_ui_slider_as_node(_toolbar->size),        _v ? (rde_vec_2F){ KANA_TOOLBAR_SLIDER_W, KANA_TOOLBAR_SLIDER_LEN } : (rde_vec_2F){ KANA_TOOLBAR_SLIDER_LEN, KANA_TOOLBAR_SLIDER_W } },
         { rde_ui_button_as_node(_toolbar->color),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->brush_scale), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_button_as_node(_toolbar->squares),     { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->rotate),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->reset_view),  { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
     };
@@ -570,10 +591,7 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
 
     _toolbar->center = kana_toolbar_clamp(_toolbar, _toolbar->center, _toolbar->panel_size);
     kana_toolbar_place(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
-
-    if(_toolbar->palette_open) {
-        kana_toolbar_place_palette(_toolbar);
-    }
+    kana_toolbar_place_popups(_toolbar);
 }
 
 // Folds the bar down to its grip, or opens it again, with the grip's end staying
@@ -767,6 +785,16 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_swatch(rde_ui_node* _node, con
     // Picking a colour means wanting to write with it.
     kana_toolbar_set_palette_open(_ref->toolbar, false);
     kana_toolbar_set_tool(_ref->toolbar, KANA_TOOL_DRAW);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// The page's practice squares, on or off: saved with the page (their size is a
+// setting: Settings › Practice squares).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_squares(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->view->page.squares = !_toolbar->view->page.squares;
+    kana_toolbar_refresh(_toolbar);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -1251,10 +1279,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_drag_move(rde_ui_node* _node, 
     };
     _toolbar->center = kana_toolbar_clamp(_toolbar, _toolbar->center, _toolbar->panel_size);
     kana_toolbar_place(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
-
-    if(_toolbar->palette_open) {
-        kana_toolbar_place_palette(_toolbar);
-    }
+    kana_toolbar_place_popups(_toolbar);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
@@ -1303,7 +1328,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     // Every button plain first; the ones that show a state are set after.
     rde_ui_button* const _buttons[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
-        _toolbar->brush_scale, _toolbar->rotate, _toolbar->reset_view,
+        _toolbar->brush_scale, _toolbar->squares, _toolbar->rotate, _toolbar->reset_view,
         _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
     };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
@@ -1461,6 +1486,7 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
 
     _toolbar->color       = kana_toolbar_button(_toolbar, _tools, "Color",  kana_toolbar_on_color);
     _toolbar->brush_scale = kana_toolbar_button(_toolbar, _tools, "Page",   kana_toolbar_on_brush_scale);
+    _toolbar->squares     = kana_toolbar_button(_toolbar, _tools, "Squares", kana_toolbar_on_squares);
     _toolbar->rotate      = kana_toolbar_button(_toolbar, _tools, "Rotate", kana_toolbar_on_rotate);
     _toolbar->reset_view  = kana_toolbar_button(_toolbar, _tools, "Reset",  kana_toolbar_on_reset_view);
 

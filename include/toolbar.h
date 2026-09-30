@@ -112,6 +112,7 @@ struct kana_toolbar {
     rde_ui_slider* size;
     rde_ui_button* color;
     rde_ui_button* brush_scale;
+    rde_ui_button* squares;         // the page's practice squares, on or off (canvas.h)
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
 
@@ -121,7 +122,6 @@ struct kana_toolbar {
     b8                       palette_open;
     rde_vec_2F               palette_center;   // UI canvas units, set whenever it is placed
     rde_vec_2F               palette_size;
-
     // Over a lasso selection: Cut, Copy, Duplicate, Delete.
     kana_toolbar_menu        selection_menu;
     f64                      copied_until;     // Copy reads "Copied" until then (engine clock)
@@ -157,6 +157,7 @@ struct kana_toolbar {
     kana_toolbar_menu        practice_summary_menu;
     b8                       _finish_shown;
     b8                       _guided_shown;      // what the Guided buttons show
+    b8                       _squares_shown;     // what Squares shows (the page's, which changes with the canvas)
     b8                       _can_score_shown;   // Score pressable (not in guided steps 1 and 2)
 
     // Browse's bar, across the top of the screen: filters, sorts, the search

@@ -128,9 +128,11 @@ RDE_INTERNAL c8            settings_path[RDE_MAX_PATH];
 // What was last written, and what was last seen (to time the quiet period).
 RDE_INTERNAL u32           saved_revision = 0;
 RDE_INTERNAL kana_view     saved_view;
+RDE_INTERNAL kana_page     saved_page;
 RDE_INTERNAL kana_settings saved_settings;
 RDE_INTERNAL u32           seen_revision  = 0;
 RDE_INTERNAL kana_view     seen_view;
+RDE_INTERNAL kana_page     seen_page;
 RDE_INTERNAL kana_settings seen_settings;
 RDE_INTERNAL f64           last_change_time = 0.0;
 
@@ -189,6 +191,10 @@ RDE_INTERNAL void kana_erase_at_screen(rde_vec_2F _screen) {
     kana_ink_erase_at(&ink, kana_canvas_from_screen(&canvas, _screen), KANA_ERASER_RADIUS / canvas.view.zoom);
 }
 
+RDE_INTERNAL b8 kana_page_same(kana_page _a, kana_page _b) {
+    return _a.squares == _b.squares;
+}
+
 RDE_INTERNAL b8 kana_view_same(kana_view _a, kana_view _b) {
     return memcmp(&_a, &_b, sizeof(kana_view)) == 0;
 }
@@ -207,6 +213,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.theme          = (u8)kana_theme_index();
     _s.mlkit          = kana_mlkit_enabled();
     _s.toolbar_minimized = toolbar.minimized;
+    _s.squares_size      = (u8)canvas.square_size;
     return _s;
 }
 
@@ -219,6 +226,7 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     ink.constant_radius  = rde_math_clamp_f32(_s->radius, KANA_TOOLBAR_SIZE_MIN, KANA_TOOLBAR_SIZE_MAX);
     kana_theme_set((KANA_THEME_)_s->theme);
     kana_mlkit_set_enabled(_s->mlkit);
+    canvas.square_size   = _s->squares_size < KANA_SQUARES_SIZE_COUNT ? (KANA_SQUARES_SIZE_)_s->squares_size : KANA_SQUARES_MEDIUM;
     kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center, _s->toolbar_minimized);
     kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
@@ -231,7 +239,7 @@ RDE_INTERNAL void kana_save_now(b8 _force) {
     }
 
     const kana_settings _settings = kana_gather_settings();
-    const b8 _doc_dirty  = _force || ink.revision != saved_revision || !kana_view_same(canvas.view, saved_view);
+    const b8 _doc_dirty  = _force || ink.revision != saved_revision || !kana_view_same(canvas.view, saved_view) || !kana_page_same(canvas.page, saved_page);
     const b8 _set_dirty  = _force || !kana_settings_equal(&_settings, &saved_settings);
 
     if(!_doc_dirty && !_set_dirty) {
@@ -243,9 +251,10 @@ RDE_INTERNAL void kana_save_now(b8 _force) {
 
     if(_doc_dirty) {
         u32 _bytes = 0;
-        if(kana_save_document(document_path, &ink, canvas.view, &_bytes)) {
+        if(kana_save_document(document_path, &ink, canvas.view, canvas.page, &_bytes)) {
             saved_revision  = ink.revision;
             saved_view      = canvas.view;
+            saved_page      = canvas.page;
             last_save_bytes = _bytes;
         } else {
             _ok = false;
@@ -276,9 +285,11 @@ RDE_INTERNAL void kana_autosave(void) {
     const f64           _now      = rde_engine_get_time_now();
     const kana_settings _settings = kana_gather_settings();
 
-    if(ink.revision != seen_revision || !kana_view_same(canvas.view, seen_view) || !kana_settings_equal(&_settings, &seen_settings)) {
+    if(ink.revision != seen_revision || !kana_view_same(canvas.view, seen_view) || !kana_page_same(canvas.page, seen_page) ||
+       !kana_settings_equal(&_settings, &seen_settings)) {
         seen_revision    = ink.revision;
         seen_view        = canvas.view;
+        seen_page        = canvas.page;
         seen_settings    = _settings;
         last_change_time = _now;
         return;
@@ -314,7 +325,7 @@ RDE_INTERNAL void kana_load_saves(void) {
         kana_apply_settings(&_settings);
     }
 
-    const KANA_LOAD_ _doc = kana_load_document(document_path, &ink, &canvas.view);
+    const KANA_LOAD_ _doc = kana_load_document(document_path, &ink, &canvas.view, &canvas.page);
     if(_doc == KANA_LOAD_OK) {
         snprintf(load_note, sizeof(load_note), "loaded %u strokes", kana_ink_alive_strokes(&ink));
     } else if(_doc == KANA_LOAD_RECOVERED) {
@@ -329,6 +340,7 @@ RDE_INTERNAL void kana_load_saves(void) {
     // What is on screen now IS what is saved.
     saved_revision   = seen_revision  = ink.revision;
     saved_view       = seen_view      = canvas.view;
+    saved_page       = seen_page      = canvas.page;
     saved_settings   = seen_settings  = kana_gather_settings();
     last_change_time = rde_engine_get_time_now();
 }
@@ -361,12 +373,14 @@ RDE_INTERNAL void kana_switch_canvas(void) {
     ink.constant_radius = _radius;
 
     kana_canvas_reset_view(&canvas);
+    canvas.page    = (kana_page){ 0 };   // the next page's own, or nothing (a new canvas)
     current_canvas = notes.open;
     kana_notes_canvas_path(current_canvas, document_path, sizeof(document_path));
-    kana_load_document(document_path, &ink, &canvas.view);
+    kana_load_document(document_path, &ink, &canvas.view, &canvas.page);
 
     saved_revision   = seen_revision = ink.revision;
     saved_view       = seen_view     = canvas.view;
+    saved_page       = seen_page     = canvas.page;
     last_change_time = rde_engine_get_time_now();
     zoom_seen        = -1.0f;   // the loaded zoom is not a change to show
 }

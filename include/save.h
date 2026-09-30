@@ -29,6 +29,8 @@
 //
 // DOCUMENT ('DOC '): the page.
 //   'VIEW'  f32 offset.x, offset.y, zoom
+//   'PAGE'  u8 squares (practice squares over the page: 1 on, 0 off)
+//           (optional: a file from before it has none — off)
 //   'STRK'  u32 count, u32 record size, then per stroke:
 //           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen), 3 reserved
 //           (r g b a all 0: the theme's ink; 30 30 36 255, from before themes,
@@ -42,7 +44,8 @@
 //   'PREF'  u8 tool, vertical, show_hud, brush_scale, width_mode, u8 r g b a,
 //           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme,
 //           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
-//           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0)
+//           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0),
+//           u8 squares_size (the practice squares' size: KANA_SQUARES_SIZE_)
 //           (new fields go at the END: an older file just ends sooner)
 // ===========================================================================
 
@@ -69,6 +72,7 @@ RDE_STRUCT {
     u8         theme;            // KANA_THEME_
     b8         mlkit;            // read handwriting with Google ML Kit (mlkit.h)
     b8         toolbar_minimized;   // the bar folded to its grip
+    u8         squares_size;        // KANA_SQUARES_SIZE_
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's
@@ -77,10 +81,10 @@ RDE_STRUCT {
 const c8*  kana_save_dir(void);
 
 // _out_bytes (may be NULL) receives the file size.
-b8         kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, u32* _out_bytes);
+b8         kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, kana_page _page, u32* _out_bytes);
 // Loads into an EMPTY ink (fresh from kana_ink_init). On MISSING or CORRUPT,
-// _ink and _view are untouched.
-KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view);
+// _ink, _view and _page are untouched.
+KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view, kana_page* _page);
 
 b8         kana_save_settings(const c8* _path, const kana_settings* _settings);
 // Fields the file does not have keep the value _settings came in with. Values

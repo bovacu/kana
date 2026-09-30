@@ -1,4 +1,5 @@
 #include "canvas.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -8,8 +9,13 @@
 // See canvas.h.
 // ===========================================================================
 
+f32 kana_canvas_square_units(KANA_SQUARES_SIZE_ _size) {
+    return _size == KANA_SQUARES_SMALL ? 110.0f : _size == KANA_SQUARES_LARGE ? 240.0f : 160.0f;
+}
+
 void kana_canvas_init(kana_canvas* _canvas) {
     memset(_canvas, 0, sizeof(*_canvas));
+    _canvas->square_size = KANA_SQUARES_MEDIUM;
     kana_canvas_reset_view(_canvas);
 }
 
@@ -208,6 +214,55 @@ void kana_canvas_release_fingers(kana_canvas* _canvas) {
     _canvas->tap_spoiled = true;
 }
 
+// Practice squares over what the screen shows: the squares' edges as lines, and
+// through each the dashed centre cross (dashes set in the page, so they stay
+// put while it pans). Square k spans ((k - 0.5)S, (k + 0.5)S): one is centred on
+// the page's origin, where Reset puts the middle of the screen.
+RDE_INTERNAL void kana_canvas_draw_squares(const kana_canvas* _canvas, rde_vec_2F _min, rde_vec_2F _max) {
+    // The theme's canvas colours: the edges as its dots, the crosses between those
+    // and the page.
+    const kana_theme* _theme  = kana_theme_active();
+    const f32         _s      = kana_canvas_square_units(_canvas->square_size);
+    const f32         _screen = _s * _canvas->view.zoom;
+    const rde_color   _edge   = _theme->page_dots;
+    const rde_color   _guide  = {
+        (u8)(((u32)_theme->page.r + (u32)_theme->page_dots.r * 2u) / 3u),
+        (u8)(((u32)_theme->page.g + (u32)_theme->page_dots.g * 2u) / 3u),
+        (u8)(((u32)_theme->page.b + (u32)_theme->page_dots.b * 2u) / 3u),
+        _theme->page_dots.a
+    };
+
+    const f32 _ex0 = (floorf(_min.x / _s - 0.5f) + 0.5f) * _s;
+    const f32 _ey0 = (floorf(_min.y / _s - 0.5f) + 0.5f) * _s;
+    for(f32 _x = _ex0; _x <= _max.x; _x += _s) {
+        kana_draw_line(kana_canvas_to_screen(_canvas, (rde_vec_2F){ _x, _min.y }), kana_canvas_to_screen(_canvas, (rde_vec_2F){ _x, _max.y }), 0.6f, _edge);
+    }
+    for(f32 _y = _ey0; _y <= _max.y; _y += _s) {
+        kana_draw_line(kana_canvas_to_screen(_canvas, (rde_vec_2F){ _min.x, _y }), kana_canvas_to_screen(_canvas, (rde_vec_2F){ _max.x, _y }), 0.6f, _edge);
+    }
+
+    if(_screen < KANA_CANVAS_SQUARE_CROSS) {
+        return;   // too small to write in anyway: the cross would only be noise
+    }
+
+    // The crosses: whole lines through the squares' centres, dashed.
+    const f32 _dash   = fmaxf(4.0f, _screen / 40.0f) / _canvas->view.zoom;   // canvas units
+    const f32 _period = _dash * 2.0f;
+    const f32 _zoom   = _canvas->view.zoom;
+    for(f32 _x = ceilf(_min.x / _s) * _s; _x <= _max.x; _x += _s) {
+        for(f32 _y = floorf(_min.y / _period) * _period; _y <= _max.y; _y += _period) {
+            const rde_vec_2F _c = kana_canvas_to_screen(_canvas, (rde_vec_2F){ _x, _y + _dash * 0.5f });
+            rde_rendering_2d_draw_rectangle(_c, (rde_vec_2F){ 1.0f, _dash * _zoom }, _guide);
+        }
+    }
+    for(f32 _y = ceilf(_min.y / _s) * _s; _y <= _max.y; _y += _s) {
+        for(f32 _x = floorf(_min.x / _period) * _period; _x <= _max.x; _x += _period) {
+            const rde_vec_2F _c = kana_canvas_to_screen(_canvas, (rde_vec_2F){ _x + _dash * 0.5f, _y });
+            rde_rendering_2d_draw_rectangle(_c, (rde_vec_2F){ _dash * _zoom, 1.0f }, _guide);
+        }
+    }
+}
+
 void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) {
     const kana_view* _view = &_canvas->view;
 
@@ -222,6 +277,11 @@ void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) 
     const f32        _hh  = (f32)_window_size.y * 0.5f;
     const rde_vec_2F _min = kana_canvas_from_screen(_canvas, (rde_vec_2F){ -_hw, -_hh });
     const rde_vec_2F _max = kana_canvas_from_screen(_canvas, (rde_vec_2F){  _hw,  _hh });
+
+    if(_canvas->page.squares) {
+        kana_canvas_draw_squares(_canvas, _min, _max);
+        return;
+    }
 
     const f32 _x0 = floorf(_min.x / _spacing) * _spacing;
     const f32 _y0 = floorf(_min.y / _spacing) * _spacing;

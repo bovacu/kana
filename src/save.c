@@ -15,6 +15,7 @@
 
 #define KANA_CHUNK_VIEW     KANA_TAG('V', 'I', 'E', 'W')
 #define KANA_CHUNK_STROKES  KANA_TAG('S', 'T', 'R', 'K')
+#define KANA_CHUNK_PAGE     KANA_TAG('P', 'A', 'G', 'E')
 #define KANA_CHUNK_POINTS   KANA_TAG('P', 'N', 'T', 'S')
 #define KANA_CHUNK_PREFS    KANA_TAG('P', 'R', 'E', 'F')
 
@@ -72,7 +73,7 @@ const c8* kana_save_dir(void) {
 
 // --- document ------------------------------------------------------------------
 
-b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, u32* _out_bytes) {
+b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, kana_page _page, u32* _out_bytes) {
     const u32 _total   = kana_ink_stroke_count(_ink);
     u32       _strokes = 0;
     u32       _points  = 0;
@@ -86,13 +87,17 @@ b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, u3
 
     // Sized up front (+1: rde_arr grows when an add reaches its capacity), so the
     // whole file is built without a single reallocation.
-    kana_bytes _b = kana_bytes_new(KANA_FILE_HEADER_SIZE + 20u + (16u + _strokes * KANA_STROKE_RECORD_SIZE) + (16u + _points * KANA_POINT_RECORD_SIZE) + 1u);
+    kana_bytes _b = kana_bytes_new(KANA_FILE_HEADER_SIZE + 20u + 9u + (16u + _strokes * KANA_STROKE_RECORD_SIZE) + (16u + _points * KANA_POINT_RECORD_SIZE) + 1u);
     kana_put_header(&_b, KANA_SAVE_VERSION, KANA_KIND_DOCUMENT);
 
     u32 _chunk = kana_chunk_begin(&_b, KANA_CHUNK_VIEW);
     kana_put_f32(&_b, _view.offset.x);
     kana_put_f32(&_b, _view.offset.y);
     kana_put_f32(&_b, _view.zoom);
+    kana_chunk_end(&_b, _chunk);
+
+    _chunk = kana_chunk_begin(&_b, KANA_CHUNK_PAGE);
+    kana_put_u8(&_b, _page.squares ? 1u : 0u);
     kana_chunk_end(&_b, _chunk);
 
     _chunk = kana_chunk_begin(&_b, KANA_CHUNK_STROKES);
@@ -145,13 +150,14 @@ typedef struct {
 } kana_loaded_stroke;
 
 // Parses the whole document before touching _ink, so a damaged file changes nothing.
-RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, kana_view* _view) {
+RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, kana_view* _view, kana_page* _page) {
     kana_reader _r = { .data = _data, .size = _size, .pos = 0, .ok = true };
     if(!kana_read_header(&_r, KANA_SAVE_VERSION, KANA_KIND_DOCUMENT)) {
         return false;
     }
 
     kana_view           _v            = *_view;
+    kana_page           _pg           = { 0 };   // a file from before 'PAGE': nothing over the page
     kana_loaded_stroke* _strokes      = NULL;
     u32                 _stroke_count = 0;
     kana_ink_point*     _points       = NULL;
@@ -180,6 +186,11 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
             if(_c.ok && kana_finite(_x) && kana_finite(_y) && kana_finite(_z) && _z > 0.0f) {
                 _v.offset = (rde_vec_2F){ _x, _y };
                 _v.zoom   = rde_math_clamp_f32(_z, KANA_CANVAS_ZOOM_MIN, KANA_CANVAS_ZOOM_MAX);
+            }
+        } else if(_tag == KANA_CHUNK_PAGE) {
+            const u8 _squares = kana_get_u8(&_c);
+            if(_c.ok) {
+                _pg.squares = _squares == 1u;
             }
         } else if(_tag == KANA_CHUNK_STROKES && !_have_strokes) {
             const u32 _count  = kana_get_u32(&_c);
@@ -251,6 +262,7 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
             _first += _strokes[_i].point_count;
         }
         *_view = _v;
+        *_page = _pg;
     }
 
     rde_free(_strokes);
@@ -259,14 +271,14 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
 }
 
 // One file: OK, MISSING, or CORRUPT (and then set aside).
-RDE_INTERNAL KANA_LOAD_ kana_load_document_file(const c8* _file, kana_ink* _ink, kana_view* _view) {
+RDE_INTERNAL KANA_LOAD_ kana_load_document_file(const c8* _file, kana_ink* _ink, kana_view* _view, kana_page* _page) {
     if(!rde_file_exists(_file)) {
         return KANA_LOAD_MISSING;
     }
 
     u32 _size = 0;
     u8* _data = kana_file_read(_file, &_size);
-    const b8 _ok = _data != NULL && kana_parse_document(_data, _size, _ink, _view);
+    const b8 _ok = _data != NULL && kana_parse_document(_data, _size, _ink, _view, _page);
     kana_file_free(_data);
 
     if(!_ok) {
@@ -277,8 +289,8 @@ RDE_INTERNAL KANA_LOAD_ kana_load_document_file(const c8* _file, kana_ink* _ink,
     return KANA_LOAD_OK;
 }
 
-KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view) {
-    const KANA_LOAD_ _main = kana_load_document_file(_path, _ink, _view);
+KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view, kana_page* _page) {
+    const KANA_LOAD_ _main = kana_load_document_file(_path, _ink, _view, _page);
     if(_main == KANA_LOAD_OK) {
         return KANA_LOAD_OK;
     }
@@ -287,7 +299,7 @@ KANA_LOAD_ kana_load_document(const c8* _path, kana_ink* _ink, kana_view* _view)
     // previous save.
     c8 _bak[RDE_MAX_PATH];
     snprintf(_bak, sizeof(_bak), "%s.bak", _path);
-    const KANA_LOAD_ _backup = kana_load_document_file(_bak, _ink, _view);
+    const KANA_LOAD_ _backup = kana_load_document_file(_bak, _ink, _view, _page);
     if(_backup == KANA_LOAD_OK) {
         rde_log_level(RDE_LOG_LEVEL_WARNING, "kana: %s %s, loaded the backup", _path, _main == KANA_LOAD_MISSING ? "missing" : "damaged");
         return KANA_LOAD_RECOVERED;
@@ -315,6 +327,7 @@ b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_put_u8(&_b, _settings->theme);
     kana_put_u8(&_b, _settings->mlkit ? 1u : 0u);
     kana_put_u8(&_b, _settings->toolbar_minimized ? 1u : 0u);
+    kana_put_u8(&_b, _settings->squares_size);
     kana_chunk_end(&_b, _chunk);
 
     return kana_bytes_write_and_free(&_b, _path, NULL);
@@ -383,6 +396,8 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
         if(_c.ok && _mlkit <= 1u) { _s.mlkit = _mlkit != 0; }
         const u8 _minimized = kana_get_u8(&_c);
         if(_c.ok && _minimized <= 1u) { _s.toolbar_minimized = _minimized != 0; }
+        const u8 _squares = kana_get_u8(&_c);
+        if(_c.ok && _squares < KANA_SQUARES_SIZE_COUNT) { _s.squares_size = _squares; }
     }
 
     kana_file_free(_data);
@@ -400,5 +415,6 @@ b8 kana_settings_equal(const kana_settings* _a, const kana_settings* _b) {
            _a->color.r == _b->color.r && _a->color.g == _b->color.g && _a->color.b == _b->color.b && _a->color.a == _b->color.a &&
            kana_same_f32(_a->radius, _b->radius) &&
            kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
-           _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized;
+           _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
+           _a->squares_size == _b->squares_size;
 }

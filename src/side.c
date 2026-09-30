@@ -22,7 +22,7 @@
 #define KANA_SIDE_MENU_W    52.0f
 #define KANA_SIDE_MENU_H    44.0f
 #define KANA_SIDE_CARD_W    580.0f
-#define KANA_SIDE_CARD_H    730.0f
+#define KANA_SIDE_CARD_H    784.0f
 #define KANA_SIDE_LICENCE_PX 13.0f    // Licences' text
 #define KANA_SIDE_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 #define KANA_SIDE_NOTE_H    40.0f     // a row of the notes list
@@ -121,6 +121,11 @@ RDE_INTERNAL void kana_side_refresh_settings(kana_toolbar* _toolbar) {
     const b8 _pressure = _toolbar->ink->width_mode == KANA_INK_WIDTH_MODE_PRESSURE;
     if(_pressure) { kana_toolbar_button_plain(_side->width_even); kana_toolbar_button_selected(_side->width_pressure); }
     else          { kana_toolbar_button_selected(_side->width_even); kana_toolbar_button_plain(_side->width_pressure); }
+
+    for(u32 _i = 0; _i < KANA_SQUARES_SIZE_COUNT; _i++) {
+        if(_toolbar->view->square_size == (KANA_SQUARES_SIZE_)_i) { kana_toolbar_button_selected(_side->squares_sizes[_i]); }
+        else                                                     { kana_toolbar_button_plain(_side->squares_sizes[_i]); }
+    }
 }
 
 void kana_side_close(kana_toolbar* _toolbar) {
@@ -232,6 +237,26 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_width_pressure(rde_ui_node* _node
     _toolbar->ink->width_mode = KANA_INK_WIDTH_MODE_PRESSURE;
     kana_side_refresh_settings(_toolbar);
     return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// The practice squares' size, on every canvas (the Squares button turns them on
+// for one).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_squares_size(kana_toolbar* _toolbar, KANA_SQUARES_SIZE_ _size) {
+    _toolbar->view->square_size = _size;
+    kana_side_refresh_settings(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_squares_small(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    return kana_side_squares_size((kana_toolbar*)_user_data, KANA_SQUARES_SMALL);
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_squares_medium(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    return kana_side_squares_size((kana_toolbar*)_user_data, KANA_SQUARES_MEDIUM);
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_squares_large(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    return kana_side_squares_size((kana_toolbar*)_user_data, KANA_SQUARES_LARGE);
 }
 
 // Google ML Kit on or off: on, its model is fetched if it is missing.
@@ -979,6 +1004,12 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     kana_toolbar_place(rde_ui_label_as_node(_side->width_label), (rde_vec_2F){ _m + _lw * 0.25f, _ry }, (rde_vec_2F){ _lw * 0.5f, 44.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _kw - _m - 186.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
+    _ry -= 54.0f;
+    kana_toolbar_place(rde_ui_label_as_node(_side->squares_label), (rde_vec_2F){ _m + (_lw - 318.0f) * 0.5f, _ry }, (rde_vec_2F){ _lw - 318.0f, 44.0f });
+    for(u32 _i = 0; _i < KANA_SQUARES_SIZE_COUNT; _i++) {
+        const f32 _from_right = (f32)(KANA_SQUARES_SIZE_COUNT - 1u - _i) * (100.0f + KANA_SIDE_GAP);
+        kana_toolbar_place(rde_ui_button_as_node(_side->squares_sizes[_i]), (rde_vec_2F){ _kw - _m - 50.0f - _from_right, _ry }, (rde_vec_2F){ 100.0f, 40.0f });
+    }
     _ry -= 56.0f;
     // Handwriting: a header, ML Kit on or off, and its model's state (Download / Retry at its right).
     kana_toolbar_place(rde_ui_label_as_node(_side->hand_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
@@ -1109,6 +1140,10 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->width_label    = kana_side_label(_toolbar, _card, "Pen width", 18.0f);
     _side->width_even     = kana_toolbar_button(_toolbar, _card, "Even", kana_side_on_width_even);
     _side->width_pressure = kana_toolbar_button(_toolbar, _card, "Pressure", kana_side_on_width_pressure);
+    _side->squares_label  = kana_side_label(_toolbar, _card, "Practice squares", 18.0f);
+    _side->squares_sizes[KANA_SQUARES_SMALL]  = kana_toolbar_button(_toolbar, _card, "Small",  kana_side_on_squares_small);
+    _side->squares_sizes[KANA_SQUARES_MEDIUM] = kana_toolbar_button(_toolbar, _card, "Medium", kana_side_on_squares_medium);
+    _side->squares_sizes[KANA_SQUARES_LARGE]  = kana_toolbar_button(_toolbar, _card, "Large",  kana_side_on_squares_large);
     _side->about_label    = kana_side_label(_toolbar, _card, "ABOUT", 14.0f);
 
     _side->hand_label     = kana_side_label(_toolbar, _card, "HANDWRITING", 14.0f);
@@ -1123,6 +1158,9 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     snprintf(_about, sizeof(_about), "Kana %s, built %s.\n\n%s", KANA_VERSION, __DATE__, KANA_SIDE_CREDITS);
     _side->about_text = kana_side_label(_toolbar, _card, _about, 14.0f);
     rde_ui_label_set_wrap(_side->about_text, true);
+    // A short screen (landscape) gives it less room: smaller rather than over the buttons.
+    rde_ui_label_set_auto_fit(_side->about_text, true);
+    rde_ui_label_set_auto_fit_min_scale(_side->about_text, 0.7f);
     rde_ui_label_set_alignment(_side->about_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
     _side->settings_close = kana_toolbar_button(_toolbar, _card, "Close", kana_side_on_settings_close);
     _side->licences_button = kana_toolbar_button(_toolbar, _card, "Licences", kana_side_on_licences);
@@ -1296,6 +1334,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
 
     rde_ui_button* const _buttons[] = { _side->kanji, _side->kana, _side->album, _side->new_folder, _side->new_canvas, _side->settings_button,
                                         _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
+                                        _side->squares_sizes[0], _side->squares_sizes[1], _side->squares_sizes[2],
                                         _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,
                                         _side->licences_docs[0], _side->licences_docs[1], _side->licences_docs[2], _side->licences_docs[3],
                                         _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
@@ -1340,7 +1379,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < sizeof(_headers) / sizeof(_headers[0]); _i++) {
         rde_ui_label_set_color(_headers[_i], _t->field_placeholder);
     }
-    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->about_text, _side->note_title, _side->note_body,
+    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->squares_label, _side->about_text, _side->note_title, _side->note_body,
                                      _side->mlkit_label, _side->mlkit_status, _side->licences_title };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->button_text);

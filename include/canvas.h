@@ -28,6 +28,13 @@
 #define KANA_CANVAS_GRID_MIN_SCREEN 24.0f
 #define KANA_CANVAS_GRID_MAX_SCREEN 96.0f
 #define KANA_CANVAS_GRID_DOT        2.0f
+
+// Practice squares (kana_page.squares): a grid of them over the page instead of
+// the dots, as a guide to write in — lines only, in the theme's dot colour, each
+// with its fainter dashed centre cross, like a practice sheet. Part of the page:
+// they pan and zoom with it. Their size is a setting (Settings › Practice
+// squares), the same on every canvas.
+#define KANA_CANVAS_SQUARE_CROSS    72.0f    // smaller on screen than this: no centre cross (and fewer dashes to draw)
 // The page and dot colours are the theme's (theme.h).
 
 // Fingers tracked at once. Only the first two move the page; the rest are just
@@ -60,8 +67,27 @@ RDE_STRUCT {
     rde_vec_2F start;      // where it went down, for the tap slop
 } kana_canvas_finger;
 
+// What the page shows under its ink — the page's own, saved with it (save.h
+// 'PAGE'): a new canvas has none of it.
+RDE_STRUCT {
+    b8 squares;   // practice squares instead of the dots
+} kana_page;
+
+// The sizes a practice square can be (a setting).
+typedef enum {
+    KANA_SQUARES_SMALL = 0,
+    KANA_SQUARES_MEDIUM,     // the default: a comfortable character at zoom 1
+    KANA_SQUARES_LARGE,
+    KANA_SQUARES_SIZE_COUNT
+} KANA_SQUARES_SIZE_;
+
+// A size in canvas units: 110, 160, 240.
+f32 kana_canvas_square_units(KANA_SQUARES_SIZE_ _size);
+
 RDE_STRUCT {
     kana_view          view;
+    kana_page          page;
+    KANA_SQUARES_SIZE_ square_size;   // the practice squares' size (a setting, not the page's)
     kana_canvas_finger fingers[KANA_CANVAS_MAX_FINGERS];
 
     // The finger gesture in progress, from the first finger down to the last up.
@@ -94,7 +120,8 @@ void       kana_canvas_release_fingers(kana_canvas* _canvas);
 // is put back as it was, and that finger stops moving the page.
 b8         kana_canvas_long_press(kana_canvas* _canvas, rde_vec_2F* _screen);
 
-// The dot grid. Call inside a 2D drawing block, before the ink.
+// The dot grid, or the practice squares when the page has them. Call inside a
+// 2D drawing block, before the ink.
 void       kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size);
 
 #endif

@@ -135,29 +135,29 @@ iPad 2026-09-30.*
 
 ## 3. Guided training mode
 
-*Built 2026-09-30 (guide.h/.c, Practice's guided mode), waiting to be seen on the
-iPad.*
+*Built 2026-09-30 (guide.h/.c, Practice's guided mode), seen working on the iPad
+2026-09-30.*
 
 Decided (Claude's proposal, not objected to): one stroke at a time; a wrong
 stroke is taken back and written again; traced → start dots → from memory; only
 the last step is scored and saved.
 
-- [ ] **Guided** in Practice's row (both: one character and a set): one big
+- [x] **Guided** in Practice's row (both: one character and a set): one big
       square instead of the squares, the squares' − / + off. It stays on across
       a set's characters.
-- [ ] **Step 1, trace:** the character faint; the stroke to write stronger,
+- [x] **Step 1, trace:** the character faint; the stroke to write stronger,
       writing itself (red pen tip), a dot where it starts and an arrow beside
       its first part for its direction.
-- [ ] **Step 2, start dots:** the character fainter, only the dot; the stroke
+- [x] **Step 2, start dots:** the character fainter, only the dot; the stroke
       writes itself only after a miss.
-- [ ] **Each stroke checked as the pen lifts** (steps 1 and 2), in place
+- [x] **Each stroke checked as the pen lifts** (steps 1 and 2), in place
       against the model: a later stroke ("That is stroke 3. Stroke 2 comes
       first."), backwards, or not close enough. A wrong stroke flashes red and
       goes, the reason shows under the square, the stroke shows itself again.
       Undo takes back the last right one; Clear starts the step again.
-- [ ] **A step done:** a tick, and the next after a moment (or at once, with the
+- [x] **A step done:** a tick, and the next after a moment (or at once, with the
       pen).
-- [ ] **Step 3, from memory:** a blank square, nothing checked on the way; with
+- [x] **Step 3, from memory:** a blank square, nothing checked on the way; with
       all its strokes it is scored and saved like a Practice square (a session
       of one square, in the album), the model faint behind it and the score in
       the corner. Writing again starts another attempt. Score scores a short
@@ -170,14 +170,27 @@ the last step is scored and saved.
 
 ## 4. Practice squares on the canvas
 
-- [ ] An optional grid of practice squares over the infinite canvas, half-faded,
-      as a guide for writing (like genkō yōshi paper). It is not a page to fill:
-      only lines to write between.
-- Open:
-  - Where the switch lives (per canvas, saved in its file; or global in
-    Settings).
-  - The square size, and whether it follows the zoom.
-  - Squares only, or also the centre cross.
+*Built 2026-09-30 (canvas.h/.c, save.h 'PAGE', the toolbar's Squares), waiting to
+be seen on the iPad.*
+
+Decided (Claude's proposal): per canvas, saved in its file; part of the page
+(they pan and zoom with it); squares with the dashed centre cross.
+
+- [ ] **Squares** in the floating toolbar (after Page/Screen): the page's
+      practice squares on or off, lit when on. Each canvas has its own; a new
+      one starts without.
+- [ ] A grid of squares over the page instead of the dots, lines only, in the
+      theme's canvas colours (the edges as its dots, the dashed centre crosses
+      fainter, between those and the page), one centred on the page's origin,
+      where Reset puts the middle of the screen. Zoomed out past 72 points a
+      square, only the lines.
+- [ ] **Settings › Practice squares:** Small / Medium / Large (110 / 160 / 240
+      canvas units; Medium a comfortable character at zoom 1), the same on
+      every canvas, saved in the settings. The Settings card grew a row; its
+      About text now shrinks to fit a short (landscape) screen.
+- [ ] Saved with the page ('PAGE' chunk: a file from before it loads without
+      squares, and an older build skips the chunk).
+- Open: genkō yōshi's gaps between columns, for vertical writing.
 
 ## 5. Release polish
 
