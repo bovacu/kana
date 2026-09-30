@@ -43,14 +43,15 @@
 //           character is built from, every element of KanjiVG's group tree
 //           (and a variant's original: 亻 brings 人), the character itself left
 //           out. 語 is 言 口 吾 五 二; 休 is 亻 人 木.
-//   'WORD'  (optional) example words from JMdict: u32 count (the CHRS count),
-//           then count u32 offsets into the lists (UINT32_MAX: none), u32 word
-//           count, u32 the lists' size, the lists — u8 n, then n u32 word
-//           numbers, best first — and then the words to the chunk's end, in
-//           number order: three NUL-terminated UTF-8 strings each, the written
-//           form, its reading (kana) and its meaning (English glosses joined by
-//           "; "). 日 has 日本 にほん "Japan"; a word is stored once, however many
-//           of its kanji list it.
+//   'WORD'  (optional) words from JMdict: u32 count (the CHRS count), then
+//           count u32 offsets into the lists (UINT32_MAX: none), u32 word count,
+//           u32 the lists' size, the lists — u8 n, u8 examples, then n u32 word
+//           numbers, best first: the first `examples` are the character's
+//           examples (common words, shown), the rest more to add (the viewer's
+//           Add) — and then the words to the chunk's end, in number order: three
+//           NUL-terminated UTF-8 strings each, the written form, its reading
+//           (kana) and its meaning (English glosses joined by "; "). 日 has 日本
+//           にほん "Japan"; a word is stored once, however many of its kanji list it.
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -67,7 +68,7 @@
 #define KANA_KANJI_CHUNK_PARTS  KANA_TAG('P', 'A', 'R', 'T')
 #define KANA_KANJI_CHUNK_WORDS  KANA_TAG('W', 'O', 'R', 'D')
 #define KANA_KANJI_MAX_PARTS    32u
-#define KANA_KANJI_MAX_WORDS    8u     // example words a character can list
+#define KANA_KANJI_MAX_WORDS    20u    // words a character can list (examples, then more)
 
 // One character's record, decoded.
 RDE_STRUCT {
@@ -142,9 +143,10 @@ u32  kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, 
 u32  kana_kanji_parts(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
 b8   kana_kanji_has_parts(const kana_kanji_db* _db);
 
-// The example words of record _index, best first: up to _max word numbers into
-// _out; how many. 0 when it has none, or the file has no words.
-u32  kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
+// The words of record _index, best first: up to _max word numbers into _out;
+// how many. 0 when it has none, or the file has no words. _examples (may be
+// NULL) gets how many of the first are its examples — the rest are more to add.
+u32  kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max, u32* _examples);
 // Word number _word. False when there is no such word.
 b8   kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out);
 

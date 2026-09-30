@@ -14,6 +14,9 @@
 #include "notes.h"
 #include "check.h"
 #include "select.h"
+#include "exam.h"
+#include "marks.h"
+#include "stats.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -91,6 +94,8 @@ struct kana_toolbar {
     kana_notes*    notes;
     kana_check*    check;
     kana_selection* selection;      // Browse's and the chart's ticks (select.h); set by the owner after init
+    kana_exam*     exam;            // exams (exam.h); set by the owner after init
+    kana_stats*    stats;           // statistics (stats.h); set by the owner after init
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -154,6 +159,32 @@ struct kana_toolbar {
     // chart's section in view), None, Practice (the ticked), Done.
     kana_toolbar_menu        select_menu;
     u32                      _selected_shown;   // the count "Practice n" shows
+    // The viewer's Study: the character's mark (marks.h) as shown.
+    u32                      _mark_shown_for;   // the code point it shows (0: none yet)
+    KANA_MARK_               _mark_shown;
+    u32                      _marks_seen;       // kana_marks_revision when shown
+    // The exam's rows (exam.h), one per stage: Close, Next / Back, All, None,
+    // Start n / Quit, Undo, Clear, Next (Finish) / Done, Retry wrong, Practice wrong.
+    kana_toolbar_menu        exam_setup_menu;
+    kana_toolbar_menu        exam_preview_menu;
+    kana_toolbar_menu        exam_menu;
+    kana_toolbar_menu        exam_results_menu;
+    u32                      _exam_shown;       // what the rows' labels were set for (a hash of stage and counts)
+    // Statistics' row: Close.
+    kana_toolbar_menu        stats_menu;
+    // The viewer's Add (viewer.h): its row — Done, Type your own — and the form
+    // for a word typed in: written, reading (kana or romaji), meaning.
+    kana_toolbar_menu        viewer_add_menu;
+    rde_ui_button*           word_backdrop;
+    rde_ui_image*            word_card;
+    rde_ui_label*            word_title;
+    rde_ui_text_editor*      word_fields[3];
+    rde_ui_label*            word_error;
+    rde_ui_button*           word_cancel;
+    rde_ui_button*           word_add;
+    b8                       word_open;
+    u32                      word_kanji;       // the code point the word is for
+    rde_vec_2F               _word_laid_out;   // the screen size the form was laid out for
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
     // Check's row: Back, Stroke order, Practice; and its "I meant…" field, at

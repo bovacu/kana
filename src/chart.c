@@ -1,4 +1,5 @@
 #include "chart.h"
+#include "marks.h"
 #include "draw.h"
 #include "theme.h"
 
@@ -122,6 +123,21 @@ void kana_chart_section_range(const kana_chart* _chart, KANA_CHART_SECTION_ _sec
     }
     *_first = _section == KANA_CHART_KATAKANA ? _split : 0u;
     *_count = _section == KANA_CHART_KATAKANA ? _total - _split : _split;
+}
+
+b8 kana_chart_core_kana(u32 _cp) {
+    const u32 _h = (_cp >= 0x30A1u && _cp <= 0x30F6u) ? _cp - 0x60u : _cp;   // katakana as hiragana
+    if(_h < 0x3041u || _h > 0x3096u) {
+        return false;
+    }
+    static const u32 _left_out[] = { 0x3041, 0x3043, 0x3045, 0x3047, 0x3049, 0x3063, 0x3083, 0x3085, 0x3087, 0x308E, 0x3095, 0x3096,
+                                     0x3090, 0x3091, 0x3094 };
+    for(u32 _i = 0; _i < sizeof(_left_out) / sizeof(_left_out[0]); _i++) {
+        if(_h == _left_out[_i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 const c8* kana_chart_romaji(u32 _codepoint) {
@@ -331,6 +347,7 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
         if(_select) {
             kana_selection_draw_tick(_ticked, (rde_vec_2F){ _c->x, _y }, _c->size);
         }
+        kana_selection_draw_mark(kana_marks_get(_cps[_c->position]), (rde_vec_2F){ _c->x, _y }, _c->size, _select);
     }
 
     rde_rendering_end_clipping_rect();

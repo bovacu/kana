@@ -21,8 +21,11 @@
 #define KANA_BAKE_MAX_SEGMENTS  255u    // a stroke's segment count is a u8
 
 // JMdict: example words.
-#define KANA_BAKE_WORDS_PER     6u      // example words kept per kanji
-#define KANA_BAKE_WORD_CHARS    4u      // longer words are not kept as examples
+#define KANA_BAKE_WORDS_PER     6u      // example words kept per kanji (shown)
+#define KANA_BAKE_WORDS_ALL     20u     // words kept per kanji in all: after the examples, more to add (the viewer's Add)
+#define KANA_BAKE_WORD_CHARS    5u      // longer words are not kept
+#define KANA_BAKE_EXAMPLE_CHARS 4u      // ...and examples are shorter still
+#define KANA_BAKE_UNCOMMON      1000    // an uncommon word's score starts here: after every common one
 #define KANA_BAKE_WORD_MEANING  48u     // glosses after the first are added while the meaning stays this short
 #define KANA_BAKE_ENTRY_KEBS    8u      // written forms read per entry (more are rare, and uncommon)
 #define KANA_BAKE_ENTRY_REBS    8u
@@ -49,6 +52,8 @@ typedef struct {
     c8  reading[64];
     c8  meaning[128];
     u32 index;         // in the file, UINT32_MAX until a kanji keeps it
+    u8  chars;
+    b8  common;        // on a common list: can be an example
 } kana_bake_word;
 
 // A word as a candidate example for one of its kanji; lower scores first.
@@ -82,6 +87,7 @@ typedef struct {
     u32 part_refs;          // parts over all characters
     u32 word_entries;       // JMdict entries read
     u32 with_words;         // kanji with at least one example word
+    u32 example_refs;       // examples over all kanji (the rest: to add)
     f32 min_coord;
     f32 max_coord;
 } kana_bake;
@@ -871,7 +877,7 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
     _bake->word_entries++;
     for(u32 _k = 0; _k < _e->kebs; _k++) {
         u32 _chars = 0;
-        if(_e->keb_common[_k] == 0 || _e->keb_bad[_k] || _e->keb_long[_k] || !kana_bake_word_usable(_bake, _e->keb[_k], &_chars)) {
+        if(_e->keb_bad[_k] || _e->keb_long[_k] || !kana_bake_word_usable(_bake, _e->keb[_k], &_chars)) {
             continue;
         }
 
@@ -896,7 +902,7 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
             continue;
         }
 
-        kana_bake_word _word = { .index = UINT32_MAX };
+        kana_bake_word _word = { .index = UINT32_MAX, .chars = (u8)_chars, .common = _e->keb_common[_k] > 0 };
         snprintf(_word.written, sizeof(_word.written), "%s", _e->keb[_k]);
         snprintf(_word.reading, sizeof(_word.reading), "%s", _e->reb[_reading]);
         snprintf(_word.meaning, sizeof(_word.meaning), "%s", _e->sense[_sense]);
@@ -905,17 +911,23 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
 
         // How common: the newspaper band when it has one, else about where the
         // other lists sit — everyday words (上 うえ) rarer in the news than its
-        // fragments (上げ); a word on more lists is more certainly common.
-        i32 _base = _e->keb_nf[_k] != 0 ? (i32)_e->keb_nf[_k] : _e->keb_ichi[_k] ? 18 : 26;
-        _base -= 3 * ((i32)_e->keb_common[_k] - 1);
+        // fragments (上げ); a word on more lists is more certainly common. An
+        // uncommon word after all of those (the viewer's Add offers them).
+        i32 _base;
+        if(_word.common) {
+            _base = _e->keb_nf[_k] != 0 ? (i32)_e->keb_nf[_k] : _e->keb_ichi[_k] ? 18 : 26;
+            _base -= 3 * ((i32)_e->keb_common[_k] - 1);
+            // The kanji on its own (月 つき, 上 うえ) first, whatever the news says:
+            // its own reading and meaning. Of those, the everyday one (下 した over
+            // 下 もと, which the news prefers). With kana after it (見る), a little ahead.
+            _base -= _chars == 1u ? (_e->keb_ichi[_k] ? 120 : 100) : kana_bake_own_word(_word.written) ? 6 : 0;
+        } else {
+            _base = KANA_BAKE_UNCOMMON + (_e->keb_nf[_k] != 0 ? (i32)_e->keb_nf[_k] : 60);
+        }
         _base += 3 * ((i32)_chars > 2 ? (i32)_chars - 2 : 0);   // short words first
         _base += _e->sense_kana[_sense] ? 20 : 0;                 // usually kana: a poor example of its kanji
         _base += kana_bake_is_name(_word.reading, _word.meaning) ? 20 : 0;
         _base += _e->reb_common[_reading] ? 0 : 2;                // 下 した (a common reading) before 下 もと
-        // The kanji on its own (月 つき, 上 うえ) first, whatever the news says:
-        // its own reading and meaning. With kana after it (見る), a little ahead.
-        // Of those, the everyday one (下 した over 下 もと, which the news prefers).
-        _base -= _chars == 1u ? (_e->keb_ichi[_k] ? 120 : 100) : kana_bake_own_word(_word.written) ? 6 : 0;
 
         // A candidate for each of its kanji (once each), less so the harder its
         // other kanji are than that one.
@@ -974,13 +986,16 @@ RDE_INTERNAL void kana_bake_choose_words(kana_bake* _bake) {
             _end++;
         }
 
-        u32 _kept[KANA_BAKE_WORDS_PER];
+        // The examples first: common, short, not the same number word again nor a
+        // longer form of one kept. Then more, up to KANA_BAKE_WORDS_ALL, in their
+        // order: anything not kept yet (the viewer's Add offers those).
+        u32 _kept[KANA_BAKE_WORDS_ALL];
         u32 _count   = 0;
         b8  _counted = false;   // a word with a number kept already
         for(u32 _j = _i; _j < _end && _count < KANA_BAKE_WORDS_PER; _j++) {
             const kana_bake_word* _w       = &_words[_ref[_j].word];
             const b8              _numeral = kana_bake_counts(_w->written, _ref[_j].codepoint);
-            b8                    _ok      = !(_numeral && _counted);
+            b8                    _ok      = _w->common && _w->chars <= KANA_BAKE_EXAMPLE_CHARS && !(_numeral && _counted);
             for(u32 _k = 0; _ok && _k < _count; _k++) {
                 const kana_bake_word* _other = &_words[_kept[_k]];
                 // The same form again (another entry: 上手 じょうず and うわて), or a
@@ -992,11 +1007,24 @@ RDE_INTERNAL void kana_bake_choose_words(kana_bake* _bake) {
                 _counted        = _counted || _numeral;
             }
         }
+        const u32 _examples = _count;
+        for(u32 _j = _i; _j < _end && _count < KANA_BAKE_WORDS_ALL; _j++) {
+            const kana_bake_word* _w  = &_words[_ref[_j].word];
+            b8                    _ok = true;
+            for(u32 _k = 0; _ok && _k < _count; _k++) {
+                _ok = _kept[_k] != _ref[_j].word && strcmp(_w->written, _words[_kept[_k]].written) != 0;
+            }
+            if(_ok) {
+                _kept[_count++] = _ref[_j].word;
+            }
+        }
 
         kana_bake_char* _char = kana_bake_find(_bake, _ref[_i].codepoint);
         if(_char != NULL && _count > 0) {
             _char->words = kana_bytes_size(&_bake->word_lists);
             kana_put_u8(&_bake->word_lists, (u8)_count);
+            kana_put_u8(&_bake->word_lists, (u8)_examples);
+            _bake->example_refs += _examples;
             for(u32 _k = 0; _k < _count; _k++) {
                 kana_bake_word* _w = &_words[_kept[_k]];
                 if(_w->index == UINT32_MAX) {
@@ -1269,14 +1297,14 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
                           "  JLPT N5 %u, N4 %u, N3 %u, N2 %u, N1 %u (%u listed but without strokes)\n"
                           "  %u strokes, %u curve segments (max %u in one stroke)\n"
                           "  %u characters with parts, %u parts in all\n"
-                          "  %u example words for %u kanji (from %u JMdict entries): %.2f MB\n"
+                          "  %u words for %u kanji, %u of them examples (from %u JMdict entries): %.2f MB\n"
                           "  geometry %.2f MB, text %.2f MB; coordinates %.2f .. %.2f",
                           _out, (f64)_bytes / (1024.0 * 1024.0), rde_engine_get_time_now() - _t0,
                           _count, _bake.skipped, _bake.with_info, _bake.count_mismatch,
                           _bake.jlpt_listed[5], _bake.jlpt_listed[4], _bake.jlpt_listed[3], _bake.jlpt_listed[2], _bake.jlpt_listed[1], _bake.jlpt_missing,
                           _bake.strokes, _bake.segments, _bake.max_segments,
                           _bake.with_parts, _bake.part_refs,
-                          _bake.word_count, _bake.with_words, _bake.word_entries,
+                          _bake.word_count, _bake.with_words, _bake.example_refs, _bake.word_entries,
                           (f64)(kana_bytes_size(&_bake.word_lists) + kana_bytes_size(&_bake.word_text)) / (1024.0 * 1024.0),
                           (f64)_geometry_bytes / (1024.0 * 1024.0), (f64)_text_bytes / (1024.0 * 1024.0),
                           (f64)_bake.min_coord, (f64)_bake.max_coord);

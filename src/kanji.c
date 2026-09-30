@@ -124,7 +124,10 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     return true;
 }
 
-u32 kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
+u32 kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max, u32* _examples) {
+    if(_examples != NULL) {
+        *_examples = 0;
+    }
     if(_db->_words_index == NULL || _index >= _db->count) {
         return 0;
     }
@@ -135,9 +138,13 @@ u32 kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max) 
         return 0;
     }
 
-    kana_reader _r = kana_reader_make(&_db->_word_lists[_at], _db->_word_lists_size - _at);
-    const u32   _n = kana_get_u8(&_r);
-    u32         _k = 0;
+    kana_reader _r    = kana_reader_make(&_db->_word_lists[_at], _db->_word_lists_size - _at);
+    const u32   _n    = kana_get_u8(&_r);
+    const u32   _show = kana_get_u8(&_r);
+    u32         _k    = 0;
+    if(_examples != NULL && _r.ok) {
+        *_examples = _show < _max ? _show : _max;
+    }
     for(u32 _i = 0; _i < _n && _k < _max; _i++) {
         const u32 _word = kana_get_u32(&_r);
         if(!_r.ok) {

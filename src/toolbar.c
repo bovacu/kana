@@ -1,4 +1,5 @@
 #include "toolbar.h"
+#include "userwords.h"
 #include "theme.h"
 #include "toolbar_kit.h"
 
@@ -40,10 +41,18 @@
 enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK, KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
 enum { KANA_CHECK_MENU_BACK = 0, KANA_CHECK_MENU_ORDER, KANA_CHECK_MENU_PRACTICE, KANA_CHECK_MENU_COUNT };
 enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
-enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
+enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_STUDY, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
 enum { KANA_CHART_MENU_HIRAGANA = 0, KANA_CHART_MENU_KATAKANA, KANA_CHART_MENU_SELECT, KANA_CHART_MENU_PRACTICE, KANA_CHART_MENU_CLOSE, KANA_CHART_MENU_COUNT };
 enum { KANA_BROWSE_MENU_SELECT = 0, KANA_BROWSE_MENU_PRACTICE, KANA_BROWSE_MENU_CLOSE, KANA_BROWSE_MENU_COUNT };
-enum { KANA_SELECT_MENU_ALL = 0, KANA_SELECT_MENU_NONE, KANA_SELECT_MENU_PRACTICE, KANA_SELECT_MENU_DONE, KANA_SELECT_MENU_COUNT };
+enum { KANA_SELECT_MENU_ALL = 0, KANA_SELECT_MENU_NONE, KANA_SELECT_MENU_STUDY, KANA_SELECT_MENU_EXAM, KANA_SELECT_MENU_PRACTICE, KANA_SELECT_MENU_DONE, KANA_SELECT_MENU_COUNT };
+enum { KANA_EXAM_SETUP_CLOSE = 0, KANA_EXAM_SETUP_NEXT, KANA_EXAM_SETUP_COUNT };
+enum { KANA_EXAM_PREVIEW_BACK = 0, KANA_EXAM_PREVIEW_ALL, KANA_EXAM_PREVIEW_NONE, KANA_EXAM_PREVIEW_START, KANA_EXAM_PREVIEW_COUNT };
+enum { KANA_EXAM_MENU_QUIT = 0, KANA_EXAM_MENU_UNDO, KANA_EXAM_MENU_CLEAR, KANA_EXAM_MENU_NEXT, KANA_EXAM_MENU_COUNT };
+enum { KANA_EXAM_RESULTS_DONE = 0, KANA_EXAM_RESULTS_RETRY, KANA_EXAM_RESULTS_PRACTICE, KANA_EXAM_RESULTS_COUNT };
+enum { KANA_STATS_MENU_CLOSE = 0, KANA_STATS_MENU_COUNT };
+enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
+#define KANA_TOOLBAR_WORD_CARD (rde_vec_2F){ 540.0f, 330.0f }
+#define KANA_TOOLBAR_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_GUIDED, KANA_PRACTICE_COUNT };
 enum { KANA_ALBUM_MENU_PRACTICE = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
@@ -56,7 +65,7 @@ enum { KANA_ALBUM_PAGE_BACK = 0, KANA_ALBUM_PAGE_PRACTICE, KANA_ALBUM_PAGE_COUNT
 #define KANA_BROWSE_ROW_H     40.0f
 #define KANA_BROWSE_FIELD_H   44.0f
 #define KANA_BROWSE_SIDE_W    76.0f   // Draw, Clear
-static const c8* const KANA_FILTER_LABELS[KANA_FILTER_COUNT] = { "All", "Hiragana", "Katakana", "Kanji", "N5", "N4", "N3", "N2", "N1" };
+static const c8* const KANA_FILTER_LABELS[KANA_FILTER_COUNT] = { "All", "Hiragana", "Katakana", "Kanji", "N5", "N4", "N3", "N2", "N1", "Studying", "Known" };
 static const c8* const KANA_SORT_LABELS[KANA_SORT_COUNT]     = { "Default", "Strokes", "On", "Kun", "Meaning" };
 
 #define KANA_TOOLBAR_SWATCH      36.0f
@@ -207,6 +216,10 @@ void kana_toolbar_restyle_button(rde_ui_button* _button) {
 void       kana_toolbar_set_palette_open(kana_toolbar* _toolbar, b8 _open);
 RDE_INTERNAL void kana_toolbar_set_paper_open(kana_toolbar* _toolbar, b8 _open);
 RDE_INTERNAL void kana_toolbar_show_guided(kana_toolbar* _toolbar);
+RDE_INTERNAL void kana_toolbar_show_study(kana_toolbar* _toolbar);
+RDE_INTERNAL void kana_toolbar_show_exam(kana_toolbar* _toolbar, b8 _examining, rde_vec_2F _center);
+RDE_INTERNAL void kana_toolbar_layout_word_form(kana_toolbar* _toolbar);
+RDE_INTERNAL void kana_toolbar_close_word_form(kana_toolbar* _toolbar);
 RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar);
 rde_vec_2F kana_toolbar_virtual_size(const kana_toolbar* _toolbar);
 rde_vec_2F kana_toolbar_clamp(const kana_toolbar* _toolbar, rde_vec_2F _center, rde_vec_2F _size);
@@ -295,19 +308,84 @@ RDE_INTERNAL void kana_toolbar_update_selection_menu(kana_toolbar* _toolbar) {
 RDE_INTERNAL void kana_toolbar_layout_browse(kana_toolbar* _toolbar);
 RDE_INTERNAL void kana_toolbar_refresh_browse(kana_toolbar* _toolbar);
 
+// The viewer's Study: the character's mark, Study / Studying / Known.
+RDE_INTERNAL void kana_toolbar_show_study(kana_toolbar* _toolbar) {
+    const kana_viewer* _viewer = _toolbar->viewer;
+    if(rde_arr_length(&_viewer->list) == 0) {
+        return;
+    }
+    kana_kanji_info _info;
+    if(!kana_kanji_at(_viewer->db, ((const u32*)_viewer->list.memory)[_viewer->position], &_info)) {
+        return;
+    }
+    const KANA_MARK_ _mark = kana_marks_get(_info.codepoint);
+    if(_info.codepoint == _toolbar->_mark_shown_for && _mark == _toolbar->_mark_shown && kana_marks_revision() == _toolbar->_marks_seen) {
+        return;
+    }
+    _toolbar->_mark_shown_for = _info.codepoint;
+    _toolbar->_mark_shown     = _mark;
+    _toolbar->_marks_seen     = kana_marks_revision();
+    rde_ui_button* _study = _toolbar->viewer_menu.buttons[KANA_VIEWER_STUDY];
+    rde_ui_button_set_text(_study, _mark == KANA_MARK_KNOWN ? "Known" : _mark == KANA_MARK_STUDYING ? "Studying" : "Study");
+    if(_mark == KANA_MARK_NONE) { kana_toolbar_button_plain(_study); } else { kana_toolbar_button_selected(_study); }
+}
+
+// The exam's row for its stage, and its labels (counts, Next / Finish).
+RDE_INTERNAL void kana_toolbar_show_exam(kana_toolbar* _toolbar, b8 _examining, rde_vec_2F _center) {
+    kana_exam* _exam  = _toolbar->exam;
+    const b8   _setup = _examining && _exam->stage == KANA_EXAM_SETUP;
+    const b8   _prev  = _examining && _exam->stage == KANA_EXAM_PREVIEW;
+    const b8   _write = _examining && _exam->stage == KANA_EXAM_WRITING;
+    const b8   _res   = _examining && _exam->stage == KANA_EXAM_RESULTS;
+    kana_toolbar_menu_show(_toolbar, &_toolbar->exam_setup_menu, _setup, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->exam_preview_menu, _prev, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->exam_menu, _write, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->exam_results_menu, _res, _center);
+    if(!_examining) {
+        _toolbar->_exam_shown = UINT32_MAX;
+        return;
+    }
+
+    u32 _wrong[KANA_EXAM_MAX];
+    const u32 _planned  = _setup ? kana_exam_planned(_exam) : 0u;
+    const u32 _included = _prev ? kana_exam_included(_exam) : 0u;
+    const b8  _graded   = _res && kana_exam_graded(_exam);
+    const u32 _nwrong   = _graded ? kana_exam_wrong(_exam, _wrong, KANA_EXAM_MAX) : 0u;
+    const u32 _state    = (u32)_exam->stage | (_planned << 2) | (_included << 10) | ((u32)kana_exam_at_last(_exam) << 18) |
+                          ((u32)_graded << 19) | (_nwrong << 20);
+    if(_state == _toolbar->_exam_shown) {
+        return;
+    }
+    _toolbar->_exam_shown = _state;
+    c8 _label[32];
+    snprintf(_label, sizeof(_label), "Next %u", _planned);
+    rde_ui_button_set_text(_toolbar->exam_setup_menu.buttons[KANA_EXAM_SETUP_NEXT], _label);
+    kana_toolbar_set_enabled(_toolbar->exam_setup_menu.buttons[KANA_EXAM_SETUP_NEXT], _planned > 0);
+    snprintf(_label, sizeof(_label), "Start %u", _included);
+    rde_ui_button_set_text(_toolbar->exam_preview_menu.buttons[KANA_EXAM_PREVIEW_START], _label);
+    kana_toolbar_set_enabled(_toolbar->exam_preview_menu.buttons[KANA_EXAM_PREVIEW_START], _included > 0);
+    rde_ui_button_set_text(_toolbar->exam_menu.buttons[KANA_EXAM_MENU_NEXT], kana_exam_at_last(_exam) ? "Finish" : "Next");
+    kana_toolbar_set_enabled(_toolbar->exam_results_menu.buttons[KANA_EXAM_RESULTS_RETRY], _nwrong > 0);
+    kana_toolbar_set_enabled(_toolbar->exam_results_menu.buttons[KANA_EXAM_RESULTS_PRACTICE], _nwrong > 0);
+}
+
 // The screens stack: Practice over the viewer, the viewer over Browse or the
 // chart, and any of them over the page — the floating bar and its menus make way.
 // Only the top screen's own row (or bar) shows.
 RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     const b8 _practicing = _toolbar->practice->open;
     const b8 _viewing    = _toolbar->viewer->open && !_practicing;
-    const b8 _under      = _toolbar->viewer->open || _practicing;   // something covers Browse / the chart / the album
+    const b8 _exam_open  = _toolbar->exam != NULL && _toolbar->exam->open;
+    const b8 _examining  = _exam_open && !_toolbar->viewer->open && !_practicing;   // the viewer and Practice go over an exam's results
+    const b8 _stats_open = _toolbar->stats != NULL && _toolbar->stats->open;
+    const b8 _statsing   = _stats_open && !_toolbar->viewer->open && !_practicing;   // the viewer goes over a tapped character
+    const b8 _under      = _toolbar->viewer->open || _practicing || _exam_open || _stats_open;   // something covers Browse / the chart / the album
     const b8 _browsing   = _toolbar->browse->open && !_under;
     const b8 _charting   = _toolbar->chart->open && !_under;
     const b8 _albuming   = _toolbar->album->open && !_under;
     const b8 _checking   = _toolbar->check->open && !_under;
     const b8 _full       = _practicing || _toolbar->viewer->open || _toolbar->browse->open || _toolbar->chart->open || _toolbar->album->open ||
-                           _toolbar->check->open;
+                           _toolbar->check->open || _exam_open || _stats_open;
 
     if(_full != _toolbar->_viewer_shown) {
         _toolbar->_viewer_shown = _full;
@@ -331,7 +409,20 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
         _toolbar->_browse_laid_out = (rde_vec_2F){ 0.0f, 0.0f };
         kana_toolbar_layout(_toolbar);
     }
-    kana_toolbar_menu_show(_toolbar, &_toolbar->viewer_menu, _viewing, _center);
+    const b8 _adding = _viewing && _toolbar->viewer->adding;
+    kana_toolbar_menu_show(_toolbar, &_toolbar->viewer_menu, _viewing && !_adding, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->viewer_add_menu, _adding, _center);
+    if(_toolbar->word_open && !_adding) {
+        kana_toolbar_close_word_form(_toolbar);   // the viewer went away under it
+    }
+    if(_toolbar->word_open) {
+        kana_toolbar_layout_word_form(_toolbar);
+    }
+    if(_viewing) {
+        kana_toolbar_show_study(_toolbar);
+    }
+    kana_toolbar_show_exam(_toolbar, _examining, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->stats_menu, _statsing, _center);
     // Select mode (select.h) ends when Browse and the chart are gone; while on, its
     // row takes their place.
     kana_selection* const _sel = _toolbar->selection;
@@ -1033,6 +1124,262 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_chart_close(rde_ui_node* _node
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
+// Study: none → Studying → Known → none, for the character shown.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_study(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar*      _toolbar = (kana_toolbar*)_user_data;
+    const kana_viewer* _viewer  = _toolbar->viewer;
+    kana_kanji_info    _ch;
+    if(rde_arr_length(&_viewer->list) > 0 && kana_kanji_at(_viewer->db, ((const u32*)_viewer->list.memory)[_viewer->position], &_ch)) {
+        const KANA_MARK_ _mark = kana_marks_get(_ch.codepoint);
+        kana_marks_set(_ch.codepoint, _mark == KANA_MARK_NONE ? KANA_MARK_STUDYING : _mark == KANA_MARK_STUDYING ? KANA_MARK_KNOWN : KANA_MARK_NONE);
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// --- the viewer's Add: a word typed in ---------------------------------------------------
+
+RDE_INTERNAL void kana_toolbar_layout_word_form(kana_toolbar* _toolbar) {
+    const rde_vec_2F _screen = kana_toolbar_virtual_size(_toolbar);
+    if(_screen.x == _toolbar->_word_laid_out.x && _screen.y == _toolbar->_word_laid_out.y) {
+        return;
+    }
+    _toolbar->_word_laid_out = _screen;
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_toolbar->window);   // left, top, right, bottom
+    const rde_vec_2F _card   = { fminf(KANA_TOOLBAR_WORD_CARD.x, _screen.x - 32.0f), KANA_TOOLBAR_WORD_CARD.y };
+    // High on the screen: the keyboard comes up under it.
+    const rde_vec_2F _center = { _screen.x * 0.5f, _screen.y - (f32)_insets.y - 40.0f - _card.y * 0.5f };
+    kana_toolbar_place(rde_ui_button_as_node(_toolbar->word_backdrop), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, _screen);
+    kana_toolbar_place(rde_ui_image_as_node(_toolbar->word_card), _center, _card);
+    const f32 _m = 20.0f;
+    kana_toolbar_place(rde_ui_label_as_node(_toolbar->word_title), (rde_vec_2F){ _card.x * 0.5f, _card.y - 34.0f }, (rde_vec_2F){ _card.x - 2.0f * _m, 36.0f });
+    for(u32 _i = 0; _i < 3u; _i++) {
+        kana_toolbar_place(rde_ui_text_editor_as_node(_toolbar->word_fields[_i]), (rde_vec_2F){ _card.x * 0.5f, _card.y - 88.0f - (f32)_i * 54.0f },
+                           (rde_vec_2F){ _card.x - 2.0f * _m, 44.0f });
+    }
+    kana_toolbar_place(rde_ui_label_as_node(_toolbar->word_error), (rde_vec_2F){ _card.x * 0.5f, 78.0f }, (rde_vec_2F){ _card.x - 2.0f * _m, 26.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_toolbar->word_cancel), (rde_vec_2F){ _card.x - _m - 186.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_toolbar->word_add), (rde_vec_2F){ _card.x - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+}
+
+RDE_INTERNAL void kana_toolbar_close_word_form(kana_toolbar* _toolbar) {
+    _toolbar->word_open = false;
+    rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->word_backdrop), false);
+    rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->word_card), false);
+}
+
+RDE_INTERNAL void kana_toolbar_open_word_form(kana_toolbar* _toolbar) {
+    const u32 _cp = kana_viewer_codepoint(_toolbar->viewer);
+    if(_cp == 0) {
+        return;
+    }
+    _toolbar->word_kanji = _cp;
+    c8 _kanji[8];
+    kana_kanji_utf8(_cp, _kanji);
+    c8 _text[96];
+    snprintf(_text, sizeof(_text), "Your word with %s", _kanji);
+    rde_ui_label_set_text(_toolbar->word_title, _text);
+    snprintf(_text, sizeof(_text), "Word, with %s in it", _kanji);
+    rde_ui_text_editor_set_placeholder(_toolbar->word_fields[0], _text);
+    for(u32 _i = 0; _i < 3u; _i++) {
+        const usize _bytes = rde_ui_text_editor_get_byte_count(_toolbar->word_fields[_i]);
+        if(_bytes > 0) {
+            rde_ui_text_editor_delete_range(_toolbar->word_fields[_i], 0, _bytes);
+        }
+    }
+    rde_ui_label_set_text(_toolbar->word_error, "");
+    _toolbar->word_open      = true;
+    _toolbar->_word_laid_out = (rde_vec_2F){ 0.0f, 0.0f };
+    kana_toolbar_layout_word_form(_toolbar);
+    rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->word_backdrop), true);
+    rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->word_card), true);
+    rde_ui_node_focus(rde_ui_text_editor_as_node(_toolbar->word_fields[0]));   // the keyboard comes up
+}
+
+// A field's text, trimmed of spaces at both ends, into _out.
+RDE_INTERNAL void kana_toolbar_word_field(kana_toolbar* _toolbar, u32 _i, c8* _out, usize _size) {
+    c8*       _text = rde_ui_text_editor_get_text(_toolbar->word_fields[_i], 0, rde_ui_text_editor_get_byte_count(_toolbar->word_fields[_i]));
+    const c8* _s    = _text != NULL ? _text : "";
+    while(*_s == ' ') {
+        _s++;
+    }
+    snprintf(_out, _size, "%s", _s);
+    usize _n = strlen(_out);
+    while(_n > 0 && _out[_n - 1] == ' ') {
+        _out[--_n] = 0;
+    }
+    if(_text != NULL) {
+        rde_ui_text_editor_free_text(_toolbar->word_fields[_i], _text);
+    }
+}
+
+// Add: the word, when it has the kanji and a reading (romaji becomes hiragana).
+RDE_INTERNAL void kana_toolbar_word_submit(kana_toolbar* _toolbar) {
+    c8 _written[KANA_USERWORD_WRITTEN], _reading[KANA_USERWORD_READING], _meaning[KANA_USERWORD_MEANING];
+    kana_toolbar_word_field(_toolbar, 0, _written, sizeof(_written));
+    kana_toolbar_word_field(_toolbar, 1, _reading, sizeof(_reading));
+    kana_toolbar_word_field(_toolbar, 2, _meaning, sizeof(_meaning));
+
+    b8        _has = false;
+    const c8* _p   = _written;
+    for(u32 _cp = kana_kanji_utf8_next(&_p); _cp != 0 && !_has; _cp = kana_kanji_utf8_next(&_p)) {
+        _has = _cp == _toolbar->word_kanji;
+    }
+    c8 _kanji[8];
+    kana_kanji_utf8(_toolbar->word_kanji, _kanji);
+    c8 _error[96] = "";
+    b8 _ascii = _reading[0] != 0;
+    for(const c8* _c = _reading; *_c != 0; _c++) {
+        _ascii = _ascii && (u8)*_c < 0x80u;
+    }
+    if(!_has) {
+        snprintf(_error, sizeof(_error), "The word has to have %s in it", _kanji);
+    } else if(_reading[0] == 0) {
+        snprintf(_error, sizeof(_error), "Its reading, in kana or romaji");
+    } else if(_ascii) {
+        c8 _kana[KANA_USERWORD_READING];
+        if(kana_romaji_to_hiragana(_reading, _kana, sizeof(_kana))) {
+            snprintf(_reading, sizeof(_reading), "%s", _kana);
+        } else {
+            snprintf(_error, sizeof(_error), "That reading is not romaji Kana knows");
+        }
+    }
+    if(_error[0] != 0) {
+        rde_ui_label_set_text(_toolbar->word_error, _error);
+        return;
+    }
+    kana_userwords_add(_toolbar->word_kanji, _written, _reading, _meaning);
+    kana_toolbar_close_word_form(_toolbar);
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_word_add(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar_word_submit((kana_toolbar*)_user_data);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_word_cancel(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar_close_word_form((kana_toolbar*)_user_data);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// Return in a field: on to the next, or Add from the last.
+RDE_INTERNAL void kana_toolbar_on_word_field(rde_ui_node* _node, any _user_data) {
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    for(u32 _i = 0; _i < 2u; _i++) {
+        if(_node == rde_ui_text_editor_as_node(_toolbar->word_fields[_i])) {
+            rde_ui_node_focus(rde_ui_text_editor_as_node(_toolbar->word_fields[_i + 1u]));
+            return;
+        }
+    }
+    kana_toolbar_word_submit(_toolbar);
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_add_done(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_viewer_set_adding(_toolbar->viewer, false);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_add_type(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar_open_word_form((kana_toolbar*)_user_data);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// --- exams ----------------------------------------------------------------------------
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_stats_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_stats_close(_toolbar->stats);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_close(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_next_stage(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_preview(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_back(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_back(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_all(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_tick_all(_toolbar->exam, true);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_none(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_tick_all(_toolbar->exam, false);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_start(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_start(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_undo(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_exam_undo(((kana_toolbar*)_user_data)->exam);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_clear(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_exam_clear(((kana_toolbar*)_user_data)->exam);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_next(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_next(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_retry(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_exam_retry_wrong(_toolbar->exam);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+// The wrong ones as a practice set, over the results.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_exam_practice(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    u32       _wrong[KANA_EXAM_MAX];
+    const u32 _n = kana_exam_wrong(_toolbar->exam, _wrong, KANA_EXAM_MAX);
+    if(_n > 0) {
+        kana_practice_open_set(_toolbar->practice, _wrong, _n);
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_practice(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar*      _toolbar = (kana_toolbar*)_user_data;
@@ -1197,6 +1544,39 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_ticks_practice(rde_ui_node* _n
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
     if(_toolbar->selection != NULL && kana_selection_count(_toolbar->selection) > 0) {
         kana_practice_open_set(_toolbar->practice, kana_selection_records(_toolbar->selection), kana_selection_count(_toolbar->selection));
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Study: the ticked marked Studying — or, when every one of them already is, no
+// longer marked.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_ticks_study(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(_toolbar->selection == NULL || kana_selection_count(_toolbar->selection) == 0) {
+        return RDE_UI_EVENT_RESULT_DEFAULT;
+    }
+    static u32 _cps[16384];
+    const u32  _n   = kana_selection_count(_toolbar->selection) < 16384u ? kana_selection_count(_toolbar->selection) : 16384u;
+    b8         _all = true;
+    for(u32 _i = 0; _i < _n; _i++) {
+        kana_kanji_info _info;
+        kana_kanji_at(_toolbar->browse->db, kana_selection_records(_toolbar->selection)[_i], &_info);
+        _cps[_i] = _info.codepoint;
+        _all     = _all && kana_marks_get(_info.codepoint) == KANA_MARK_STUDYING;
+    }
+    kana_marks_set_many(_cps, _n, _all ? KANA_MARK_NONE : KANA_MARK_STUDYING);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Exam: the ticked, straight to the exam's preview.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_ticks_exam(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(_toolbar->exam != NULL && _toolbar->selection != NULL && kana_selection_count(_toolbar->selection) > 0) {
+        kana_exam_open_with(_toolbar->exam, kana_selection_records(_toolbar->selection), kana_selection_count(_toolbar->selection));
     }
     kana_toolbar_update(_toolbar);
     return RDE_UI_EVENT_RESULT_DEFAULT;
@@ -1449,6 +1829,14 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_style_panel(_toolbar->panel, 14.0f, 1.0f);
     kana_toolbar_style_panel(_toolbar->palette, 12.0f, 1.0f);
     kana_toolbar_style_panel(_toolbar->paper_panel, 12.0f, 1.0f);
+    kana_toolbar_style_panel(_toolbar->word_card, 14.0f, 1.0f);
+    kana_toolbar_button_colors(_toolbar->word_backdrop, KANA_TOOLBAR_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
+    for(u32 _i = 0; _i < 3u; _i++) {
+        rde_ui_text_editor_set_background(_toolbar->word_fields[_i], true, _t->field);
+        rde_ui_text_editor_set_placeholder_color(_toolbar->word_fields[_i], _t->field_placeholder);
+    }
+    rde_ui_label_set_color(_toolbar->word_title, _t->button_text);
+    rde_ui_label_set_color(_toolbar->word_error, _t->score_poor);
     kana_toolbar_style_panel(_toolbar->browse_bar, 0.0f, 0.0f);
     rde_ui_image_set_style(_toolbar->grip_area, RDE_UI_STATE_NORMAL, kana_toolbar_style((rde_color){ 0, 0, 0, 0 }, 0.0f));
     rde_ui_image_set_style(_toolbar->grip, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->grip, 6.0f));
@@ -1465,7 +1853,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     // Every button plain first; the ones that show a state are set after.
     rde_ui_button* const _buttons[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
-        _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view,
+        _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view, _toolbar->word_cancel, _toolbar->word_add,
         _toolbar->paper_choices[0], _toolbar->paper_choices[1], _toolbar->paper_choices[2], _toolbar->paper_choices[3],
         _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
     };
@@ -1478,7 +1866,9 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_menu* const _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
                                           &_toolbar->chart_menu, &_toolbar->browse_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
-                                          &_toolbar->practice_summary_menu, &_toolbar->select_menu };
+                                          &_toolbar->practice_summary_menu, &_toolbar->select_menu, &_toolbar->exam_setup_menu,
+                                          &_toolbar->exam_preview_menu, &_toolbar->exam_menu, &_toolbar->exam_results_menu,
+                                          &_toolbar->stats_menu, &_toolbar->viewer_add_menu };
     for(u32 _m = 0; _m < sizeof(_menus) / sizeof(_menus[0]); _m++) {
         kana_toolbar_style_panel(_menus[_m]->panel, 12.0f, 1.0f);
         for(u32 _i = 0; _i < _menus[_m]->count; _i++) {
@@ -1494,6 +1884,13 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_button_selected(_toolbar->practice_set_menu.buttons[KANA_PRACTICE_SET_NEXT]);          // the way on
     kana_toolbar_button_selected(_toolbar->practice_summary_menu.buttons[KANA_PRACTICE_SUMMARY_AGAIN]);
     kana_toolbar_button_selected(_toolbar->select_menu.buttons[KANA_SELECT_MENU_PRACTICE]);                // the way on
+    kana_toolbar_button_selected(_toolbar->exam_setup_menu.buttons[KANA_EXAM_SETUP_NEXT]);
+    kana_toolbar_button_selected(_toolbar->exam_preview_menu.buttons[KANA_EXAM_PREVIEW_START]);
+    kana_toolbar_button_selected(_toolbar->exam_menu.buttons[KANA_EXAM_MENU_NEXT]);
+    kana_toolbar_button_selected(_toolbar->word_add);
+    kana_toolbar_button_selected(_toolbar->viewer_add_menu.buttons[KANA_VIEWER_ADD_DONE]);
+    _toolbar->_mark_shown_for = 0;   // the viewer's Study, restyled for its mark again
+    _toolbar->_exam_shown     = UINT32_MAX;
     kana_toolbar_show_guided(_toolbar);
 
     // The strip: no track, a thin thumb in the grip's colour.
@@ -1683,9 +2080,9 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         kana_toolbar_menu_create(_toolbar, &_toolbar->context_menu, _root, _labels, _callbacks, KANA_CONTEXT_COUNT);
     }
     {
-        const c8* const             _labels[KANA_VIEWER_COUNT]    = { "Back", "Prev", "Replay", "Next", "Practice" };
+        const c8* const             _labels[KANA_VIEWER_COUNT]    = { "Back", "Prev", "Replay", "Next", "Study", "Practice" };
         const rde_ui_event_callback _callbacks[KANA_VIEWER_COUNT] = { kana_toolbar_on_viewer_back, kana_toolbar_on_viewer_prev, kana_toolbar_on_viewer_replay,
-                                                                      kana_toolbar_on_viewer_next, kana_toolbar_on_viewer_practice };
+                                                                      kana_toolbar_on_viewer_next, kana_toolbar_on_viewer_study, kana_toolbar_on_viewer_practice };
         kana_toolbar_menu_create(_toolbar, &_toolbar->viewer_menu, _root, _labels, _callbacks, KANA_VIEWER_COUNT);
     }
     {
@@ -1718,10 +2115,82 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         kana_toolbar_menu_create(_toolbar, &_toolbar->browse_menu, _root, _labels, _callbacks, KANA_BROWSE_MENU_COUNT);
     }
     {
-        const c8* const             _labels[KANA_SELECT_MENU_COUNT]    = { "All", "None", "Practice 0", "Done" };
-        const rde_ui_event_callback _callbacks[KANA_SELECT_MENU_COUNT] = { kana_toolbar_on_ticks_all, kana_toolbar_on_ticks_none, kana_toolbar_on_ticks_practice,
-                                                                           kana_toolbar_on_ticks_done };
+        const c8* const             _labels[KANA_SELECT_MENU_COUNT]    = { "All", "None", "Study", "Exam", "Practice 0", "Done" };
+        const rde_ui_event_callback _callbacks[KANA_SELECT_MENU_COUNT] = { kana_toolbar_on_ticks_all, kana_toolbar_on_ticks_none, kana_toolbar_on_ticks_study,
+                                                                           kana_toolbar_on_ticks_exam, kana_toolbar_on_ticks_practice, kana_toolbar_on_ticks_done };
         kana_toolbar_menu_create(_toolbar, &_toolbar->select_menu, _root, _labels, _callbacks, KANA_SELECT_MENU_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_EXAM_SETUP_COUNT]    = { "Close", "Next 0" };
+        const rde_ui_event_callback _callbacks[KANA_EXAM_SETUP_COUNT] = { kana_toolbar_on_exam_close, kana_toolbar_on_exam_next_stage };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->exam_setup_menu, _root, _labels, _callbacks, KANA_EXAM_SETUP_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_EXAM_PREVIEW_COUNT]    = { "Back", "All", "None", "Start 0" };
+        const rde_ui_event_callback _callbacks[KANA_EXAM_PREVIEW_COUNT] = { kana_toolbar_on_exam_back, kana_toolbar_on_exam_all, kana_toolbar_on_exam_none,
+                                                                            kana_toolbar_on_exam_start };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->exam_preview_menu, _root, _labels, _callbacks, KANA_EXAM_PREVIEW_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_EXAM_MENU_COUNT]    = { "Quit", "Undo", "Clear", "Next" };
+        const rde_ui_event_callback _callbacks[KANA_EXAM_MENU_COUNT] = { kana_toolbar_on_exam_close, kana_toolbar_on_exam_undo, kana_toolbar_on_exam_clear,
+                                                                         kana_toolbar_on_exam_next };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->exam_menu, _root, _labels, _callbacks, KANA_EXAM_MENU_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_EXAM_RESULTS_COUNT]    = { "Done", "Retry wrong", "Practice wrong" };
+        const rde_ui_event_callback _callbacks[KANA_EXAM_RESULTS_COUNT] = { kana_toolbar_on_exam_close, kana_toolbar_on_exam_retry, kana_toolbar_on_exam_practice };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->exam_results_menu, _root, _labels, _callbacks, KANA_EXAM_RESULTS_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_STATS_MENU_COUNT]    = { "Close" };
+        const rde_ui_event_callback _callbacks[KANA_STATS_MENU_COUNT] = { kana_toolbar_on_stats_close };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->stats_menu, _root, _labels, _callbacks, KANA_STATS_MENU_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_VIEWER_ADD_COUNT]    = { "Done", "Type your own" };
+        const rde_ui_event_callback _callbacks[KANA_VIEWER_ADD_COUNT] = { kana_toolbar_on_viewer_add_done, kana_toolbar_on_viewer_add_type };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->viewer_add_menu, _root, _labels, _callbacks, KANA_VIEWER_ADD_COUNT);
+    }
+    {
+        // The form for a word typed in: over everything, with a backdrop that
+        // cancels it.
+        _toolbar->word_backdrop = rde_ui_button_create(NULL, NULL);
+        rde_ui_button_set_on_click(_toolbar->word_backdrop, kana_toolbar_on_word_cancel, _toolbar);
+        rde_ui_node_add_child(_root, rde_ui_button_as_node(_toolbar->word_backdrop));
+        _toolbar->word_card = rde_ui_image_create(NULL);
+        rde_ui_node* _card  = rde_ui_image_as_node(_toolbar->word_card);
+        rde_ui_node_set_blocks_input(_card, true);
+        rde_ui_node_add_child(_root, _card);
+        _toolbar->word_title = rde_ui_label_create(NULL);
+        rde_ui_label_set_font(_toolbar->word_title, _toolbar->font);
+        rde_ui_label_set_font_scale(_toolbar->word_title, 22.0f / (f32)KANA_TOOLBAR_FONT_SIZE);
+        rde_ui_label_set_alignment(_toolbar->word_title, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_MIDDLE);
+        rde_ui_node_set_raycast_target(rde_ui_label_as_node(_toolbar->word_title), false);
+        rde_ui_node_add_child(_card, rde_ui_label_as_node(_toolbar->word_title));
+        const c8* const _placeholders[3] = { "Word", "Reading: kana, or romaji (megusuri)", "Meaning (optional)" };
+        for(u32 _i = 0; _i < 3u; _i++) {
+            rde_ui_text_editor* _f = rde_ui_text_editor_create(_toolbar->font, NULL);
+            rde_ui_text_editor_set_multiline(_f, false);
+            rde_ui_text_editor_set_font_size(_f, 18u);
+            rde_ui_text_editor_set_max_chars(_f, _i == 2u ? 60u : 24u);
+            rde_ui_text_editor_set_placeholder(_f, _placeholders[_i]);
+            rde_ui_text_editor_set_content_insets(_f, 10.0f, 8.0f, 10.0f, 8.0f);
+            rde_ui_text_editor_add_plugin(_f, rde_ui_text_editor_plugin_ime_get());   // Japanese from the keyboard
+            rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_f), _toolbar);
+            rde_ui_text_editor_set_on_submit(_f, kana_toolbar_on_word_field);
+            rde_ui_node_add_child(_card, rde_ui_text_editor_as_node(_f));
+            _toolbar->word_fields[_i] = _f;
+        }
+        _toolbar->word_error = rde_ui_label_create(NULL);
+        rde_ui_label_set_font(_toolbar->word_error, _toolbar->font);
+        rde_ui_label_set_font_scale(_toolbar->word_error, 15.0f / (f32)KANA_TOOLBAR_FONT_SIZE);
+        rde_ui_label_set_alignment(_toolbar->word_error, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_MIDDLE);
+        rde_ui_node_set_raycast_target(rde_ui_label_as_node(_toolbar->word_error), false);
+        rde_ui_node_add_child(_card, rde_ui_label_as_node(_toolbar->word_error));
+        _toolbar->word_cancel = kana_toolbar_button(_toolbar, _card, "Cancel", kana_toolbar_on_word_cancel);
+        _toolbar->word_add    = kana_toolbar_button(_toolbar, _card, "Add", kana_toolbar_on_word_add);
+        kana_toolbar_close_word_form(_toolbar);
     }
     {
         const c8* const             _labels[KANA_PRACTICE_COUNT]    = { "Back", "Undo", "Clear", "Score", "-", "+", "Guided" };
@@ -1843,8 +2312,8 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
     const rde_vec_2F _half = { kana_toolbar_virtual_size(_toolbar).x * 0.5f, kana_toolbar_virtual_size(_toolbar).y * 0.5f };
     const rde_vec_2F _p    = { _screen.x + _half.x, _screen.y + _half.y };
 
-    // The side panel and Settings (while either is open, the whole screen).
-    if(kana_side_hit(_toolbar, _p)) {
+    // The side panel and Settings (while either is open, the whole screen), and the word form.
+    if(kana_side_hit(_toolbar, _p) || _toolbar->word_open) {
         return true;
     }
 
@@ -1881,7 +2350,9 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
     const kana_toolbar_menu* _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
                                           &_toolbar->chart_menu, &_toolbar->browse_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
-                                          &_toolbar->practice_summary_menu, &_toolbar->select_menu };
+                                          &_toolbar->practice_summary_menu, &_toolbar->select_menu, &_toolbar->exam_setup_menu,
+                                          &_toolbar->exam_preview_menu, &_toolbar->exam_menu, &_toolbar->exam_results_menu,
+                                          &_toolbar->stats_menu, &_toolbar->viewer_add_menu };
     for(u32 _i = 0; _i < sizeof(_menus) / sizeof(_menus[0]); _i++) {
         if(_menus[_i]->open && kana_toolbar_rect_contains(_menus[_i]->center, _menus[_i]->size, _p)) {
             return true;

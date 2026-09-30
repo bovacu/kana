@@ -176,6 +176,31 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_kana(rde_ui_node* _node, const rd
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_exams(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.open = false;
+    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
+    if(_toolbar->exam != NULL) {
+        kana_exam_open(_toolbar->exam);
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// Statistics: over everything else but the page (a character tapped there opens the viewer over it).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_statistics(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.open = false;
+    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
+    if(_toolbar->stats != NULL) {
+        kana_stats_open(_toolbar->stats);
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_album(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
@@ -956,6 +981,8 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     KANA_SIDE_ROW(_side->kanji);
     KANA_SIDE_ROW(_side->kana);
     KANA_SIDE_ROW(_side->album);
+    KANA_SIDE_ROW(_side->exams);
+    KANA_SIDE_ROW(_side->statistics);
     _y -= KANA_SIDE_MARGIN * 0.5f;
 
     // Notes: the header with + Folder / + Canvas at its right, then the list down
@@ -1081,9 +1108,12 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->kanji       = kana_toolbar_button(_toolbar, _panel, "Kanji", kana_side_on_kanji);
     _side->kana        = kana_toolbar_button(_toolbar, _panel, "Kana", kana_side_on_kana);
     _side->album       = kana_toolbar_button(_toolbar, _panel, "Album", kana_side_on_album);
+    _side->exams       = kana_toolbar_button(_toolbar, _panel, "Exams", kana_side_on_exams);
+    _side->statistics  = kana_toolbar_button(_toolbar, _panel, "Statistics", kana_side_on_statistics);
     if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->kanji, false); }   // no character data
     if(kana_chart_count(_toolbar->chart) == 0)   { kana_toolbar_set_enabled(_side->kana, false); }
     if(_toolbar->album->db == NULL)              { kana_toolbar_set_enabled(_side->album, false); }
+    if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->exams, false); }
 
     _side->notes_label = kana_side_label(_toolbar, _panel, "NOTES", 14.0f);
     _side->new_folder  = kana_toolbar_button(_toolbar, _panel, "+ Folder", kana_side_on_new_folder);
@@ -1332,7 +1362,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
         rde_ui_image_set_style(_side->menu_bars[_i], RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button_text, 1.5f));
     }
 
-    rde_ui_button* const _buttons[] = { _side->kanji, _side->kana, _side->album, _side->new_folder, _side->new_canvas, _side->settings_button,
+    rde_ui_button* const _buttons[] = { _side->kanji, _side->kana, _side->album, _side->exams, _side->statistics, _side->new_folder, _side->new_canvas, _side->settings_button,
                                         _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
                                         _side->paper_sizes[0], _side->paper_sizes[1], _side->paper_sizes[2],
                                         _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,

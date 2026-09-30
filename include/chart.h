@@ -76,6 +76,9 @@ void       kana_chart_section_range(const kana_chart* _chart, KANA_CHART_SECTION
 // or katakana; a short name for the marks it leaves out (ー "long", 々 "repeat");
 // NULL for anything else.
 const c8*  kana_chart_romaji(u32 _codepoint);
+// The kana learnt first: the gojūon and its voiced forms, in either script (71
+// each) — not the small ones (ぁ っ ゃ ゎ ゕ), nor the old (ゐ ゑ ゔ, ヷ..ヺ).
+b8         kana_chart_core_kana(u32 _codepoint);
 
 void kana_chart_update(kana_chart* _chart, f32 _dt);
 

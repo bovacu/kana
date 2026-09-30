@@ -48,6 +48,11 @@
 #include "save.h"
 #include "bake.h"
 #include "kanji.h"
+#include "exam.h"
+#include "stats.h"
+#include "examlog.h"
+#include "marks.h"
+#include "userwords.h"
 #include "viewer.h"
 #include "theme.h"
 #include "draw.h"
@@ -71,6 +76,8 @@ RDE_INTERNAL kana_viewer  viewer;
 RDE_INTERNAL kana_browse  browse;
 RDE_INTERNAL kana_chart   chart;
 RDE_INTERNAL kana_selection selection;   // Browse's and the chart's ticks (select.h)
+RDE_INTERNAL kana_exam      exam;        // exams (exam.h), over Browse, the chart and the album
+RDE_INTERNAL kana_stats     stats;       // statistics (stats.h)
 RDE_INTERNAL kana_practice practice;
 RDE_INTERNAL kana_album    album;
 RDE_INTERNAL kana_check    check;                         // the lasso's selection, checked (check.h)
@@ -321,6 +328,15 @@ RDE_INTERNAL void kana_load_saves(void) {
     current_canvas = notes.open;
     kana_notes_canvas_path(current_canvas, document_path, sizeof(document_path));
 
+    // The study marks and every exam (marks.h, examlog.h).
+    c8 _path[RDE_MAX_PATH];
+    snprintf(_path, sizeof(_path), "%smarks.kana", _dir);
+    kana_marks_open(_path);
+    snprintf(_path, sizeof(_path), "%sexams.kana", _dir);
+    kana_examlog_open(_path);
+    snprintf(_path, sizeof(_path), "%swords.kana", _dir);
+    kana_userwords_open(_path);
+
     kana_settings _settings = kana_gather_settings();
     if(kana_load_settings(settings_path, &_settings) == KANA_LOAD_OK) {
         kana_apply_settings(&_settings);
@@ -411,6 +427,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_browse_init(&browse, _have_kanji ? &kanji_db : NULL);
     kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
     kana_selection_init(&selection, _have_kanji ? kanji_db.count : 0u);
+    kana_exam_init(&exam, _have_kanji ? &kanji_db : NULL, &browse.catalog);
+    kana_stats_init(&stats, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     browse.selection = &selection;
     chart.selection  = &selection;
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
@@ -423,6 +441,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 
     kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
     toolbar.selection = &selection;
+    toolbar.exam      = &exam;
+    toolbar.stats     = &stats;
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
@@ -489,6 +509,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     list_last = _screen;
     if(viewer.open)     { kana_viewer_pointer_down(&viewer, _screen, _now); }
+    else if(exam.open)  { kana_exam_pointer_down(&exam, _screen, _pen, _now); }
+    else if(stats.open) { kana_stats_pointer_down(&stats, _screen, _now); }
     else if(check.open) { kana_check_pointer_down(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_down(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
@@ -497,6 +519,8 @@ RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     list_last = _screen;
     if(viewer.open)     { kana_viewer_pointer_moved(&viewer, _screen, _now); }
+    else if(exam.open)  { kana_exam_pointer_moved(&exam, _screen, _now); }
+    else if(stats.open) { kana_stats_pointer_moved(&stats, _screen, _now); }
     else if(check.open) { kana_check_pointer_moved(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_moved(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
@@ -504,6 +528,8 @@ RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
     if(viewer.open)     { kana_viewer_pointer_up(&viewer, _now); }
+    else if(exam.open)  { kana_exam_pointer_up(&exam, _now); }
+    else if(stats.open) { kana_stats_pointer_up(&stats, _now); }
     else if(check.open) { kana_check_pointer_up(&check, _now); }
     else if(album.open) { kana_album_pointer_up(&album, _now); }
     else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
@@ -642,7 +668,7 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open) {
+    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -944,6 +970,7 @@ void on_update(f32 _dt) {
             kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
         }
 #endif
+        kana_viewer_update(&viewer, _dt);
         u32       _kanji[KANA_VIEWER_WORD_KANJI];
         const u32 _n = kana_viewer_take_word(&viewer, _kanji, KANA_VIEWER_WORD_KANJI);
         if(_n > 0) {
@@ -953,6 +980,53 @@ void on_update(f32 _dt) {
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_LEFT))  { kana_viewer_prev(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_SPACE)) { kana_viewer_replay(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_viewer_close(&viewer); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    // Statistics: a tapped character opens the viewer, walking its list.
+    if(stats.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_stats_update(&stats, _dt);
+        const u32* _records;
+        u32        _count, _position;
+        if(kana_stats_take_tap(&stats, &_records, &_count, &_position)) {
+            kana_viewer_show(&viewer, _records, _count, _position);
+        }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_stats_close(&stats); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    // An exam: its answers read as it goes; a tapped result opens the viewer on it,
+    // walking the exam's characters.
+    if(exam.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_exam_update(&exam, _dt);
+        u32 _tapped;
+        if(kana_exam_take_tap(&exam, &_tapped)) {
+            u32       _asked[KANA_EXAM_MAX];
+            const u32 _n = kana_exam_asked(&exam, _asked, KANA_EXAM_MAX);
+            for(u32 _i = 0; _i < _n; _i++) {
+                if(_asked[_i] == _tapped) {
+                    kana_viewer_show(&viewer, _asked, _n, _i);
+                    break;
+                }
+            }
+        }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_exam_close(&exam); }
         kana_toolbar_update(&toolbar);
         kana_autosave();
         return;
@@ -1230,8 +1304,11 @@ void on_render(rde_window* _window, f32 _dt) {
         kana_practice_render(&practice, _window, font, font_px, _hh - (f32)_safe.y - 8.0f,
                              -_hh + (f32)_safe.w + toolbar.practice_menu.size.y + 24.0f);
     } else if(viewer.open) {
-        kana_viewer_render(&viewer, font, font_px, rde_window_get_size(_window), rde_window_get_safe_area_insets(_window),
-                           toolbar.viewer_menu.size.y + 16.0f);
+        kana_viewer_render(&viewer, _window, font, font_px, toolbar.viewer_menu.size.y + 16.0f);
+    } else if(stats.open) {
+        kana_stats_render(&stats, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.stats_menu.size.y + 24.0f);
+    } else if(exam.open) {
+        kana_exam_render(&exam, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.exam_menu.size.y + 24.0f);
     } else if(check.open) {
         kana_check_render(&check, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.check_menu.size.y + 24.0f);
     } else if(album.open) {
@@ -1272,6 +1349,11 @@ void end_func(void) {
     kana_browse_destroy(&browse);
     kana_chart_destroy(&chart);
     kana_selection_destroy(&selection);
+    kana_exam_destroy(&exam);
+    kana_stats_destroy(&stats);
+    kana_marks_close();
+    kana_examlog_close();
+    kana_userwords_close();
     kana_practice_destroy(&practice);
     kana_album_destroy(&album);
     kana_notes_destroy(&notes);

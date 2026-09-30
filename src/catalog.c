@@ -1,4 +1,5 @@
 #include "catalog.h"
+#include "marks.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -224,6 +225,8 @@ RDE_INTERNAL b8 kana_catalog_entry_passes(const kana_catalog_entry* _e, KANA_FIL
         case KANA_FILTER_N3:       return _e->jlpt_n == 3;
         case KANA_FILTER_N2:       return _e->jlpt_n == 2;
         case KANA_FILTER_N1:       return _e->jlpt_n == 1;
+        case KANA_FILTER_STUDYING: return kana_marks_get(_e->codepoint) == KANA_MARK_STUDYING;
+        case KANA_FILTER_KNOWN:    return kana_marks_get(_e->codepoint) == KANA_MARK_KNOWN;
         default:                   return true;
     }
 }

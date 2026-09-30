@@ -23,4 +23,12 @@ void kana_draw_outline(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color 
 // A stroke through _count points, _radius wide all along (any number of points).
 void kana_draw_stroke_even(const rde_vec_2F* _points, u32 _count, f32 _radius, rde_color _color);
 
+// How wide _text is at _px, estimated rather than laid out: an advance per
+// character, measured once per font — Japanese (all one width) and Latin (the
+// average). Good for centring a label and stopping a line at an edge.
+f32  kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px);
+// _text into _out, cut with "…" (at a word when one is near) where it would pass
+// _width at _px.
+void kana_draw_text_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, c8* _out, usize _size);
+
 #endif

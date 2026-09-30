@@ -1,4 +1,5 @@
 #include "browse.h"
+#include "marks.h"
 #include "draw.h"
 #include "chart.h"
 #include "theme.h"
@@ -367,6 +368,11 @@ void kana_browse_update(kana_browse* _browse, f32 _dt) {
     if(!_browse->open) {
         return;
     }
+    // Marks changed (the viewer's Study, an exam): the Studying and Known lists with them.
+    if(kana_marks_revision() != _browse->_marks_seen) {
+        _browse->_marks_seen = kana_marks_revision();
+        _browse->dirty       = _browse->dirty || _browse->filter == KANA_FILTER_STUDYING || _browse->filter == KANA_FILTER_KNOWN;
+    }
     // ML Kit on the pad: asked once a stroke ends; its answer ranks the list again.
     if(_browse->_recognize_wanted) {
         if(!kana_browse_pad_used(_browse) || !kana_recognize_available() || kana_recognize_start(&_browse->recognition, &_browse->pad)) {
@@ -614,6 +620,7 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
             if(_select) {
                 kana_selection_draw_tick(_ticked, (rde_vec_2F){ _x, _y }, _cell);
             }
+            kana_selection_draw_mark(kana_marks_get(_info.codepoint), (rde_vec_2F){ _x, _y }, _cell, _select);
         }
     }
 

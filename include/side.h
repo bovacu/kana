@@ -71,6 +71,8 @@ RDE_STRUCT {
     rde_ui_button*  kanji;
     rde_ui_button*  kana;
     rde_ui_button*  album;
+    rde_ui_button*  exams;
+    rde_ui_button*  statistics;
     rde_ui_label*   theme_label;
     rde_ui_button*  themes[KANA_THEME_COUNT];
     kana_side_theme_ref theme_refs[KANA_THEME_COUNT];

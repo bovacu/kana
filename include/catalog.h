@@ -32,6 +32,8 @@ typedef enum {
     KANA_FILTER_N3,
     KANA_FILTER_N2,
     KANA_FILTER_N1,
+    KANA_FILTER_STUDYING,    // marked (marks.h)
+    KANA_FILTER_KNOWN,
     KANA_FILTER_COUNT
 } KANA_FILTER_;
 
