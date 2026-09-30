@@ -127,6 +127,6 @@ void kana_browse_update(kana_browse* _browse, f32 _dt);
 
 // Draws the pad and the grid below _top (screen space: everything above it is
 // the UI bar). Inside a 2D drawing block; the grid clips to its own area.
-void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top);
+void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom);
 
 #endif

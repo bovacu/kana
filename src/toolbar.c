@@ -36,6 +36,7 @@ enum { KANA_CHECK_MENU_BACK = 0, KANA_CHECK_MENU_ORDER, KANA_CHECK_MENU_PRACTICE
 enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
 enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
 enum { KANA_CHART_MENU_HIRAGANA = 0, KANA_CHART_MENU_KATAKANA, KANA_CHART_MENU_PRACTICE, KANA_CHART_MENU_CLOSE, KANA_CHART_MENU_COUNT };
+enum { KANA_BROWSE_MENU_PRACTICE = 0, KANA_BROWSE_MENU_CLOSE, KANA_BROWSE_MENU_COUNT };
 enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_COUNT };
 enum { KANA_ALBUM_MENU_PRACTICE = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
@@ -312,6 +313,7 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     }
     kana_toolbar_menu_show(_toolbar, &_toolbar->viewer_menu, _viewing, _center);
     kana_toolbar_menu_show(_toolbar, &_toolbar->chart_menu, _charting, _center);
+    kana_toolbar_menu_show(_toolbar, &_toolbar->browse_menu, _browsing, _center);
     const b8 _summary = _practicing && _toolbar->practice->summary_open;
     const b8 _in_set  = _practicing && !_summary && kana_practice_in_set(_toolbar->practice);
     kana_toolbar_menu_show(_toolbar, &_toolbar->practice_menu, _practicing && !_summary && !_in_set, _center);
@@ -1043,14 +1045,14 @@ RDE_INTERNAL void kana_toolbar_layout_browse(kana_toolbar* _toolbar) {
                            (rde_vec_2F){ _left + (f32)_i * (_chip + _gap) + _chip * 0.5f, _y }, (rde_vec_2F){ _chip, KANA_BROWSE_ROW_H });
     }
 
+    // The sorts across the filters' width (Practice and Close are the bottom row now).
     _y -= KANA_BROWSE_ROW_H + _gap;
-    const f32 _sort = fminf(110.0f, (_width - _gap * (f32)(KANA_SORT_COUNT + 1)) / (f32)(KANA_SORT_COUNT + 2));
+    const f32 _filters = _chip * (f32)KANA_FILTER_COUNT + _gap * (f32)(KANA_FILTER_COUNT - 1);
+    const f32 _sort    = (_filters - _gap * (f32)(KANA_SORT_COUNT - 1)) / (f32)KANA_SORT_COUNT;
     for(u32 _i = 0; _i < KANA_SORT_COUNT; _i++) {
         kana_toolbar_place(rde_ui_button_as_node(_toolbar->sort_chips[_i]),
                            (rde_vec_2F){ _left + (f32)_i * (_sort + _gap) + _sort * 0.5f, _y }, (rde_vec_2F){ _sort, KANA_BROWSE_ROW_H });
     }
-    kana_toolbar_place(rde_ui_button_as_node(_toolbar->browse_practice), (rde_vec_2F){ _left + _width - _sort * 1.5f - _gap, _y }, (rde_vec_2F){ _sort, KANA_BROWSE_ROW_H });
-    kana_toolbar_place(rde_ui_button_as_node(_toolbar->browse_close), (rde_vec_2F){ _left + _width - _sort * 0.5f, _y }, (rde_vec_2F){ _sort, KANA_BROWSE_ROW_H });
 
     _y -= (KANA_BROWSE_ROW_H + KANA_BROWSE_FIELD_H) * 0.5f + _gap;
     const f32 _field = _width - 3.0f * (KANA_BROWSE_SIDE_W + _gap);
@@ -1210,7 +1212,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     rde_ui_button* const _buttons[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
         _toolbar->brush_scale, _toolbar->rotate, _toolbar->reset_view,
-        _toolbar->browse_close, _toolbar->browse_practice, _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
+        _toolbar->draw_toggle, _toolbar->parts_toggle, _toolbar->pad_clear,
     };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         kana_toolbar_restyle_button(_buttons[_i]);
@@ -1219,7 +1221,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < KANA_SORT_COUNT; _i++)   { kana_toolbar_restyle_button(_toolbar->sort_chips[_i]); }
 
     kana_toolbar_menu* const _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
-                                          &_toolbar->chart_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
+                                          &_toolbar->chart_menu, &_toolbar->browse_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu };
     for(u32 _m = 0; _m < sizeof(_menus) / sizeof(_menus[0]); _m++) {
@@ -1407,6 +1409,11 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
         kana_toolbar_menu_create(_toolbar, &_toolbar->chart_menu, _root, _labels, _callbacks, KANA_CHART_MENU_COUNT);
     }
     {
+        const c8* const             _labels[KANA_BROWSE_MENU_COUNT]    = { "Practice", "Close" };
+        const rde_ui_event_callback _callbacks[KANA_BROWSE_MENU_COUNT] = { kana_toolbar_on_browse_practice, kana_toolbar_on_browse_close };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->browse_menu, _root, _labels, _callbacks, KANA_BROWSE_MENU_COUNT);
+    }
+    {
         const c8* const             _labels[KANA_PRACTICE_COUNT]    = { "Back", "Undo", "Clear", "Score", "-", "+" };
         const rde_ui_event_callback _callbacks[KANA_PRACTICE_COUNT] = { kana_toolbar_on_practice_back, kana_toolbar_on_practice_undo, kana_toolbar_on_practice_clear,
                                                                         kana_toolbar_on_practice_score, kana_toolbar_on_practice_fewer, kana_toolbar_on_practice_more };
@@ -1457,8 +1464,6 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
             _toolbar->sort_chips[_i] = kana_toolbar_button(_toolbar, _bar, KANA_SORT_LABELS[_i], kana_toolbar_on_sort);
             rde_ui_button_set_on_click(_toolbar->sort_chips[_i], kana_toolbar_on_sort, &_toolbar->sort_refs[_i]);
         }
-        _toolbar->browse_close    = kana_toolbar_button(_toolbar, _bar, "Close", kana_toolbar_on_browse_close);
-        _toolbar->browse_practice = kana_toolbar_button(_toolbar, _bar, "Practice", kana_toolbar_on_browse_practice);
         _toolbar->draw_toggle  = kana_toolbar_button(_toolbar, _bar, "Draw",  kana_toolbar_on_draw_toggle);
         _toolbar->parts_toggle = kana_toolbar_button(_toolbar, _bar, "Parts", kana_toolbar_on_parts_toggle);
         if(!kana_browse_parts_available(_browse)) {
@@ -1556,7 +1561,7 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
     }
 
     const kana_toolbar_menu* _menus[] = { &_toolbar->selection_menu, &_toolbar->context_menu, &_toolbar->viewer_menu,
-                                          &_toolbar->chart_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
+                                          &_toolbar->chart_menu, &_toolbar->browse_menu, &_toolbar->practice_menu, &_toolbar->check_menu,
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu };
     for(u32 _i = 0; _i < sizeof(_menus) / sizeof(_menus[0]); _i++) {

@@ -1189,7 +1189,7 @@ void on_render(rde_window* _window, f32 _dt) {
     } else if(album.open) {
         kana_album_render(&album, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.album_menu.size.y + 24.0f);
     } else if(browse.open) {
-        kana_browse_render(&browse, _window, font, font_px, _hh - toolbar.browse_bar_height);
+        kana_browse_render(&browse, _window, font, font_px, _hh - toolbar.browse_bar_height, -_hh + (f32)_safe.w + toolbar.browse_menu.size.y + 24.0f);
     } else if(chart.open) {
         kana_chart_render(&chart, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.chart_menu.size.y + 24.0f);
     } else {

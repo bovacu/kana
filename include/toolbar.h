@@ -130,6 +130,9 @@ struct kana_toolbar {
     b8                       _viewer_shown;     // a full-screen scene is up: the floating bar is hidden
     // The kana chart's row: Hiragana, Katakana (jumps), Close.
     kana_toolbar_menu        chart_menu;
+    // Browse's row, at the bottom like the chart's and the album's: Practice (its
+    // list as a set), Close.
+    kana_toolbar_menu        browse_menu;
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
     // Check's row: Back, Stroke order, Practice; and its "I meant…" field, at
@@ -157,8 +160,6 @@ struct kana_toolbar {
     kana_toolbar_chip_ref    filter_refs[KANA_FILTER_COUNT];
     rde_ui_button*           sort_chips[KANA_SORT_COUNT];
     kana_toolbar_chip_ref    sort_refs[KANA_SORT_COUNT];
-    rde_ui_button*           browse_close;
-    rde_ui_button*           browse_practice;     // Browse's list as a practice set
     rde_ui_text_editor*      search_field;
     rde_ui_button*           draw_toggle;
     rde_ui_button*           parts_toggle;        // the parts panel (search by component)

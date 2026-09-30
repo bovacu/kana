@@ -512,7 +512,7 @@ RDE_INTERNAL void kana_browse_caption(kana_browse* _browse, const kana_kanji_inf
     }
 }
 
-void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top) {
+void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom_edge) {
     if(!_browse->open) {
         return;
     }
@@ -526,7 +526,7 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
     const f32        _hh     = (f32)_size.y * 0.5f;
     const f32        _left   = -_hw + (f32)_insets.x + KANA_BROWSE_MARGIN;
     const f32        _right  = _hw - (f32)_insets.z - KANA_BROWSE_MARGIN;
-    const f32        _bottom = -_hh + (f32)_insets.w + KANA_BROWSE_MARGIN;
+    const f32        _bottom = fmaxf(_bottom_edge, -_hh + (f32)_insets.w + KANA_BROWSE_MARGIN);   // above the bottom row
 
     // --- status ------------------------------------------------------------------------
     c8 _status[160];
