@@ -29,6 +29,19 @@ Readings, meanings, school grades, JLPT levels, frequency ranks and radicals.
   Project page: https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
 
 
+JMdict
+------
+Example words: each kanji's common words, with their readings and meanings.
+
+  This app uses the JMdict dictionary file. This file is the property of the
+  Electronic Dictionary Research and Development Group (EDRDG), and is used in
+  conformance with the Group's licence: Creative Commons Attribution-ShareAlike
+  4.0 International, https://creativecommons.org/licenses/by-sa/4.0/
+  Licence details: https://www.edrdg.org/edrdg/licence.html
+  Project page: https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project
+  Source used: JMdict_e (English), downloaded 2026-09-30.
+
+
 JLPT levels
 -----------
 The JLPT N5-N1 level of each kanji.

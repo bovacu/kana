@@ -9,8 +9,8 @@
 // strokes in order, and what KANJIDIC2 says about it. Baked offline from KanjiVG
 // and KANJIDIC2 (`--bake`, see bake.h) into one small file the app ships.
 //
-// LICENCE: derived from KanjiVG (CC BY-SA 3.0, Ulrich Apel) and KANJIDIC2 (CC
-// BY-SA 4.0, EDRDG), with JLPT N5-N1 levels from Jonathan Waller's JLPT
+// LICENCE: derived from KanjiVG (CC BY-SA 3.0, Ulrich Apel), and KANJIDIC2 and
+// JMdict (CC BY-SA 4.0, EDRDG), with JLPT N5-N1 levels from Jonathan Waller's JLPT
 // Resources (CC BY). The baked file carries the same licences, and the app MUST
 // show the attribution (assets/data/LICENSE-data.txt).
 //
@@ -43,6 +43,14 @@
 //           character is built from, every element of KanjiVG's group tree
 //           (and a variant's original: 亻 brings 人), the character itself left
 //           out. 語 is 言 口 吾 五 二; 休 is 亻 人 木.
+//   'WORD'  (optional) example words from JMdict: u32 count (the CHRS count),
+//           then count u32 offsets into the lists (UINT32_MAX: none), u32 word
+//           count, u32 the lists' size, the lists — u8 n, then n u32 word
+//           numbers, best first — and then the words to the chunk's end, in
+//           number order: three NUL-terminated UTF-8 strings each, the written
+//           form, its reading (kana) and its meaning (English glosses joined by
+//           "; "). 日 has 日本 にほん "Japan"; a word is stored once, however many
+//           of its kanji list it.
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -57,7 +65,9 @@
 #define KANA_KANJI_CHUNK_GEOM   KANA_TAG('G', 'E', 'O', 'M')
 #define KANA_KANJI_CHUNK_TEXT   KANA_TAG('T', 'E', 'X', 'T')
 #define KANA_KANJI_CHUNK_PARTS  KANA_TAG('P', 'A', 'R', 'T')
+#define KANA_KANJI_CHUNK_WORDS  KANA_TAG('W', 'O', 'R', 'D')
 #define KANA_KANJI_MAX_PARTS    32u
+#define KANA_KANJI_MAX_WORDS    8u     // example words a character can list
 
 // One character's record, decoded.
 RDE_STRUCT {
@@ -96,7 +106,19 @@ RDE_STRUCT {
     const u8* _parts_index;    // count u32 offsets into _parts, or NULL (no PART chunk)
     const u8* _parts;
     u32       _parts_size;
+    const u8* _words_index;    // count u32 offsets into _word_lists, or NULL (no WORD chunk)
+    const u8* _word_lists;
+    u32       _word_lists_size;
+    u32       word_count;
+    const c8** _word_text;     // word_count pointers to each word's written form (then reading, meaning)
 } kana_kanji_db;
+
+// An example word (see 'WORD'), UTF-8.
+RDE_STRUCT {
+    const c8* written;   // 日本
+    const c8* reading;   // にほん
+    const c8* meaning;   // Japan
+} kana_kanji_word;
 
 b8   kana_kanji_load(kana_kanji_db* _db, const c8* _path);
 void kana_kanji_unload(kana_kanji_db* _db);
@@ -119,6 +141,12 @@ u32  kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, 
 // how many. 0 when it has none, or the file has no parts.
 u32  kana_kanji_parts(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
 b8   kana_kanji_has_parts(const kana_kanji_db* _db);
+
+// The example words of record _index, best first: up to _max word numbers into
+// _out; how many. 0 when it has none, or the file has no words.
+u32  kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
+// Word number _word. False when there is no such word.
+b8   kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out);
 
 // The character's text, "" when there is none.
 const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info);

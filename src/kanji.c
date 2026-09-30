@@ -12,8 +12,49 @@
 #define KANA_KANJI_MAX_DEPTH     10u    // Bézier subdivision limit
 
 void kana_kanji_unload(kana_kanji_db* _db) {
+    rde_free(_db->_word_text);
     kana_file_free(_db->_file);
     memset(_db, 0, sizeof(*_db));
+}
+
+// The WORD chunk (_chunk just past its count, which matched the records): the
+// lists in place, and where each word starts, found once — the strings are
+// checked to be all there, so reading them later needs no checks.
+RDE_INTERNAL void kana_kanji_load_words(kana_kanji_db* _db, kana_reader* _chunk) {
+    const u32 _count = _db->count;
+    if((u64)_count * 4u + 8u > (u64)(_chunk->size - _chunk->pos)) {
+        return;
+    }
+    const u8* _index = &_chunk->data[_chunk->pos];
+    _chunk->pos     += _count * 4u;
+    const u32 _words = kana_get_u32(_chunk);
+    const u32 _lists = kana_get_u32(_chunk);
+    if(!_chunk->ok || _lists > _chunk->size - _chunk->pos || _words == 0) {
+        return;
+    }
+    const u8* _list_data = &_chunk->data[_chunk->pos];
+    const c8* _text      = (const c8*)&_chunk->data[_chunk->pos + _lists];
+    const u32 _text_size = _chunk->size - _chunk->pos - _lists;
+
+    const c8** _starts = (const c8**)rde_malloc(sizeof(const c8*) * _words);
+    u32        _at     = 0;
+    for(u32 _w = 0; _w < _words; _w++) {
+        _starts[_w] = &_text[_at];
+        for(u32 _s = 0; _s < 3u; _s++) {   // written, reading, meaning
+            const c8* _nul = _at < _text_size ? memchr(&_text[_at], 0, _text_size - _at) : NULL;
+            if(_nul == NULL) {
+                rde_free(_starts);
+                return;   // cut short: no words rather than broken ones
+            }
+            _at = (u32)(_nul - _text) + 1u;
+        }
+    }
+
+    _db->_words_index     = _index;
+    _db->_word_lists      = _list_data;
+    _db->_word_lists_size = _lists;
+    _db->word_count       = _words;
+    _db->_word_text       = _starts;
 }
 
 b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
@@ -36,6 +77,8 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     u32         _tag;
     kana_reader _chunk;
     u32         _parts_count = 0;
+    u32         _words_count = 0;
+    kana_reader _words       = { 0 };
     while(kana_next_chunk(&_r, &_tag, &_chunk)) {
         if(_tag == KANA_KANJI_CHUNK_CHARS) {
             const u32 _count  = kana_get_u32(&_chunk);
@@ -58,6 +101,9 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
                 _db->_parts_size  = _chunk.size - _chunk.pos - _count * 4u;
                 _parts_count      = _count;
             }
+        } else if(_tag == KANA_KANJI_CHUNK_WORDS) {
+            _words_count = kana_get_u32(&_chunk);
+            _words       = _chunk;
         }
     }
 
@@ -71,7 +117,46 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         _db->_parts       = NULL;
         _db->_parts_size  = 0;
     }
+    if(_words_count == _db->count) {
+        kana_kanji_load_words(_db, &_words);
+    }
 
+    return true;
+}
+
+u32 kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
+    if(_db->_words_index == NULL || _index >= _db->count) {
+        return 0;
+    }
+
+    kana_reader _ix = kana_reader_make(&_db->_words_index[(usize)_index * 4u], 4u);
+    const u32 _at   = kana_get_u32(&_ix);
+    if(_at == UINT32_MAX || _at >= _db->_word_lists_size) {
+        return 0;
+    }
+
+    kana_reader _r = kana_reader_make(&_db->_word_lists[_at], _db->_word_lists_size - _at);
+    const u32   _n = kana_get_u8(&_r);
+    u32         _k = 0;
+    for(u32 _i = 0; _i < _n && _k < _max; _i++) {
+        const u32 _word = kana_get_u32(&_r);
+        if(!_r.ok) {
+            break;
+        }
+        if(_word < _db->word_count) {
+            _out[_k++] = _word;
+        }
+    }
+    return _k;
+}
+
+b8 kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out) {
+    if(_db->_word_text == NULL || _word >= _db->word_count) {
+        return false;
+    }
+    _out->written = _db->_word_text[_word];
+    _out->reading = _out->written + strlen(_out->written) + 1u;
+    _out->meaning = _out->reading + strlen(_out->reading) + 1u;
     return true;
 }
 

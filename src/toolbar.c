@@ -12,6 +12,7 @@
 
 #define KANA_TOOLBAR_FONT_PATH   "assets/fonts/Roboto-Regular.ttf"
 #define KANA_TOOLBAR_FONT_JP_PATH "assets/fonts/NotoSansJP-Regular.otf"
+#define KANA_TOOLBAR_FONT_JP_GLYPHS 2048u   // distinct Japanese glyphs the font holds (see kana_toolbar_init)
 #define KANA_TOOLBAR_CHECK_FIELD (rde_vec_2F){ 360.0f, 44.0f }
 #define KANA_TOOLBAR_TEXT_SCALE  0.5f     // ~16 units of text from the 32 px font
 
@@ -1339,7 +1340,17 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     rde_font_parameters _slug = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
     _toolbar->font = rde_font_load(KANA_TOOLBAR_FONT_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
     // Japanese falls through to Noto Sans JP (its glyphs load as they are first used).
-    _toolbar->font_jp = rde_font_load(KANA_TOOLBAR_FONT_JP_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
+    // Kanji need bigger budgets than Latin: with the defaults (128 curves) over a
+    // quarter of Noto's kanji were silently left out (録, 鬱...). Measured over
+    // every kana and kanji in the font (Slug's own curve split and bands): at
+    // most 578 curve texels and 1,220 band texels. A glyph keeps its slot for
+    // the life of the app, so there are enough slots for a long session of
+    // words and readings. ~31 MB of GPU memory in all.
+    rde_font_parameters _slug_jp = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
+    _slug_jp.max_glyphs              = KANA_TOOLBAR_FONT_JP_GLYPHS;
+    _slug_jp.curves_per_glyph_budget = 304u;    // 608 texels
+    _slug_jp.bands_per_glyph_budget  = 1280u;
+    _toolbar->font_jp = rde_font_load(KANA_TOOLBAR_FONT_JP_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug_jp, NULL);
     if(_toolbar->font != NULL && _toolbar->font_jp != NULL) {
         rde_font_add_fallback(_toolbar->font, _toolbar->font_jp);
     }

@@ -38,9 +38,9 @@
 // Short: the credits and licences in full are Settings › Licences (Data: the
 // attribution KanjiVG and EDRDG require; ML Kit: Google's terms and notices).
 static const c8 KANA_SIDE_CREDITS[] =
-    "Stroke order from KanjiVG (Ulrich Apel), readings and meanings from KANJIDIC2 (EDRDG), "
-    "JLPT levels from Jonathan Waller's lists. Handwriting recognition by Google ML Kit, which "
-    "sends Google anonymous usage data while it is on. Credits and every licence in full: Licences.";
+    "Stroke order from KanjiVG (Ulrich Apel); readings, meanings and example words from KANJIDIC2 "
+    "and JMdict (EDRDG); JLPT levels from Jonathan Waller's lists. Handwriting recognition by Google "
+    "ML Kit, which sends Google anonymous usage data while it is on. Every licence in full: Licences.";
 
 // Licences: what each document is made of (files in the app, one after the other).
 static const struct { const c8* name; const c8* files[3]; } KANA_SIDE_LICENCES[KANA_SIDE_LICENCE_DOCS] = {

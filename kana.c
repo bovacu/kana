@@ -457,23 +457,27 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
                   "kana - ink spike. Pen writes, fingers move the page (2-finger tap undo, 3 redo), the toolbar has the rest. Keys: C clear, Z undo, Y redo, M raw samples, H HUD, R reset view, B brush scale.");
 }
 
-// A pointer for Check, Browse, the chart or the album, whichever is open.
+// A pointer for the viewer (over the others), Check, Browse, the chart or the
+// album, whichever is open.
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     list_last = _screen;
-    if(check.open)      { kana_check_pointer_down(&check, _screen, _now); }
+    if(viewer.open)     { kana_viewer_pointer_down(&viewer, _screen, _now); }
+    else if(check.open) { kana_check_pointer_down(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_down(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
     else                { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
 }
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     list_last = _screen;
-    if(check.open)      { kana_check_pointer_moved(&check, _screen, _now); }
+    if(viewer.open)     { kana_viewer_pointer_moved(&viewer, _screen, _now); }
+    else if(check.open) { kana_check_pointer_moved(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_moved(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
     else                { kana_browse_pointer_moved(&browse, _screen, _now); }
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
-    if(check.open)      { kana_check_pointer_up(&check, _now); }
+    if(viewer.open)     { kana_viewer_pointer_up(&viewer, _now); }
+    else if(check.open) { kana_check_pointer_up(&check, _now); }
     else if(album.open) { kana_album_pointer_up(&album, _now); }
     else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
     else                { kana_browse_pointer_up(&browse, _now); }
@@ -618,8 +622,8 @@ void on_event(rde_window* _window, rde_event* _event) {
         }
         if(practice.open) {
             kana_practice_event(_event);
-        } else if(!viewer.open) {
-            kana_browse_event(_event);   // Check, Browse, the chart or the album, whichever is open
+        } else {
+            kana_browse_event(_event);   // the viewer, Check, Browse, the chart or the album, whichever is on top
         }
         return;
     }
@@ -903,8 +907,20 @@ void on_update(f32 _dt) {
         return;
     }
 
-    // The viewer's keys, for the desktop; the page's are off while it is open.
+    // The viewer's keys, for the desktop; the page's are off while it is open. A
+    // tapped example word practises its kanji.
     if(viewer.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        u32       _kanji[KANA_VIEWER_WORD_KANJI];
+        const u32 _n = kana_viewer_take_word(&viewer, _kanji, KANA_VIEWER_WORD_KANJI);
+        if(_n > 0) {
+            kana_practice_open_set(&practice, _kanji, _n);
+        }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_RIGHT)) { kana_viewer_next(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_LEFT))  { kana_viewer_prev(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_SPACE)) { kana_viewer_replay(&viewer); }

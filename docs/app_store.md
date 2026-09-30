@@ -90,7 +90,7 @@ Still to write and host. It must say:
 
 ## Licences and attribution (in the app)
 
-**Settings › About** credits KanjiVG, KANJIDIC2 and the JLPT lists and Google
+**Settings › About** credits KanjiVG, KANJIDIC2, JMdict and the JLPT lists and Google
 ML Kit in a few lines, with the note on what ML Kit sends. It points to
 Licences for the rest: the full attribution KanjiVG and EDRDG require is its
 Data document, and Google's terms head the ML Kit one.
@@ -99,7 +99,7 @@ Data document, and Google's terms head the ML Kit one.
 
 | Document | Contents | File |
 |---|---|---|
-| Data | KanjiVG, KANJIDIC2, JLPT | `assets/data/LICENSE-data.txt` |
+| Data | KanjiVG, KANJIDIC2, JMdict, JLPT | `assets/data/LICENSE-data.txt` |
 | Fonts | Roboto (Apache 2.0), Noto Sans JP (SIL OFL 1.1) | `assets/fonts/LICENSE-*.txt` |
 | Libraries | GTMSessionFetcher, GoogleDataTransport, GoogleUtilities, GoogleToolboxForMac, Promises (Apache 2.0); nanopb, minizip-ng (zlib); SSZipArchive (MIT) | `assets/licenses/libraries.txt` |
 | ML Kit | Google's NOTICES for the software inside ML Kit (~25,000 lines) | `assets/licenses/ml-kit-notices.txt` |

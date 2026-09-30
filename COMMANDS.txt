@@ -123,14 +123,16 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
 
 THE CHARACTER DATA BAKE
 -----------------------
-assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2 (format in
-include/kanji.h). Re-bake only when the sources are updated. The sources are
+assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2, with the JLPT
+lists and JMdict's example words (format in include/kanji.h). Re-bake only when the sources are updated. The sources are
 not in the repository (data/raw/ is ignored):
 
   mkdir -p data/raw && cd data/raw
   curl -L -o kanjivg.xml.gz https://github.com/KanjiVG/kanjivg/releases/download/r20250816/kanjivg-20250816.xml.gz
   curl -L -o kanjidic2.xml.gz http://www.edrdg.org/kanjidic/kanjidic2.xml.gz
+  curl -L -o JMdict_e.gz http://ftp.edrdg.org/pub/Nihongo/JMdict_e.gz
   gunzip -k kanjivg.xml.gz kanjidic2.xml.gz
+  gunzip -c JMdict_e.gz > JMdict_e.xml
   mkdir -p jlpt
   for n in 1 2 3 4 5; do
     curl -L -o jlpt/n$n-kanji-char-eng.mem http://www.tanos.co.uk/jlpt/jlpt$n/kanji/n$n-kanji-char-eng.mem
@@ -138,15 +140,18 @@ not in the repository (data/raw/ is ignored):
   cd ../..
 
 (The JLPT files are Jonathan Waller's N5-N1 kanji lists as Mnemosyne decks,
-CC BY; the bake reads the kanji out of them.)
+CC BY; the bake reads the kanji out of them. JMdict_e is EDRDG's Japanese-
+English dictionary, CC BY-SA 4.0 like KANJIDIC2; the bake keeps up to six
+common words a kanji as its examples, ~0.45 MB. JMdict is updated daily: a
+re-bake picks up whatever the download has.)
 
 Then, with the Mac desktop build above, from the project root:
 
   ./build/osx-silicon/debug/project/exe/runnable --bake
-      [--kanjivg=PATH] [--kanjidic=PATH] [--jlpt=DIR] [--out=PATH]
+      [--kanjivg=PATH] [--kanjidic=PATH] [--jlpt=DIR] [--jmdict=PATH] [--out=PATH]
 
-It reports characters, strokes, sizes and stroke-count disagreements, and takes
-about a second. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
+It reports characters, strokes, sizes, stroke-count disagreements and example
+words, and takes about three seconds. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
 ship with the app and its attribution must be shown to users.
 
 

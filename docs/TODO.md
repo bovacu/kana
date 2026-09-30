@@ -7,22 +7,23 @@ Tick an item when it has been seen working on the iPad, not when it compiles.
 
 ## 1. Check free writing — design §4, without ML Kit
 
-*Built 2026-09-30 (check.h/.c), waiting to be seen on the iPad.*
+*Built 2026-09-30 (check.h/.c), seen working on the iPad 2026-09-30.*
 
-- [ ] In the lasso menu, beside Cut/Copy/Duplicate/Delete: **Check**. It checks the
+- [x] In the lasso menu, beside Cut/Copy/Duplicate/Delete: **Check**. It checks the
       selected strokes as one character.
-- [ ] Rank the selection with the draw-to-search matcher (`match.h`), which is
+- [x] Rank the selection with the draw-to-search matcher (`match.h`), which is
       offline, fast and already built.
-- [ ] Show the best few matches; tap the one you meant.
-- [ ] Score the selection against it with `score.h`: order, direction, shape, and
+- [x] Show the best few matches; tap the one you meant.
+- [x] Score the selection against it with `score.h`: order, direction, shape, and
       the same feedback line as Practice.
-- [ ] From the result: **Practice** that character (the practice screen).
+- [x] From the result: **Practice** that character (the practice screen).
 
 ### 1b. Check sentences
 
-*Built 2026-09-30 (segment.h/.c, check.h/.c), waiting to be seen on the iPad.*
+*Built 2026-09-30 (segment.h/.c, check.h/.c), seen working on the iPad 2026-09-30
+(with ML Kit reading, see below).*
 
-- [ ] A selection of several characters is READ: split into the characters it
+- [x] A selection of several characters is READ: split into the characters it
       was written as, across or down, one line or several (`segment.h`).
   - Tested on synthetic sentences written from the reference strokes (jitter,
     tight and loose spacing, across and down): 69/69 read right; ~11 ms a
@@ -30,15 +31,15 @@ Tick an item when it has been seen working on the iPad, not when it compiles.
   - Small kana by size and place (っ/つ), and by what may come before them
     (ょ only after an i-row kana); look-alikes across scripts (へ/ヘ, ー/一,
     カ/力, ロ/口…) by the script around them.
-- [ ] The Check screen: the whole writing with a box around each character, the
+- [x] The Check screen: the whole writing with a box around each character, the
       reading under it with each character's score, and the one tapped looked
       at closely (square, candidates, feedback).
-- [ ] **I meant…**: a text typed in (romaji — lower case hiragana, UPPER
+- [x] **I meant…**: a text typed in (romaji — lower case hiragana, UPPER
       katakana — or Japanese from the keyboard) reads the selection as that,
       and scores each character against what was meant.
-- [ ] Practice from Check practises the reading as a set; Stroke order steps
+- [x] Practice from Check practises the reading as a set; Stroke order steps
       through it.
-- [ ] Japanese text shows in the UI font (Noto Sans JP as Roboto's fallback).
+- [x] Japanese text shows in the UI font (Noto Sans JP as Roboto's fallback).
 - **Real writing** (the first sentence copied off the iPad, ありがとございます,
   2026-09-30): at first read as 6 characters (neighbours merged — real strokes
   match KanjiVG at 15-20 a stroke, not 2-5 like the synthetic ones). With the
@@ -95,20 +96,34 @@ Tick an item when it has been seen working on the iPad, not when it compiles.
 
 ## 2. Example vocabulary — the rest of design §2 (Reference)
 
-- [ ] **Needs a new source:** JMdict, EDRDG's Japanese–English dictionary. It is
-      the same group and the same licence (CC BY-SA 4.0) as KANJIDIC2, so the
-      credits in Settings > About and `assets/data/LICENSE-data.txt` grow by one
-      entry.
+*Built 2026-09-30 (bake.c, kanji.h/.c 'WORD', viewer.h/.c), waiting to be seen on
+the iPad.*
+
+- [ ] **The source:** JMdict (JMdict_e, English), EDRDG's Japanese–English
+      dictionary, CC BY-SA 4.0 like KANJIDIC2: credited in Settings › About and
+      `assets/data/LICENSE-data.txt`.
 - [ ] **Same bake, one more input:** `--bake` also reads `data/raw/JMdict_e.xml`
-      (a download, documented in COMMANDS.txt).
-  - It keeps only common words (JMdict's priority marks: news1, ichi1, spec1…),
-    a few per kanji.
-  - Each word stores its written form, reading, first meaning, and the kanji it
-    contains.
-  - Estimate: well under 1 MB added to the shipped data.
-- [ ] **Viewer:** 3–6 example words under the meaning, each with its reading
-      (drawn from strokes, like the readings) and its meaning.
-- [ ] **Tap a word:** practise its kanji as a set.
+      (COMMANDS.txt has the download), a line at a time (60 MB of XML).
+  - Only common written forms (news1, ichi1, spec1, spec2), up to four
+    characters, whose kanji all have strokes.
+  - Up to six a kanji, best first: the kanji on its own (月 つき, 上 うえ);
+    then by newspaper frequency, with everyday words (ichi1) about mid-list;
+    words whose other kanji are harder than it, usually written in kana, or
+    that are names (山形 "Yamagata") lower; one number word at most (一月,
+    not all twelve months); no longer form of one kept (日本人 after 日本).
+  - Each word: its written form, reading and first meaning (its first
+    glosses, while short). A word is stored once however many kanji list it.
+  - 8,818 words for 2,548 kanji: +0.45 MB (characters.kana 3.9 MB). The
+    stale `characters.kana.bak` that was shipping (3.3 MB) is gone: the bake
+    removes it.
+- [ ] **Viewer:** the words under the details (portrait), or in a column beside
+      the character (landscape, which also keeps the character big): each a
+      row with its written form (Noto Sans JP), reading and meaning, cut to
+      the screen with "…". Portrait drops words (down to three) before the
+      character gets smaller than 300.
+- [ ] **Tap a word:** practises its kanji as a set (kana in it left out).
+- Open: words for kana (あ: あさ, あめ…)? JMdict has them, but which ones to
+  show is a different choice (words that start with it?).
 
 ## 3. Guided training mode — explore first
 
@@ -150,6 +165,9 @@ See `docs/app_store.md` for privacy, licences and permissions.
 ---
 
 ## Done (for the record)
+
+The canvas toolbar minimizes: a double tap on its grip folds it to the grip
+(still movable) and opens it again; saved in the settings.
 
 Ink with Apple Pencil at full rate. Undo and redo. Saving. Lasso with cut, copy,
 paste and duplicate. Themes. The data bake (KanjiVG, KANJIDIC2, JLPT). The
