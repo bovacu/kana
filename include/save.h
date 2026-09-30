@@ -29,8 +29,8 @@
 //
 // DOCUMENT ('DOC '): the page.
 //   'VIEW'  f32 offset.x, offset.y, zoom
-//   'PAGE'  u8 squares (practice squares over the page: 1 on, 0 off)
-//           (optional: a file from before it has none — off)
+//   'PAGE'  u8 paper (KANA_PAPER_: 0 dots, 1 squares, 2 lines, 3 none)
+//           (optional: a file from before it has none — dots)
 //   'STRK'  u32 count, u32 record size, then per stroke:
 //           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen), 3 reserved
 //           (r g b a all 0: the theme's ink; 30 30 36 255, from before themes,
@@ -45,7 +45,7 @@
 //           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme,
 //           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
 //           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0),
-//           u8 squares_size (the practice squares' size: KANA_SQUARES_SIZE_)
+//           u8 paper_size (lines' and squares' size: KANA_PAPER_SIZE_)
 //           (new fields go at the END: an older file just ends sooner)
 // ===========================================================================
 
@@ -72,7 +72,7 @@ RDE_STRUCT {
     u8         theme;            // KANA_THEME_
     b8         mlkit;            // read handwriting with Google ML Kit (mlkit.h)
     b8         toolbar_minimized;   // the bar folded to its grip
-    u8         squares_size;        // KANA_SQUARES_SIZE_
+    u8         paper_size;        // KANA_PAPER_SIZE_
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

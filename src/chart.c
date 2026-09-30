@@ -315,12 +315,21 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
             continue;
         }
 
-        const f32 _glyph = _c->size * 0.58f;
+        const f32  _glyph  = _c->size * 0.58f;
+        const u32  _record = ((const u32*)_chart->list.memory)[_c->position];
+        const b8   _select = _chart->selection != NULL && _chart->selection->active;
+        const b8   _ticked = _select && kana_selection_has(_chart->selection, _record);
+        if(_select) {
+            kana_selection_draw_behind(_ticked, (rde_vec_2F){ _c->x, _y }, _c->size);
+        }
         kana_draw_outline((rde_vec_2F){ _c->x + 2.0f, _y - _c->size + 2.0f }, (rde_vec_2F){ _c->x + _c->size - 2.0f, _y - 2.0f }, 0.5f, kana_theme_active()->line);
 
         kana_glyph_character(&_chart->glyph, _cps[_c->position], (rde_vec_2F){ _c->x + (_c->size - _glyph) * 0.5f, _y - _c->size * 0.08f }, _glyph, kana_theme_active()->ink);
         if(_romaji[_c->position] != NULL) {
             kana_draw_text(_font, _font_px, _romaji[_c->position], _c->x + 6.0f, _y - _c->size + 8.0f, 13.0f, kana_theme_active()->text_soft);
+        }
+        if(_select) {
+            kana_selection_draw_tick(_ticked, (rde_vec_2F){ _c->x, _y }, _c->size);
         }
     }
 

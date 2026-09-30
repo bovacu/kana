@@ -126,8 +126,8 @@ RDE_STRUCT {
     rde_ui_label*   width_label;
     rde_ui_button*  width_even;
     rde_ui_button*  width_pressure;
-    rde_ui_label*   squares_label;        // the practice squares' size (canvas.h), for every canvas
-    rde_ui_button*  squares_sizes[KANA_SQUARES_SIZE_COUNT];
+    rde_ui_label*   paper_label;        // lines' and squares' size (canvas.h), for every canvas
+    rde_ui_button*  paper_sizes[KANA_PAPER_SIZE_COUNT];
     rde_ui_label*   about_label;
     rde_ui_label*   about_text;
     rde_ui_button*  settings_close;

@@ -9,13 +9,13 @@
 // See canvas.h.
 // ===========================================================================
 
-f32 kana_canvas_square_units(KANA_SQUARES_SIZE_ _size) {
-    return _size == KANA_SQUARES_SMALL ? 110.0f : _size == KANA_SQUARES_LARGE ? 240.0f : 160.0f;
+f32 kana_canvas_paper_units(KANA_PAPER_SIZE_ _size) {
+    return _size == KANA_PAPER_SMALL ? 110.0f : _size == KANA_PAPER_LARGE ? 240.0f : 160.0f;
 }
 
 void kana_canvas_init(kana_canvas* _canvas) {
     memset(_canvas, 0, sizeof(*_canvas));
-    _canvas->square_size = KANA_SQUARES_MEDIUM;
+    _canvas->paper_size = KANA_PAPER_MEDIUM;
     kana_canvas_reset_view(_canvas);
 }
 
@@ -222,7 +222,7 @@ RDE_INTERNAL void kana_canvas_draw_squares(const kana_canvas* _canvas, rde_vec_2
     // The theme's canvas colours: the edges as its dots, the crosses between those
     // and the page.
     const kana_theme* _theme  = kana_theme_active();
-    const f32         _s      = kana_canvas_square_units(_canvas->square_size);
+    const f32         _s      = kana_canvas_paper_units(_canvas->paper_size);
     const f32         _screen = _s * _canvas->view.zoom;
     const rde_color   _edge   = _theme->page_dots;
     const rde_color   _guide  = {
@@ -263,6 +263,15 @@ RDE_INTERNAL void kana_canvas_draw_squares(const kana_canvas* _canvas, rde_vec_2
     }
 }
 
+// Ruled lines across what the screen shows, where the squares' edges would be.
+RDE_INTERNAL void kana_canvas_draw_lines(const kana_canvas* _canvas, rde_vec_2F _min, rde_vec_2F _max) {
+    const f32 _s = kana_canvas_paper_units(_canvas->paper_size);
+    for(f32 _y = (floorf(_min.y / _s - 0.5f) + 0.5f) * _s; _y <= _max.y; _y += _s) {
+        kana_draw_line(kana_canvas_to_screen(_canvas, (rde_vec_2F){ _min.x, _y }), kana_canvas_to_screen(_canvas, (rde_vec_2F){ _max.x, _y }), 0.6f,
+                       kana_theme_active()->page_dots);
+    }
+}
+
 void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) {
     const kana_view* _view = &_canvas->view;
 
@@ -278,8 +287,15 @@ void kana_canvas_draw_grid(const kana_canvas* _canvas, rde_vec_2I _window_size) 
     const rde_vec_2F _min = kana_canvas_from_screen(_canvas, (rde_vec_2F){ -_hw, -_hh });
     const rde_vec_2F _max = kana_canvas_from_screen(_canvas, (rde_vec_2F){  _hw,  _hh });
 
-    if(_canvas->page.squares) {
+    if(_canvas->page.paper == KANA_PAPER_NONE) {
+        return;
+    }
+    if(_canvas->page.paper == KANA_PAPER_SQUARES) {
         kana_canvas_draw_squares(_canvas, _min, _max);
+        return;
+    }
+    if(_canvas->page.paper == KANA_PAPER_LINES) {
+        kana_canvas_draw_lines(_canvas, _min, _max);
         return;
     }
 

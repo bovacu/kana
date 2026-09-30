@@ -170,29 +170,94 @@ the last step is scored and saved.
 
 ## 4. Practice squares on the canvas
 
-*Built 2026-09-30 (canvas.h/.c, save.h 'PAGE', the toolbar's Squares), waiting to
-be seen on the iPad.*
+*Built 2026-09-30 (canvas.h/.c, save.h 'PAGE', the toolbar's Squares, Settings ›
+Practice squares), seen working on the iPad 2026-09-30.*
 
 Decided (Claude's proposal): per canvas, saved in its file; part of the page
 (they pan and zoom with it); squares with the dashed centre cross.
 
-- [ ] **Squares** in the floating toolbar (after Page/Screen): the page's
+- [x] **Squares** in the floating toolbar (after Page/Screen): the page's
       practice squares on or off, lit when on. Each canvas has its own; a new
       one starts without.
-- [ ] A grid of squares over the page instead of the dots, lines only, in the
+- [x] A grid of squares over the page instead of the dots, lines only, in the
       theme's canvas colours (the edges as its dots, the dashed centre crosses
       fainter, between those and the page), one centred on the page's origin,
       where Reset puts the middle of the screen. Zoomed out past 72 points a
       square, only the lines.
-- [ ] **Settings › Practice squares:** Small / Medium / Large (110 / 160 / 240
+- [x] **Settings › Practice squares:** Small / Medium / Large (110 / 160 / 240
       canvas units; Medium a comfortable character at zoom 1), the same on
       every canvas, saved in the settings. The Settings card grew a row; its
       About text now shrinks to fit a short (landscape) screen.
-- [ ] Saved with the page ('PAGE' chunk: a file from before it loads without
+- [x] Saved with the page ('PAGE' chunk: a file from before it loads without
       squares, and an older build skips the chunk).
 - Open: genkō yōshi's gaps between columns, for vertical writing.
 
-## 5. Release polish
+## 5. Background modes
+
+*Built 2026-09-30 (canvas.h/.c KANA_PAPER_, the toolbar's Paper panel), seen
+working on the iPad 2026-09-30.*
+
+- [x] The page's paper: dots, lines, squares or nothing — **Paper** in the
+      floating toolbar opens a panel of the four (like Color's palette; one of
+      the two open at a time), per canvas, saved with the page ('PAGE' u8: a
+      canvas saved with squares keeps them).
+- [x] Lines fall on the squares' edges (writing stays in place switching), in
+      the theme's dot colour. One size for both: Settings › Lines & squares.
+
+## 6. Selecting characters
+
+*Built 2026-09-30 (select.h/.c, Browse's and the chart's Select), waiting to be
+seen on the iPad.*
+
+- [ ] **Select** in Browse's row and the chart's: a tap ticks (or unticks) instead
+      of opening; every cell shows a circle, a ticked one filled with a check
+      and the cell tinted.
+- [ ] The row while selecting: **All** (Browse: every filtered, sorted, searched
+      result; the chart: the section in view), **None**, **Practice n** (the
+      ticked as a set, in the order ticked), **Done** (taps open again; the ticks
+      stay until None, or the app quits).
+- [ ] One selection for both: kanji ticked in Browse and kana in the chart
+      practise together.
+- Later: exams and study marks from the same selection.
+
+## 7. Study marks and exams
+
+Decided with Borja, 2026-09-30:
+- Marks: **Studying** and **Known** (e.g. after passing exams), per character,
+  saved; set from the viewer, filtered in Browse, shown in the album.
+- Exams: pick a source (Studying, N5..N1, hiragana, katakana, a selection) →
+  a preview of everything, ticked (untick to leave out) → each character once,
+  written in a blank square with no help → results, saved.
+- The prompt, kanji: meaning, readings, and an example word with the kanji
+  blanked (学○ がくせい "student"). Kana: the romaji.
+- Passing: the right character — recognition (ML Kit, the matcher behind it)
+  has it among its top candidates, not only first — and how well it was
+  written (Practice's score).
+
+## 8. Statistics
+
+- [ ] An in-depth view of progress, from everything saved: practice sessions
+      (how many, when, scores and how they evolve, per character), exams
+      (taken, passed, accuracy over time), marks (studying / known), coverage
+      of each JLPT level, weakest characters, the kinds of mistakes made, streaks
+      and a calendar of activity. As much as there is data for.
+
+## 9. UI restyle, icons, the string table
+
+- [ ] A design pass: spacing, radii, a type scale, primary / secondary / toggle
+      buttons, one panel style, across every screen. Icons (an icon font through
+      Slug: sharp, theme-coloured, beside text in one label; Borja picks the
+      set). Every UI string into a table, for translation.
+
+## 10. Other languages
+
+- [ ] Meanings in other languages: KANJIDIC2 has Spanish for 2,505 kanji (all
+      2,136 Jōyō), French 2,066, Portuguese 1,944; JMdict's full file has
+      German, Russian, Dutch, French, Spanish, Hungarian, Swedish, Slovenian
+      (coverage of the common words to measure; English where missing). The
+      UI strings translated too. Spanish first.
+
+## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.
 

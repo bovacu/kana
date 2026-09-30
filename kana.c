@@ -70,6 +70,7 @@ RDE_INTERNAL kana_kanji_db kanji_db;
 RDE_INTERNAL kana_viewer  viewer;
 RDE_INTERNAL kana_browse  browse;
 RDE_INTERNAL kana_chart   chart;
+RDE_INTERNAL kana_selection selection;   // Browse's and the chart's ticks (select.h)
 RDE_INTERNAL kana_practice practice;
 RDE_INTERNAL kana_album    album;
 RDE_INTERNAL kana_check    check;                         // the lasso's selection, checked (check.h)
@@ -192,7 +193,7 @@ RDE_INTERNAL void kana_erase_at_screen(rde_vec_2F _screen) {
 }
 
 RDE_INTERNAL b8 kana_page_same(kana_page _a, kana_page _b) {
-    return _a.squares == _b.squares;
+    return _a.paper == _b.paper;
 }
 
 RDE_INTERNAL b8 kana_view_same(kana_view _a, kana_view _b) {
@@ -213,7 +214,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.theme          = (u8)kana_theme_index();
     _s.mlkit          = kana_mlkit_enabled();
     _s.toolbar_minimized = toolbar.minimized;
-    _s.squares_size      = (u8)canvas.square_size;
+    _s.paper_size      = (u8)canvas.paper_size;
     return _s;
 }
 
@@ -226,7 +227,7 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     ink.constant_radius  = rde_math_clamp_f32(_s->radius, KANA_TOOLBAR_SIZE_MIN, KANA_TOOLBAR_SIZE_MAX);
     kana_theme_set((KANA_THEME_)_s->theme);
     kana_mlkit_set_enabled(_s->mlkit);
-    canvas.square_size   = _s->squares_size < KANA_SQUARES_SIZE_COUNT ? (KANA_SQUARES_SIZE_)_s->squares_size : KANA_SQUARES_MEDIUM;
+    canvas.paper_size   = _s->paper_size < KANA_PAPER_SIZE_COUNT ? (KANA_PAPER_SIZE_)_s->paper_size : KANA_PAPER_MEDIUM;
     kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center, _s->toolbar_minimized);
     kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
@@ -409,6 +410,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_viewer_init(&viewer, _have_kanji ? &kanji_db : NULL);
     kana_browse_init(&browse, _have_kanji ? &kanji_db : NULL);
     kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
+    kana_selection_init(&selection, _have_kanji ? kanji_db.count : 0u);
+    browse.selection = &selection;
+    chart.selection  = &selection;
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
     kana_album_init(&album, _have_kanji ? &kanji_db : NULL);
     kana_notes_init(&notes);
@@ -418,6 +422,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
+    toolbar.selection = &selection;
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
@@ -990,17 +995,20 @@ void on_update(f32 _dt) {
             kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
         }
 #endif
-        // A tapped character opens the viewer, walking the grid's (or chart's) list.
+        // A tapped character opens the viewer, walking the grid's (or chart's)
+        // list; in Select mode it is ticked (or unticked) instead.
         u32 _position = 0;
         if(browse.open) {
             kana_browse_update(&browse, _dt);
             if(kana_browse_take_tap(&browse, &_position)) {
-                kana_viewer_show(&viewer, kana_browse_list(&browse), kana_browse_count(&browse), _position);
+                if(selection.active) { kana_selection_toggle(&selection, kana_browse_list(&browse)[_position]); }
+                else                 { kana_viewer_show(&viewer, kana_browse_list(&browse), kana_browse_count(&browse), _position); }
             }
         } else {
             kana_chart_update(&chart, _dt);
             if(kana_chart_take_tap(&chart, &_position)) {
-                kana_viewer_show(&viewer, kana_chart_list(&chart), kana_chart_count(&chart), _position);
+                if(selection.active) { kana_selection_toggle(&selection, kana_chart_list(&chart)[_position]); }
+                else                 { kana_viewer_show(&viewer, kana_chart_list(&chart), kana_chart_count(&chart), _position); }
             }
         }
 
@@ -1263,6 +1271,7 @@ void end_func(void) {
     kana_viewer_destroy(&viewer);
     kana_browse_destroy(&browse);
     kana_chart_destroy(&chart);
+    kana_selection_destroy(&selection);
     kana_practice_destroy(&practice);
     kana_album_destroy(&album);
     kana_notes_destroy(&notes);

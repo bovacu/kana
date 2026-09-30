@@ -602,10 +602,18 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
                 continue;
             }
 
-            const f32 _x = _left + (f32)_col * _cell;
+            const f32 _x      = _left + (f32)_col * _cell;
+            const b8  _select = _browse->selection != NULL && _browse->selection->active;
+            const b8  _ticked = _select && kana_selection_has(_browse->selection, _list[_i]);
+            if(_select) {
+                kana_selection_draw_behind(_ticked, (rde_vec_2F){ _x, _y }, _cell);
+            }
             kana_draw_line((rde_vec_2F){ _x + 4.0f, _y - _cell }, (rde_vec_2F){ _x + _cell - 4.0f, _y - _cell }, 0.5f, kana_theme_active()->line);
             kana_glyph_character(&_browse->glyph, _info.codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - _cell * 0.08f }, _glyph, kana_theme_active()->ink);
             kana_browse_caption(_browse, &_info, _font, _font_px, _x, _y - _cell + 8.0f, _cell);
+            if(_select) {
+                kana_selection_draw_tick(_ticked, (rde_vec_2F){ _x, _y }, _cell);
+            }
         }
     }
 

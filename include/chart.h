@@ -5,6 +5,7 @@
 #include "kanji.h"
 #include "glyph.h"
 #include "scroll.h"
+#include "select.h"
 
 // ===========================================================================
 // The kana chart: all of hiragana, then all of katakana, as the classic gojūon
@@ -45,6 +46,8 @@ RDE_STRUCT {
     f32                           view_bottom;
 
     i32                           tapped;    // see kana_chart_take_tap
+
+    kana_selection*               selection; // the app's (select.h), set by its owner: in Select mode the cells show ticks
 } kana_chart;
 
 void kana_chart_init(kana_chart* _chart, const kana_kanji_db* _db);

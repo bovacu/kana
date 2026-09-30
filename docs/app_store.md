@@ -100,7 +100,7 @@ Data document, and Google's terms head the ML Kit one.
 | Document | Contents | File |
 |---|---|---|
 | Data | KanjiVG, KANJIDIC2, JMdict, JLPT | `assets/data/LICENSE-data.txt` |
-| Fonts | Roboto (Apache 2.0), Noto Sans JP (SIL OFL 1.1) | `assets/fonts/LICENSE-*.txt` |
+| Fonts | Roboto (Apache 2.0), Noto Sans JP (SIL OFL 1.1), Phosphor icons (MIT) | `assets/fonts/LICENSE-*.txt` |
 | Libraries | GTMSessionFetcher, GoogleDataTransport, GoogleUtilities, GoogleToolboxForMac, Promises (Apache 2.0); nanopb, minizip-ng (zlib); SSZipArchive (MIT) | `assets/licenses/libraries.txt` |
 | ML Kit | Google's NOTICES for the software inside ML Kit (~25,000 lines) | `assets/licenses/ml-kit-notices.txt` |
 

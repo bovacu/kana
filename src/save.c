@@ -97,7 +97,7 @@ b8 kana_save_document(const c8* _path, const kana_ink* _ink, kana_view _view, ka
     kana_chunk_end(&_b, _chunk);
 
     _chunk = kana_chunk_begin(&_b, KANA_CHUNK_PAGE);
-    kana_put_u8(&_b, _page.squares ? 1u : 0u);
+    kana_put_u8(&_b, (u8)_page.paper);
     kana_chunk_end(&_b, _chunk);
 
     _chunk = kana_chunk_begin(&_b, KANA_CHUNK_STROKES);
@@ -157,7 +157,7 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
     }
 
     kana_view           _v            = *_view;
-    kana_page           _pg           = { 0 };   // a file from before 'PAGE': nothing over the page
+    kana_page           _pg           = { 0 };   // a file from before 'PAGE': the dots
     kana_loaded_stroke* _strokes      = NULL;
     u32                 _stroke_count = 0;
     kana_ink_point*     _points       = NULL;
@@ -188,9 +188,9 @@ RDE_INTERNAL b8 kana_parse_document(const u8* _data, u32 _size, kana_ink* _ink, 
                 _v.zoom   = rde_math_clamp_f32(_z, KANA_CANVAS_ZOOM_MIN, KANA_CANVAS_ZOOM_MAX);
             }
         } else if(_tag == KANA_CHUNK_PAGE) {
-            const u8 _squares = kana_get_u8(&_c);
-            if(_c.ok) {
-                _pg.squares = _squares == 1u;
+            const u8 _paper = kana_get_u8(&_c);
+            if(_c.ok && _paper < KANA_PAPER_COUNT) {
+                _pg.paper = (KANA_PAPER_)_paper;
             }
         } else if(_tag == KANA_CHUNK_STROKES && !_have_strokes) {
             const u32 _count  = kana_get_u32(&_c);
@@ -327,7 +327,7 @@ b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_put_u8(&_b, _settings->theme);
     kana_put_u8(&_b, _settings->mlkit ? 1u : 0u);
     kana_put_u8(&_b, _settings->toolbar_minimized ? 1u : 0u);
-    kana_put_u8(&_b, _settings->squares_size);
+    kana_put_u8(&_b, _settings->paper_size);
     kana_chunk_end(&_b, _chunk);
 
     return kana_bytes_write_and_free(&_b, _path, NULL);
@@ -396,8 +396,8 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
         if(_c.ok && _mlkit <= 1u) { _s.mlkit = _mlkit != 0; }
         const u8 _minimized = kana_get_u8(&_c);
         if(_c.ok && _minimized <= 1u) { _s.toolbar_minimized = _minimized != 0; }
-        const u8 _squares = kana_get_u8(&_c);
-        if(_c.ok && _squares < KANA_SQUARES_SIZE_COUNT) { _s.squares_size = _squares; }
+        const u8 _paper = kana_get_u8(&_c);
+        if(_c.ok && _paper < KANA_PAPER_SIZE_COUNT) { _s.paper_size = _paper; }
     }
 
     kana_file_free(_data);
@@ -416,5 +416,5 @@ b8 kana_settings_equal(const kana_settings* _a, const kana_settings* _b) {
            kana_same_f32(_a->radius, _b->radius) &&
            kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
            _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
-           _a->squares_size == _b->squares_size;
+           _a->paper_size == _b->paper_size;
 }

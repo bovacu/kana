@@ -13,6 +13,7 @@
 #include "side.h"
 #include "notes.h"
 #include "check.h"
+#include "select.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -74,6 +75,8 @@ struct kana_toolbar {
     rde_ui_canvas* ui;
     rde_font*      font;
     rde_font*      font_jp;         // Noto Sans JP, font's fallback: Japanese typed or shown as text
+    rde_font*      font_icons;      // Phosphor Regular, font's last fallback: icons as text (icons.h)
+    rde_font*      font_icons_fill; // Phosphor Fill, a font of its own: an icon showing something on
     rde_window*    window;
 
     // What the toolbar drives.
@@ -87,6 +90,7 @@ struct kana_toolbar {
     kana_album*    album;
     kana_notes*    notes;
     kana_check*    check;
+    kana_selection* selection;      // Browse's and the chart's ticks (select.h); set by the owner after init
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -112,7 +116,7 @@ struct kana_toolbar {
     rde_ui_slider* size;
     rde_ui_button* color;
     rde_ui_button* brush_scale;
-    rde_ui_button* squares;         // the page's practice squares, on or off (canvas.h)
+    rde_ui_button* paper;           // opens the paper panel: the page's dots, lines, squares or nothing (canvas.h)
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
 
@@ -122,6 +126,15 @@ struct kana_toolbar {
     b8                       palette_open;
     rde_vec_2F               palette_center;   // UI canvas units, set whenever it is placed
     rde_vec_2F               palette_size;
+
+    // The page's paper (canvas.h), a panel beside the bar like the palette,
+    // opened by Paper; one of the two open at a time. In KANA_PAPER_ order.
+    rde_ui_image*            paper_panel;
+    rde_ui_button*           paper_choices[KANA_PAPER_COUNT];
+    kana_toolbar_swatch_ref  paper_refs[KANA_PAPER_COUNT];
+    b8                       paper_open;
+    rde_vec_2F               paper_center;   // UI canvas units, set whenever it is placed
+    rde_vec_2F               paper_size;
     // Over a lasso selection: Cut, Copy, Duplicate, Delete.
     kana_toolbar_menu        selection_menu;
     f64                      copied_until;     // Copy reads "Copied" until then (engine clock)
@@ -134,9 +147,13 @@ struct kana_toolbar {
     b8                       _viewer_shown;     // a full-screen scene is up: the floating bar is hidden
     // The kana chart's row: Hiragana, Katakana (jumps), Close.
     kana_toolbar_menu        chart_menu;
-    // Browse's row, at the bottom like the chart's and the album's: Practice (its
-    // list as a set), Close.
+    // Browse's row, at the bottom like the chart's and the album's: Select,
+    // Practice (its list as a set), Close.
     kana_toolbar_menu        browse_menu;
+    // Browse's and the chart's row in Select mode: All (Browse's list, or the
+    // chart's section in view), None, Practice (the ticked), Done.
+    kana_toolbar_menu        select_menu;
+    u32                      _selected_shown;   // the count "Practice n" shows
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
     // Check's row: Back, Stroke order, Practice; and its "I meant…" field, at
@@ -157,7 +174,7 @@ struct kana_toolbar {
     kana_toolbar_menu        practice_summary_menu;
     b8                       _finish_shown;
     b8                       _guided_shown;      // what the Guided buttons show
-    b8                       _squares_shown;     // what Squares shows (the page's, which changes with the canvas)
+    KANA_PAPER_              _paper_shown;       // the paper the panel shows chosen (the page's, which changes with the canvas)
     b8                       _can_score_shown;   // Score pressable (not in guided steps 1 and 2)
 
     // Browse's bar, across the top of the screen: filters, sorts, the search
@@ -196,7 +213,7 @@ void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_i
                              kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, kana_check* _check, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
-// Is this point on the toolbar, its open palette or an open menu? _screen is
+// Is this point on the toolbar, its open palette or paper panel, or an open menu? _screen is
 // Kana's screen space (centre-origin, Y up) — what pen positions convert to.
 b8         kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen);
 

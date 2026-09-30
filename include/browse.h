@@ -9,6 +9,7 @@
 #include "match.h"
 #include "scroll.h"
 #include "recognize.h"
+#include "select.h"
 
 // ===========================================================================
 // Browse: every kana and kanji as a grid to scroll and tap — filtered, sorted,
@@ -93,6 +94,8 @@ RDE_STRUCT {
     u32                  columns;
 
     i32                  tapped;        // a tapped position in list, or -1 (see kana_browse_take_tap)
+
+    kana_selection*      selection;     // the app's (select.h), set by its owner: in Select mode the grid shows ticks
 } kana_browse;
 
 void kana_browse_init(kana_browse* _browse, const kana_kanji_db* _db);
