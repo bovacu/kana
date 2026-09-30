@@ -3,6 +3,7 @@
 #include "save.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -204,8 +205,15 @@ RDE_INTERNAL void kana_notes_repair(kana_notes* _notes) {
             _notes->next_id = _n->id + 1u;
         }
         const kana_note* _parent = _n->parent != 0 ? kana_notes_find(_notes, _n->parent) : NULL;
-        if(_n->parent != 0 && (_parent == NULL || _parent->kind != KANA_NOTE_FOLDER || _n->kind == KANA_NOTE_FOLDER)) {
-            _n->parent = 0;   // folders are one level deep; an orphan goes to the top
+        if(_n->parent != 0 && (_parent == NULL || _parent->kind != KANA_NOTE_FOLDER)) {
+            _n->parent = 0;   // an orphan goes to the top
+        }
+    }
+    // A folder inside itself (a damaged file): it goes to the top, which breaks the loop.
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes); _i++) {
+        kana_note* _n = kana_notes_at(_notes, _i);
+        if(_n->kind == KANA_NOTE_FOLDER && _n->parent != 0 && kana_notes_is_within(_notes, _n->parent, _n->id)) {
+            _n->parent = 0;
         }
     }
 
@@ -283,7 +291,7 @@ u32 kana_notes_add(kana_notes* _notes, KANA_NOTE_ _kind, u32 _parent, const c8* 
     kana_note _n;
     memset(&_n, 0, sizeof(_n));
     _n.id       = _notes->next_id++;
-    _n.parent   = (_kind == KANA_NOTE_CANVAS && _folder != NULL && _folder->kind == KANA_NOTE_FOLDER) ? _parent : 0u;
+    _n.parent   = (_folder != NULL && _folder->kind == KANA_NOTE_FOLDER) ? _parent : 0u;
     _n.kind     = (u8)_kind;
     _n.expanded = true;
     _n.created  = (u64)time(NULL);
@@ -336,12 +344,71 @@ void kana_notes_open(kana_notes* _notes, u32 _id) {
     }
 }
 
+b8 kana_notes_is_within(const kana_notes* _notes, u32 _id, u32 _folder) {
+    // Up the parents from _id; a damaged file's loop ends at the step limit.
+    u32 _at = _id;
+    for(u32 _steps = 0; _at != 0 && _steps <= (u32)rde_arr_length(&_notes->notes); _steps++) {
+        if(_at == _folder) {
+            return true;
+        }
+        const kana_note* _n = kana_notes_find(_notes, _at);
+        _at = _n != NULL ? _n->parent : 0u;
+    }
+    return false;
+}
+
 u32 kana_notes_count_in(const kana_notes* _notes, u32 _folder) {
     u32 _count = 0;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes); _i++) {
-        _count += kana_notes_at(_notes, _i)->parent == _folder && kana_notes_at(_notes, _i)->kind == KANA_NOTE_CANVAS ? 1u : 0u;
+        const kana_note* _n = kana_notes_at(_notes, _i);
+        _count += _n->kind == KANA_NOTE_CANVAS && _n->id != _folder && _n->parent != 0 && kana_notes_is_within(_notes, _n->parent, _folder) ? 1u : 0u;
     }
     return _count;
+}
+
+b8 kana_notes_move(kana_notes* _notes, u32 _id, u32 _parent, u32 _before) {
+    const kana_note* _target = kana_notes_find(_notes, _id);
+    const kana_note* _folder = _parent != 0 ? kana_notes_find(_notes, _parent) : NULL;
+    if(_target == NULL || _before == _id || (_parent != 0 && (_folder == NULL || _folder->kind != KANA_NOTE_FOLDER))) {
+        return false;
+    }
+    if(_target->kind == KANA_NOTE_FOLDER && _parent != 0 && kana_notes_is_within(_notes, _parent, _id)) {
+        return false;   // a folder into itself, or into something inside it
+    }
+
+    // Out of the list...
+    kana_note _moving = *_target;
+    kana_note* _all   = (kana_note*)_notes->notes.memory;
+    u32        _count = (u32)rde_arr_length(&_notes->notes);
+    u32        _from  = 0;
+    while(_all[_from].id != _id) {
+        _from++;
+    }
+    memmove(&_all[_from], &_all[_from + 1u], sizeof(kana_note) * (_count - _from - 1u));
+    _count--;
+
+    // ...and back in: just before _before if it is in _parent, else at the end —
+    // the list is read per parent, in order, so the end of the list is the end
+    // of the folder.
+    u32              _at   = _count;
+    const kana_note* _next = _before != 0 ? kana_notes_find(_notes, _before) : NULL;   // (the stale last slot is past _count)
+    if(_next != NULL && _next->parent == _parent && (u32)(_next - _all) < _count) {
+        _at = (u32)(_next - _all);
+    }
+    memmove(&_all[_at + 1u], &_all[_at], sizeof(kana_note) * (_count - _at));
+    _moving.parent = _parent;
+    _all[_at]      = _moving;
+
+    // Somewhere to see it land: its folder opens.
+    for(u32 _i = 0; _i <= _count; _i++) {
+        if(_parent != 0 && _all[_i].id == _parent) {
+            _all[_i].expanded = true;
+        }
+    }
+
+    _notes->revision++;
+    kana_notes_save(_notes);
+    return true;
 }
 
 RDE_INTERNAL void kana_notes_delete_files(u32 _id) {
@@ -362,13 +429,17 @@ void kana_notes_remove(kana_notes* _notes, u32 _id) {
     if(_target == NULL) {
         return;
     }
-    const b8 _folder = _target->kind == KANA_NOTE_FOLDER;
-
-    // The note, and a folder's canvases with it.
+    // The note, and everything inside a folder, at any depth. (Decided before
+    // anything is removed: removing breaks the parent chains it walks.)
+    const u32 _count = (u32)rde_arr_length(&_notes->notes);
+    b8*       _gone  = (b8*)calloc(_count > 0 ? _count : 1u, sizeof(b8));
+    for(u32 _i = 0; _i < _count; _i++) {
+        _gone[_i] = kana_notes_is_within(_notes, kana_notes_at(_notes, _i)->id, _id);
+    }
     u32 _kept = 0;
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes); _i++) {
+    for(u32 _i = 0; _i < _count; _i++) {
         const kana_note _n    = *kana_notes_at(_notes, _i);
-        const b8        _goes = _n.id == _id || (_folder && _n.parent == _id);
+        const b8        _goes = _gone[_i];
         if(_goes) {
             if(_n.kind == KANA_NOTE_CANVAS) {
                 kana_notes_delete_files(_n.id);
@@ -378,6 +449,7 @@ void kana_notes_remove(kana_notes* _notes, u32 _id) {
         *kana_notes_at(_notes, _kept++) = _n;
     }
     _notes->notes.count = _kept;   // rde_arr has no truncate: rde_arr_clear's operation, to a length
+    free(_gone);
 
     kana_notes_repair(_notes);    // the open canvas may have gone: another, or a new one
     _notes->revision++;

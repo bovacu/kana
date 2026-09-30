@@ -20,7 +20,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c -IC:/Users/borja/Programming/Projects/kana/include ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,7 +44,7 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c -Iinclude -Wall -Wextra ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c -Iinclude -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
@@ -66,7 +66,23 @@ paths are absolute on purpose.
     --ios_package_name=com.rde.kana --ios_app_name=Kana \
     "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
     "--ios_provisioning_profile=<~/Library/MobileDevice/Provisioning Profiles/....mobileprovision>" \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c -I/Users/borjavazquez/kana/include -Wall -Wextra
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitDigitalInkRecognition.framework \
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitCommon.framework \
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitMDD.framework \
+    --ios_framework=Network \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/mlkit_ios.m \
+    -I/Users/borjavazquez/kana/include -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
+
+ML Kit (Google's handwriting recognition, used by Check) must be set up ONCE
+before the first iOS build — it downloads the pinned pods and builds their
+sources into third_party/mlkit/ (git-ignored), no CocoaPods needed:
+
+  python3 tools/mlkit/setup.py
+
+--ios_framework / --ios_bundle and the iOS -L are builder options added for it
+(rde_build.c). The Japanese model (~20 MB) downloads on the app's first run.
 
 --apple_development_name WITHOUT the "Apple Development: " prefix — the builder
 adds it. --ios_package_name must match the profile's app id (com.rde.kana). The
@@ -98,7 +114,7 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/ \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c \
     -I/Users/borjavazquez/kana/include -Wall -Wextra
 
   ./build/osx-silicon/debug/project/exe/runnable                  # the app
@@ -132,6 +148,17 @@ Then, with the Mac desktop build above, from the project root:
 It reports characters, strokes, sizes and stroke-count disagreements, and takes
 about a second. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
 ship with the app and its attribution must be shown to users.
+
+
+THE FONTS
+---------
+assets/fonts/ ships Roboto (the UI's Latin, Apache 2.0) and Noto Sans JP (its
+fallback for Japanese typed or shown as text, SIL OFL 1.1: the licence file
+ships beside it). Noto Sans JP is the Japanese subset from the noto-cjk
+repository, Regular only (~4.5 MB); Slug loads its glyphs as they are used:
+
+  curl -L -o assets/fonts/NotoSansJP-Regular.otf https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/JP/NotoSansJP-Regular.otf
+  curl -L -o assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
 
 
 WHAT TO LOOK FOR ON THE DEVICE

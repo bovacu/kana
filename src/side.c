@@ -3,6 +3,8 @@
 #include "toolbar_kit.h"
 #include "version.h"
 #include "notes.h"
+#include "mlkit.h"
+#include "kfile.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -20,20 +22,33 @@
 #define KANA_SIDE_MENU_W    52.0f
 #define KANA_SIDE_MENU_H    44.0f
 #define KANA_SIDE_CARD_W    580.0f
-#define KANA_SIDE_CARD_H    590.0f
+#define KANA_SIDE_CARD_H    730.0f
+#define KANA_SIDE_LICENCE_PX 13.0f    // Licences' text
 #define KANA_SIDE_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 #define KANA_SIDE_NOTE_H    40.0f     // a row of the notes list
 #define KANA_SIDE_DOTS_W    44.0f     // its "…"
 #define KANA_SIDE_INDENT    18.0f     // a canvas in a folder
-#define KANA_SIDE_NOTE_CARD (rde_vec_2F){ 480.0f, 230.0f }
+#define KANA_SIDE_NOTE_CARD (rde_vec_2F){ 540.0f, 230.0f }
+#define KANA_SIDE_HANDLE_W  28.0f     // a row's drag handle
+#define KANA_SIDE_EDGE      44.0f     // a drag this near the list's top or bottom scrolls it
+#define KANA_SIDE_AUTOSCROLL 9.0f     // ...this many units a frame
 
 // The credits the character data's licences require be shown to users
 // (assets/data/LICENSE-data.txt has them in full).
+// Short: the credits and licences in full are Settings › Licences (Data: the
+// attribution KanjiVG and EDRDG require; ML Kit: Google's terms and notices).
 static const c8 KANA_SIDE_CREDITS[] =
-    "Stroke order: KanjiVG, copyright Ulrich Apel, CC BY-SA 3.0 (kanjivg.tagaini.net).\n"
-    "Readings and meanings: KANJIDIC2, property of the Electronic Dictionary Research and Development Group (EDRDG), "
-    "used in conformance with its licence, CC BY-SA 4.0 (edrdg.org).\n"
-    "JLPT levels: Jonathan Waller's JLPT Resources, CC BY (tanos.co.uk/jlpt); community lists, not official ones.";
+    "Stroke order from KanjiVG (Ulrich Apel), readings and meanings from KANJIDIC2 (EDRDG), "
+    "JLPT levels from Jonathan Waller's lists. Handwriting recognition by Google ML Kit, which "
+    "sends Google anonymous usage data while it is on. Credits and every licence in full: Licences.";
+
+// Licences: what each document is made of (files in the app, one after the other).
+static const struct { const c8* name; const c8* files[3]; } KANA_SIDE_LICENCES[KANA_SIDE_LICENCE_DOCS] = {
+    { "Data",      { "assets/data/LICENSE-data.txt", NULL, NULL } },
+    { "Fonts",     { "assets/fonts/LICENSE-Roboto.txt", "assets/fonts/LICENSE-NotoSansJP.txt", NULL } },
+    { "Libraries", { "assets/licenses/libraries.txt", NULL, NULL } },
+    { "ML Kit",    { "assets/licenses/ml-kit-notices.txt", NULL, NULL } },
+};
 
 // --- helpers ----------------------------------------------------------------------
 
@@ -55,9 +70,50 @@ RDE_INTERNAL void kana_side_show(rde_ui_node* _node, b8 _show, b8* _shown) {
     }
 }
 
+// The Handwriting row: ML Kit on or off, and where its model is — shown again
+// only when that changed.
+RDE_INTERNAL void kana_side_refresh_mlkit(kana_toolbar* _toolbar) {
+    kana_side*        _side  = &_toolbar->side;
+    const KANA_MLKIT_ _state = kana_mlkit_state();
+    const b8          _on    = kana_mlkit_enabled();
+    const i32         _shown = (i32)_state + (_on ? 0 : 100);
+    if(_side->mlkit_toggle == NULL || _shown == _side->_mlkit_shown) {
+        return;
+    }
+    _side->_mlkit_shown = _shown;
+
+    const c8* _status   = "";
+    const c8* _download = NULL;
+    if(_state == KANA_MLKIT_UNAVAILABLE) {
+        _status = "Not on this device: Kana reads handwriting on its own.";
+    } else if(!_on) {
+        _status = "Off: Kana reads handwriting on its own, and nothing is sent to Google.";
+    } else if(_state == KANA_MLKIT_READY) {
+        _status = "Ready: the Japanese model is on this device.";
+    } else if(_state == KANA_MLKIT_DOWNLOADING) {
+        _status = "Downloading the Japanese model (about 20 MB)...";
+    } else if(_state == KANA_MLKIT_FAILED) {
+        _status   = "The Japanese model could not be downloaded. Is the device online?";
+        _download = "Retry";
+    } else {
+        _status   = "The Japanese model (about 20 MB) is not downloaded yet.";
+        _download = "Download";
+    }
+    rde_ui_label_set_text(_side->mlkit_status, _status);
+    rde_ui_node_set_active(rde_ui_button_as_node(_side->mlkit_download), _download != NULL);
+    if(_download != NULL) {
+        rde_ui_button_set_text(_side->mlkit_download, _download);
+    }
+    rde_ui_button_set_text(_side->mlkit_toggle, _on && _state != KANA_MLKIT_UNAVAILABLE ? "On" : "Off");
+    if(_on && _state != KANA_MLKIT_UNAVAILABLE) { kana_toolbar_button_selected(_side->mlkit_toggle); } else { kana_toolbar_button_plain(_side->mlkit_toggle); }
+    kana_toolbar_set_enabled(_side->mlkit_toggle, _state != KANA_MLKIT_UNAVAILABLE);
+}
+
 // What the settings show: the HUD on or off, the pen's width mode.
 RDE_INTERNAL void kana_side_refresh_settings(kana_toolbar* _toolbar) {
     kana_side* _side = &_toolbar->side;
+    _side->_mlkit_shown = -1;
+    kana_side_refresh_mlkit(_toolbar);
     const b8   _hud  = _toolbar->show_hud != NULL && *_toolbar->show_hud;
     rde_ui_button_set_text(_side->hud_toggle, _hud ? "On" : "Off");
     if(_hud) { kana_toolbar_button_selected(_side->hud_toggle); } else { kana_toolbar_button_plain(_side->hud_toggle); }
@@ -178,6 +234,186 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_width_pressure(rde_ui_node* _node
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Google ML Kit on or off: on, its model is fetched if it is missing.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_mlkit(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_mlkit_set_enabled(!kana_mlkit_enabled());
+    kana_mlkit_prepare();
+    kana_side_refresh_mlkit(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_mlkit_download(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_mlkit_prepare();
+    kana_side_refresh_mlkit((kana_toolbar*)_user_data);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// --- licences ------------------------------------------------------------------------------
+
+RDE_INTERNAL void kana_side_licence_free(kana_side* _side) {
+    free(_side->_licence_text);
+    free(_side->_licence_starts);
+    _side->_licence_text   = NULL;
+    _side->_licence_starts = NULL;
+    _side->_licence_count  = 0;
+    _side->_licence_first  = -1;
+}
+
+// Document _doc read, cut into lines that fit the scroll area's width (on the
+// spaces where there are some), and scrolled to its top.
+RDE_INTERNAL void kana_side_licence_load(kana_toolbar* _toolbar, u32 _doc) {
+    kana_side* _side = &_toolbar->side;
+    kana_side_licence_free(_side);
+    _side->licences_doc = _doc;
+
+    // The files, one after the other.
+    usize _size = 0;
+    for(u32 _f = 0; _f < 3 && KANA_SIDE_LICENCES[_doc].files[_f] != NULL; _f++) {
+        u32 _n = 0;
+        u8* _data = kana_file_read(KANA_SIDE_LICENCES[_doc].files[_f], &_n);
+        if(_data == NULL) {
+            continue;
+        }
+        _side->_licence_text = (c8*)realloc(_side->_licence_text, _size + _n + 3);
+        memcpy(_side->_licence_text + _size, _data, _n);
+        _size += _n;
+        _side->_licence_text[_size++] = '\n';
+        _side->_licence_text[_size++] = '\n';
+        kana_file_free(_data);
+    }
+    if(_side->_licence_text == NULL) {
+        const c8* _missing = "This licence is missing from the app.";
+        _size = strlen(_missing);
+        _side->_licence_text = (c8*)malloc(_size + 1);
+        memcpy(_side->_licence_text, _missing, _size);
+    }
+    _side->_licence_text[_size] = 0;
+    for(usize _i = 0; _i < _size; _i++) {
+        if(_side->_licence_text[_i] == '\t' || _side->_licence_text[_i] == '\r' || _side->_licence_text[_i] == '\f') {
+            _side->_licence_text[_i] = ' ';
+        }
+    }
+
+    // How many characters a line holds, from the width of an average one.
+    const f32        _scale = KANA_SIDE_LICENCE_PX / (f32)KANA_TOOLBAR_FONT_SIZE;
+    const c8*        _probe = "The quick brown fox jumps over the lazy dog, THE QUICK BROWN FOX 0123456789.";
+    const rde_vec_2F _ruler = _toolbar->font != NULL ? rde_rich_text_measure(_probe, _toolbar->font, _scale, 100000.0f, false) : (rde_vec_2F){ 600.0f, 18.0f };
+    const f32        _each  = fmaxf(1.0f, _ruler.x / (f32)strlen(_probe));
+    const u32        _cols  = (u32)fmaxf(20.0f, floorf((_side->_licence_width - 12.0f) / _each) - 2.0f);
+    _side->_licence_line_h  = fmaxf(12.0f, _ruler.y * 1.12f);
+
+    // The lines: at a newline, or at the last space before _cols characters (at
+    // _cols when there is none). Characters are counted, not bytes.
+    u32 _capacity = 1024;
+    _side->_licence_starts = (u32*)malloc(sizeof(u32) * _capacity);
+    usize _at = 0;
+    while(_at < _size) {
+        if(_side->_licence_count + 2 >= _capacity) {
+            _capacity *= 2;
+            _side->_licence_starts = (u32*)realloc(_side->_licence_starts, sizeof(u32) * _capacity);
+        }
+        _side->_licence_starts[_side->_licence_count++] = (u32)_at;
+        usize _i = _at, _space = 0;
+        u32   _chars = 0;
+        while(_i < _size && _side->_licence_text[_i] != '\n' && _chars < _cols) {
+            if(_side->_licence_text[_i] == ' ') {
+                _space = _i;
+            }
+            _i++;
+            while(_i < _size && ((u8)_side->_licence_text[_i] & 0xC0u) == 0x80u) {
+                _i++;   // the rest of a UTF-8 character
+            }
+            _chars++;
+        }
+        if(_i < _size && _side->_licence_text[_i] == '\n') {
+            _at = _i + 1;
+        } else if(_i < _size && _space > _at) {
+            _at = _space + 1;
+        } else {
+            _at = _i;
+        }
+    }
+    _side->_licence_starts[_side->_licence_count] = (u32)_size;
+
+    const f32 _content = fmaxf(1.0f, (f32)_side->_licence_count * _side->_licence_line_h + 8.0f);
+    rde_ui_scroll_area_set_content_size(_side->licences_text, (rde_vec_2F){ _side->_licence_width, _content });
+    rde_ui_scroll_area_set_scroll(_side->licences_text, (rde_vec_2F){ 0.0f, 0.0f });
+    for(u32 _d = 0; _d < KANA_SIDE_LICENCE_DOCS; _d++) {
+        if(_d == _doc) { kana_toolbar_button_selected(_side->licences_docs[_d]); } else { kana_toolbar_button_plain(_side->licences_docs[_d]); }
+    }
+}
+
+// The lines on screen get the labels: placed only when the first one changed.
+RDE_INTERNAL void kana_side_licence_scroll(kana_toolbar* _toolbar) {
+    kana_side* _side = &_toolbar->side;
+    if(_side->_licence_text == NULL) {
+        return;
+    }
+    const rde_vec_2F _scroll  = rde_ui_scroll_area_get_scroll(_side->licences_text);
+    const i32        _first   = (i32)fmaxf(0.0f, floorf(_scroll.y / _side->_licence_line_h) - 2.0f);
+    if(_first == _side->_licence_first) {
+        return;
+    }
+    _side->_licence_first = _first;
+    const f32 _content = fmaxf(1.0f, (f32)_side->_licence_count * _side->_licence_line_h + 8.0f);
+    c8        _line[1024];
+    for(u32 _k = 0; _k < KANA_SIDE_LICENCE_LINES; _k++) {
+        const u32    _n     = (u32)_first + _k;
+        rde_ui_node* _label = rde_ui_label_as_node(_side->licences_lines[_k]);
+        if(_n >= _side->_licence_count) {
+            rde_ui_node_set_active(_label, false);
+            continue;
+        }
+        u32 _from = _side->_licence_starts[_n], _to = _side->_licence_starts[_n + 1];
+        while(_to > _from && (_side->_licence_text[_to - 1] == '\n' || _side->_licence_text[_to - 1] == ' ')) {
+            _to--;
+        }
+        const u32 _len = _to - _from < sizeof(_line) - 1 ? _to - _from : (u32)sizeof(_line) - 1;
+        memcpy(_line, _side->_licence_text + _from, _len);
+        _line[_len] = 0;
+        rde_ui_label_set_text(_side->licences_lines[_k], _line);
+        rde_ui_node_set_active(_label, true);
+        kana_toolbar_place(_label, (rde_vec_2F){ 6.0f + (_side->_licence_width - 12.0f) * 0.5f, _content - 4.0f - ((f32)_n + 0.5f) * _side->_licence_line_h },
+                           (rde_vec_2F){ _side->_licence_width - 12.0f, _side->_licence_line_h });
+    }
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_licences(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.licences_open = true;
+    kana_side_licence_load(_toolbar, _toolbar->side.licences_doc);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+void kana_side_open_settings(kana_toolbar* _toolbar, i32 _licences) {
+    _toolbar->side.open          = false;
+    _toolbar->side.settings_open = true;
+    kana_side_refresh_settings(_toolbar);
+    if(_licences >= 0 && _licences < (i32)KANA_SIDE_LICENCE_DOCS) {
+        _toolbar->side.licences_open = true;
+        kana_side_licence_load(_toolbar, (u32)_licences);
+    }
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_licences_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.licences_open = false;
+    kana_side_licence_free(&_toolbar->side);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_licence_doc(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    const kana_side_theme_ref* _ref = (const kana_side_theme_ref*)_user_data;
+    kana_side_licence_load(_ref->toolbar, _ref->theme);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // --- notes -----------------------------------------------------------------------------
 
 // A button's text at its left, inside the button (buttons centre their label).
@@ -259,6 +495,17 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_card_delete(rde_ui_node* _node, c
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// A folder's new folder: made in it, and named straight away.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_card_add_folder(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    c8 _name[KANA_NOTE_NAME];
+    kana_notes_new_name(_toolbar->notes, KANA_NOTE_FOLDER, _name, sizeof(_name));
+    const u32 _id = kana_notes_add(_toolbar->notes, KANA_NOTE_FOLDER, _toolbar->side.card_note, _name);
+    kana_side_card(_toolbar, _id != 0 ? KANA_SIDE_CARD_RENAME : KANA_SIDE_CARD_NONE, _id);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // A folder's new canvas: made in it, and opened.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_card_add(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -314,12 +561,13 @@ RDE_INTERNAL void kana_side_card_layout(kana_toolbar* _toolbar) {
     const b8         _folder = kana_notes_find(_toolbar->notes, _side->card_note) != NULL &&
                                kana_notes_find(_toolbar->notes, _side->card_note)->kind == KANA_NOTE_FOLDER;
 
-    rde_ui_button* _row[5];
+    rde_ui_button* _row[6];
     u32            _count = 0;
     if(_side->card_mode == KANA_SIDE_CARD_ACTIONS) {
         _row[_count++] = _side->note_cancel;
         _row[_count++] = _side->note_delete;
         if(_folder) {
+            _row[_count++] = _side->note_add_folder;
             _row[_count++] = _side->note_add;
         }
         _row[_count++] = _side->note_rename;
@@ -328,7 +576,7 @@ RDE_INTERNAL void kana_side_card_layout(kana_toolbar* _toolbar) {
         _row[_count++] = _side->note_cancel;
     }
 
-    rde_ui_button* const _all[] = { _side->note_rename, _side->note_add, _side->note_delete, _side->note_cancel, _side->note_confirm };
+    rde_ui_button* const _all[] = { _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
     for(u32 _i = 0; _i < sizeof(_all) / sizeof(_all[0]); _i++) {
         b8 _used = false;
         for(u32 _k = 0; _k < _count; _k++) {
@@ -336,7 +584,7 @@ RDE_INTERNAL void kana_side_card_layout(kana_toolbar* _toolbar) {
         }
         rde_ui_node_set_active(rde_ui_button_as_node(_all[_i]), _used);
     }
-    const f32 _w = 100.0f;
+    const f32 _w = _count > 4 ? 88.0f : 100.0f;
     for(u32 _k = 0; _k < _count; _k++) {
         kana_toolbar_place(rde_ui_button_as_node(_row[_k]), (rde_vec_2F){ _size.x - 20.0f - _w * 0.5f - (f32)_k * (_w + KANA_SIDE_GAP), 20.0f + 22.0f },
                            (rde_vec_2F){ _w, 44.0f });
@@ -381,7 +629,7 @@ RDE_INTERNAL void kana_side_card(kana_toolbar* _toolbar, KANA_SIDE_CARD_ _mode, 
         snprintf(_title, sizeof(_title), "Delete \"%s\"?", _n->name);
         const u32 _in = _folder ? kana_notes_count_in(_toolbar->notes, _n->id) : 0u;
         if(_folder && _in > 0) {
-            snprintf(_body, sizeof(_body), "The %u canvas%s in it go too. This cannot be undone.", _in, _in == 1 ? "" : "es");
+            snprintf(_body, sizeof(_body), "The %u canvas%s in it (and any folders) go too. This cannot be undone.", _in, _in == 1 ? "" : "es");
         } else {
             snprintf(_body, sizeof(_body), "This cannot be undone.");
         }
@@ -401,75 +649,243 @@ RDE_INTERNAL void kana_side_card(kana_toolbar* _toolbar, KANA_SIDE_CARD_ _mode, 
     }
 }
 
-// The list, built again: folders (each followed by its canvases when open), then
-// the canvases at the top level. The open canvas is marked.
+// --- dragging a row ------------------------------------------------------------------
+
+RDE_INTERNAL void kana_side_hide_drop(kana_side* _side) {
+    rde_ui_node_set_active(rde_ui_image_as_node(_side->drop_line), false);
+    rde_ui_node_set_active(rde_ui_image_as_node(_side->drop_box), false);
+}
+
+// Where the dragged row would land with the pointer at _side->drag_at, shown by
+// the line (between rows, indented to the level it lands at) or the box (into a
+// folder: the middle of its row). A folder never lands inside itself.
+RDE_INTERNAL void kana_side_drop_target(kana_toolbar* _toolbar) {
+    kana_side*       _side  = &_toolbar->side;
+    const kana_note* _moving = kana_notes_find(_toolbar->notes, _side->drag_id);
+    const f32        _pitch = KANA_SIDE_NOTE_H + KANA_SIDE_GAP;
+    const f32        _top   = _side->_list_bl.y + _side->_list_size.y;
+    const f32        _scroll = rde_ui_scroll_area_get_scroll(_side->notes_list).y;
+
+    _side->drop_valid = false;
+    kana_side_hide_drop(_side);
+    if(_moving == NULL || _side->_row_count == 0 ||
+       _side->drag_at.x < _side->_list_bl.x - 20.0f || _side->drag_at.x > _side->_list_bl.x + _side->_list_size.x + 60.0f) {
+        return;
+    }
+
+    const f32 _cy = rde_math_clamp_f32(_top - _side->drag_at.y, 0.0f, _side->_list_size.y) + _scroll;   // from the content's top
+    i32       _r  = (i32)floorf(_cy / _pitch);
+    f32       _t  = (_cy - (f32)_r * _pitch) / KANA_SIDE_NOTE_H;   // down the row: 0 top, 1 bottom
+    b8        _after_all = false;
+    if(_r >= (i32)_side->_row_count) {
+        _r         = (i32)_side->_row_count - 1;
+        _after_all = true;
+    }
+    const kana_side_row* _row = &_side->_rows[_r];
+
+    b8  _into  = false;
+    u32 _depth = 0;
+    u32 _line  = (u32)_r;   // the line sits at the top of this row (or past the last)
+    if(!_after_all && _row->kind == KANA_NOTE_FOLDER && _t > 0.28f && _t < 0.72f) {
+        _into               = true;
+        _side->drop_parent  = _row->id;
+        _side->drop_before  = 0;
+    } else if(!_after_all && _t <= 0.5f) {
+        _side->drop_parent  = _row->parent;
+        _side->drop_before  = _row->id;
+        _depth              = _row->depth;
+    } else {
+        _line = (u32)_r + 1u;
+        if(_line < _side->_row_count && _side->_rows[_line].depth > _row->depth) {
+            // After an open folder: first inside it.
+            _side->drop_parent = _row->id;
+            _side->drop_before = _side->_rows[_line].id;
+            _depth             = _side->_rows[_line].depth;
+        } else {
+            // After the row, in its folder: before its next sibling, or at the end.
+            _side->drop_parent = _row->parent;
+            _side->drop_before = 0;
+            for(u32 _k = _line; _k < _side->_row_count; _k++) {
+                if(_side->_rows[_k].depth < _row->depth) {
+                    break;
+                }
+                if(_side->_rows[_k].parent == _row->parent) {
+                    _side->drop_before = _side->_rows[_k].id;
+                    break;
+                }
+            }
+            _depth = _row->depth;
+        }
+    }
+
+    // A folder cannot go into itself or anything inside it; a note dropped on its
+    // own place goes nowhere.
+    if(_moving->kind == KANA_NOTE_FOLDER && _side->drop_parent != 0 && kana_notes_is_within(_toolbar->notes, _side->drop_parent, _moving->id)) {
+        return;
+    }
+    if(_side->drop_before == _moving->id) {
+        return;
+    }
+    _side->drop_valid = true;
+
+    if(_into) {
+        const f32 _indent = (f32)_row->depth * KANA_SIDE_INDENT;
+        const f32 _y      = _top - ((f32)_r * _pitch - _scroll) - KANA_SIDE_NOTE_H * 0.5f;
+        kana_toolbar_place(rde_ui_image_as_node(_side->drop_box), (rde_vec_2F){ _side->_list_bl.x + (_indent + _side->_list_size.x) * 0.5f, _y },
+                           (rde_vec_2F){ _side->_list_size.x - _indent + 4.0f, KANA_SIDE_NOTE_H + 4.0f });
+        rde_ui_node_set_active(rde_ui_image_as_node(_side->drop_box), true);
+    } else {
+        const f32 _indent = (f32)_depth * KANA_SIDE_INDENT;
+        const f32 _y      = _top - ((f32)_line * _pitch - _scroll) + KANA_SIDE_GAP * 0.5f;
+        if(_y > _top + KANA_SIDE_GAP || _y < _side->_list_bl.y - KANA_SIDE_GAP) {
+            return;   // valid, but scrolled out of sight
+        }
+        kana_toolbar_place(rde_ui_image_as_node(_side->drop_line), (rde_vec_2F){ _side->_list_bl.x + (_indent + _side->_list_size.x) * 0.5f, _y },
+                           (rde_vec_2F){ _side->_list_size.x - _indent, 3.0f });
+        rde_ui_node_set_active(rde_ui_image_as_node(_side->drop_line), true);
+    }
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_drag_begin(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node);
+    const kana_side_note_ref* _ref  = (const kana_side_note_ref*)_user_data;
+    kana_side*                _side = &_ref->toolbar->side;
+    const kana_note*          _note = kana_notes_find(_ref->toolbar->notes, _ref->id);
+    if(_note == NULL) {
+        return RDE_UI_EVENT_RESULT_CONSUME;
+    }
+    _side->drag_id = _ref->id;
+    _side->drag_at = _info->position;
+    rde_ui_label_set_text(_side->drag_ghost_label, _note->name);
+    rde_ui_node_set_active(rde_ui_image_as_node(_side->drag_ghost), true);
+    kana_toolbar_place(rde_ui_image_as_node(_side->drag_ghost), (rde_vec_2F){ _info->position.x + 90.0f, _info->position.y }, (rde_vec_2F){ 170.0f, 36.0f });
+    kana_side_drop_target(_ref->toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;   // the handle's: the list does not scroll with it
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_drag_move(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node);
+    const kana_side_note_ref* _ref  = (const kana_side_note_ref*)_user_data;
+    kana_side*                _side = &_ref->toolbar->side;
+    if(_side->drag_id == 0) {
+        return RDE_UI_EVENT_RESULT_CONSUME;
+    }
+    _side->drag_at = _info->position;
+    kana_toolbar_place(rde_ui_image_as_node(_side->drag_ghost), (rde_vec_2F){ _info->position.x + 90.0f, _info->position.y }, (rde_vec_2F){ 170.0f, 36.0f });
+    kana_side_drop_target(_ref->toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_drag_end(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node);
+    const kana_side_note_ref* _ref     = (const kana_side_note_ref*)_user_data;
+    kana_toolbar*             _toolbar = _ref->toolbar;
+    kana_side*                _side    = &_toolbar->side;
+    if(_side->drag_id == 0) {
+        return RDE_UI_EVENT_RESULT_CONSUME;
+    }
+    _side->drag_at = _info->position;
+    kana_side_drop_target(_toolbar);
+    if(_side->drop_valid) {
+        kana_notes_move(_toolbar->notes, _side->drag_id, _side->drop_parent, _side->drop_before);   // the list rebuilds next frame
+    }
+    _side->drag_id = 0;
+    kana_side_hide_drop(_side);
+    rde_ui_node_set_active(rde_ui_image_as_node(_side->drag_ghost), false);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// --- the list ---------------------------------------------------------------------------
+
+// The rows in order, depth first: a folder, then (when open) what is in it.
+RDE_INTERNAL void kana_side_collect_rows(const kana_notes* _notes, u32 _parent, u8 _depth, kana_side_row* _out, u32* _count) {
+    const kana_note* _all = (const kana_note*)_notes->notes.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes); _i++) {
+        if(_all[_i].parent != _parent) {
+            continue;
+        }
+        _out[(*_count)++] = (kana_side_row){ _all[_i].id, _all[_i].parent, _depth, _all[_i].kind, _all[_i].expanded };
+        if(_all[_i].kind == KANA_NOTE_FOLDER && _all[_i].expanded && _depth < 32u) {
+            kana_side_collect_rows(_notes, _all[_i].id, (u8)(_depth + 1u), _out, _count);
+        }
+    }
+}
+
+// The list, built again: each row a drag handle, the name (a folder's with +/– and
+// how many canvases are in it), and "…". The open canvas is marked.
 RDE_INTERNAL void kana_side_build_notes(kana_toolbar* _toolbar) {
     kana_side*        _side  = &_toolbar->side;
     const kana_notes* _notes = _toolbar->notes;
-    const kana_note*  _all   = (const kana_note*)_notes->notes.memory;
     const u32         _count = (u32)rde_arr_length(&_notes->notes);
 
     rde_ui_scroll_area_clear_contents(_side->notes_list);
     free(_side->_note_refs);
+    free(_side->_rows);
     _side->_note_refs      = (kana_side_note_ref*)calloc(_count > 0 ? _count : 1u, sizeof(kana_side_note_ref));
+    _side->_rows           = (kana_side_row*)calloc(_count > 0 ? _count : 1u, sizeof(kana_side_row));
+    _side->_row_count      = 0;
     _side->_notes_revision = _notes->revision;
     _side->_notes_open     = _notes->open;
     _side->_notes_built    = true;
-
-    // The rows, in order.
-    u32* _order = (u32*)malloc(sizeof(u32) * (_count > 0 ? _count : 1u));
-    u32  _rows  = 0;
-    for(u32 _f = 0; _f < _count; _f++) {
-        if(_all[_f].kind != KANA_NOTE_FOLDER) {
-            continue;
-        }
-        _order[_rows++] = _f;
-        for(u32 _c = 0; _c < _count && _all[_f].expanded; _c++) {
-            if(_all[_c].kind == KANA_NOTE_CANVAS && _all[_c].parent == _all[_f].id) {
-                _order[_rows++] = _c;
-            }
-        }
-    }
-    for(u32 _c = 0; _c < _count; _c++) {
-        if(_all[_c].kind == KANA_NOTE_CANVAS && _all[_c].parent == 0) {
-            _order[_rows++] = _c;
-        }
-    }
+    kana_side_collect_rows(_notes, 0, 0, _side->_rows, &_side->_row_count);
 
     const f32 _width   = _side->_list_width;
-    const f32 _content = fmaxf(1.0f, (f32)_rows * (KANA_SIDE_NOTE_H + KANA_SIDE_GAP));
+    const f32 _content = fmaxf(1.0f, (f32)_side->_row_count * (KANA_SIDE_NOTE_H + KANA_SIDE_GAP));
     rde_ui_scroll_area_set_content_size(_side->notes_list, (rde_vec_2F){ _width, _content });
+    rde_ui_node* _list = rde_ui_scroll_area_as_node(_side->notes_list);
+    const kana_theme* _t = kana_theme_active();
 
-    for(u32 _r = 0; _r < _rows; _r++) {
-        const kana_note* _n      = &_all[_order[_r]];
-        const b8         _folder = _n->kind == KANA_NOTE_FOLDER;
-        const f32        _indent = !_folder && _n->parent != 0 ? KANA_SIDE_INDENT : 0.0f;
-        const f32        _y      = _content - (f32)_r * (KANA_SIDE_NOTE_H + KANA_SIDE_GAP) - KANA_SIDE_NOTE_H * 0.5f;
+    for(u32 _r = 0; _r < _side->_row_count; _r++) {
+        const kana_side_row* _row = &_side->_rows[_r];
+        const kana_note*     _n   = kana_notes_find(_notes, _row->id);
+        const b8             _folder = _row->kind == KANA_NOTE_FOLDER;
+        const f32            _indent = (f32)_row->depth * KANA_SIDE_INDENT;
+        const f32            _y      = _content - (f32)_r * (KANA_SIDE_NOTE_H + KANA_SIDE_GAP) - KANA_SIDE_NOTE_H * 0.5f;
 
-        _side->_note_refs[_order[_r]] = (kana_side_note_ref){ _toolbar, _n->id };
-        kana_side_note_ref* _ref = &_side->_note_refs[_order[_r]];
+        _side->_note_refs[_r] = (kana_side_note_ref){ _toolbar, _row->id };
+        kana_side_note_ref* _ref = &_side->_note_refs[_r];
+
+        // The handle: three bars; a drag from it moves the row.
+        rde_ui_image* _handle = rde_ui_image_create(NULL);
+        rde_ui_node*  _h      = rde_ui_image_as_node(_handle);
+        rde_ui_image_set_style(_handle, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button, 8.0f));
+        rde_ui_node_set_blocks_input(_h, true);
+        rde_ui_node_set_user_data(_h, _ref);
+        rde_ui_node_set_callback(_h, RDE_UI_EVENT_MOUSE_DRAG_BEGIN, kana_side_on_drag_begin);
+        rde_ui_node_set_callback(_h, RDE_UI_EVENT_MOUSE_DRAG_MOVE,  kana_side_on_drag_move);
+        rde_ui_node_set_callback(_h, RDE_UI_EVENT_MOUSE_DRAG_END,   kana_side_on_drag_end);
+        rde_ui_node_add_child(_list, _h);
+        kana_toolbar_place(_h, (rde_vec_2F){ _indent + KANA_SIDE_HANDLE_W * 0.5f, _y }, (rde_vec_2F){ KANA_SIDE_HANDLE_W, KANA_SIDE_NOTE_H });
+        for(u32 _b = 0; _b < 3; _b++) {
+            rde_ui_image* _bar = rde_ui_image_create(NULL);
+            rde_ui_image_set_style(_bar, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->button_text_disabled, 1.0f));
+            rde_ui_node_set_raycast_target(rde_ui_image_as_node(_bar), false);
+            rde_ui_node_add_child(_h, rde_ui_image_as_node(_bar));
+            kana_toolbar_place(rde_ui_image_as_node(_bar), (rde_vec_2F){ KANA_SIDE_HANDLE_W * 0.5f, KANA_SIDE_NOTE_H * 0.5f + (1.0f - (f32)_b) * 5.0f },
+                               (rde_vec_2F){ 12.0f, 2.0f });
+        }
 
         c8 _label[KANA_NOTE_NAME + 32];
         if(_folder) {
-            snprintf(_label, sizeof(_label), "%s %s  (%u)", _n->expanded ? "\xE2\x80\x93" : "+", _n->name, kana_notes_count_in(_notes, _n->id));   // – or +
+            snprintf(_label, sizeof(_label), "%s %s  (%u)", _row->expanded ? "\xE2\x80\x93" : "+", _n->name, kana_notes_count_in(_notes, _n->id));   // – or +
         } else {
             snprintf(_label, sizeof(_label), "%s", _n->name);
         }
 
-        const rde_vec_2F _row_size = { _width - _indent - KANA_SIDE_DOTS_W - KANA_SIDE_GAP, KANA_SIDE_NOTE_H };
-        rde_ui_button*   _row      = kana_toolbar_button(_toolbar, rde_ui_scroll_area_as_node(_side->notes_list), _label, kana_side_on_note);
-        rde_ui_button_set_on_click(_row, kana_side_on_note, _ref);
-        kana_toolbar_place(rde_ui_button_as_node(_row), (rde_vec_2F){ _indent + _row_size.x * 0.5f, _y }, _row_size);
-        kana_side_left_text(_row, _row_size, 12.0f);
-        if(!_folder && _n->id == _notes->open) {
-            kana_toolbar_button_selected(_row);   // the canvas on the page
+        const f32        _x0       = _indent + KANA_SIDE_HANDLE_W + KANA_SIDE_GAP;
+        const rde_vec_2F _row_size = { _width - _x0 - KANA_SIDE_DOTS_W - KANA_SIDE_GAP, KANA_SIDE_NOTE_H };
+        rde_ui_button*   _button   = kana_toolbar_button(_toolbar, _list, _label, kana_side_on_note);
+        rde_ui_button_set_on_click(_button, kana_side_on_note, _ref);
+        kana_toolbar_place(rde_ui_button_as_node(_button), (rde_vec_2F){ _x0 + _row_size.x * 0.5f, _y }, _row_size);
+        kana_side_left_text(_button, _row_size, 12.0f);
+        if(!_folder && _row->id == _notes->open) {
+            kana_toolbar_button_selected(_button);   // the canvas on the page
         }
 
-        rde_ui_button* _dots = kana_toolbar_button(_toolbar, rde_ui_scroll_area_as_node(_side->notes_list), "\xE2\x80\xA6", kana_side_on_note_dots);   // …
+        rde_ui_button* _dots = kana_toolbar_button(_toolbar, _list, "\xE2\x80\xA6", kana_side_on_note_dots);   // …
         rde_ui_button_set_on_click(_dots, kana_side_on_note_dots, _ref);
         kana_toolbar_place(rde_ui_button_as_node(_dots), (rde_vec_2F){ _width - KANA_SIDE_DOTS_W * 0.5f, _y }, (rde_vec_2F){ KANA_SIDE_DOTS_W, KANA_SIDE_NOTE_H });
     }
-    free(_order);
 }
 
 // --- layout ---------------------------------------------------------------------------
@@ -532,6 +948,8 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     const f32 _list_bottom = _by + 20.0f + KANA_SIDE_MARGIN;
     const f32 _list_h      = fmaxf(KANA_SIDE_NOTE_H, _y - _list_bottom);
     kana_toolbar_place(rde_ui_scroll_area_as_node(_side->notes_list), (rde_vec_2F){ _x0 + _cw * 0.5f, _list_bottom + _list_h * 0.5f }, (rde_vec_2F){ _cw, _list_h });
+    _side->_list_bl   = (rde_vec_2F){ _x0, _list_bottom };
+    _side->_list_size = (rde_vec_2F){ _cw, _list_h };
     _side->_list_width  = _cw;
     _side->_notes_built = false;   // rows are laid out for the list's width
     kana_toolbar_place(rde_ui_button_as_node(_side->settings_button), (rde_vec_2F){ _x0 + _cw - 60.0f, _by }, (rde_vec_2F){ 120.0f, 40.0f });
@@ -562,6 +980,15 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     kana_toolbar_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _kw - _m - 186.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
     _ry -= 56.0f;
+    // Handwriting: a header, ML Kit on or off, and its model's state (Download / Retry at its right).
+    kana_toolbar_place(rde_ui_label_as_node(_side->hand_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+    _ry -= 40.0f;
+    kana_toolbar_place(rde_ui_label_as_node(_side->mlkit_label), (rde_vec_2F){ _m + _lw * 0.35f, _ry }, (rde_vec_2F){ _lw * 0.7f, 44.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_side->mlkit_toggle), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
+    _ry -= 46.0f;
+    kana_toolbar_place(rde_ui_label_as_node(_side->mlkit_status), (rde_vec_2F){ _m + (_lw - 130.0f) * 0.5f, _ry }, (rde_vec_2F){ _lw - 130.0f, 44.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_side->mlkit_download), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
+    _ry -= 52.0f;
     kana_toolbar_place(rde_ui_label_as_node(_side->about_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 34.0f });
 
     const f32 _text_top    = _ry - 20.0f;
@@ -569,6 +996,27 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     kana_toolbar_place(rde_ui_label_as_node(_side->about_text), (rde_vec_2F){ _m + _lw * 0.5f, (_text_top + _text_bottom) * 0.5f },
                        (rde_vec_2F){ _lw, fmaxf(20.0f, _text_top - _text_bottom) });
     kana_toolbar_place(rde_ui_button_as_node(_side->settings_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_side->licences_button), (rde_vec_2F){ _kw - _m - 186.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+
+    // Licences: the same card's size, over Settings: the title, the documents,
+    // the text scrolling between them and Close.
+    kana_toolbar_place(rde_ui_button_as_node(_side->licences_backdrop), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, _screen);
+    kana_toolbar_place(rde_ui_image_as_node(_side->licences_card), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, (rde_vec_2F){ _kw, _kh });
+    kana_toolbar_place(rde_ui_label_as_node(_side->licences_title), (rde_vec_2F){ _m + _lw * 0.5f, _kh - 36.0f }, (rde_vec_2F){ _lw, 44.0f });
+    const f32 _dw = (_lw - KANA_SIDE_GAP * (f32)(KANA_SIDE_LICENCE_DOCS - 1u)) / (f32)KANA_SIDE_LICENCE_DOCS;
+    for(u32 _i = 0; _i < KANA_SIDE_LICENCE_DOCS; _i++) {
+        kana_toolbar_place(rde_ui_button_as_node(_side->licences_docs[_i]), (rde_vec_2F){ _m + (f32)_i * (_dw + KANA_SIDE_GAP) + _dw * 0.5f, _kh - 88.0f },
+                           (rde_vec_2F){ _dw, 40.0f });
+    }
+    const f32 _lt_top    = _kh - 116.0f;
+    const f32 _lt_bottom = _m + 44.0f + 12.0f;
+    _side->_licence_width = _lw;
+    kana_toolbar_place(rde_ui_scroll_area_as_node(_side->licences_text), (rde_vec_2F){ _m + _lw * 0.5f, (_lt_top + _lt_bottom) * 0.5f },
+                       (rde_vec_2F){ _lw, fmaxf(40.0f, _lt_top - _lt_bottom) });
+    kana_toolbar_place(rde_ui_button_as_node(_side->licences_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    if(_side->licences_open) {
+        kana_side_licence_load(_toolbar, _side->licences_doc);   // new width: the lines again
+    }
 
     // The note card: a title, a line (or the name field), buttons at the bottom.
     const rde_vec_2F _nc = KANA_SIDE_NOTE_CARD;
@@ -613,6 +1061,19 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_scroll_area_set_bar_thickness(_side->notes_list, 3.0f);
     rde_ui_node_add_child(_panel, rde_ui_scroll_area_as_node(_side->notes_list));
 
+    // What a drag shows, over the list: the line, the box, the name following.
+    _side->drop_line  = rde_ui_image_create(NULL);
+    _side->drop_box   = rde_ui_image_create(NULL);
+    _side->drag_ghost = rde_ui_image_create(NULL);
+    rde_ui_node* const _drag_nodes[] = { rde_ui_image_as_node(_side->drop_line), rde_ui_image_as_node(_side->drop_box), rde_ui_image_as_node(_side->drag_ghost) };
+    for(u32 _i = 0; _i < sizeof(_drag_nodes) / sizeof(_drag_nodes[0]); _i++) {
+        rde_ui_node_set_raycast_target(_drag_nodes[_i], false);
+        rde_ui_node_add_child(_panel, _drag_nodes[_i]);
+        rde_ui_node_set_active(_drag_nodes[_i], false);
+    }
+    _side->drag_ghost_label = kana_side_label(_toolbar, rde_ui_image_as_node(_side->drag_ghost), "", 16.0f);
+    kana_toolbar_place(rde_ui_label_as_node(_side->drag_ghost_label), (rde_vec_2F){ 85.0f, 18.0f }, (rde_vec_2F){ 150.0f, 36.0f });
+
     c8 _version[64];
     snprintf(_version, sizeof(_version), "Kana %s", KANA_VERSION);
     _side->version         = kana_side_label(_toolbar, _panel, _version, 13.0f);
@@ -650,12 +1111,45 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->width_pressure = kana_toolbar_button(_toolbar, _card, "Pressure", kana_side_on_width_pressure);
     _side->about_label    = kana_side_label(_toolbar, _card, "ABOUT", 14.0f);
 
-    c8 _about[768];
+    _side->hand_label     = kana_side_label(_toolbar, _card, "HANDWRITING", 14.0f);
+    _side->mlkit_label    = kana_side_label(_toolbar, _card, "Read with Google ML Kit", 18.0f);
+    _side->mlkit_toggle   = kana_toolbar_button(_toolbar, _card, "On", kana_side_on_mlkit);
+    _side->mlkit_status   = kana_side_label(_toolbar, _card, "", 14.0f);
+    rde_ui_label_set_wrap(_side->mlkit_status, true);
+    _side->mlkit_download = kana_toolbar_button(_toolbar, _card, "Download", kana_side_on_mlkit_download);
+    _side->_mlkit_shown   = -1;
+
+    c8 _about[1536];
     snprintf(_about, sizeof(_about), "Kana %s, built %s.\n\n%s", KANA_VERSION, __DATE__, KANA_SIDE_CREDITS);
     _side->about_text = kana_side_label(_toolbar, _card, _about, 14.0f);
     rde_ui_label_set_wrap(_side->about_text, true);
     rde_ui_label_set_alignment(_side->about_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
     _side->settings_close = kana_toolbar_button(_toolbar, _card, "Close", kana_side_on_settings_close);
+    _side->licences_button = kana_toolbar_button(_toolbar, _card, "Licences", kana_side_on_licences);
+
+    // Licences, over Settings.
+    _side->licences_backdrop = rde_ui_button_create(NULL, NULL);
+    rde_ui_button_set_on_click(_side->licences_backdrop, kana_side_on_licences_close, _toolbar);
+    rde_ui_node_add_child(_root, rde_ui_button_as_node(_side->licences_backdrop));
+    _side->licences_card = rde_ui_image_create(NULL);
+    rde_ui_node* _lcard = rde_ui_image_as_node(_side->licences_card);
+    rde_ui_node_set_blocks_input(_lcard, true);
+    rde_ui_node_add_child(_root, _lcard);
+    _side->licences_title = kana_side_label(_toolbar, _lcard, "Licences", 26.0f);
+    for(u32 _i = 0; _i < KANA_SIDE_LICENCE_DOCS; _i++) {
+        _side->licences_refs[_i] = (kana_side_theme_ref){ _toolbar, _i };
+        _side->licences_docs[_i] = kana_toolbar_button(_toolbar, _lcard, KANA_SIDE_LICENCES[_i].name, kana_side_on_licence_doc);
+        rde_ui_button_set_on_click(_side->licences_docs[_i], kana_side_on_licence_doc, &_side->licences_refs[_i]);
+    }
+    _side->licences_text = rde_ui_scroll_area_create(NULL);
+    rde_ui_scroll_area_set_bar_thickness(_side->licences_text, 4.0f);
+    rde_ui_node_add_child(_lcard, rde_ui_scroll_area_as_node(_side->licences_text));
+    for(u32 _k = 0; _k < KANA_SIDE_LICENCE_LINES; _k++) {
+        _side->licences_lines[_k] = kana_side_label(_toolbar, rde_ui_scroll_area_as_node(_side->licences_text), "", KANA_SIDE_LICENCE_PX);
+        rde_ui_node_set_active(rde_ui_label_as_node(_side->licences_lines[_k]), false);
+    }
+    _side->licences_close = kana_toolbar_button(_toolbar, _lcard, "Close", kana_side_on_licences_close);
+    _side->_licence_first = -1;
 
     // The note card, over the panel (and a backdrop that cancels it).
     _side->note_backdrop = rde_ui_button_create(NULL, NULL);
@@ -678,6 +1172,7 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node_add_child(_note_card, rde_ui_text_editor_as_node(_side->note_field));
     _side->note_rename  = kana_toolbar_button(_toolbar, _note_card, "Rename", kana_side_on_card_rename);
     _side->note_add     = kana_toolbar_button(_toolbar, _note_card, "+ Canvas", kana_side_on_card_add);
+    _side->note_add_folder = kana_toolbar_button(_toolbar, _note_card, "+ Folder", kana_side_on_card_add_folder);
     _side->note_delete  = kana_toolbar_button(_toolbar, _note_card, "Delete", kana_side_on_card_delete);
     _side->note_cancel  = kana_toolbar_button(_toolbar, _note_card, "Cancel", kana_side_on_card_cancel);
     _side->note_confirm = kana_toolbar_button(_toolbar, _note_card, "Save", kana_side_on_card_confirm);
@@ -685,7 +1180,8 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     // All hidden until asked for; the menu button shows with the page.
     rde_ui_node* const _hidden[] = { rde_ui_button_as_node(_side->backdrop), _panel, rde_ui_button_as_node(_side->menu_button),
                                      rde_ui_button_as_node(_side->settings_backdrop), _card,
-                                     rde_ui_button_as_node(_side->note_backdrop), _note_card };
+                                     rde_ui_button_as_node(_side->note_backdrop), _note_card,
+                                     rde_ui_button_as_node(_side->licences_backdrop), _lcard };
     for(u32 _i = 0; _i < sizeof(_hidden) / sizeof(_hidden[0]); _i++) {
         rde_ui_node_set_active(_hidden[_i], false);
     }
@@ -721,6 +1217,19 @@ void kana_side_update(kana_toolbar* _toolbar, b8 _full) {
     b8 _settings_backdrop_shown = _side->_shown_settings;
     kana_side_show(rde_ui_button_as_node(_side->settings_backdrop), _side->settings_open, &_settings_backdrop_shown);
     kana_side_show(rde_ui_image_as_node(_side->card), _side->settings_open, &_side->_shown_settings);
+    if(!_side->settings_open && _side->licences_open) {
+        _side->licences_open = false;
+        kana_side_licence_free(_side);
+    }
+    b8 _licences_backdrop_shown = _side->_shown_licences;
+    kana_side_show(rde_ui_button_as_node(_side->licences_backdrop), _side->licences_open, &_licences_backdrop_shown);
+    kana_side_show(rde_ui_image_as_node(_side->licences_card), _side->licences_open, &_side->_shown_licences);
+    if(_side->licences_open) {
+        kana_side_licence_scroll(_toolbar);
+    }
+    if(_side->settings_open) {
+        kana_side_refresh_mlkit(_toolbar);   // the model's download moves on by itself
+    }
 
     const b8 _card = _side->card_mode != KANA_SIDE_CARD_NONE && _side->open;
     b8 _note_backdrop_shown = _side->_shown_note_card;
@@ -730,8 +1239,27 @@ void kana_side_update(kana_toolbar* _toolbar, b8 _full) {
         _side->card_mode = KANA_SIDE_CARD_NONE;
     }
 
-    // The notes list, rebuilt when the notes changed (or the list's size did).
-    if(_side->open && _toolbar->notes != NULL &&
+    // A drag near the list's top or bottom scrolls it.
+    if(_side->drag_id != 0) {
+        const f32  _top    = _side->_list_bl.y + _side->_list_size.y;
+        rde_vec_2F _scroll = rde_ui_scroll_area_get_scroll(_side->notes_list);
+        if(_side->drag_at.y > _top - KANA_SIDE_EDGE) {
+            _scroll.y -= KANA_SIDE_AUTOSCROLL;
+        } else if(_side->drag_at.y < _side->_list_bl.y + KANA_SIDE_EDGE) {
+            _scroll.y += KANA_SIDE_AUTOSCROLL;
+        }
+        rde_ui_scroll_area_set_scroll(_side->notes_list, _scroll);
+        kana_side_drop_target(_toolbar);
+    }
+    if(!_side->open && _side->drag_id != 0) {
+        _side->drag_id = 0;
+        kana_side_hide_drop(_side);
+        rde_ui_node_set_active(rde_ui_image_as_node(_side->drag_ghost), false);
+    }
+
+    // The notes list, rebuilt when the notes changed (or the list's size did) —
+    // never mid-drag: the handle being dragged would go with it.
+    if(_side->open && _toolbar->notes != NULL && _side->drag_id == 0 &&
        (!_side->_notes_built || _side->_notes_revision != _toolbar->notes->revision || _side->_notes_open != _toolbar->notes->open)) {
         kana_side_build_notes(_toolbar);
     }
@@ -739,7 +1267,7 @@ void kana_side_update(kana_toolbar* _toolbar, b8 _full) {
 
 b8 kana_side_hit(const kana_toolbar* _toolbar, rde_vec_2F _ui) {
     const kana_side* _side = &_toolbar->side;
-    if(_side->_shown_panel || _side->_shown_settings || _side->_shown_note_card) {
+    if(_side->_shown_panel || _side->_shown_settings || _side->_shown_note_card || _side->_shown_licences) {
         return true;
     }
     return _side->_shown_menu &&
@@ -768,11 +1296,21 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
 
     rde_ui_button* const _buttons[] = { _side->kanji, _side->kana, _side->album, _side->new_folder, _side->new_canvas, _side->settings_button,
                                         _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
-                                        _side->note_rename, _side->note_add, _side->note_delete, _side->note_cancel, _side->note_confirm };
+                                        _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,
+                                        _side->licences_docs[0], _side->licences_docs[1], _side->licences_docs[2], _side->licences_docs[3],
+                                        _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         kana_toolbar_restyle_button(_buttons[_i]);
     }
     kana_toolbar_style_panel(_side->note_card, 14.0f, 1.0f);
+    kana_toolbar_style_panel(_side->licences_card, 14.0f, 1.0f);
+    kana_toolbar_button_colors(_side->licences_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
+    rde_ui_scroll_area_set_background_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
+    rde_ui_scroll_area_set_track_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
+    rde_ui_scroll_area_set_thumb_colors(_side->licences_text, _t->grip, kana_toolbar_shade(_t->grip, 20), kana_toolbar_shade(_t->grip, 40));
+    for(u32 _k = 0; _k < KANA_SIDE_LICENCE_LINES; _k++) {
+        rde_ui_label_set_color(_side->licences_lines[_k], _t->button_text);
+    }
     kana_toolbar_button_colors(_side->note_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
     kana_toolbar_button_colors(_side->note_delete, _t->danger, 0.0f, (rde_color){ 0, 0, 0, 0 });
     rde_ui_text_editor_set_background(_side->note_field, true, _t->field);
@@ -780,6 +1318,15 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     rde_ui_scroll_area_set_track_color(_side->notes_list, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_thumb_colors(_side->notes_list, _t->grip, kana_toolbar_shade(_t->grip, 20), kana_toolbar_shade(_t->grip, 40));
     _side->_notes_built = false;   // the rows restyle as they are built again
+
+    rde_ui_image_set_style(_side->drop_line, RDE_UI_STATE_NORMAL, kana_toolbar_style(_t->select, 1.5f));
+    rde_ui_style _box    = kana_toolbar_style(_t->select_fill, 10.0f);
+    _box.border_width    = 2.0f;
+    _box.border_color    = _t->select;
+    rde_ui_image_set_style(_side->drop_box, RDE_UI_STATE_NORMAL, _box);
+    rde_ui_style _ghost  = kana_toolbar_style(_t->button_selected, 10.0f);
+    rde_ui_image_set_style(_side->drag_ghost, RDE_UI_STATE_NORMAL, _ghost);
+    rde_ui_label_set_color(_side->drag_ghost_label, _t->button_text);
 
     // Each theme's button previews it: its page, its text; the current one ringed.
     for(u32 _i = 0; _i < KANA_THEME_COUNT; _i++) {
@@ -789,11 +1336,12 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
         rde_ui_label_set_color(_side->themes[_i]->internal_label, _other->text);
     }
 
-    rde_ui_label* const _headers[] = { _side->study_label, _side->theme_label, _side->notes_label, _side->about_label };
+    rde_ui_label* const _headers[] = { _side->study_label, _side->theme_label, _side->notes_label, _side->about_label, _side->hand_label };
     for(u32 _i = 0; _i < sizeof(_headers) / sizeof(_headers[0]); _i++) {
         rde_ui_label_set_color(_headers[_i], _t->field_placeholder);
     }
-    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->about_text, _side->note_title, _side->note_body };
+    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->about_text, _side->note_title, _side->note_body,
+                                     _side->mlkit_label, _side->mlkit_status, _side->licences_title };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->button_text);
     }

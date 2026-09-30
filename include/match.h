@@ -24,7 +24,9 @@
 //      written in the wrong order still find the character.
 //
 // Only characters within KANA_MATCH_STROKE_SLACK strokes of the drawing, and
-// passing the filter, are compared.
+// passing the filter, are compared: first roughly (4 points per stroke), then
+// the closest few dozen exactly. Each character's strokes are prepared the
+// first time it is compared and kept (~10 MB for all of them).
 // ===========================================================================
 
 #define KANA_MATCH_POINTS        16
@@ -33,6 +35,10 @@
 #define KANA_MATCH_GAP           28.0f   // a stroke missing or extra (box units, the box is 100)
 #define KANA_MATCH_REVERSED      10.0f   // a stroke drawn backwards
 #define KANA_MATCH_UNORDERED     4.0f    // right strokes, wrong order
+
+// A filter for reading free writing (segment.h): the catalog's characters and
+// the marks written in text that it leaves out — 、。ー々・！？ and the digits.
+#define KANA_MATCH_TEXT ((KANA_FILTER_)KANA_FILTER_COUNT)
 
 RDE_STRUCT {
     u32 record;
@@ -51,11 +57,27 @@ u32 kana_match_drawing(const kana_ink* _drawing, kana_match_stroke* _out, u32 _m
 u32 kana_match_reference(const kana_kanji_db* _db, const kana_kanji_info* _info, kana_match_stroke* _out, u32 _max);
 // Mean distance between corresponding points; _reversed walks _b backwards.
 f32 kana_match_points_distance(const kana_match_stroke* _a, const kana_match_stroke* _b, b8 _reversed);
+// The two steps of the preparation, for strokes gathered some other way: one
+// stroke's points (any units, Y down) resampled; then strokes fitted, together,
+// into the box (in place).
+void kana_match_resample_points(const rde_vec_2F* _points, u32 _count, kana_match_stroke* _out);
+void kana_match_fit(kana_match_stroke* _strokes, u32 _count);
 
 // Ranks the characters passing _filter against the alive strokes of _drawing
 // (any units, Y up). Writes the best _max into _out, best first; returns how
 // many. Nothing when the drawing is empty.
 u32 kana_match_rank(const kana_kanji_db* _db, const kana_catalog* _catalog, KANA_FILTER_ _filter,
                     const kana_ink* _drawing, kana_match_result* _out, u32 _max);
+// The same, for strokes already prepared (resampled and fitted together).
+u32 kana_match_rank_strokes(const kana_kanji_db* _db, const kana_catalog* _catalog, KANA_FILTER_ _filter,
+                            const kana_match_stroke* _strokes, u32 _count, kana_match_result* _out, u32 _max);
+// Prepared strokes against one character, as a ranking would cost them; a huge
+// cost when the character has no strokes.
+f32 kana_match_cost_record(const kana_kanji_db* _db, u32 _record, const kana_match_stroke* _strokes, u32 _count);
+// A character's extent in KanjiVG's box (Y down); false when it has no strokes.
+b8  kana_match_extent(const kana_kanji_db* _db, u32 _record, rde_vec_2F* _min, rde_vec_2F* _max);
+// Lets the prepared characters go (they are prepared again when next needed).
+void kana_match_release(void);
+
 
 #endif

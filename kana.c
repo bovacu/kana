@@ -50,6 +50,7 @@
 #include "kanji.h"
 #include "viewer.h"
 #include "theme.h"
+#include "mlkit.h"
 
 #define KANA_CONFIG_PATH "./assets/config.rdef"
 
@@ -70,6 +71,18 @@ RDE_INTERNAL kana_browse  browse;
 RDE_INTERNAL kana_chart   chart;
 RDE_INTERNAL kana_practice practice;
 RDE_INTERNAL kana_album    album;
+RDE_INTERNAL kana_check    check;                         // the lasso's selection, checked (check.h)
+
+// --mlkit-samples=0-27,28-58,...: a developer's measure of ML Kit. Each range of
+// strokes of the open canvas is read by ML Kit in turn, and the answers written
+// to <save dir>/mlkit_samples.txt (copied off the device to compare).
+#define KANA_MLKIT_SAMPLES 32
+RDE_INTERNAL u32 mlkit_sample_first[KANA_MLKIT_SAMPLES];
+RDE_INTERNAL u32 mlkit_sample_last[KANA_MLKIT_SAMPLES];
+RDE_INTERNAL u32 mlkit_sample_count;
+RDE_INTERNAL u32 mlkit_sample_next;
+RDE_INTERNAL b8  mlkit_sample_asked;
+RDE_INTERNAL rde_vec_2F    list_last;                     // where the scenes' pointer last was
 
 // Browse, the chart and Practice follow one pointer at a time: whichever pressed first.
 typedef enum { KANA_POINTER_NONE = 0, KANA_POINTER_PEN, KANA_POINTER_FINGER, KANA_POINTER_MOUSE } KANA_POINTER_;
@@ -191,6 +204,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.radius         = ink.constant_radius;
     _s.toolbar_center = toolbar.center;
     _s.theme          = (u8)kana_theme_index();
+    _s.mlkit          = kana_mlkit_enabled();
     return _s;
 }
 
@@ -202,6 +216,7 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     ink.color            = _s->color;
     ink.constant_radius  = rde_math_clamp_f32(_s->radius, KANA_TOOLBAR_SIZE_MIN, KANA_TOOLBAR_SIZE_MAX);
     kana_theme_set((KANA_THEME_)_s->theme);
+    kana_mlkit_set_enabled(_s->mlkit);
     kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center);
     kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
@@ -381,19 +396,38 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
     kana_album_init(&album, _have_kanji ? &kanji_db : NULL);
     kana_notes_init(&notes);
+    kana_check_init(&check, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     if(_have_kanji) {
         rde_log_color(RDE_LOG_COLOR_GREEN, "kana: %u characters loaded", kanji_db.count);
     }
 
-    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &show_hud);
+    kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
     }
 
     // Development: --browse / --kana open Browse / the kana chart at start;
-    // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice.
+    // --viewer=6728 the viewer on that code point (hex); --practice=6728 Practice;
+    // --settings Settings; --licences=3 Settings and Licences on document 3.
     for(i32 _i = 1; _i < _argc; _i++) {
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--mlkit-samples=", 16) == 0) {
+            const c8* _p = _argv[_i] + 16;
+            while(*_p != 0 && mlkit_sample_count < KANA_MLKIT_SAMPLES) {
+                c8* _end = NULL;
+                mlkit_sample_first[mlkit_sample_count] = (u32)strtoul(_p, &_end, 10);
+                mlkit_sample_last[mlkit_sample_count]  = *_end == '-' ? (u32)strtoul(_end + 1, &_end, 10) : mlkit_sample_first[mlkit_sample_count];
+                mlkit_sample_count++;
+                _p = *_end == ',' ? _end + 1 : _end;
+                if(*_end == 0) { break; }
+            }
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--settings") == 0) {
+            kana_side_open_settings(&toolbar, -1);
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--licences=", 11) == 0) {
+            kana_side_open_settings(&toolbar, (i32)strtol(_argv[_i] + 11, NULL, 10));
+        }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--album") == 0) {
             kana_album_open(&album);
         }
@@ -415,24 +449,30 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     kana_load_saves();
+    kana_mlkit_prepare();   // after the settings: when ML Kit is on, its model downloads the first time (iOS; nothing elsewhere)
 
     rde_log_color(RDE_LOG_COLOR_GREEN, "%s",
                   "kana - ink spike. Pen writes, fingers move the page (2-finger tap undo, 3 redo), the toolbar has the rest. Keys: C clear, Z undo, Y redo, M raw samples, H HUD, R reset view, B brush scale.");
 }
 
-// A pointer for Browse, the chart or the album, whichever is open.
+// A pointer for Check, Browse, the chart or the album, whichever is open.
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
-    if(album.open)      { kana_album_pointer_down(&album, _screen, _now); }
+    list_last = _screen;
+    if(check.open)      { kana_check_pointer_down(&check, _screen); }
+    else if(album.open) { kana_album_pointer_down(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
     else                { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
 }
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
-    if(album.open)      { kana_album_pointer_moved(&album, _screen, _now); }
+    list_last = _screen;
+    if(check.open)      { }
+    else if(album.open) { kana_album_pointer_moved(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
     else                { kana_browse_pointer_moved(&browse, _screen, _now); }
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
-    if(album.open)      { kana_album_pointer_up(&album, _now); }
+    if(check.open)      { kana_check_pointer_up(&check, list_last); }
+    else if(album.open) { kana_album_pointer_up(&album, _now); }
     else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
     else                { kana_browse_pointer_up(&browse, _now); }
 }
@@ -569,7 +609,7 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(practice.open || viewer.open || browse.open || chart.open || album.open) {
+    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -577,7 +617,7 @@ void on_event(rde_window* _window, rde_event* _event) {
         if(practice.open) {
             kana_practice_event(_event);
         } else if(!viewer.open) {
-            kana_browse_event(_event);   // Browse, the chart or the album, whichever is open
+            kana_browse_event(_event);   // Check, Browse, the chart or the album, whichever is open
         }
         return;
     }
@@ -791,6 +831,41 @@ void on_fixed_update(f32 _fixed_dt) {
     RDE_UNUSED(_fixed_dt);
 }
 
+// --mlkit-samples: the next range to ML Kit, and its answer written down.
+RDE_INTERNAL void kana_mlkit_samples_update(void) {
+    if(mlkit_sample_next >= mlkit_sample_count) {
+        return;
+    }
+    if(kana_mlkit_state() == KANA_MLKIT_FAILED) {
+        kana_mlkit_prepare();
+    }
+    c8        _path[512];
+    c8        _answer[4096];
+    f64       _ms = 0.0;
+    snprintf(_path, sizeof(_path), "%smlkit_samples.txt", kana_save_dir());
+    if(!mlkit_sample_asked) {
+        kana_ink _one;
+        kana_ink_init(&_one);
+        for(u32 _s = mlkit_sample_first[mlkit_sample_next]; _s <= mlkit_sample_last[mlkit_sample_next] && _s < kana_ink_stroke_count(&ink); _s++) {
+            const kana_ink_stroke* _stroke = kana_ink_stroke_at(&ink, _s);
+            kana_ink_add_loaded_stroke(&_one, kana_ink_stroke_points(&ink, _stroke), _stroke->point_count, _stroke->color, _stroke->from_pen);
+        }
+        mlkit_sample_asked = kana_mlkit_recognize(&_one, NULL);
+        kana_ink_destroy(&_one);
+        return;
+    }
+    if(kana_mlkit_poll(_answer, sizeof(_answer), &_ms)) {
+        FILE* _file = fopen(_path, mlkit_sample_next == 0 ? "wb" : "ab");
+        if(_file != NULL) {
+            fprintf(_file, "strokes %u-%u (%.0f ms):\n%s\n", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms, _answer);
+            fclose(_file);
+        }
+        rde_log_level(RDE_LOG_LEVEL_INFO, "ML Kit, strokes %u-%u (%.0f ms): %s", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms, _answer);
+        mlkit_sample_next++;
+        mlkit_sample_asked = false;
+    }
+}
+
 void on_update(f32 _dt) {
     if(baking) {
         return;
@@ -798,6 +873,8 @@ void on_update(f32 _dt) {
     if(notes.open != current_canvas) {
         kana_switch_canvas();   // chosen (or made, or its canvas deleted) in the side panel
     }
+    kana_mlkit_samples_update();
+
     kana_ink_frame_begin(&ink);
 
     // Smoothed hard: an unsmoothed frame time is unreadable on screen.
@@ -823,6 +900,20 @@ void on_update(f32 _dt) {
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_LEFT))  { kana_viewer_prev(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_SPACE)) { kana_viewer_replay(&viewer); }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_viewer_close(&viewer); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    if(check.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_check_close(&check); }
+        kana_check_update(&check);   // reads the selection once the screen has shown
         kana_toolbar_update(&toolbar);
         kana_autosave();
         return;
@@ -1086,6 +1177,8 @@ void on_render(rde_window* _window, f32 _dt) {
     } else if(viewer.open) {
         kana_viewer_render(&viewer, font, font_px, rde_window_get_size(_window), rde_window_get_safe_area_insets(_window),
                            toolbar.viewer_menu.size.y + 16.0f);
+    } else if(check.open) {
+        kana_check_render(&check, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.check_menu.size.y + 24.0f);
     } else if(album.open) {
         kana_album_render(&album, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.album_menu.size.y + 24.0f);
     } else if(browse.open) {
@@ -1126,6 +1219,8 @@ void end_func(void) {
     kana_practice_destroy(&practice);
     kana_album_destroy(&album);
     kana_notes_destroy(&notes);
+    kana_check_destroy(&check);
+    kana_match_release();
     kana_kanji_unload(&kanji_db);
     kana_ink_destroy(&ink);
 }

@@ -12,6 +12,7 @@
 #include "album.h"
 #include "side.h"
 #include "notes.h"
+#include "check.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -33,9 +34,10 @@ typedef enum {
     KANA_TOOL_LASSO
 } KANA_TOOL_;
 
-// The UI font: Roboto, rendered with Slug (curves, sharp at any size). Loaded at
-// this size; everything that draws text with it scales from here. The rest of the
-// app draws its text with toolbar.font too — see kana.c.
+// The UI font: Roboto, rendered with Slug (curves, sharp at any size), with Noto
+// Sans JP behind it for Japanese. Loaded at this size; everything that draws
+// text with it scales from here. The rest of the app draws its text with
+// toolbar.font too — see kana.c.
 #define KANA_TOOLBAR_FONT_SIZE   32
 
 #define KANA_TOOLBAR_PALETTE_COUNT 8
@@ -71,6 +73,7 @@ typedef kana_toolbar_swatch_ref kana_toolbar_chip_ref;
 struct kana_toolbar {
     rde_ui_canvas* ui;
     rde_font*      font;
+    rde_font*      font_jp;         // Noto Sans JP, font's fallback: Japanese typed or shown as text
     rde_window*    window;
 
     // What the toolbar drives.
@@ -83,6 +86,7 @@ struct kana_toolbar {
     kana_practice* practice;
     kana_album*    album;
     kana_notes*    notes;
+    kana_check*    check;
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -128,6 +132,12 @@ struct kana_toolbar {
     kana_toolbar_menu        chart_menu;
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
+    // Check's row: Back, Stroke order, Practice; and its "I meant…" field, at
+    // the top right of its screen.
+    kana_toolbar_menu        check_menu;
+    rde_ui_text_editor*      check_field;
+    b8                       _check_field_shown;
+    rde_vec_4F               _check_field_for;   // the screen size and insets it was placed for
     // The album's rows: the overview's (the sorts, Close) and a character page's
     // (Back, Practice).
     kana_toolbar_menu        album_menu;
@@ -173,7 +183,7 @@ struct kana_toolbar {
 };
 
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
-                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, b8* _show_hud);
+                             kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, kana_check* _check, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
 
 // Is this point on the toolbar, its open palette or an open menu? _screen is

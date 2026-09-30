@@ -19,10 +19,11 @@
 // A canvas is found by its id, so a name is anything and renaming touches no
 // file.
 //
-// Folders are one level deep: a canvas is at the top level or in a folder.
-// The first time, the page saved before notes existed (page.kana) becomes the
-// first canvas, "Page". There is always a canvas open: removing the last one
-// makes a new, empty one.
+// Folders nest: a canvas or a folder is at the top level or in a folder. The
+// ORDER is the list's order among the notes with the same parent — folders and
+// canvases mixed, as they were put. The first time, the page saved before notes
+// existed (page.kana) becomes the first canvas, "Page". There is always a canvas
+// open: removing the last one makes a new, empty one.
 // ===========================================================================
 
 #define KANA_NOTES_VERSION 1u
@@ -60,16 +61,22 @@ b8   kana_notes_save(kana_notes* _notes);
 void kana_notes_canvas_path(u32 _id, c8* _out, usize _size);
 
 const kana_note* kana_notes_find(const kana_notes* _notes, u32 _id);
-// A new folder or canvas at the end of _parent (0: the top level): its id, 0 when
-// it could not be made. The index is saved.
+// A new folder or canvas at the end of _parent (0: the top level; a folder
+// otherwise): its id, 0 when it could not be made. The index is saved.
 u32  kana_notes_add(kana_notes* _notes, KANA_NOTE_ _kind, u32 _parent, const c8* _name);
 b8   kana_notes_rename(kana_notes* _notes, u32 _id, const c8* _name);
 void kana_notes_set_expanded(kana_notes* _notes, u32 _id, b8 _expanded);
 void kana_notes_open(kana_notes* _notes, u32 _id);
-// Removes a canvas (its page file too) or a folder with every canvas in it. If
-// the open canvas goes, another opens — or a new one is made.
+// Removes a canvas (its page file too) or a folder with everything in it, at any
+// depth. If the open canvas goes, another opens — or a new one is made.
 void kana_notes_remove(kana_notes* _notes, u32 _id);
-// Canvases in a folder.
+// Moves a note into _parent (0: the top level), just before _before (a note in
+// _parent; 0: at its end). False — and nothing moves — when that would put a
+// folder inside itself, or _parent is not a folder. The index is saved.
+b8   kana_notes_move(kana_notes* _notes, u32 _id, u32 _parent, u32 _before);
+// Is _id _folder itself, or anywhere inside it?
+b8   kana_notes_is_within(const kana_notes* _notes, u32 _id, u32 _folder);
+// Canvases in a folder, at any depth.
 u32  kana_notes_count_in(const kana_notes* _notes, u32 _folder);
 // A name like "Canvas 3": the kind's word and the first number not in use.
 void kana_notes_new_name(const kana_notes* _notes, KANA_NOTE_ _kind, c8* _out, usize _size);
