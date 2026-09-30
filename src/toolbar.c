@@ -115,8 +115,10 @@ RDE_INTERNAL const c8 kana_toolbar_tag_icon  = 1;
 RDE_INTERNAL const c8 kana_toolbar_tag_glyph = 2;
 
 // Each icon's left bearing (Phosphor units, 1024 an em): where its ink starts.
-// A label centres the INK's box as if it started at the pen, so an icon lands
-// half its bearing right of centre; kana_toolbar_icon moves it back. Measured
+// A centred label lands a glyph its whole bearing right of centre: the text
+// engine centres the line by its ink's right edge (half the bearing), then
+// justifies the row by its ink span (the other half). kana_toolbar_icon moves
+// it back. Measured
 // from assets/fonts/Phosphor-Regular.ttf for the icons in icons.h (sorted by
 // code point; Fill draws the same shapes filled). An icon not here is left as is.
 static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[] = {
@@ -444,8 +446,8 @@ void kana_toolbar_icon(rde_ui_button* _button, const c8* _glyph, KANA_TOOLBAR_IC
     rde_ui_label_set_text(_icon, _glyph);
 
     rde_ui_label* _text = _button->internal_label;
-    // Back left by half the icon's bearing (see KANA_TOOLBAR_ICON_BEARINGS).
-    const f32 _back = _phosphor ? kana_toolbar_icon_bearing(_glyph) * 0.5f * _px * KANA_TOOLBAR_EM : 0.0f;
+    // Back left by the icon's bearing (see KANA_TOOLBAR_ICON_BEARINGS).
+    const f32 _back = _phosphor ? kana_toolbar_icon_bearing(_glyph) * _px * KANA_TOOLBAR_EM : 0.0f;
     if(_at == KANA_TOOLBAR_ICON_ONLY) {
         kana_toolbar_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, 0.0f }, (rde_vec_2F){ _back, 0.0f });
         if(_text != NULL) {
@@ -1098,7 +1100,7 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
                        _v ? (rde_vec_2F){ _across * 0.5f, _strip + _grip * 0.5f } : (rde_vec_2F){ _grip * 0.5f, _across * 0.5f }, _area);
     const f32 _handle = _min ? _grip * 0.5f : KANA_TOOLBAR_PADDING + KANA_TOOLBAR_GRIP * 0.5f;   // from the bar's end
     const c8* _dots = _v ? KANA_ICON_GRIP_H : KANA_ICON_GRIP_V;   // the dots across the bar
-    const f32 _back = kana_toolbar_icon_bearing(_dots) * 0.5f * KANA_TOOLBAR_GRIP_PX * KANA_TOOLBAR_EM;   // centred (see KANA_TOOLBAR_ICON_BEARINGS)
+    const f32 _back = kana_toolbar_icon_bearing(_dots) * KANA_TOOLBAR_GRIP_PX * KANA_TOOLBAR_EM;   // centred (see KANA_TOOLBAR_ICON_BEARINGS)
     rde_ui_label_set_text(_toolbar->grip, _dots);
     kana_toolbar_place(rde_ui_label_as_node(_toolbar->grip),
                        _v ? (rde_vec_2F){ _across * 0.5f - _back, _grip - _handle } : (rde_vec_2F){ _handle - _back, _across * 0.5f },

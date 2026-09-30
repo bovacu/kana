@@ -56,9 +56,9 @@ rde_ui_button* kana_toolbar_button(struct kana_toolbar* _toolbar, rde_ui_node* _
 // _at says. Again on the same button changes it. A chosen (selected) button's
 // Phosphor icon turns Fill.
 void           kana_toolbar_icon(rde_ui_button* _button, const c8* _glyph, KANA_TOOLBAR_ICON_AT_ _at, f32 _px);
-// A Phosphor icon's left bearing, in ems (0 for anything else). A label lands
-// an icon half of it right of centre: an icon label placed by hand moves back
-// by half of it times the icon's em (kana_toolbar_icon does this itself).
+// A Phosphor icon's left bearing, in ems (0 for anything else). A centred label
+// lands an icon that far right of centre: an icon label placed by hand moves
+// back by it times the icon's em (kana_toolbar_icon does this itself).
 f32            kana_toolbar_icon_bearing(const c8* _glyph);
 // The icon alone in _color (after a look, which colours label and icon alike).
 void           kana_toolbar_icon_color(rde_ui_button* _button, rde_color _color);

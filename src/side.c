@@ -922,7 +922,7 @@ RDE_INTERNAL void kana_side_build_notes(kana_toolbar* _toolbar) {
         rde_ui_label_set_font(_dots6, _toolbar->font_icons != NULL ? _toolbar->font_icons : _toolbar->font);
         rde_ui_label_set_alignment(_dots6, RDE_UI_LABEL_H_ALIGN_CENTER, RDE_UI_LABEL_V_ALIGN_MIDDLE);
         rde_ui_label_set_color(_dots6, _t->grip);
-        const f32 _back = kana_toolbar_icon_bearing(KANA_ICON_GRIP_V) * 0.5f * 14.0f * KANA_TOOLBAR_EM;   // centred
+        const f32 _back = kana_toolbar_icon_bearing(KANA_ICON_GRIP_V) * 14.0f * KANA_TOOLBAR_EM;   // centred
         kana_toolbar_place(rde_ui_label_as_node(_dots6), (rde_vec_2F){ KANA_SIDE_HANDLE_W * 0.5f - _back, KANA_SIDE_NOTE_H * 0.5f }, (rde_vec_2F){ KANA_SIDE_HANDLE_W, KANA_SIDE_NOTE_H });
 
         c8 _label[KANA_NOTE_NAME + 32];
