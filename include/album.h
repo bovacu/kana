@@ -74,7 +74,6 @@ RDE_STRUCT {
 
     // Scratch for drawing strokes.
     rde_arr TYPE(rde_vec_2F)        _points;
-    rde_arr TYPE(f32)               _radii;
 } kana_album;
 
 void kana_album_init(kana_album* _album, const kana_kanji_db* _db);

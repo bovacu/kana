@@ -1,4 +1,5 @@
 #include "chart.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -270,11 +271,6 @@ void kana_chart_update(kana_chart* _chart, f32 _dt) {
 
 // --- drawing -----------------------------------------------------------------------
 
-RDE_INTERNAL void kana_chart_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
-}
-
 void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom) {
     if(!_chart->open) {
         return;
@@ -304,9 +300,9 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
     for(u32 _section = 0; _section < 2; _section++) {
         const f32 _at  = _section == KANA_CHART_KATAKANA ? _chart->katakana_at : 0.0f;
         const f32 _y   = _top - (_at - _scroll);
-        kana_chart_text(_font, _font_px, _section == KANA_CHART_KATAKANA ? "Katakana" : "Hiragana", _left, _y - 32.0f, 26.0f, kana_theme_active()->text);
+        kana_draw_text(_font, _font_px, _section == KANA_CHART_KATAKANA ? "Katakana" : "Hiragana", _left, _y - 32.0f, 26.0f, kana_theme_active()->text);
         const f32 _sub = _y - KANA_CHART_TITLE_H - (f32)KANA_CHART_ROWS * _cell - KANA_CHART_GAP * 0.5f;
-        kana_chart_text(_font, _font_px, "Voiced (dakuten, handakuten) and small kana", _left, _sub - 26.0f, 17.0f, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, "Voiced (dakuten, handakuten) and small kana", _left, _sub - 26.0f, 17.0f, kana_theme_active()->text_soft);
     }
 
     const kana_chart_cell* _cells  = (const kana_chart_cell*)_chart->cells.memory;
@@ -320,14 +316,11 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
         }
 
         const f32 _glyph = _c->size * 0.58f;
-        const rde_vec_2F _box[5] = { { _c->x + 2.0f, _y - 2.0f }, { _c->x + _c->size - 2.0f, _y - 2.0f }, { _c->x + _c->size - 2.0f, _y - _c->size + 2.0f },
-                                     { _c->x + 2.0f, _y - _c->size + 2.0f }, { _c->x + 2.0f, _y - 2.0f } };
-        const f32        _r[5]   = { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
-        rde_rendering_2d_draw_stroke(_box, _r, 5, kana_theme_active()->line);
+        kana_draw_outline((rde_vec_2F){ _c->x + 2.0f, _y - _c->size + 2.0f }, (rde_vec_2F){ _c->x + _c->size - 2.0f, _y - 2.0f }, 0.5f, kana_theme_active()->line);
 
         kana_glyph_character(&_chart->glyph, _cps[_c->position], (rde_vec_2F){ _c->x + (_c->size - _glyph) * 0.5f, _y - _c->size * 0.08f }, _glyph, kana_theme_active()->ink);
         if(_romaji[_c->position] != NULL) {
-            kana_chart_text(_font, _font_px, _romaji[_c->position], _c->x + 6.0f, _y - _c->size + 8.0f, 13.0f, kana_theme_active()->text_soft);
+            kana_draw_text(_font, _font_px, _romaji[_c->position], _c->x + 6.0f, _y - _c->size + 8.0f, 13.0f, kana_theme_active()->text_soft);
         }
     }
 

@@ -1,4 +1,5 @@
 #include "check.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -14,7 +15,6 @@
 #define KANA_CHECK_BOX_MAX  300.0f   // the writing's square
 #define KANA_CHECK_CELL     96.0f    // a candidate
 #define KANA_CHECK_FILL     0.8f     // the writing and the model fill this much of the square
-#define KANA_CHECK_TAP_SLOP 14.0f
 #define KANA_CHECK_STRIP    150.0f   // the whole writing, at most this tall
 #define KANA_CHECK_READ     56.0f    // a character of the reading
 #define KANA_CHECK_READ_GAP 6.0f
@@ -91,13 +91,13 @@ b8 kana_check_open(kana_check* _check, const kana_ink* _ink, const u32* _ids, u3
     _check->mlkit_text[0] = 0;
     _check->by_mlkit      = false;
     _check->_asked_mlkit  = false;
-    kana_mlkit_poll(NULL, 0, NULL);   // an answer still in flight was for something else
+    kana_recognize_forget(&_check->recognition);   // an answer still to come was for something else
     return true;
 }
 
 void kana_check_close(kana_check* _check) {
-    _check->open     = false;
-    _check->pressing = false;
+    _check->open = false;
+    kana_scroller_stop(&_check->taps);
 }
 
 // Scores a character's strokes against its chosen candidate.
@@ -133,6 +133,10 @@ RDE_INTERNAL void kana_check_read(kana_check* _check) {
         kana_segment_read(&_check->segment, _check->db, _check->catalog, &_check->drawing, KANA_SEGMENT_AUTO);
     }
 
+    if(_check->meant_failed) {
+        _check->by_mlkit = false;   // ML Kit's reading did not fit the strokes: Kana's own
+    }
+
     const u32                _n    = (u32)rde_arr_length(&_check->segment.chars);
     const kana_segment_char* _read = (const kana_segment_char*)_check->segment.chars.memory;
     if(_n > 0) {
@@ -146,7 +150,23 @@ RDE_INTERNAL void kana_check_read(kana_check* _check) {
             _c->max             = _read[_i].max;
             _c->candidate_count = _read[_i].candidate_count < KANA_CHECK_CANDIDATES ? _read[_i].candidate_count : KANA_CHECK_CANDIDATES;
             memcpy(_c->candidates, _read[_i].candidates, sizeof(kana_match_result) * _c->candidate_count);
-            _c->chosen = _c->candidate_count > 0 ? 0 : -1;   // the best match, until told otherwise
+
+            // Read by ML Kit: what its readings have here, then the matcher's
+            // ranking of these strokes — the same candidates Browse would give.
+            if(_check->by_mlkit) {
+                kana_ink _one;
+                kana_ink_init(&_one);
+                for(u32 _s = _c->first; _s < _c->first + _c->count && _s < kana_ink_stroke_count(&_check->drawing); _s++) {
+                    const kana_ink_stroke* _stroke = kana_ink_stroke_at(&_check->drawing, _s);
+                    kana_ink_add_loaded_stroke(&_one, kana_ink_stroke_points(&_check->drawing, _stroke), _stroke->point_count, _stroke->color, _stroke->from_pen);
+                }
+                kana_match_result _matched[KANA_CHECK_CANDIDATES];
+                const u32         _found = kana_match_rank(_check->db, _check->catalog, KANA_FILTER_ALL, &_one, _matched, KANA_CHECK_CANDIDATES);
+                kana_ink_destroy(&_one);
+                _c->candidate_count = kana_recognize_candidates(_check->db, &_check->recognition, _i, _n, NULL, KANA_FILTER_ALL,
+                                                                _matched, _found, _c->candidates, KANA_CHECK_CANDIDATES);
+            }
+            _c->chosen = _c->candidate_count > 0 ? 0 : -1;   // the best, until told otherwise
             kana_check_score(_check, _c);
         }
     }
@@ -159,34 +179,26 @@ void kana_check_update(kana_check* _check) {
     }
     // Nothing typed, and ML Kit there: it is asked first, and the selection read
     // as its answer (Kana's own reading when it has none, or it does not fit).
-    if(_check->meant_count == 0 && !_check->by_mlkit && kana_mlkit_enabled() && kana_mlkit_state() == KANA_MLKIT_READY) {
+    if(_check->meant_count == 0 && !_check->by_mlkit && kana_recognize_available()) {
         if(!_check->_asked_mlkit) {
-            _check->_asked_mlkit = kana_mlkit_recognize(&_check->drawing, NULL);
+            _check->_asked_mlkit = kana_recognize_start(&_check->recognition, &_check->drawing);
             if(_check->_asked_mlkit) {
                 return;   // "Reading…" until it answers
             }
         } else {
-            c8  _answer[1024];
-            f64 _ms = 0.0;
-            if(!kana_mlkit_poll(_answer, sizeof(_answer), &_ms)) {
+            if(!kana_recognize_poll(&_check->recognition)) {
                 return;
             }
-            c8* _line = strchr(_answer, '\n');
-            if(_line != NULL) {
-                *_line = 0;   // its best
-            }
-            snprintf(_check->mlkit_text, sizeof(_check->mlkit_text), "%s", _answer);
             _check->_asked_mlkit = false;
-            if(_answer[0] != 0) {
-                kana_check_read_as(_check, _answer);
-                _check->by_mlkit = true;
+            if(_check->recognition.line_count > 0) {
+                // Its best reading is what the selection is read AS.
+                snprintf(_check->mlkit_text, sizeof(_check->mlkit_text), "%s", _check->recognition.lines[0]);
+                _check->meant_count = kana_recognize_records(_check->db, _check->recognition.lines[0], _check->meant, KANA_CHECK_MEANT);
+                _check->by_mlkit    = _check->meant_count > 0;
             }
         }
     }
     kana_check_read(_check);
-    if(_check->meant_failed) {
-        _check->by_mlkit = false;
-    }
 }
 
 void kana_check_read_as(kana_check* _check, const c8* _text) {
@@ -279,19 +291,18 @@ u32 kana_check_records(const kana_check* _check, u32* _out, u32 _max, b8 _unique
 
 // --- input -------------------------------------------------------------------------
 
-void kana_check_pointer_down(kana_check* _check, rde_vec_2F _screen) {
-    _check->press    = _screen;
-    _check->pressing = true;
+void kana_check_pointer_down(kana_check* _check, rde_vec_2F _screen, f64 _time) {
+    kana_scroller_down(&_check->taps, _screen, _time);
 }
 
-void kana_check_pointer_up(kana_check* _check, rde_vec_2F _screen) {
-    if(!_check->pressing) {
-        return;
-    }
-    _check->pressing = false;
-    const f32 _dx = _screen.x - _check->press.x;
-    const f32 _dy = _screen.y - _check->press.y;
-    if(_dx * _dx + _dy * _dy > KANA_CHECK_TAP_SLOP * KANA_CHECK_TAP_SLOP || _check->pending) {
+void kana_check_pointer_moved(kana_check* _check, rde_vec_2F _screen, f64 _time) {
+    kana_scroller_moved(&_check->taps, _screen, _time);
+}
+
+void kana_check_pointer_up(kana_check* _check, f64 _time) {
+    kana_scroller_up(&_check->taps, _time);
+    rde_vec_2F _screen;
+    if(!kana_scroller_take_tap(&_check->taps, &_screen) || _check->pending) {
         return;   // not a tap
     }
     const kana_check_char* _c = kana_check_at(_check, _check->selected);
@@ -312,17 +323,6 @@ void kana_check_pointer_up(kana_check* _check, rde_vec_2F _screen) {
 }
 
 // --- drawing -----------------------------------------------------------------------
-
-RDE_INTERNAL void kana_check_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
-}
-
-RDE_INTERNAL void kana_check_outline(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color _color) {
-    const rde_vec_2F _pts[5] = { { _min.x, _max.y }, { _max.x, _max.y }, { _max.x, _min.y }, { _min.x, _min.y }, { _min.x, _max.y } };
-    const f32        _r[5]   = { _radius, _radius, _radius, _radius, _radius };
-    rde_rendering_2d_draw_stroke(_pts, _r, 5, _color);
-}
 
 // The model, faint, fitted to the square the way the writing is: its own extent
 // to KANA_CHECK_FILL of the square, centred — so the two can be compared.
@@ -357,7 +357,6 @@ RDE_INTERNAL void kana_check_draw_model(kana_check* _check, u32 _record, rde_vec
 // screen _center, _zoom screen units per canvas unit, _radius wide.
 RDE_INTERNAL void kana_check_draw_strokes(kana_check* _check, u32 _first, u32 _count, rde_vec_2F _mid, rde_vec_2F _center, f32 _zoom, f32 _radius) {
     static rde_vec_2F _pos[4096];
-    static f32        _rad[4096];
     for(u32 _s = _first; _s < _first + _count && _s < kana_ink_stroke_count(&_check->drawing); _s++) {
         const kana_ink_stroke* _stroke = kana_ink_stroke_at(&_check->drawing, _s);
         if(!_stroke->alive) {
@@ -367,9 +366,8 @@ RDE_INTERNAL void kana_check_draw_strokes(kana_check* _check, u32 _first, u32 _c
         const u32             _n = _stroke->point_count < 4096u ? _stroke->point_count : 4096u;
         for(u32 _k = 0; _k < _n; _k++) {
             _pos[_k] = (rde_vec_2F){ _center.x + (_p[_k].position.x - _mid.x) * _zoom, _center.y + (_p[_k].position.y - _mid.y) * _zoom };
-            _rad[_k] = _radius;
         }
-        rde_rendering_2d_draw_stroke(_pos, _rad, _n, kana_theme_active()->ink);
+        kana_draw_stroke_even(_pos, _n, _radius, kana_theme_active()->ink);
     }
 }
 
@@ -407,7 +405,7 @@ RDE_INTERNAL f32 kana_check_draw_all(kana_check* _check, f32 _left, f32 _width, 
         if(_i == _check->selected) {
             rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, (rde_vec_2F){ _max.x - _min.x, _max.y - _min.y }, _theme->select_fill);
         }
-        kana_check_outline(_min, _max, _i == _check->selected ? 1.2f : 0.8f, _i == _check->selected ? _theme->select : _theme->line);
+        kana_draw_outline(_min, _max, _i == _check->selected ? 1.2f : 0.8f, _i == _check->selected ? _theme->select : _theme->line);
         kana_check_add_hit(_check, _min, _max, _i);
     }
     kana_check_draw_strokes(_check, 0, kana_ink_stroke_count(&_check->drawing), _mid, _at, _zoom, rde_math_clamp_f32(_zoom * 2.5f, 0.8f, 2.5f));
@@ -430,7 +428,7 @@ RDE_INTERNAL f32 kana_check_draw_reading(kana_check* _check, rde_font* _font, f3
         const rde_vec_2F       _br = { _tl.x + KANA_CHECK_READ, _tl.y - KANA_CHECK_READ };
         if(_i == _check->selected) {
             rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + KANA_CHECK_READ * 0.5f, _tl.y - KANA_CHECK_READ * 0.5f }, (rde_vec_2F){ KANA_CHECK_READ, KANA_CHECK_READ }, _theme->select_fill);
-            kana_check_outline((rde_vec_2F){ _tl.x, _br.y }, (rde_vec_2F){ _br.x, _tl.y }, 1.2f, _theme->select);
+            kana_draw_outline((rde_vec_2F){ _tl.x, _br.y }, (rde_vec_2F){ _br.x, _tl.y }, 1.2f, _theme->select);
         }
         kana_kanji_info _info;
         if(_c->chosen >= 0 && kana_kanji_at(_check->db, _c->candidates[_c->chosen].record, &_info)) {
@@ -439,7 +437,7 @@ RDE_INTERNAL f32 kana_check_draw_reading(kana_check* _check, rde_font* _font, f3
         }
         if(!_c->score.empty) {
             snprintf(_line, sizeof(_line), "%.0f", (f64)_c->score.score);
-            kana_check_text(_font, _font_px, _line, _tl.x + 4.0f, _br.y - 16.0f, 13.0f, kana_theme_grade(_c->score.score));
+            kana_draw_text(_font, _font_px, _line, _tl.x + 4.0f, _br.y - 16.0f, 13.0f, kana_theme_grade(_c->score.score));
         }
         kana_check_add_hit(_check, (rde_vec_2F){ _tl.x, _br.y - 18.0f }, (rde_vec_2F){ _br.x, _tl.y }, _i);
     }
@@ -469,8 +467,8 @@ RDE_INTERNAL void kana_check_draw_detail(kana_check* _check, rde_font* _font, f3
 
     if(_c->chosen >= 0 && !_c->score.empty) {
         snprintf(_line, sizeof(_line), "%.0f", (f64)_c->score.score);
-        kana_check_text(_font, _font_px, _line, _left, _tl.y - _box - 40.0f, 30.0f, kana_theme_grade(_c->score.score));
-        kana_check_text(_font, _font_px, _c->score.feedback, _left + 64.0f, _tl.y - _box - 38.0f, 18.0f, _theme->text);
+        kana_draw_text(_font, _font_px, _line, _left, _tl.y - _box - 40.0f, 30.0f, kana_theme_grade(_c->score.score));
+        kana_draw_text(_font, _font_px, _c->score.feedback, _left + 64.0f, _tl.y - _box - 38.0f, 18.0f, _theme->text);
     }
 
     // The candidates: beside the square when there is room, under it otherwise.
@@ -491,12 +489,12 @@ RDE_INTERNAL void kana_check_draw_detail(kana_check* _check, rde_font* _font, f3
         }
         if((i32)_i == _c->chosen) {
             rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cell.x + KANA_CHECK_CELL * 0.5f, _cell.y - KANA_CHECK_CELL * 0.5f }, (rde_vec_2F){ KANA_CHECK_CELL - 6.0f, KANA_CHECK_CELL - 6.0f }, _theme->select_fill);
-            kana_check_outline((rde_vec_2F){ _cell.x + 3.0f, _cell.y - KANA_CHECK_CELL + 3.0f }, (rde_vec_2F){ _cell.x + KANA_CHECK_CELL - 3.0f, _cell.y - 3.0f }, 1.2f, _theme->select);
+            kana_draw_outline((rde_vec_2F){ _cell.x + 3.0f, _cell.y - KANA_CHECK_CELL + 3.0f }, (rde_vec_2F){ _cell.x + KANA_CHECK_CELL - 3.0f, _cell.y - 3.0f }, 1.2f, _theme->select);
         }
         const f32 _glyph = KANA_CHECK_CELL * 0.62f;
         kana_glyph_character(&_check->glyph, _info.codepoint, (rde_vec_2F){ _cell.x + (KANA_CHECK_CELL - _glyph) * 0.5f, _cell.y - KANA_CHECK_CELL * 0.1f }, _glyph, _theme->ink);
         snprintf(_line, sizeof(_line), "%u", _i + 1u);
-        kana_check_text(_font, _font_px, _line, _cell.x + 8.0f, _cell.y - KANA_CHECK_CELL + 10.0f, 14.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, _line, _cell.x + 8.0f, _cell.y - KANA_CHECK_CELL + 10.0f, 14.0f, _theme->text_soft);
     }
 }
 
@@ -519,10 +517,10 @@ void kana_check_render(kana_check* _check, rde_window* _window, rde_font* _font,
     const u32         _n      = kana_check_count(_check);
     c8                _line[200];
 
-    kana_check_text(_font, _font_px, "Check", _left, _top - 30.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Check", _left, _top - 30.0f, 26.0f, _theme->text);
 
     if(_check->pending) {
-        kana_check_text(_font, _font_px, "Reading…", _left, _top - 60.0f, 17.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, "Reading…", _left, _top - 60.0f, 17.0f, _theme->text_soft);
         return;
     }
 
@@ -556,7 +554,7 @@ void kana_check_render(kana_check* _check, rde_window* _window, rde_font* _font,
         snprintf(_line, sizeof(_line), _check->mlkit_text[0] != 0 ? "ML Kit read more characters than there are strokes: read by Kana instead."
                                                                   : "Fewer strokes than the characters meant: read freely instead.");
     }
-    kana_check_text(_font, _font_px, _line, _left, _top - 60.0f, 17.0f, _theme->text_soft);
+    kana_draw_text(_font, _font_px, _line, _left, _top - 60.0f, 17.0f, _theme->text_soft);
 
     f32 _y = _top - 86.0f;
     if(_n > 1) {

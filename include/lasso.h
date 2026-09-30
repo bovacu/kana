@@ -58,7 +58,6 @@ RDE_STRUCT {
     kana_clip                _duplicate; // scratch: Duplicate must not touch the clipboard
 
     rde_arr TYPE(rde_vec_2F) _scratch_positions;
-    rde_arr TYPE(f32)        _scratch_radii;
 } kana_lasso;
 
 void kana_lasso_init(kana_lasso* _lasso);

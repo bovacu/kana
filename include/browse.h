@@ -8,6 +8,7 @@
 #include "ink.h"
 #include "match.h"
 #include "scroll.h"
+#include "recognize.h"
 
 // ===========================================================================
 // Browse: every kana and kanji as a grid to scroll and tap — filtered, sorted,
@@ -62,6 +63,8 @@ RDE_STRUCT {
     c8                   search[128];
     b8                   drawing;       // the pad is shown and searches
     kana_ink             pad;           // what was drawn on it (pad-local units, Y up)
+    kana_recognition     recognition;   // ML Kit's reading of the pad (recognize.h), when there is one
+    b8                   _recognize_wanted;   // a stroke ended: ask ML Kit (on a later frame if it is busy)
 
     b8                   picking;       // the parts panel is shown
     rde_arr TYPE(kana_browse_part)     parts;       // offered, by stroke count then uses

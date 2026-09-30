@@ -1,4 +1,5 @@
 #include "album.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -36,13 +37,12 @@ void kana_album_init(kana_album* _album, const kana_kanji_db* _db) {
     _album->entries = rde_arr_new(sizeof(kana_album_entry), _heap);
     _album->hits    = rde_arr_new(sizeof(kana_album_hit), _heap);
     _album->_points = rde_arr_new(sizeof(rde_vec_2F), _heap);
-    _album->_radii  = rde_arr_new(sizeof(f32), _heap);
     kana_history_init(&_album->history);
     kana_glyph_init(&_album->glyph, _db);
 }
 
 void kana_album_destroy(kana_album* _album) {
-    rde_arr* _arrays[] = { &_album->entries, &_album->hits, &_album->_points, &_album->_radii };
+    rde_arr* _arrays[] = { &_album->entries, &_album->hits, &_album->_points };
     for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
         if(rde_arr_is_inited(_arrays[_i])) {
             rde_arr_free(_arrays[_i]);
@@ -245,17 +245,6 @@ void kana_album_update(kana_album* _album, f32 _dt) {
 
 // --- drawing helpers --------------------------------------------------------------------
 
-RDE_INTERNAL void kana_album_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
-}
-
-RDE_INTERNAL void kana_album_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color) {
-    const rde_vec_2F _p[2] = { _a, _b };
-    const f32        _r[2] = { _radius, _radius };
-    rde_rendering_2d_draw_stroke(_p, _r, 2, _color);
-}
-
 // A time as local date (and clock time).
 RDE_INTERNAL void kana_album_date(u64 _time, b8 _with_clock, c8* _out, usize _size) {
     const time_t _t  = (time_t)_time;
@@ -307,14 +296,11 @@ RDE_INTERNAL void kana_album_draw_attempt(kana_album* _album, const kana_history
         }
 
         rde_arr_clear(&_album->_points);
-        rde_arr_clear(&_album->_radii);
         rde_vec_2F* _pos = (rde_vec_2F*)rde_arr_add_n(&_album->_points, _shown);
-        f32*        _rad = (f32*)rde_arr_add_n(&_album->_radii, _shown);
         for(u32 _q = 0; _q < _shown; _q++) {
             _pos[_q] = (rde_vec_2F){ _bl.x + (f32)_p[_q].x * _k, _bl.y + (f32)_p[_q].y * _k };
-            _rad[_q] = _radius;
         }
-        rde_rendering_2d_draw_stroke(_pos, _rad, _shown, _theme->ink);
+        kana_draw_stroke_even(_pos, _shown, _radius, _theme->ink);
 
         if(_partial) {
             rde_rendering_2d_draw_circle(_pos[_shown - 1], _radius * 1.35f, 16u, _theme->pen_tip, NULL);
@@ -337,20 +323,17 @@ RDE_INTERNAL void kana_album_trend(kana_album* _album, rde_vec_2F _tl, f32 _w, f
     const f32 _levels[2] = { KANA_THEME_GRADE_FAIR, KANA_THEME_GRADE_GOOD };
     for(u32 _i = 0; _i < 2; _i++) {
         const f32 _y = _tl.y - _h + _h * _levels[_i] / 100.0f;
-        kana_album_line((rde_vec_2F){ _tl.x, _y }, (rde_vec_2F){ _tl.x + _w, _y }, 0.5f, _theme->line);
+        kana_draw_line((rde_vec_2F){ _tl.x, _y }, (rde_vec_2F){ _tl.x + _w, _y }, 0.5f, _theme->line);
     }
 
     rde_arr_clear(&_album->_points);
-    rde_arr_clear(&_album->_radii);
     rde_vec_2F* _pos = (rde_vec_2F*)rde_arr_add_n(&_album->_points, _count);
-    f32*        _rad = (f32*)rde_arr_add_n(&_album->_radii, _count);
     for(u32 _i = 0; _i < _count; _i++) {
         const f32 _x = _count == 1 ? _tl.x + _w * 0.5f : _tl.x + _w * (f32)_i / (f32)(_count - 1u);
         _pos[_i] = (rde_vec_2F){ _x, _tl.y - _h + _h * rde_math_clamp_f32(_sessions[_i].average, 0.0f, 100.0f) / 100.0f };
-        _rad[_i] = 1.2f;
     }
     if(_count > 1) {
-        rde_rendering_2d_draw_stroke(_pos, _rad, _count, _theme->text_soft);
+        kana_draw_stroke_even(_pos, _count, 1.2f, _theme->text_soft);
     }
     for(u32 _i = 0; _i < _count; _i++) {
         const rde_vec_2F _at = ((const rde_vec_2F*)_album->_points.memory)[_i];
@@ -366,14 +349,14 @@ RDE_INTERNAL void kana_album_render_overview(kana_album* _album, rde_font* _font
     const u32         _count  = (u32)rde_arr_length(&_album->entries);
     #define KANA_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
-    kana_album_text(_font, _font_px, "Album", _left, KANA_ALBUM_SY(0.0f) - 32.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, "Album", _left, KANA_ALBUM_SY(0.0f) - 32.0f, 26.0f, _theme->text);
     c8 _line[128];
     if(_count == 0) {
         snprintf(_line, sizeof(_line), "Nothing practised yet: open a character (Kanji or Kana), then Practice, then Score.");
     } else {
         snprintf(_line, sizeof(_line), "%u character%s practised, %u session%s", _count, _count == 1 ? "" : "s", _album->sessions, _album->sessions == 1 ? "" : "s");
     }
-    kana_album_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(0.0f) - 60.0f, 17.0f, _theme->text_soft);
+    kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(0.0f) - 60.0f, 17.0f, _theme->text_soft);
 
     const f32 _width   = _right - _left;
     const u32 _columns = (u32)fmaxf(1.0f, floorf(_width / KANA_ALBUM_CELL_MIN));
@@ -395,13 +378,13 @@ RDE_INTERNAL void kana_album_render_overview(kana_album* _album, rde_font* _font
         rde_arr_add(&_album->hits, &_hit);
 
         const kana_album_entry* _e = &_entries[_i];
-        kana_album_line((rde_vec_2F){ _x + 4.0f, _y - _cell }, (rde_vec_2F){ _x + _cell - 4.0f, _y - _cell }, 0.5f, _theme->line);
+        kana_draw_line((rde_vec_2F){ _x + 4.0f, _y - _cell }, (rde_vec_2F){ _x + _cell - 4.0f, _y - _cell }, 0.5f, _theme->line);
         kana_glyph_character(&_album->glyph, _e->codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - _cell * 0.06f }, _glyph, _theme->ink);
 
         snprintf(_line, sizeof(_line), "%.0f", (f64)_e->summary.last);
-        kana_album_text(_font, _font_px, _line, _x + 8.0f, _y - _cell + 10.0f, 17.0f, kana_theme_grade(_e->summary.last));
+        kana_draw_text(_font, _font_px, _line, _x + 8.0f, _y - _cell + 10.0f, 17.0f, kana_theme_grade(_e->summary.last));
         snprintf(_line, sizeof(_line), "\xC3\x97%u", _e->summary.sessions);   // ×n
-        kana_album_text(_font, _font_px, _line, _x + _cell * 0.58f, _y - _cell + 10.0f, 15.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, _line, _x + _cell * 0.58f, _y - _cell + 10.0f, 15.0f, _theme->text_soft);
     }
 
     #undef KANA_ALBUM_SY
@@ -432,12 +415,12 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
         }
         kana_album_date(_sessions[0].time, false, _date, sizeof(_date));
         snprintf(_line, sizeof(_line), "%u session%s since %s", _count, _count == 1 ? "" : "s", _date);
-        kana_album_text(_font, _font_px, _line, _tx, _head - 24.0f, 22.0f, _theme->text);
+        kana_draw_text(_font, _font_px, _line, _tx, _head - 24.0f, 22.0f, _theme->text);
         snprintf(_line, sizeof(_line), "First %.0f, best %.0f, last %.0f", (f64)_sessions[0].average, (f64)_best, (f64)_sessions[_count - 1].average);
-        kana_album_text(_font, _font_px, _line, _tx, _head - 52.0f, 17.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, _line, _tx, _head - 52.0f, 17.0f, _theme->text_soft);
         kana_album_trend(_album, (rde_vec_2F){ _tx, _head - 70.0f }, fminf(KANA_ALBUM_TREND_W, _right - _tx), KANA_ALBUM_TREND_H);
     } else {
-        kana_album_text(_font, _font_px, "No sessions", _tx, _head - 24.0f, 22.0f, _theme->text);
+        kana_draw_text(_font, _font_px, "No sessions", _tx, _head - 24.0f, 22.0f, _theme->text);
     }
 
     // --- the sessions, newest first ----------------------------------------------------
@@ -452,9 +435,9 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
 
         // Its average, then when.
         snprintf(_line, sizeof(_line), "%.0f", (f64)_session->average);
-        kana_album_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(_y) - 24.0f, 20.0f, kana_theme_grade(_session->average));
+        kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(_y) - 24.0f, 20.0f, kana_theme_grade(_session->average));
         kana_album_date(_session->time, true, _date, sizeof(_date));
-        kana_album_text(_font, _font_px, _date, _left + 44.0f, KANA_ALBUM_SY(_y) - 24.0f, 17.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, _date, _left + 44.0f, KANA_ALBUM_SY(_y) - 24.0f, 17.0f, _theme->text_soft);
         _y += KANA_ALBUM_SESSION_H;
 
         // Its attempts — the squares written in — in rows.
@@ -485,14 +468,11 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
             kana_glyph_character(&_album->glyph, _album->page_codepoint, _tl, _thumb, _theme->reference);
             kana_album_draw_attempt(_album, _square, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
             if(_is_selected) {
-                const rde_vec_2F _box[5] = { { _tl.x - 3.0f, _tl.y + 3.0f }, { _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, { _tl.x + _thumb + 3.0f, _tl.y - _thumb - 3.0f },
-                                             { _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, { _tl.x - 3.0f, _tl.y + 3.0f } };
-                const f32        _r[5]   = { 1.5f, 1.5f, 1.5f, 1.5f, 1.5f };
-                rde_rendering_2d_draw_stroke(_box, _r, 5, _theme->select);
+                kana_draw_outline((rde_vec_2F){ _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, (rde_vec_2F){ _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, 1.5f, _theme->select);
             }
 
             snprintf(_line, sizeof(_line), "%.0f", (f64)_square->score.score);
-            kana_album_text(_font, _font_px, _line, _tl.x + 2.0f, _tl.y - _thumb - 19.0f, 15.0f, kana_theme_grade(_square->score.score));
+            kana_draw_text(_font, _font_px, _line, _tl.x + 2.0f, _tl.y - _thumb - 19.0f, 15.0f, kana_theme_grade(_square->score.score));
         }
         const u32 _rows = (_shown + _cols - 1u) / _cols;
         _y += (f32)_rows * (_thumb + KANA_ALBUM_LABEL_H + KANA_ALBUM_THUMB_GAP);
@@ -501,7 +481,7 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
         if(_selected >= 0) {
             const kana_history_square* _square = &_squares[_album->selected];
             snprintf(_line, sizeof(_line), "Attempt %d: %.0f. %s", _selected + 1, (f64)_square->score.score, _square->score.feedback);
-            kana_album_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(_y) - 18.0f, 16.0f, _theme->text);
+            kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(_y) - 18.0f, 16.0f, _theme->text);
             _y += KANA_ALBUM_DETAIL_H;
         }
         _y += KANA_ALBUM_SESSION_GAP;

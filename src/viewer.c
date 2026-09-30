@@ -1,4 +1,5 @@
 #include "viewer.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -81,12 +82,6 @@ void kana_viewer_prev(kana_viewer* _viewer) {
 
 // --- the page ----------------------------------------------------------------------
 
-// Text _px screen units tall (em), baseline at _y.
-RDE_INTERNAL void kana_viewer_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
-}
-
 RDE_INTERNAL b8 kana_viewer_is_kana(u32 _cp) {
     return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu);
 }
@@ -126,7 +121,7 @@ void kana_viewer_render(kana_viewer* _viewer, rde_font* _font, f32 _font_px, rde
              _kana ? (_info.codepoint < 0x30A0u ? "Hiragana" : "Katakana") : "Kanji",
              _info.strokes, _info.strokes == 1 ? "" : "s", _extra,
              _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
-    kana_viewer_text(_font, _font_px, _line, _left, _top - 16.0f, 22.0f, kana_theme_active()->text);
+    kana_draw_text(_font, _font_px, _line, _left, _top - 16.0f, 22.0f, kana_theme_active()->text);
 
     // The parts it is built from, those that can be drawn.
     u32 _parts[KANA_KANJI_MAX_PARTS];
@@ -154,20 +149,20 @@ void kana_viewer_render(kana_viewer* _viewer, rde_font* _font, f32 _font_px, rde
     // --- readings and meaning (kanji) ------------------------------------------------
     if(!_kana) {
         const f32 _y0 = _tl.y - _size - 20.0f;
-        kana_viewer_text(_font, _font_px, "On", _left, _y0 - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, "On", _left, _y0 - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
         kana_glyph_reading(&_viewer->glyph, kana_kanji_on(_viewer->db, &_info), (rde_vec_2F){ _left + 60.0f, _y0 },
                            KANA_VIEWER_KANA_SIZE, _right, kana_theme_active()->ink, kana_theme_active()->text_soft);
-        kana_viewer_text(_font, _font_px, "Kun", _left, _y0 - KANA_VIEWER_LINE - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, "Kun", _left, _y0 - KANA_VIEWER_LINE - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
         kana_glyph_reading(&_viewer->glyph, kana_kanji_kun(_viewer->db, &_info), (rde_vec_2F){ _left + 60.0f, _y0 - KANA_VIEWER_LINE },
                            KANA_VIEWER_KANA_SIZE, _right, kana_theme_active()->ink, kana_theme_active()->text_soft);
 
         const c8* _meanings = kana_kanji_meanings(_viewer->db, &_info);
         snprintf(_line, sizeof(_line), "%s", _meanings[0] != 0 ? _meanings : "(no meaning listed)");
-        kana_viewer_text(_font, _font_px, _line, _left, _y0 - 2.0f * KANA_VIEWER_LINE - KANA_VIEWER_KANA_SIZE * 0.7f, 22.0f, kana_theme_active()->text);
+        kana_draw_text(_font, _font_px, _line, _left, _y0 - 2.0f * KANA_VIEWER_LINE - KANA_VIEWER_KANA_SIZE * 0.7f, 22.0f, kana_theme_active()->text);
 
         if(_part_count > 0) {
             const f32 _py = _y0 - 3.0f * KANA_VIEWER_LINE;
-            kana_viewer_text(_font, _font_px, "Parts", _left, _py - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
+            kana_draw_text(_font, _font_px, "Parts", _left, _py - KANA_VIEWER_KANA_SIZE * 0.7f, 20.0f, kana_theme_active()->text_soft);
             f32 _x = _left + 60.0f;
             for(u32 _i = 0; _i < _part_count && _x + KANA_VIEWER_KANA_SIZE <= _right; _i++) {
                 kana_glyph_character(&_viewer->glyph, _parts[_i], (rde_vec_2F){ _x, _py }, KANA_VIEWER_KANA_SIZE, kana_theme_active()->ink);

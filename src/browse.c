@@ -1,4 +1,5 @@
 #include "browse.h"
+#include "draw.h"
 #include "chart.h"
 #include "theme.h"
 
@@ -135,6 +136,8 @@ void kana_browse_set_search(kana_browse* _browse, const c8* _text) {
 void kana_browse_clear_pad(kana_browse* _browse) {
     kana_ink_destroy(&_browse->pad);
     kana_ink_init(&_browse->pad);
+    kana_recognize_forget(&_browse->recognition);
+    _browse->_recognize_wanted = false;
     kana_browse_changed(_browse);
 }
 
@@ -221,9 +224,13 @@ RDE_INTERNAL void kana_browse_recompute(kana_browse* _browse) {
     rde_arr_clear(&_browse->list);
 
     if(kana_browse_pad_used(_browse)) {
-        // Drawn: best resemblance first (the filter still applies).
+        // Drawn: what ML Kit reads it as first, when it has (recognize.h: the
+        // same as Check), then best resemblance — the filter applying to both.
+        kana_match_result _matched[KANA_BROWSE_MATCHES];
         kana_match_result _results[KANA_BROWSE_MATCHES];
-        const u32 _n = kana_match_rank(_browse->db, &_browse->catalog, _browse->filter, &_browse->pad, _results, KANA_BROWSE_MATCHES);
+        const u32 _found = kana_match_rank(_browse->db, &_browse->catalog, _browse->filter, &_browse->pad, _matched, KANA_BROWSE_MATCHES);
+        const u32 _n     = kana_recognize_candidates(_browse->db, &_browse->recognition, 0, 1, &_browse->catalog, _browse->filter,
+                                                     _matched, _found, _results, KANA_BROWSE_MATCHES);
         for(u32 _i = 0; _i < _n; _i++) {
             rde_arr_add(&_browse->list, &_results[_i].record);
         }
@@ -319,6 +326,8 @@ void kana_browse_pointer_up(kana_browse* _browse, f64 _time) {
         _browse->on_pad          = false;
         _browse->dirty           = true;   // re-rank with the new stroke
         _browse->scroller.offset = 0.0f;
+        kana_recognize_forget(&_browse->recognition);   // an answer for the old drawing no longer holds
+        _browse->_recognize_wanted = true;
         return;
     }
 
@@ -358,6 +367,15 @@ void kana_browse_update(kana_browse* _browse, f32 _dt) {
     if(!_browse->open) {
         return;
     }
+    // ML Kit on the pad: asked once a stroke ends; its answer ranks the list again.
+    if(_browse->_recognize_wanted) {
+        if(!kana_browse_pad_used(_browse) || !kana_recognize_available() || kana_recognize_start(&_browse->recognition, &_browse->pad)) {
+            _browse->_recognize_wanted = false;
+        }
+    }
+    if(kana_recognize_poll(&_browse->recognition)) {
+        _browse->dirty = true;
+    }
     if(_browse->dirty) {
         kana_browse_recompute(_browse);
     }
@@ -371,25 +389,8 @@ void kana_browse_update(kana_browse* _browse, f32 _dt) {
 
 // --- drawing -----------------------------------------------------------------------
 
-RDE_INTERNAL void kana_browse_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
-}
-
-RDE_INTERNAL void kana_browse_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color) {
-    const rde_vec_2F _p[2] = { _a, _b };
-    const f32        _r[2] = { _radius, _radius };
-    rde_rendering_2d_draw_stroke(_p, _r, 2, _color);
-}
-
 RDE_INTERNAL void kana_browse_draw_pad(kana_browse* _browse, rde_vec_2F _tl, f32 _size, rde_vec_2F _screen_half) {
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - _size * 0.5f }, (rde_vec_2F){ _size, _size }, kana_theme_active()->sheet);
-
-    const rde_vec_2F _box[5] = { _tl, { _tl.x + _size, _tl.y }, { _tl.x + _size, _tl.y - _size }, { _tl.x, _tl.y - _size }, _tl };
-    const f32        _r[5]   = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-    rde_rendering_2d_draw_stroke(_box, _r, 5, kana_theme_active()->sheet_outline);
-    kana_browse_line((rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - 6.0f }, (rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - _size + 6.0f }, 0.6f, kana_theme_active()->sheet_guide);
-    kana_browse_line((rde_vec_2F){ _tl.x + 6.0f, _tl.y - _size * 0.5f }, (rde_vec_2F){ _tl.x + _size - 6.0f, _tl.y - _size * 0.5f }, 0.6f, kana_theme_active()->sheet_guide);
+    kana_glyph_box(_tl, _size);   // the same writing square as Practice's and Check's
 
     _browse->pad_min = (rde_vec_2F){ _tl.x, _tl.y - _size };
     _browse->pad_max = (rde_vec_2F){ _tl.x + _size, _tl.y };
@@ -408,9 +409,7 @@ RDE_INTERNAL void kana_browse_draw_parts(kana_browse* _browse, rde_window* _wind
     _browse->panel_max = (rde_vec_2F){ _right, _top };
 
     rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_left + _right) * 0.5f, _top - _height * 0.5f }, (rde_vec_2F){ _right - _left, _height }, _theme->sheet);
-    const rde_vec_2F _box[5] = { { _left, _top }, { _right, _top }, { _right, _top - _height }, { _left, _top - _height }, { _left, _top } };
-    const f32        _r[5]   = { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
-    rde_rendering_2d_draw_stroke(_box, _r, 5, _theme->sheet_outline);
+    kana_draw_outline((rde_vec_2F){ _left, _top - _height }, (rde_vec_2F){ _right, _top }, 0.8f, _theme->sheet_outline);
 
     rde_arr_clear(&_browse->part_hits);
     const f32 _cell   = KANA_BROWSE_PART_CELL;
@@ -435,7 +434,7 @@ RDE_INTERNAL void kana_browse_draw_parts(kana_browse* _browse, rde_window* _wind
             const f32 _y  = _top - (_cy - _scroll);
             if(_y > _top - _height - _cell && _y - _cell < _top) {
                 snprintf(_label, sizeof(_label), "%u", _strokes);
-                kana_browse_text(_font, _font_px, _label, _inner + (f32)(_slot % _cols) * _cell + 12.0f, _y - _cell * 0.62f, 14.0f, _theme->select);
+                kana_draw_text(_font, _font_px, _label, _inner + (f32)(_slot % _cols) * _cell + 12.0f, _y - _cell * 0.62f, 14.0f, _theme->select);
             }
             _slot++;
         }
@@ -453,10 +452,7 @@ RDE_INTERNAL void kana_browse_draw_parts(kana_browse* _browse, rde_window* _wind
 
         if(kana_browse_is_picked(_browse, _p->codepoint)) {
             rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _cell * 0.5f, _y - _cell * 0.5f }, (rde_vec_2F){ _cell - 4.0f, _cell - 4.0f }, _theme->select_fill);
-            const rde_vec_2F _sel[5] = { { _x + 2.0f, _y - 2.0f }, { _x + _cell - 2.0f, _y - 2.0f }, { _x + _cell - 2.0f, _y - _cell + 2.0f },
-                                         { _x + 2.0f, _y - _cell + 2.0f }, { _x + 2.0f, _y - 2.0f } };
-            const f32        _sr[5]  = { 1.2f, 1.2f, 1.2f, 1.2f, 1.2f };
-            rde_rendering_2d_draw_stroke(_sel, _sr, 5, _theme->select);
+            kana_draw_outline((rde_vec_2F){ _x + 2.0f, _y - _cell + 2.0f }, (rde_vec_2F){ _x + _cell - 2.0f, _y - 2.0f }, 1.2f, _theme->select);
         }
         const f32 _glyph = _cell * 0.7f;
         kana_glyph_character(&_browse->glyph, _p->codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - (_cell - _glyph) * 0.5f }, _glyph,
@@ -512,7 +508,7 @@ RDE_INTERNAL void kana_browse_caption(kana_browse* _browse, const kana_kanji_inf
     }
 
     if(_line[0] != 0) {
-        kana_browse_text(_font, _font_px, _line, _x + 6.0f, _y, KANA_BROWSE_CAPTION_PX, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, _line, _x + 6.0f, _y, KANA_BROWSE_CAPTION_PX, kana_theme_active()->text_soft);
     }
 }
 
@@ -546,7 +542,7 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
     } else {
         snprintf(_status, sizeof(_status), "%u character%s", _count, _count == 1 ? "" : "s");
     }
-    kana_browse_text(_font, _font_px, _status, _left, _top - 24.0f, 17.0f, kana_theme_active()->text);
+    kana_draw_text(_font, _font_px, _status, _left, _top - 24.0f, 17.0f, kana_theme_active()->text);
 
     f32 _grid_top = _top - KANA_BROWSE_STATUS_H;
 
@@ -607,7 +603,7 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
             }
 
             const f32 _x = _left + (f32)_col * _cell;
-            kana_browse_line((rde_vec_2F){ _x + 4.0f, _y - _cell }, (rde_vec_2F){ _x + _cell - 4.0f, _y - _cell }, 0.5f, kana_theme_active()->line);
+            kana_draw_line((rde_vec_2F){ _x + 4.0f, _y - _cell }, (rde_vec_2F){ _x + _cell - 4.0f, _y - _cell }, 0.5f, kana_theme_active()->line);
             kana_glyph_character(&_browse->glyph, _info.codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - _cell * 0.08f }, _glyph, kana_theme_active()->ink);
             kana_browse_caption(_browse, &_info, _font, _font_px, _x, _y - _cell + 8.0f, _cell);
         }

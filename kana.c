@@ -50,7 +50,8 @@
 #include "kanji.h"
 #include "viewer.h"
 #include "theme.h"
-#include "mlkit.h"
+#include "draw.h"
+#include "recognize.h"
 
 #define KANA_CONFIG_PATH "./assets/config.rdef"
 
@@ -458,20 +459,20 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 // A pointer for Check, Browse, the chart or the album, whichever is open.
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     list_last = _screen;
-    if(check.open)      { kana_check_pointer_down(&check, _screen); }
+    if(check.open)      { kana_check_pointer_down(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_down(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
     else                { kana_browse_pointer_down(&browse, _screen, _pen, _now); }
 }
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     list_last = _screen;
-    if(check.open)      { }
+    if(check.open)      { kana_check_pointer_moved(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_moved(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
     else                { kana_browse_pointer_moved(&browse, _screen, _now); }
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
-    if(check.open)      { kana_check_pointer_up(&check, list_last); }
+    if(check.open)      { kana_check_pointer_up(&check, _now); }
     else if(album.open) { kana_album_pointer_up(&album, _now); }
     else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
     else                { kana_browse_pointer_up(&browse, _now); }
@@ -831,18 +832,16 @@ void on_fixed_update(f32 _fixed_dt) {
     RDE_UNUSED(_fixed_dt);
 }
 
-// --mlkit-samples: the next range to ML Kit, and its answer written down.
+// --mlkit-samples: the next range to ML Kit (recognize.h), and its answer written down.
 RDE_INTERNAL void kana_mlkit_samples_update(void) {
+    static kana_recognition _reading;
+    static f64              _asked_at;
     if(mlkit_sample_next >= mlkit_sample_count) {
         return;
     }
     if(kana_mlkit_state() == KANA_MLKIT_FAILED) {
         kana_mlkit_prepare();
     }
-    c8        _path[512];
-    c8        _answer[4096];
-    f64       _ms = 0.0;
-    snprintf(_path, sizeof(_path), "%smlkit_samples.txt", kana_save_dir());
     if(!mlkit_sample_asked) {
         kana_ink _one;
         kana_ink_init(&_one);
@@ -850,17 +849,26 @@ RDE_INTERNAL void kana_mlkit_samples_update(void) {
             const kana_ink_stroke* _stroke = kana_ink_stroke_at(&ink, _s);
             kana_ink_add_loaded_stroke(&_one, kana_ink_stroke_points(&ink, _stroke), _stroke->point_count, _stroke->color, _stroke->from_pen);
         }
-        mlkit_sample_asked = kana_mlkit_recognize(&_one, NULL);
+        mlkit_sample_asked = kana_recognize_start(&_reading, &_one);
+        _asked_at          = rde_engine_get_time_now();
         kana_ink_destroy(&_one);
         return;
     }
-    if(kana_mlkit_poll(_answer, sizeof(_answer), &_ms)) {
-        FILE* _file = fopen(_path, mlkit_sample_next == 0 ? "wb" : "ab");
+    if(kana_recognize_poll(&_reading)) {
+        c8 _path[512];
+        snprintf(_path, sizeof(_path), "%smlkit_samples.txt", kana_save_dir());
+        const f64 _ms   = (rde_engine_get_time_now() - _asked_at) * 1000.0;
+        FILE*     _file = fopen(_path, mlkit_sample_next == 0 ? "wb" : "ab");
         if(_file != NULL) {
-            fprintf(_file, "strokes %u-%u (%.0f ms):\n%s\n", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms, _answer);
+            fprintf(_file, "strokes %u-%u (%.0f ms):\n", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms);
+            for(u32 _l = 0; _l < _reading.line_count; _l++) {
+                fprintf(_file, "%s\n", _reading.lines[_l]);
+            }
+            fprintf(_file, "\n");
             fclose(_file);
         }
-        rde_log_level(RDE_LOG_LEVEL_INFO, "ML Kit, strokes %u-%u (%.0f ms): %s", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms, _answer);
+        rde_log_level(RDE_LOG_LEVEL_INFO, "ML Kit, strokes %u-%u (%.0f ms): %s", mlkit_sample_first[mlkit_sample_next], mlkit_sample_last[mlkit_sample_next], _ms,
+                      _reading.line_count > 0 ? _reading.lines[0] : "");
         mlkit_sample_next++;
         mlkit_sample_asked = false;
     }
@@ -1034,9 +1042,8 @@ void on_late_update(f32 _dt) {
     RDE_UNUSED(_dt);
 }
 
-RDE_INTERNAL void kana_draw_text(const c8* _text, f32 _x, f32 _y) {
-    const f32 _scale = KANA_HUD_TEXT_PX / font_px;
-    rde_rendering_2d_draw_text_2(font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, kana_theme_active()->hud);
+RDE_INTERNAL void kana_hud_text(const c8* _text, f32 _x, f32 _y) {
+    kana_draw_text(font, font_px, _text, _x, _y, KANA_HUD_TEXT_PX, kana_theme_active()->hud);
 }
 
 // The zoom as a percentage, in a pill at the bottom-right, while it is changing
@@ -1084,7 +1091,7 @@ RDE_INTERNAL void kana_draw_zoom_toast(rde_window* _window) {
     rde_color _ink = _t->button_text;
     _ink.a         = (u8)((f32)_ink.a * _fade);
     // The position is where the text starts, on its baseline.
-    rde_rendering_2d_draw_text_2(font, _text, (rde_vec_3F){ _center.x - _measured.x * 0.5f, _center.y - _digits * 0.5f, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _ink);
+    kana_draw_text(font, font_px, _text, _center.x - _measured.x * 0.5f, _center.y - _digits * 0.5f, _px, _ink);
 }
 
 RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
@@ -1102,7 +1109,7 @@ RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
                       : touch_seen    ? "TOUCH ONLY  - no pen events!"
                                       : "waiting for input...";
 
-    kana_draw_text(_source, _x, _y);
+    kana_hud_text(_source, _x, _y);
     _y -= 34.0f;
 
     // Whether this pen has real pressure, or its ink width comes from speed.
@@ -1114,30 +1121,30 @@ RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
              (f64)ink.pressure, (f64)ink.pressure_raw, _pressure_mode,
              (f64)ink.tilt.x, (f64)ink.tilt.y, ink.pen_id,
              ink.eraser ? "ERASER" : "tip");
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     // The number that decides whether fast strokes can look smooth.
     snprintf(_line, sizeof(_line), "input %.0f Hz   %u samples this frame   frame %.1f ms",
              (f64)ink.sample_hz, ink.samples_this_frame, (f64)frame_ms);
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     snprintf(_line, sizeof(_line), "app-side lag %.1f ms (peak %.1f)   -- NOT end-to-end, see the header",
              (f64)ink.stale_ms, (f64)ink.stale_ms_max);
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     snprintf(_line, sizeof(_line), "%u strokes, %u points   history %u (+%u redo)",
              kana_ink_alive_strokes(&ink), kana_ink_total_points(&ink),
              kana_ink_undo_steps(&ink), kana_ink_redo_steps(&ink));
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     snprintf(_line, sizeof(_line), "zoom %.0f%%   fingers: 1 pan, 2 pinch   tool: %s",
              (f64)(canvas.view.zoom * 100.0f),
              toolbar.tool == KANA_TOOL_ERASE ? "ERASE" : toolbar.tool == KANA_TOOL_LASSO ? "LASSO" : "DRAW");
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     if(save_failed) {
@@ -1148,13 +1155,13 @@ RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
     } else {
         snprintf(_line, sizeof(_line), "not saved yet this run   (%s)", load_note);
     }
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
     _y -= 28.0f;
 
     snprintf(_line, sizeof(_line), "brush: %s",
              ink.brush_scale == KANA_INK_BRUSH_SCALE_PAGE ? "PAGE - same width on the page at any zoom"
                                                           : "SCREEN - same width on screen while writing");
-    kana_draw_text(_line, _x, _y);
+    kana_hud_text(_line, _x, _y);
 }
 
 void on_render(rde_window* _window, f32 _dt) {

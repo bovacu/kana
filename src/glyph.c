@@ -1,4 +1,5 @@
 #include "glyph.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <math.h>
@@ -96,26 +97,18 @@ b8 kana_glyph_character(kana_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
     return true;
 }
 
-RDE_INTERNAL void kana_glyph_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color) {
-    const rde_vec_2F _p[2] = { _a, _b };
-    const f32        _r[2] = { _radius, _radius };
-    rde_rendering_2d_draw_stroke(_p, _r, 2, _color);
-}
-
 void kana_glyph_box(rde_vec_2F _tl, f32 _size) {
     rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - _size * 0.5f }, (rde_vec_2F){ _size, _size }, kana_theme_active()->sheet);
 
-    const rde_vec_2F _box[5] = { _tl, { _tl.x + _size, _tl.y }, { _tl.x + _size, _tl.y - _size }, { _tl.x, _tl.y - _size }, _tl };
-    const f32        _r[5]   = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-    rde_rendering_2d_draw_stroke(_box, _r, 5, kana_theme_active()->sheet_outline);
+    kana_draw_outline((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, 1.0f, kana_theme_active()->sheet_outline);
 
     const f32 _dash = fmaxf(4.0f, _size / 40.0f);
     const f32 _cx   = _tl.x + _size * 0.5f;
     const f32 _cy   = _tl.y - _size * 0.5f;
     for(f32 _t = _dash * 0.5f; _t < _size - _dash * 0.5f; _t += _dash * 2.0f) {
         const f32 _e = fminf(_t + _dash, _size - _dash * 0.5f);
-        kana_glyph_line((rde_vec_2F){ _cx, _tl.y - _t }, (rde_vec_2F){ _cx, _tl.y - _e }, 0.7f, kana_theme_active()->sheet_guide);
-        kana_glyph_line((rde_vec_2F){ _tl.x + _t, _cy }, (rde_vec_2F){ _tl.x + _e, _cy }, 0.7f, kana_theme_active()->sheet_guide);
+        kana_draw_line((rde_vec_2F){ _cx, _tl.y - _t }, (rde_vec_2F){ _cx, _tl.y - _e }, 0.7f, kana_theme_active()->sheet_guide);
+        kana_draw_line((rde_vec_2F){ _tl.x + _t, _cy }, (rde_vec_2F){ _tl.x + _e, _cy }, 0.7f, kana_theme_active()->sheet_guide);
     }
 }
 
@@ -156,9 +149,8 @@ b8 kana_glyph_writing(kana_glyph* _glyph, const kana_kanji_info* _info, rde_vec_
         if(_number_px > 0.0f && _font != NULL) {
             c8 _num[8];
             snprintf(_num, sizeof(_num), "%u", _s + 1u);
-            const f32 _k = _number_px / _font_px;
-            rde_rendering_2d_draw_text_2(_font, _num, (rde_vec_3F){ _tl.x + _stroke.start.x * _scale - _number_px, _tl.y - _stroke.start.y * _scale + _number_px * 0.9f, 0.0f },
-                                         (rde_vec_2F){ _k, _k }, 0.0f, kana_theme_active()->stroke_number);
+            kana_draw_text(_font, _font_px, _num, _tl.x + _stroke.start.x * _scale - _number_px, _tl.y - _stroke.start.y * _scale + _number_px * 0.9f,
+                           _number_px, kana_theme_active()->stroke_number);
         }
 
         if(_fraction < 1.0f) {
@@ -182,9 +174,7 @@ f32 kana_glyph_reading(kana_glyph* _glyph, const c8* _text, rde_vec_2F _origin, 
             continue;
         }
         if(_cp == '-') {
-            const rde_vec_2F _dash[2] = { { _x + _size * 0.15f, _origin.y - _size * 0.5f }, { _x + _size * 0.45f, _origin.y - _size * 0.5f } };
-            const f32        _r[2]    = { 1.2f, 1.2f };
-            rde_rendering_2d_draw_stroke(_dash, _r, 2, _color);
+            kana_draw_line((rde_vec_2F){ _x + _size * 0.15f, _origin.y - _size * 0.5f }, (rde_vec_2F){ _x + _size * 0.45f, _origin.y - _size * 0.5f }, 1.2f, _color);
             _x += _size * 0.6f;
             continue;
         }

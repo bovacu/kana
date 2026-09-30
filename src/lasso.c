@@ -1,4 +1,5 @@
 #include "lasso.h"
+#include "draw.h"
 #include "theme.h"
 
 #include <string.h>
@@ -21,11 +22,10 @@ void kana_lasso_init(kana_lasso* _lasso) {
     _lasso->loop               = rde_arr_new(sizeof(rde_vec_2F), _heap);
     _lasso->selected           = rde_arr_new(sizeof(u32),        _heap);
     _lasso->_scratch_positions = rde_arr_new(sizeof(rde_vec_2F), _heap);
-    _lasso->_scratch_radii     = rde_arr_new(sizeof(f32),        _heap);
 }
 
 void kana_lasso_destroy(kana_lasso* _lasso) {
-    rde_arr* _arrays[] = { &_lasso->loop, &_lasso->selected, &_lasso->_scratch_positions, &_lasso->_scratch_radii,
+    rde_arr* _arrays[] = { &_lasso->loop, &_lasso->selected, &_lasso->_scratch_positions,
                            &_lasso->clipboard.strokes, &_lasso->clipboard.points, &_lasso->_duplicate.strokes, &_lasso->_duplicate.points };
 
     for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
@@ -337,17 +337,8 @@ void kana_lasso_render_under(kana_lasso* _lasso, kana_ink* _ink, rde_vec_2F _off
 
 // A screen-space polyline through the scratch, as one antialiased stroke.
 RDE_INTERNAL void kana_lasso_line(kana_lasso* _lasso, const rde_vec_2F* _points, u32 _count, rde_color _color) {
-    if(_count == 0) {
-        return;
-    }
-
-    rde_arr_clear(&_lasso->_scratch_radii);
-    f32* _radii = rde_arr_add_n(&_lasso->_scratch_radii, _count);
-    for(u32 _i = 0; _i < _count; _i++) {
-        _radii[_i] = KANA_LASSO_LINE_PX * 0.5f;
-    }
-
-    rde_rendering_2d_draw_stroke(_points, _radii, _count, _color);
+    RDE_UNUSED(_lasso);
+    kana_draw_stroke_even(_points, _count, KANA_LASSO_LINE_PX * 0.5f, _color);
 }
 
 void kana_lasso_render_over(kana_lasso* _lasso, const kana_ink* _ink, rde_vec_2F _offset, f32 _zoom) {
