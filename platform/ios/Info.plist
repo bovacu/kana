@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Kana's own Info.plist keys, merged over the engine template's by the builder
+     (--ios_plist): a key here replaces the template's. -->
+<plist version="1.0">
+<dict>
+    <!-- iPad only: a pen app (Apple Pencil). -->
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>2</integer>
+    </array>
+    <!-- Every orientation (the App Store asks it of an iPad app), and the whole
+         screen: no Split View or Slide Over, whose narrow windows the screens
+         are not laid out for. -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <!-- No encryption of its own (ML Kit's model comes over HTTPS: exempt). -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>CFBundleDisplayName</key>
+    <string>Kana</string>
+</dict>
+</plist>
