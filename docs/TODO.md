@@ -127,9 +127,10 @@ iPad 2026-09-30.*
   録 was missing — Slug's default budgets (128 curves a glyph) left out 28% of
   Noto's kanji, silently, everywhere Japanese text shows. The Japanese font now
   has 304 curves / 1,280 band texels a glyph (every kana and kanji in the font
-  fits: measured) and 2,048 slots (~30 MB of GPU memory). A glyph keeps its
-  slot until the app quits, so a very long session could still run out; the
-  engine would need to recycle slots for that.
+  fits: measured) and 2,048 slots (~30 MB of GPU memory). The slots are no
+  longer a limit over time (2026-10-01): once all are taken, RDE gives a new
+  glyph the slot of the one drawn longest ago (unused for 3 frames at least),
+  so 2,048 only bounds the distinct glyphs on one screen.
 - Open: words for kana (あ: あさ, あめ…)? JMdict has them, but which ones to
   show is a different choice (words that start with it?).
 
@@ -265,7 +266,17 @@ Decided with Borja, 2026-09-30:
       71 each: no small kana (ぁ っ ゃ ゎ ゕ), no old ones (ゐ ゑ ゔ ヷ..ヺ).
 - Answers are not read while the viewer or Practice is over the results; they
   go on when back (Borja: fine).
-- Open: exams in the album, and in the statistics (#8).
+- [x] Exams in the album (2026-10-01, to see on the iPad): the album's **Exams**
+      (by the sorts) lists every exam, newest first — what it was of, when,
+      passed or not, right / points, each character asked in green or red; a
+      tap opens its results again, the writing read back from `exams.kana`
+      (Retry wrong and Practice wrong work as after any exam). A character's
+      page shows its exam answers among its sessions, by date: right or wrong,
+      which exam, the writing (a tap replays it at a steady pace: exams keep no
+      timing) and its points or what it read as.
+- Tested (examtest, albumtest): the writing read back per exam and per
+  character; a kept exam reopened as it was, nothing kept twice, Retry wrong
+  from it; the exams view and its tap; the page's order by date and a replay.
 
 ## 8. Statistics
 
@@ -297,8 +308,13 @@ or two on a wide screen, scrolling:
 - Tested (statstest): a planted history (three characters over 40 days,
   mistakes of each kind, two exams, marks): every number, the streaks, the
   calendar, the lists; the screen in portrait and landscape, scrolled, a tap.
-- Open: exams in the album; marks over time (when each became Known) is not
-  kept — only the exams that made it so.
+- [x] **Known over time** (2026-10-01, to see on the iPad): every change of
+      mark is kept now (`marks.kana`'s 'MHIS'; an older file starts its history
+      with the marks it has); a card with Known and Studying at the end of each
+      of the 26 weeks as stacked bars, and how Known moved in the last 30 days.
+- Tested (examtest, statstest): the changes kept in order and through a
+  reload, an old file seeded; planted changes over 100 days give each week's
+  counts.
 
 ## 8b. The learner's own words
 
@@ -328,7 +344,7 @@ by the Words title.
 
 ## 9. UI restyle, icons, the string table
 
-- [ ] A design pass: spacing, radii, a type scale, primary / secondary / toggle
+- [x] A design pass: spacing, radii, a type scale, primary / secondary / toggle
       buttons, one panel style, across every screen. Icons (an icon font through
       Slug: sharp, theme-coloured, beside text in one label; Borja picks the
       set). Every UI string into a table, for translation.
@@ -346,19 +362,19 @@ by the Words title.
         rounded boxes with themed text and caret (engine: the text editor's
         new set_text_color / set_caret_color); icons centred for their
         bearings (a label is off by a glyph's whole left bearing).
-      - The string table: done, to check on the iPad. Every UI string is an
+      - The string table: done, seen working 2026-10-01. Every UI string is an
         id (include/text_ids.h, KANA_TEXT_*) in assets/text/strings.rdel (RDE's
         localization: one block per language, {0} and plural placeholders);
         text.h caches them and renders templates through RDE.
 
 ## 10. Other languages
 
-- [ ] Meanings in other languages: KANJIDIC2 has Spanish for 2,505 kanji (all
+- [x] Meanings in other languages: KANJIDIC2 has Spanish for 2,505 kanji (all
       2,136 Jōyō), French 2,066, Portuguese 1,944; JMdict's full file has
       German, Russian, Dutch, French, Spanish, Hungarian, Swedish, Slovenian
       (coverage of the common words to measure; English where missing). The
       UI strings translated too. Spanish first.
-      - Done, to check on the iPad: English, Spanish, Portuguese (Brazil),
+      - Done, seen working 2026-10-01: English, Spanish, Portuguese (Brazil),
         Japanese and French — the UI in all five (strings.rdel), chosen in
         Settings › Language (a flag each; the device's language at first, then
         the choice, saved; the UI is rebuilt live). Meanings: the bake reads
@@ -385,10 +401,27 @@ by the Words title.
 See `docs/app_store.md` for privacy, licences and permissions.
 
 
-- [ ] A release (optimised, non-debug) build configuration, with performance
-      measured in it.
-- [ ] **The app icon**, and a launch screen.
-- [ ] Check what ships in the bundle: no `.bak`/`.tmp`, only the assets needed.
+- [x] A release (optimised, non-debug) build configuration, with performance
+      measured in it (2026-10-01): the builder's --release (-O3), the engine
+      built --release for iOS. On the iPad mini 6, launched on each screen
+      with --perf=8 (COMMANDS.txt): 59.9 fps everywhere, Kana's render 1.5 ms
+      (Album) to 5.4 ms (Kana chart) a frame, update under 0.6 ms; two frames
+      over 20 ms in all, as Statistics first draws.
+- [ ] Optional: strip the release executable (47 MB → 35 MB, a smaller
+      download) — the builder would also need to keep a dSYM for crash reports.
+- [ ] **The app icon**, and a launch screen. Done, to see on the iPad: Borja's
+      sketch made into the "Hinomaru" icon (platform/ios/AppIcon.svg: 日本語 in
+      KanjiVG's strokes, white, before a red sun on indigo, over an open book);
+      the launch screen the page's colour (dark in dark mode); Info.plist: iPad
+      only, every orientation, full screen, ITSAppUsesNonExemptEncryption false.
+      The builder's new --ios_assets / --ios_launch_storyboard / --ios_plist.
+- [x] Check what ships in the bundle (2026-10-01): no `.bak`/`.tmp`; the builder
+      no longer copies Finder's `.DS_Store` into the iOS assets, nor the
+      template's Icon.png / Default.png when the project brings its own icon
+      and launch screen; the Phosphor fonts cut down to Kana's 82 icons (~940 KB
+      less; COMMANDS.txt says how to cut them again). What remains: the
+      character data (7.4 MB), Noto Sans JP (4.5 MB, any Japanese the learner
+      types), the licences (ML Kit's notices are 1.5 MB).
 - [ ] Steps towards TestFlight (a paid developer account is needed for it).
 - [ ] Commit the data licence credits screen as done: Settings > About (in place).
 

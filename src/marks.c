@@ -8,13 +8,15 @@
 
 // ===========================================================================
 // See marks.h. The marks are few (hundreds, a few thousand at most): an array
-// sorted by code point, searched by bisection.
+// sorted by code point, searched by bisection. The changes, as many again over
+// time, are a list in the order made.
 // ===========================================================================
 
 #define KANA_MARKS_VERSION     1u
 #define KANA_MARKS_KIND        KANA_TAG('M', 'A', 'R', 'K')
 #define KANA_MARKS_CHUNK       KANA_TAG('M', 'R', 'K', 'S')
 #define KANA_MARKS_RECORD_SIZE 16u
+#define KANA_MARKS_HISTORY     KANA_TAG('M', 'H', 'I', 'S')
 
 typedef struct {
     u32 codepoint;
@@ -23,6 +25,7 @@ typedef struct {
 } kana_mark;
 
 static rde_arr TYPE(kana_mark) kana_marks_all;
+static rde_arr TYPE(kana_marks_change) kana_marks_log;   // every change, oldest first
 static b8                      kana_marks_ready    = false;
 static c8                      kana_marks_path[RDE_MAX_PATH];
 static u32                     kana_marks_changes  = 0;
@@ -30,6 +33,7 @@ static u32                     kana_marks_changes  = 0;
 RDE_INTERNAL void kana_marks_ensure(void) {
     if(!kana_marks_ready) {
         kana_marks_all   = rde_arr_new(sizeof(kana_mark), rde_memory_allocator_get_default_std());
+        kana_marks_log   = rde_arr_new(sizeof(kana_marks_change), rde_memory_allocator_get_default_std());
         kana_marks_ready = true;
     }
 }
@@ -52,7 +56,8 @@ RDE_INTERNAL b8 kana_marks_save(void) {
         return true;   // in memory only
     }
     const u32  _n = (u32)rde_arr_length(&kana_marks_all);
-    kana_bytes _b = kana_bytes_new(KANA_FILE_HEADER_SIZE + 16u + _n * KANA_MARKS_RECORD_SIZE + 1u);
+    const u32  _h = (u32)rde_arr_length(&kana_marks_log);
+    kana_bytes _b = kana_bytes_new(KANA_FILE_HEADER_SIZE + 32u + (_n + _h) * KANA_MARKS_RECORD_SIZE + 1u);
     kana_put_header(&_b, KANA_MARKS_VERSION, KANA_MARKS_KIND);
     const u32 _chunk = kana_chunk_begin(&_b, KANA_MARKS_CHUNK);
     kana_put_u32(&_b, _n);
@@ -68,12 +73,38 @@ RDE_INTERNAL b8 kana_marks_save(void) {
         kana_put_u32(&_b, (u32)(_m[_i].since >> 32));
     }
     kana_chunk_end(&_b, _chunk);
+
+    const u32 _history = kana_chunk_begin(&_b, KANA_MARKS_HISTORY);
+    kana_put_u32(&_b, _h);
+    kana_put_u32(&_b, KANA_MARKS_RECORD_SIZE);
+    const kana_marks_change* _c = (const kana_marks_change*)kana_marks_log.memory;
+    for(u32 _i = 0; _i < _h; _i++) {
+        kana_put_u32(&_b, _c[_i].codepoint);
+        kana_put_u8(&_b, _c[_i].mark);
+        kana_put_u8(&_b, 0u);
+        kana_put_u8(&_b, 0u);
+        kana_put_u8(&_b, 0u);
+        kana_put_u32(&_b, (u32)(_c[_i].time & 0xFFFFFFFFu));
+        kana_put_u32(&_b, (u32)(_c[_i].time >> 32));
+    }
+    kana_chunk_end(&_b, _history);
     return kana_bytes_write_and_free(&_b, kana_marks_path, NULL);
+}
+
+// Oldest first; at the same second, by code point.
+RDE_INTERNAL int kana_marks_by_time(const void* _a, const void* _b) {
+    const kana_marks_change* _x = (const kana_marks_change*)_a;
+    const kana_marks_change* _y = (const kana_marks_change*)_b;
+    if(_x->time != _y->time) {
+        return _x->time < _y->time ? -1 : 1;
+    }
+    return _x->codepoint < _y->codepoint ? -1 : _x->codepoint > _y->codepoint ? 1 : 0;
 }
 
 void kana_marks_open(const c8* _path) {
     kana_marks_ensure();
     rde_arr_clear(&kana_marks_all);
+    rde_arr_clear(&kana_marks_log);
     snprintf(kana_marks_path, sizeof(kana_marks_path), "%s", _path);
     kana_marks_changes++;
 
@@ -97,7 +128,30 @@ void kana_marks_open(const c8* _path) {
 
     u32         _tag;
     kana_reader _chunk;
+    b8          _has_history = false;
     while(kana_next_chunk(&_r, &_tag, &_chunk)) {
+        if(_tag == KANA_MARKS_HISTORY) {
+            const u32 _count  = kana_get_u32(&_chunk);
+            const u32 _record = kana_get_u32(&_chunk);
+            if(!_chunk.ok || _record < 16u || (u64)_count * _record > (u64)(_chunk.size - _chunk.pos)) {
+                continue;   // damaged: seeded from the marks below, as an old file's
+            }
+            for(u32 _i = 0; _i < _count; _i++) {
+                kana_reader       _e = kana_reader_make(&_chunk.data[_chunk.pos + _i * _record], _record);
+                kana_marks_change _c = { 0 };
+                _c.codepoint         = kana_get_u32(&_e);
+                _c.mark              = kana_get_u8(&_e);
+                kana_get_u8(&_e); kana_get_u8(&_e); kana_get_u8(&_e);
+                const u32 _lo        = kana_get_u32(&_e);
+                const u32 _hi        = kana_get_u32(&_e);
+                _c.time              = (u64)_lo | ((u64)_hi << 32);
+                if(_e.ok && _c.mark < KANA_MARK_COUNT) {
+                    rde_arr_add(&kana_marks_log, &_c);
+                }
+            }
+            _has_history = true;
+            continue;
+        }
         if(_tag != KANA_MARKS_CHUNK) {
             continue;
         }
@@ -123,11 +177,24 @@ void kana_marks_open(const c8* _path) {
         }
     }
     kana_file_free(_data);
+
+    // From before changes were kept: the history starts with the marks there are.
+    if(!_has_history) {
+        const kana_mark* _m = (const kana_mark*)kana_marks_all.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&kana_marks_all); _i++) {
+            const kana_marks_change _c = { .codepoint = _m[_i].codepoint, .mark = _m[_i].mark, .time = _m[_i].since };
+            rde_arr_add(&kana_marks_log, &_c);
+        }
+        if(rde_arr_length(&kana_marks_log) > 1) {
+            qsort(kana_marks_log.memory, rde_arr_length(&kana_marks_log), sizeof(kana_marks_change), kana_marks_by_time);
+        }
+    }
 }
 
 void kana_marks_close(void) {
     if(kana_marks_ready) {
         rde_arr_free(&kana_marks_all);
+        rde_arr_free(&kana_marks_log);
         kana_marks_ready = false;
     }
     kana_marks_path[0] = 0;
@@ -143,35 +210,40 @@ KANA_MARK_ kana_marks_get(u32 _codepoint) {
     return _found ? (KANA_MARK_)((const kana_mark*)kana_marks_all.memory)[_at].mark : KANA_MARK_NONE;
 }
 
-// One mark changed in memory; true when anything changed.
+// One mark changed in memory, and the change kept; true when anything changed.
 RDE_INTERNAL b8 kana_marks_put(u32 _codepoint, KANA_MARK_ _mark, u64 _now) {
     kana_marks_ensure();
     b8        _found = false;
     const u32 _at    = kana_marks_find(_codepoint, &_found);
     if(_found) {
         kana_mark* _m = &((kana_mark*)kana_marks_all.memory)[_at];
-        if(_mark == KANA_MARK_NONE) {
-            rde_arr_remove(&kana_marks_all, _at);
-            return true;
-        }
         if(_m->mark == (u8)_mark) {
             return false;
         }
-        _m->mark  = (u8)_mark;
-        _m->since = _now;
-        return true;
+        if(_mark == KANA_MARK_NONE) {
+            rde_arr_remove(&kana_marks_all, _at);
+        } else {
+            _m->mark  = (u8)_mark;
+            _m->since = _now;
+        }
+    } else {
+        if(_mark == KANA_MARK_NONE) {
+            return false;
+        }
+        const kana_mark _m = { .codepoint = _codepoint, .mark = (u8)_mark, .since = _now };
+        rde_arr_insert(&kana_marks_all, _at, &_m);
     }
-    if(_mark == KANA_MARK_NONE) {
-        return false;
-    }
-    const kana_mark _m = { .codepoint = _codepoint, .mark = (u8)_mark, .since = _now };
-    rde_arr_insert(&kana_marks_all, _at, &_m);
+    const kana_marks_change _c = { .codepoint = _codepoint, .mark = (u8)_mark, .time = _now };
+    rde_arr_add(&kana_marks_log, &_c);
     return true;
 }
 
 b8 kana_marks_set_many(const u32* _codepoints, u32 _count, KANA_MARK_ _mark) {
-    const u64 _now     = (u64)time(NULL);
-    b8        _changed = false;
+    return kana_marks_set_many_at(_codepoints, _count, _mark, (u64)time(NULL));
+}
+
+b8 kana_marks_set_many_at(const u32* _codepoints, u32 _count, KANA_MARK_ _mark, u64 _now) {
+    b8 _changed = false;
     for(u32 _i = 0; _i < _count; _i++) {
         _changed = kana_marks_put(_codepoints[_i], _mark, _now) || _changed;
     }
@@ -209,4 +281,12 @@ u32 kana_marks_list(KANA_MARK_ _mark, u32* _out, u32 _max) {
 
 u32 kana_marks_revision(void) {
     return kana_marks_changes;
+}
+
+u32 kana_marks_history_count(void) {
+    return kana_marks_ready ? (u32)rde_arr_length(&kana_marks_log) : 0u;
+}
+
+const kana_marks_change* kana_marks_history(void) {
+    return kana_marks_ready ? (const kana_marks_change*)kana_marks_log.memory : NULL;
 }

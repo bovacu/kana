@@ -22,6 +22,9 @@
 //   RESULTS  each character, the writing, right or not and its points; the
 //            wrong ones can be tried again, or practised.
 //
+// A KEPT exam (the album's) opens straight on its results, as they were: the
+// writing read back from the log (examlog.h), nothing read or kept again.
+//
 // MARKING, per character: RIGHT when recognition (ML Kit, with Kana's matcher
 // behind it — recognize.h) has it among its first KANA_EXAM_CANDIDATES
 // candidates — a messy but right character still counts; its POINTS are then
@@ -103,6 +106,7 @@ RDE_STRUCT {
     kana_recognition     recognition; // ML Kit reading an answer
     u32                  grading;     // the item it reads (UINT32_MAX: none)
     b8                   saved;       // the results are in the log
+    u32                  kept;        // the kept exam shown (examlog.h), or UINT32_MAX: one just taken
     b8                   pen;         // the pen is writing in the square
     u32                  rng;         // the shuffle's state
 
@@ -125,6 +129,8 @@ void kana_exam_destroy(kana_exam* _exam);
 
 // The setup, to choose.
 void kana_exam_open(kana_exam* _exam);
+// Kept exam _index (examlog.h), on its results. False when there is no such exam.
+b8   kana_exam_open_kept(kana_exam* _exam, u32 _index);
 // Select mode's ticks: straight to the preview of them.
 void kana_exam_open_with(kana_exam* _exam, const u32* _records, u32 _count);
 void kana_exam_close(kana_exam* _exam);

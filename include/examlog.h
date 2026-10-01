@@ -3,6 +3,7 @@
 
 #include "rde.h"
 #include "ink.h"
+#include "history.h"
 
 // ===========================================================================
 // Every exam taken (exam.h), for the statistics and for study marks: when, what
@@ -12,6 +13,7 @@
 // One file (<save dir>/exams.kana), only ever added to: each exam appends a
 // chunk (the file rewritten atomically, see kfile.h). Opening loads every exam's
 // results (not the drawings) into memory; exams are few, their results small.
+// The drawings are read back from the file when asked for (the album).
 //
 // FILE ('KANA' header, kind 'EXAM'), one chunk per exam, oldest first:
 //   'EXAM'  u32 time low, u32 time high (Unix seconds, when it finished),
@@ -32,6 +34,7 @@ RDE_STRUCT {
     u32 item_count;
     u32 correct;
     f32 score;         // the average points, 0..100
+    u32 chunk;         // which of the file's exam chunks it is (UINT32_MAX: not in the file)
 } kana_examlog_exam;
 
 RDE_STRUCT {
@@ -62,5 +65,25 @@ u32  kana_examlog_streak(u32 _codepoint);
 
 // Goes up with every exam added.
 u32  kana_examlog_revision(void);
+
+// Answers' writing, read back from the file: item `item` of exam `exam`, its
+// strokes [first_stroke, +stroke_count) of _strokes.
+RDE_STRUCT {
+    u32 exam;          // into kana_examlog_exams()
+    u32 item;          // within the exam
+    u32 first_stroke;
+    u32 stroke_count;
+} kana_examlog_writing;
+
+// Seconds between two points of read-back writing: the log keeps no timing, so
+// a replay draws at this steady pace.
+#define KANA_EXAMLOG_POINT_SECONDS (1.0f / 60.0f)
+
+// The writing of exam _exam's answers (_exam UINT32_MAX: every exam), only those
+// asking for _codepoint (0: all of them), appended to _writings (oldest exam
+// first, in the order asked), their strokes to _strokes and points to _points
+// (history.h's: a fraction of the square times 65535, Y up). How many writings;
+// none when the exams live in memory only, or the file cannot be read.
+u32  kana_examlog_read_writing(u32 _exam, u32 _codepoint, rde_arr* _writings, rde_arr* _strokes, rde_arr* _points);
 
 #endif

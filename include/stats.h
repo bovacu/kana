@@ -15,7 +15,8 @@
 // The numbers (kana_stats_data) are worked out when the screen opens — every
 // history file read once — and the screen shows them as cards: the overview,
 // a calendar of activity, how practice scores move week by week, the last
-// exams, how much of each level is known, studied and practised, the kinds of
+// exams, the marks week by week, how much of each level is known, studied and
+// practised, the kinds of
 // mistakes, the weakest and the most improved characters (a tap: the viewer),
 // and when practice happens. Days are local days.
 // ===========================================================================
@@ -97,6 +98,13 @@ RDE_STRUCT {
     // Marks and coverage.
     u32                 studying;
     u32                 known;
+    // Marks over time (marks.h keeps every change): how many were Known and
+    // Studying at the end of each calendar week, oldest first (the last: now),
+    // and how many were Known KANA_STATS_RECENT days ago.
+    u32                 week_known[KANA_STATS_WEEKS];
+    u32                 week_studying[KANA_STATS_WEEKS];
+    u32                 known_before;
+    u32                 mark_changes;    // changes kept (0: nothing to show)
     u32                 words_added;     // the learner's own words (userwords.h)
     kana_stats_coverage coverage[KANA_STATS_GROUP_COUNT];
 

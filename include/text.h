@@ -70,5 +70,7 @@ void kana_text_format(c8* _out, usize _size, KANA_TEXT_ _id, const kana_text_arg
 
 // A date as the language writes it (day, month's name, year), from Unix seconds (local time).
 void kana_text_date(c8* _out, usize _size, u64 _time);
+// The same with its weekday before it and the clock after ("Thu 1 Oct 2026, 14:05").
+void kana_text_date_time(c8* _out, usize _size, u64 _time);
 
 #endif

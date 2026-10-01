@@ -107,6 +107,19 @@ RDE_INTERNAL u8 settings_language = 0;   // the saved language (RDE_LANGUAGE_; 0
 RDE_INTERNAL b8  look_paper  = false;
 RDE_INTERNAL u32 look_frames = 0;
 
+// --perf=N: frame times over N seconds (after a second to settle), appended to
+// <save dir>/perf.txt with the flags it ran with — to measure a build on the
+// device, launched on a screen (--browse, --stats...) from the Mac.
+RDE_INTERNAL f64 perf_seconds = 0.0;   // 0: off
+RDE_INTERNAL f64 perf_start   = 0.0;   // when measuring began (0: not yet)
+RDE_INTERNAL u32 perf_frames  = 0;
+RDE_INTERNAL u32 perf_settle  = 0;     // frames before measuring
+RDE_INTERNAL u32 perf_slow    = 0;     // frames over 20 ms
+RDE_INTERNAL f64 perf_dt_sum  = 0.0, perf_dt_max  = 0.0;
+RDE_INTERNAL f64 perf_update_sum = 0.0, perf_update_max = 0.0;   // on_update's time
+RDE_INTERNAL f64 perf_render_sum = 0.0, perf_render_max = 0.0;   // on_render's
+RDE_INTERNAL c8  perf_label[160];
+
 // The pen went down ON the toolbar: it is pressing a button, so nothing it does
 // until it lifts may write, erase or pan.
 RDE_INTERNAL b8 pen_on_ui = false;
@@ -530,6 +543,15 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--paper") == 0) {
             look_paper = true;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--perf=", 7) == 0) {
+            perf_seconds = strtod(_argv[_i] + 7, NULL);
+            for(i32 _k = 1; _k < _argc; _k++) {
+                if(_argv[_k] != NULL && strncmp(_argv[_k], "--perf=", 7) != 0 && strlen(perf_label) + strlen(_argv[_k]) + 2u < sizeof(perf_label)) {
+                    strcat(perf_label, _argv[_k]);
+                    strcat(perf_label, " ");
+                }
+            }
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--stats") == 0) {
             kana_stats_open(&stats);
@@ -1005,7 +1027,7 @@ RDE_INTERNAL void kana_follow_language(void) {
     }
 }
 
-void on_update(f32 _dt) {
+RDE_INTERNAL void kana_update(f32 _dt) {
     if(baking) {
         return;
     }
@@ -1133,6 +1155,10 @@ void on_update(f32 _dt) {
         }
 #endif
         kana_album_update(&album, _dt);
+        u32 _kept;
+        if(kana_album_take_exam(&album, &_kept)) {
+            kana_exam_open_kept(&exam, _kept);   // its results, over the album
+        }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) {
             if(album.page_open) { kana_album_close_page(&album); } else { kana_album_close(&album); }
         }
@@ -1365,7 +1391,7 @@ RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
     kana_hud_text(_line, _x, _y);
 }
 
-void on_render(rde_window* _window, f32 _dt) {
+RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
     RDE_UNUSED(_dt);
 
     if(baking) {
@@ -1411,6 +1437,63 @@ void on_render(rde_window* _window, f32 _dt) {
         kana_draw_zoom_toast(_window);
     }
     rde_rendering_2d_end_drawing();
+}
+
+// --perf: the time is up — the summary, once.
+RDE_INTERNAL void kana_perf_write(f64 _now) {
+    const f64 _n    = perf_frames > 0 ? (f64)perf_frames : 1.0;
+    const f64 _span = _now - perf_start;
+    c8 _path[RDE_MAX_PATH];
+    snprintf(_path, sizeof(_path), "%sperf.txt", kana_save_dir());
+    FILE* _f = fopen(_path, "a");
+    if(_f != NULL) {
+        fprintf(_f, "%s| %u frames in %.1f s: %.1f fps, frame %.2f ms avg, %.2f ms worst, %u over 20 ms | update %.2f ms avg, %.2f worst | render %.2f ms avg, %.2f worst\n",
+                perf_label, perf_frames, _span, _n / _span, 1000.0 * perf_dt_sum / _n, 1000.0 * perf_dt_max, perf_slow,
+                1000.0 * perf_update_sum / _n, 1000.0 * perf_update_max, 1000.0 * perf_render_sum / _n, 1000.0 * perf_render_max);
+        fclose(_f);
+    }
+    rde_log_level(RDE_LOG_LEVEL_INFO, "kana perf: %u frames, %.2f ms avg, %.2f ms worst (written to %s)", perf_frames, 1000.0 * perf_dt_sum / _n, 1000.0 * perf_dt_max, _path);
+    perf_seconds = 0.0;
+}
+
+// The engine's update and render: Kana's, timed when --perf asks.
+void on_update(f32 _dt) {
+    if(perf_seconds <= 0.0) {
+        kana_update(_dt);
+        return;
+    }
+    const f64 _t0 = rde_engine_get_time_now();
+    if(perf_start <= 0.0) {
+        perf_start = perf_settle++ >= 60u ? _t0 : 0.0;   // a second to settle first
+    } else {
+        perf_frames++;
+        perf_dt_sum += (f64)_dt;
+        perf_dt_max  = (f64)_dt > perf_dt_max ? (f64)_dt : perf_dt_max;
+        perf_slow   += _dt > 0.020f ? 1u : 0u;
+    }
+    kana_update(_dt);
+    if(perf_start > 0.0 && perf_frames > 0) {
+        const f64 _t = rde_engine_get_time_now() - _t0;
+        perf_update_sum += _t;
+        perf_update_max  = _t > perf_update_max ? _t : perf_update_max;
+    }
+}
+
+void on_render(rde_window* _window, f32 _dt) {
+    if(perf_seconds <= 0.0) {
+        kana_render(_window, _dt);
+        return;
+    }
+    const f64 _t0 = rde_engine_get_time_now();
+    kana_render(_window, _dt);
+    if(perf_start > 0.0 && perf_frames > 0) {
+        const f64 _now = rde_engine_get_time_now();
+        perf_render_sum += _now - _t0;
+        perf_render_max  = _now - _t0 > perf_render_max ? _now - _t0 : perf_render_max;
+        if(_now - perf_start >= perf_seconds) {
+            kana_perf_write(_now);
+        }
+    }
 }
 
 void on_crash(const c8* _error, const c8* _callstack) {

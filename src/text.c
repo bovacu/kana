@@ -234,3 +234,19 @@ void kana_text_date(c8* _out, usize _size, u64 _time) {
     kana_text_format(_out, _size, KANA_TEXT_DATE, (const kana_text_arg[]){ KANA_TN(_tm->tm_mday), KANA_TS(kana_text((KANA_TEXT_)(KANA_TEXT_MONTH_1 + _tm->tm_mon))),
                                                                            KANA_TN(_tm->tm_year + 1900) }, 3u);
 }
+
+void kana_text_date_time(c8* _out, usize _size, u64 _time) {
+    c8 _date[64];
+    kana_text_date(_date, sizeof(_date), _time);
+    const time_t _t  = (time_t)_time;
+    struct tm*   _tm = localtime(&_t);
+    c8 _clock[16] = "";
+    c8 _day[80];
+    if(_tm != NULL) {
+        snprintf(_clock, sizeof(_clock), "%02d:%02d", _tm->tm_hour, _tm->tm_min);
+        snprintf(_day, sizeof(_day), "%s %s", kana_text((KANA_TEXT_)(KANA_TEXT_DAY_MON + (_tm->tm_wday + 6) % 7)), _date);   // Monday first
+    } else {
+        snprintf(_day, sizeof(_day), "%s", _date);
+    }
+    kana_text_format(_out, _size, KANA_TEXT_DATE_TIME, (const kana_text_arg[]){ KANA_TS(_day), KANA_TS(_clock) }, 2u);
+}

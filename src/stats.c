@@ -220,6 +220,52 @@ void kana_stats_compute(kana_stats_data* _d, const kana_kanji_db* _db, const kan
     // --- marks and coverage ---
     _d->studying = kana_marks_count(KANA_MARK_STUDYING);
     _d->known    = kana_marks_count(KANA_MARK_KNOWN);
+
+    // Marks over time: the changes replayed, oldest first, the counts taken as
+    // each week ends (and KANA_STATS_RECENT days ago).
+    {
+        const kana_marks_change* _changes = kana_marks_history();
+        const u32                _nc      = kana_marks_history_count();
+        const u64                _recent  = (u64)time(NULL) - (u64)KANA_STATS_RECENT * 86400u;
+        rde_arr _state = rde_arr_new(sizeof(kana_marks_change), _heap);   // each character's mark so far, by code point
+        u32     _count[KANA_MARK_COUNT] = { 0 };
+        u32     _week = 0;
+        b8      _before_taken = false;
+        _d->mark_changes = _nc;
+        for(u32 _i = 0; _i <= _nc; _i++) {
+            // The weeks (and the recent mark) that end before this change.
+            const i64 _day = _i < _nc ? kana_stats_day(_changes[_i].time, _off) : INT64_MAX;
+            while(_week < KANA_STATS_WEEKS && _day >= _start + 7 * (i64)(_week + 1u)) {
+                _d->week_known[_week]    = _count[KANA_MARK_KNOWN];
+                _d->week_studying[_week] = _count[KANA_MARK_STUDYING];
+                _week++;
+            }
+            if(!_before_taken && (_i == _nc || _changes[_i].time >= _recent)) {
+                _d->known_before = _count[KANA_MARK_KNOWN];
+                _before_taken    = true;
+            }
+            if(_i == _nc) {
+                break;
+            }
+            // This change: its character's mark before it, then after.
+            const kana_marks_change* _c  = &_changes[_i];
+            kana_marks_change*       _s  = (kana_marks_change*)_state.memory;
+            u32                      _lo = 0, _hi = (u32)rde_arr_length(&_state);
+            while(_lo < _hi) {
+                const u32 _mid = (_lo + _hi) / 2u;
+                if(_s[_mid].codepoint < _c->codepoint) { _lo = _mid + 1u; } else { _hi = _mid; }
+            }
+            if(_lo == (u32)rde_arr_length(&_state) || _s[_lo].codepoint != _c->codepoint) {
+                const kana_marks_change _none = { .codepoint = _c->codepoint, .mark = KANA_MARK_NONE, .time = 0 };
+                rde_arr_insert(&_state, _lo, &_none);
+                _s = (kana_marks_change*)_state.memory;
+            }
+            if(_s[_lo].mark < KANA_MARK_COUNT && _s[_lo].mark != KANA_MARK_NONE) { _count[_s[_lo].mark]--; }
+            _s[_lo].mark = _c->mark;
+            if(_c->mark < KANA_MARK_COUNT && _c->mark != KANA_MARK_NONE)         { _count[_c->mark]++; }
+        }
+        rde_arr_free(&_state);
+    }
     _d->words_added = kana_userwords_total();
     for(u32 _r = 0; _db != NULL && _catalog != NULL && _r < _db->count; _r++) {
         kana_kanji_info _info;
@@ -278,6 +324,7 @@ typedef enum {
     KANA_STATS_CARD_ACTIVITY,
     KANA_STATS_CARD_SCORES,
     KANA_STATS_CARD_EXAMS,
+    KANA_STATS_CARD_MARKS,
     KANA_STATS_CARD_COVERAGE,
     KANA_STATS_CARD_MISTAKES,
     KANA_STATS_CARD_CHARACTERS,
@@ -286,7 +333,7 @@ typedef enum {
 } KANA_STATS_CARD_;
 
 static const KANA_TEXT_ KANA_STATS_CARD_TITLES[KANA_STATS_CARD_COUNT] = {
-    KANA_TEXT_STATS_OVERVIEW, KANA_TEXT_STATS_ACTIVITY, KANA_TEXT_STATS_SCORES, KANA_TEXT_EXAMS, KANA_TEXT_STATS_LEVELS, KANA_TEXT_STATS_MISTAKES,
+    KANA_TEXT_STATS_OVERVIEW, KANA_TEXT_STATS_ACTIVITY, KANA_TEXT_STATS_SCORES, KANA_TEXT_EXAMS, KANA_TEXT_STATS_MARKS, KANA_TEXT_STATS_LEVELS, KANA_TEXT_STATS_MISTAKES,
     KANA_TEXT_STATS_CHARACTERS, KANA_TEXT_STATS_WHEN
 };
 static const c8* const KANA_STATS_GROUP_NAMES[KANA_STATS_GROUP_COUNT]      = { NULL, NULL, "N5", "N4", "N3", "N2", "N1" };   // NULL: the kana (text.h)
@@ -377,6 +424,7 @@ RDE_INTERNAL f32 kana_stats_card_height(const kana_stats* _stats, KANA_STATS_CAR
         }
         case KANA_STATS_CARD_SCORES:     return _frame + 220.0f;
         case KANA_STATS_CARD_EXAMS:      return _frame + (_stats->data.exams > 0 ? 222.0f : 30.0f);
+        case KANA_STATS_CARD_MARKS:      return _frame + (_stats->data.mark_changes > 0 ? 236.0f : 52.0f);
         case KANA_STATS_CARD_COVERAGE:   return _frame + (f32)KANA_STATS_GROUP_COUNT * KANA_STATS_ROW + 28.0f;
         case KANA_STATS_CARD_MISTAKES:   return _frame + (_stats->data.squares > 0 ? (f32)KANA_STATS_MISTAKE_COUNT * KANA_STATS_ROW + 28.0f : 30.0f);
         case KANA_STATS_CARD_CHARACTERS: return _frame + (_stats->data.weakest_count > 0 ? 2.0f * (26.0f + KANA_STATS_GLYPH + 26.0f) : 30.0f);
@@ -587,6 +635,91 @@ RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
     }
     KANA_TEXTF(_line, KANA_TEXT_STATS_EXAMS_CAPTION, KANA_TN(KANA_STATS_EXAMS), KANA_TN(lroundf(100.0f * KANA_EXAM_PASS)));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, 13.0f, _theme->text_soft);
+}
+
+// A chart's top value for _max: a round number at or above it (10 at least).
+RDE_INTERNAL u32 kana_stats_round_up(u32 _max) {
+    const u32 _steps[3] = { 1u, 2u, 5u };
+    for(u32 _scale = 10u;; _scale *= 10u) {
+        for(u32 _k = 0; _k < 3u; _k++) {
+            if(_steps[_k] * _scale >= _max) {
+                return _steps[_k] * _scale;
+            }
+        }
+        if(_scale > 100000000u) {
+            return _max;
+        }
+    }
+}
+
+// Known and Studying at the end of each week: stacked bars, Known below.
+RDE_INTERNAL void kana_stats_draw_marks(const kana_stats_box* _b) {
+    const kana_stats_data* _d     = &_b->stats->data;
+    const kana_theme*      _theme = kana_theme_active();
+    c8 _line[160];
+    if(_d->mark_changes == 0) {
+        const c8* _hint = kana_text(KANA_TEXT_EXAM_MARK_HINT);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_MARKS), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, _hint, _b->left, _b->top - 42.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _hint, 13.0f, _b->width, 0.6f),
+                       _theme->text_soft);
+        return;
+    }
+    const rde_color _known_c    = _theme->score_good;
+    const rde_color _studying_c = kana_stats_alpha(_theme->button_selected, 0.8f);
+
+    // Now, and how Known moved recently.
+    KANA_TEXTF(_line, KANA_TEXT_STATS_MARKS_NOW, KANA_TN(_d->known), KANA_TN(_d->studying));
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
+    const i64 _delta = (i64)_d->known - (i64)_d->known_before;
+    c8 _signed[24];
+    snprintf(_signed, sizeof(_signed), "%s%lld", _delta > 0 ? "+" : "", (long long)_delta);
+    KANA_TEXTF(_line, KANA_TEXT_STATS_MARKS_RECENT, KANA_TS(_signed), KANA_TN(KANA_STATS_RECENT));
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 40.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f),
+                   _theme->text_soft);
+
+    // The weeks: lines at 0, half and the top, labelled; a bar each.
+    u32 _max = 0;
+    for(u32 _w = 0; _w < KANA_STATS_WEEKS; _w++) {
+        const u32 _total = _d->week_known[_w] + _d->week_studying[_w];
+        _max = _total > _max ? _total : _max;
+    }
+    const u32 _top_value = kana_stats_round_up(_max);
+    const f32 _x = _b->left + 34.0f, _y = _b->top - 60.0f, _w = _b->width - 34.0f, _h = 120.0f;
+    for(u32 _i = 0; _i < 3u; _i++) {
+        const f32 _ly = _y - _h + _h * (f32)_i * 0.5f;
+        kana_draw_line((rde_vec_2F){ _x, _ly }, (rde_vec_2F){ _x + _w, _ly }, 0.5f, _theme->line);
+        snprintf(_line, sizeof(_line), "%u", _top_value * _i / 2u);
+        kana_stats_text_right(_b, _line, _x - 6.0f, _ly - 5.0f, 12.0f, _theme->text_soft);
+    }
+    const f32 _slot = _w / (f32)KANA_STATS_WEEKS;
+    const f32 _bw   = fmaxf(2.0f, _slot * 0.62f);
+    for(u32 _i = 0; _i < KANA_STATS_WEEKS; _i++) {
+        const f32 _cx = _x + _slot * ((f32)_i + 0.5f);
+        const f32 _kh = _h * (f32)_d->week_known[_i] / (f32)_top_value;
+        const f32 _sh = _h * (f32)_d->week_studying[_i] / (f32)_top_value;
+        if(_kh > 0.25f) {
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _y - _h + _kh * 0.5f }, (rde_vec_2F){ _bw, _kh }, _known_c);
+        }
+        if(_sh > 0.25f) {
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _y - _h + _kh + _sh * 0.5f }, (rde_vec_2F){ _bw, _sh }, _studying_c);
+        }
+    }
+
+    // The legend, then what it shows.
+    const f32 _ly = _y - _h - 26.0f;
+    const struct { KANA_TEXT_ text; rde_color color; } _legend[2] = {
+        { KANA_TEXT_STATS_LEGEND_KNOWN, _known_c },
+        { KANA_TEXT_STATS_LEGEND_STUDYING, _studying_c },
+    };
+    f32 _lx = _b->left;
+    for(u32 _k = 0; _k < 2u; _k++) {
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _lx + 6.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
+        kana_draw_text(_b->font, _b->font_px, kana_text(_legend[_k].text), _lx + 16.0f, _ly, 13.0f, _theme->text_soft);
+        _lx += 16.0f + kana_draw_text_width(_b->font, _b->font_px, kana_text(_legend[_k].text), 13.0f) + 18.0f;
+    }
+    KANA_TEXTF(_line, KANA_TEXT_STATS_MARKS_CAPTION, KANA_TN(KANA_STATS_WEEKS));
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _ly - 24.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f),
+                   _theme->text_soft);
 }
 
 RDE_INTERNAL void kana_stats_draw_coverage(const kana_stats_box* _b) {
@@ -801,6 +934,7 @@ void kana_stats_render(kana_stats* _stats, rde_window* _window, rde_font* _font,
             case KANA_STATS_CARD_ACTIVITY:   kana_stats_draw_activity(&_box);   break;
             case KANA_STATS_CARD_SCORES:     kana_stats_draw_scores(&_box);     break;
             case KANA_STATS_CARD_EXAMS:      kana_stats_draw_exams(&_box);      break;
+            case KANA_STATS_CARD_MARKS:      kana_stats_draw_marks(&_box);      break;
             case KANA_STATS_CARD_COVERAGE:   kana_stats_draw_coverage(&_box);   break;
             case KANA_STATS_CARD_MISTAKES:   kana_stats_draw_mistakes(&_box);   break;
             case KANA_STATS_CARD_CHARACTERS: kana_stats_draw_characters(&_box); break;

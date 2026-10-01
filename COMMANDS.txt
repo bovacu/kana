@@ -71,9 +71,21 @@ paths are absolute on purpose.
     --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitMDD.framework \
     --ios_framework=Network \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    --ios_assets=/Users/borjavazquez/kana/platform/ios/Assets.xcassets \
+    --ios_launch_storyboard=/Users/borjavazquez/kana/platform/ios/LaunchScreen.storyboard \
+    --ios_plist=/Users/borjavazquez/kana/platform/ios/Info.plist \
     kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/mlkit_ios.m \
     -I/Users/borjavazquez/kana/include -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
+
+platform/ios/ holds what the app is on iOS besides its code: the asset catalog
+(Assets.xcassets: the icon, AppIcon-1024.png, drawn from AppIcon.svg — 日本語 in
+KanjiVG's strokes before a red sun, over an open book; LaunchBackground, the
+launch screen's colour), the launch screen (LaunchScreen.storyboard) and Kana's
+own Info.plist keys (Info.plist: iPad only, every orientation, full screen, no
+non-exempt encryption), merged over the engine template's. --ios_assets,
+--ios_launch_storyboard and --ios_plist are builder options added for them
+(rde_build.c); without them a build gets the template's.
 
 ML Kit (Google's handwriting recognition, used by Check) must be set up ONCE
 before the first iOS build — it downloads the pinned pods and builds their
@@ -97,6 +109,19 @@ Install and launch (devicectl installs the .app, not the .ipa):
 
 `xcrun devicectl list devices` shows the UDID. First launch on a device needs
 Settings > General > VPN & Device Management > trust the developer.
+
+Measuring a build on the device (the iPad unlocked): launch it on a screen
+with --perf=SECONDS — frame times are appended to perf.txt in its save folder,
+then copied back (--browse, --kana, --album, --stats, --exam: those screens;
+no screen flag: the page):
+
+  xcrun devicectl device process launch --device <UDID> --terminate-existing com.rde.kana --browse --perf=8
+  xcrun devicectl device copy from --device <UDID> --domain-type appDataContainer --domain-identifier com.rde.kana \
+      --user mobile --source "Library/Application Support/rde/engine/kana/perf.txt" --destination perf.txt
+
+The release build (--release instead of --debug, with the engine built
+--release for iOS too) on the iPad mini 6, 2026-10-01: every screen 59.9 fps,
+Kana's render 1.5-5.4 ms a frame.
 
 If the builder was just rebuilt (rde_build.c changed), the FIRST run can fail on
 the name's spaces/parentheses — it re-runs itself unquoted. Run it again.
@@ -175,6 +200,21 @@ Fill fonts ship (assets/fonts/Phosphor-*.ttf, and LICENSE-Phosphor.txt). The
 whole package (SVGs, PNGs, the other weights, and the stylesheets that give
 each icon's code point — include/icons.h is made from Fonts/regular/style.css)
 is kept in data/raw/phosphor-icons/, not in the repository nor the app.
+
+The two shipped fonts are cut down to the icons Kana uses (include/icons.h:
+82, ~20 KB each instead of ~470 KB; the outlines and metrics are unchanged,
+so KANA_TOOLBAR_ICON_BEARINGS still holds). A NEW ICON means cutting them
+again from the whole fonts, with fontTools' pyftsubset (pip install fonttools;
+a one-off tool, nothing in the app needs it). From the project root:
+
+  U=$(python3 -c "import re;s=open('include/icons.h').read();print(','.join(sorted({'%04X'%ord(c) for m in re.findall(r'#define\s+KANA_ICON_\w+\s+\"([^\"]+)\"',s) for c in bytes(int(h,16) for h in re.findall(r'\\\\x([0-9A-Fa-f]{2})',m)).decode()})))")
+  for f in regular/Phosphor:Regular fill/Phosphor-Fill:Fill; do
+    pyftsubset data/raw/phosphor-icons/Fonts/${f%%:*}.ttf --unicodes="$U" \
+      --output-file=assets/fonts/Phosphor-${f##*:}.ttf --no-hinting --layout-features='' \
+      --name-IDs='*' --name-languages='*' --name-legacy --notdef-outline
+  done
+
+(and its bearing into KANA_TOOLBAR_ICON_BEARINGS, src/toolbar.c).
   curl -L -o assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
 
 

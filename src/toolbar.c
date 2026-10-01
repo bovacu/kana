@@ -16,7 +16,7 @@
 
 #define KANA_TOOLBAR_FONT_PATH   "assets/fonts/Roboto-Regular.ttf"
 #define KANA_TOOLBAR_FONT_JP_PATH "assets/fonts/NotoSansJP-Regular.otf"
-#define KANA_TOOLBAR_FONT_JP_GLYPHS 2048u   // distinct Japanese glyphs the font holds (see kana_toolbar_init)
+#define KANA_TOOLBAR_FONT_JP_GLYPHS 2048u   // distinct Japanese glyphs on screen at once (see kana_toolbar_init)
 #define KANA_TOOLBAR_FONT_ICONS_PATH      "assets/fonts/Phosphor-Regular.ttf"
 #define KANA_TOOLBAR_FONT_ICONS_FILL_PATH "assets/fonts/Phosphor-Fill.ttf"
 #define KANA_TOOLBAR_CHECK_FIELD (rde_vec_2F){ 360.0f, 44.0f }
@@ -70,7 +70,7 @@ enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
 #define KANA_TOOLBAR_WORD_CARD (rde_vec_2F){ 540.0f, 308.0f }
 #define KANA_TOOLBAR_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_GUIDED, KANA_PRACTICE_COUNT };
-enum { KANA_ALBUM_MENU_PRACTICE = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
+enum { KANA_ALBUM_MENU_EXAMS = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_PRACTICE, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
 enum { KANA_PRACTICE_SUMMARY_AGAIN = 0, KANA_PRACTICE_SUMMARY_DONE, KANA_PRACTICE_SUMMARY_COUNT };
 
@@ -1409,16 +1409,30 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_reset_view(rde_ui_node* _node,
 
 // --- the album's rows ----------------------------------------------------------------
 
+// The album's sorts and Exams, one of them selected: the order shown, or the exams.
+RDE_INTERNAL void kana_toolbar_album_show_view(kana_toolbar* _toolbar) {
+    const u32 _shown = _toolbar->album->view == KANA_ALBUM_VIEW_EXAMS ? (u32)KANA_ALBUM_MENU_EXAMS : (u32)_toolbar->album->sort;
+    for(u32 _i = 0; _i <= (u32)KANA_ALBUM_MENU_EXAMS; _i++) {
+        if(_i == _shown) { kana_toolbar_button_selected(_toolbar->album_menu.buttons[_i]); }
+        else             { kana_toolbar_button_quiet(_toolbar->album_menu.buttons[_i]); }
+        kana_toolbar_button_round(_toolbar->album_menu.buttons[_i], 12.0f);
+    }
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_album_sort(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const kana_toolbar_chip_ref* _ref = (const kana_toolbar_chip_ref*)_user_data;
     kana_toolbar* _toolbar = _ref->toolbar;
     kana_album_set_sort(_toolbar->album, (KANA_ALBUM_SORT_)_ref->index);
-    for(u32 _i = 0; _i < KANA_ALBUM_SORT_COUNT; _i++) {
-        if(_i == _ref->index) { kana_toolbar_button_selected(_toolbar->album_menu.buttons[_i]); }
-        else                  { kana_toolbar_button_quiet(_toolbar->album_menu.buttons[_i]); }
-        kana_toolbar_button_round(_toolbar->album_menu.buttons[_i], 12.0f);
-    }
+    kana_toolbar_album_show_view(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_album_exams(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_album_set_view(_toolbar->album, KANA_ALBUM_VIEW_EXAMS);
+    kana_toolbar_album_show_view(_toolbar);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -2337,8 +2351,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
         kana_toolbar_button_round(_primary[_i], 12.0f);
         kana_toolbar_set_enabled(_primary[_i], rde_ui_button_as_node(_primary[_i])->interactable);
     }
-    kana_toolbar_button_selected(_toolbar->album_menu.buttons[_toolbar->album->sort]);         // the order shown
-    kana_toolbar_button_round(_toolbar->album_menu.buttons[_toolbar->album->sort], 12.0f);
+    kana_toolbar_album_show_view(_toolbar);   // the order shown, or the exams
     kana_toolbar_button_primary(_toolbar->word_add);
     _toolbar->_mark_shown_for = 0;   // the viewer's Study, restyled for its mark again
     _toolbar->_exam_shown     = UINT32_MAX;
@@ -2396,9 +2409,11 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     // Kanji need bigger budgets than Latin: with the defaults (128 curves) over a
     // quarter of Noto's kanji were silently left out (録, 鬱...). Measured over
     // every kana and kanji in the font (Slug's own curve split and bands): at
-    // most 578 curve texels and 1,220 band texels. A glyph keeps its slot for
-    // the life of the app, so there are enough slots for a long session of
-    // words and readings. ~31 MB of GPU memory in all.
+    // most 578 curve texels and 1,220 band texels. A glyph keeps its slot while
+    // it is drawn; once all are taken, new glyphs reuse those drawn longest ago
+    // (RDE frees them), so the slots only need to cover one screen — 2,048 is
+    // far more, and seldom-seen kanji rarely need uploading twice. ~31 MB of
+    // GPU memory in all.
     rde_font_parameters _slug_jp = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
     _slug_jp.max_glyphs              = KANA_TOOLBAR_FONT_JP_GLYPHS;
     _slug_jp.curves_per_glyph_budget = 304u;    // 608 texels
@@ -2722,10 +2737,10 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     }
     {
         const c8* const             _labels[KANA_ALBUM_MENU_COUNT]    = { kana_text(KANA_TEXT_ALBUM_WEAKEST), kana_text(KANA_TEXT_ALBUM_RECENT), kana_text(KANA_TEXT_ALBUM_MOST),
-                                                                          kana_text(KANA_TEXT_PRACTICE), kana_text(KANA_TEXT_CLOSE) };
-        const c8* const             _icons[KANA_ALBUM_MENU_COUNT]     = { KANA_ICON_WEAKEST, KANA_ICON_CLOCK, KANA_ICON_STACK, KANA_ICON_PEN, KANA_ICON_CLOSE };
+                                                                          kana_text(KANA_TEXT_EXAMS), kana_text(KANA_TEXT_PRACTICE), kana_text(KANA_TEXT_CLOSE) };
+        const c8* const             _icons[KANA_ALBUM_MENU_COUNT]     = { KANA_ICON_WEAKEST, KANA_ICON_CLOCK, KANA_ICON_STACK, KANA_ICON_EXAM, KANA_ICON_PEN, KANA_ICON_CLOSE };
         const rde_ui_event_callback _callbacks[KANA_ALBUM_MENU_COUNT] = { kana_toolbar_on_album_sort, kana_toolbar_on_album_sort, kana_toolbar_on_album_sort,
-                                                                          kana_toolbar_on_album_practice_weakest, kana_toolbar_on_album_close };
+                                                                          kana_toolbar_on_album_exams, kana_toolbar_on_album_practice_weakest, kana_toolbar_on_album_close };
         kana_toolbar_menu_create(_toolbar, &_toolbar->album_menu, _root, _labels, _icons, _callbacks, KANA_ALBUM_MENU_COUNT);
         for(u32 _i = 0; _i < KANA_ALBUM_SORT_COUNT; _i++) {
             _toolbar->album_sort_refs[_i] = (kana_toolbar_chip_ref){ _toolbar, _i };

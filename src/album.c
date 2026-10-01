@@ -1,6 +1,7 @@
 #include "album.h"
 #include "text.h"
 #include "draw.h"
+#include "exam.h"
 #include "theme.h"
 
 #include <math.h>
@@ -27,23 +28,33 @@
 #define KANA_ALBUM_DETAIL_H    30.0f     // the replayed attempt's line
 #define KANA_ALBUM_SESSION_GAP 18.0f
 #define KANA_ALBUM_STROKE_GAP  0.25      // replay: seconds between strokes
+#define KANA_ALBUM_EXAM_PAD    14.0f     // exams view: inside an exam's card
+#define KANA_ALBUM_EXAM_GLYPH  26.0f     // ...a character asked
+#define KANA_ALBUM_EXAM_STEP   34.0f     // ...and the room it takes
+#define KANA_ALBUM_EXAM_GAP    12.0f     // ...between cards
 
 void kana_album_init(kana_album* _album, const kana_kanji_db* _db) {
     memset(_album, 0, sizeof(*_album));
-    _album->db       = _db;
-    _album->selected = -1;
-    _album->sort     = KANA_ALBUM_SORT_WEAKEST;
+    _album->db              = _db;
+    _album->selected        = -1;
+    _album->selected_answer = -1;
+    _album->tapped_exam     = -1;
+    _album->sort            = KANA_ALBUM_SORT_WEAKEST;
+    _album->view            = KANA_ALBUM_VIEW_CHARACTERS;
 
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    _album->entries = rde_arr_new(sizeof(kana_album_entry), _heap);
-    _album->hits    = rde_arr_new(sizeof(kana_album_hit), _heap);
-    _album->_points = rde_arr_new(sizeof(rde_vec_2F), _heap);
+    _album->entries           = rde_arr_new(sizeof(kana_album_entry), _heap);
+    _album->hits              = rde_arr_new(sizeof(kana_album_hit), _heap);
+    _album->_points           = rde_arr_new(sizeof(rde_vec_2F), _heap);
+    _album->page_exams        = rde_arr_new(sizeof(kana_examlog_writing), _heap);
+    _album->page_exam_strokes = rde_arr_new(sizeof(kana_history_stroke), _heap);
+    _album->page_exam_points  = rde_arr_new(sizeof(kana_history_point), _heap);
     kana_history_init(&_album->history);
     kana_glyph_init(&_album->glyph, _db);
 }
 
 void kana_album_destroy(kana_album* _album) {
-    rde_arr* _arrays[] = { &_album->entries, &_album->hits, &_album->_points };
+    rde_arr* _arrays[] = { &_album->entries, &_album->hits, &_album->_points, &_album->page_exams, &_album->page_exam_strokes, &_album->page_exam_points };
     for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
         if(rde_arr_is_inited(_arrays[_i])) {
             rde_arr_free(_arrays[_i]);
@@ -143,27 +154,59 @@ u32 kana_album_weakest(const kana_album* _album, u32* _out, u32 _max) {
 // --- opening and closing ------------------------------------------------------------
 
 void kana_album_open(kana_album* _album) {
-    _album->open      = true;
-    _album->page_open = false;
-    _album->selected  = -1;
+    _album->open            = true;
+    _album->page_open       = false;
+    _album->selected        = -1;
+    _album->selected_answer = -1;
+    _album->tapped_exam     = -1;
     kana_scroller_stop(&_album->scroller);
     _album->scroller.offset = 0.0f;
     kana_album_load(_album);
 }
 
 void kana_album_close(kana_album* _album) {
-    _album->open      = false;
-    _album->page_open = false;
-    _album->selected  = -1;
+    _album->open            = false;
+    _album->page_open       = false;
+    _album->selected        = -1;
+    _album->selected_answer = -1;
     kana_scroller_stop(&_album->scroller);
     kana_scroller_stop(&_album->page_scroller);
 }
 
 void kana_album_set_sort(kana_album* _album, KANA_ALBUM_SORT_ _sort) {
     _album->sort = _sort;
+    _album->view = KANA_ALBUM_VIEW_CHARACTERS;
     kana_album_sort(_album);
     kana_scroller_stop(&_album->scroller);
     _album->scroller.offset = 0.0f;
+}
+
+void kana_album_set_view(kana_album* _album, KANA_ALBUM_VIEW_ _view) {
+    if(_album->view == _view) {
+        return;
+    }
+    _album->view        = _view;
+    _album->tapped_exam = -1;
+    kana_scroller_stop(&_album->scroller);
+    _album->scroller.offset = 0.0f;
+}
+
+b8 kana_album_take_exam(kana_album* _album, u32* _exam) {
+    if(_album->tapped_exam < 0) {
+        return false;
+    }
+    *_exam              = (u32)_album->tapped_exam;
+    _album->tapped_exam = -1;
+    return true;
+}
+
+// The page's character in the exams: every answer to it, with its writing.
+RDE_INTERNAL void kana_album_load_page_exams(kana_album* _album) {
+    rde_arr_clear(&_album->page_exams);
+    rde_arr_clear(&_album->page_exam_strokes);
+    rde_arr_clear(&_album->page_exam_points);
+    _album->exams_revision = kana_examlog_revision();
+    kana_examlog_read_writing(UINT32_MAX, _album->page_codepoint, &_album->page_exams, &_album->page_exam_strokes, &_album->page_exam_points);
 }
 
 void kana_album_open_page(kana_album* _album, u32 _codepoint) {
@@ -173,15 +216,18 @@ void kana_album_open_page(kana_album* _album, u32 _codepoint) {
         kana_kanji_find_index(_album->db, _codepoint, &_album->page_record);
     }
     kana_history_load(&_album->history, _codepoint);
-    _album->page_open = true;
-    _album->selected  = -1;
+    kana_album_load_page_exams(_album);
+    _album->page_open       = true;
+    _album->selected        = -1;
+    _album->selected_answer = -1;
     kana_scroller_stop(&_album->page_scroller);
     _album->page_scroller.offset = 0.0f;
 }
 
 void kana_album_close_page(kana_album* _album) {
-    _album->page_open = false;
-    _album->selected  = -1;
+    _album->page_open       = false;
+    _album->selected        = -1;
+    _album->selected_answer = -1;
     kana_scroller_stop(&_album->page_scroller);
 }
 
@@ -218,8 +264,12 @@ void kana_album_pointer_up(kana_album* _album, f64 _time) {
 
         if(_album->page_open) {
             // An attempt: replay it (again, if it already was).
-            _album->selected     = (i32)_h->index;
-            _album->replay_start = rde_engine_get_time_now();
+            const b8 _answer        = (_h->index & KANA_ALBUM_EXAM) != 0u;
+            _album->selected        = _answer ? -1 : (i32)_h->index;
+            _album->selected_answer = _answer ? (i32)(_h->index & ~KANA_ALBUM_EXAM) : -1;
+            _album->replay_start    = rde_engine_get_time_now();
+        } else if(_album->view == KANA_ALBUM_VIEW_EXAMS) {
+            _album->tapped_exam = (i32)_h->index;
         } else if(_h->index < (u32)rde_arr_length(&_album->entries)) {
             kana_album_open_page(_album, ((const kana_album_entry*)_album->entries.memory)[_h->index].codepoint);
         }
@@ -237,8 +287,15 @@ void kana_album_update(kana_album* _album, f32 _dt) {
         kana_album_load(_album);
         if(_album->page_open) {
             kana_history_load(&_album->history, _album->page_codepoint);
-            _album->selected = -1;
+            _album->selected        = -1;
+            _album->selected_answer = -1;
         }
+    }
+    // An exam was taken (a kept one's Retry wrong): its answers too.
+    if(_album->page_open && _album->exams_revision != kana_examlog_revision()) {
+        kana_album_load_page_exams(_album);
+        _album->selected        = -1;
+        _album->selected_answer = -1;
     }
 
     kana_scroller_update(kana_album_scroller(_album), _dt, _album->content_height, _album->view_top - _album->view_bottom);
@@ -246,34 +303,22 @@ void kana_album_update(kana_album* _album, f32 _dt) {
 
 // --- drawing helpers --------------------------------------------------------------------
 
-// A time as local date (and clock time).
+// A time as local date (and weekday and clock time).
 RDE_INTERNAL void kana_album_date(u64 _time, b8 _with_clock, c8* _out, usize _size) {
-    c8 _date[64];
-    kana_text_date(_date, sizeof(_date), _time);
-    if(!_with_clock) {
-        snprintf(_out, _size, "%s", _date);
-        return;
+    if(_with_clock) {
+        kana_text_date_time(_out, _size, _time);
+    } else {
+        kana_text_date(_out, _size, _time);
     }
-    // The weekday before it, the clock after.
-    const time_t _t  = (time_t)_time;
-    struct tm*   _tm = localtime(&_t);
-    c8 _clock[16] = "";
-    if(_tm != NULL) {
-        snprintf(_clock, sizeof(_clock), "%02d:%02d", _tm->tm_hour, _tm->tm_min);
-    }
-    c8 _day[80];
-    snprintf(_day, sizeof(_day), "%s %s", _tm != NULL ? kana_text((KANA_TEXT_)(KANA_TEXT_DAY_MON + (_tm->tm_wday + 6) % 7)) : "", _date);   // Monday first
-    kana_text_format(_out, _size, KANA_TEXT_DATE_TIME, (const kana_text_arg[]){ KANA_TS(_day), KANA_TS(_clock) }, 2u);
 }
 
-// One attempt as it was drawn, in the square at _tl (_size wide). _elapsed < 0
-// draws it whole; otherwise as far as a replay has got after _elapsed seconds
-// — each stroke at the speed it was written, a pause between strokes — with the
-// pen's tip where it is.
-RDE_INTERNAL void kana_album_draw_attempt(kana_album* _album, const kana_history_square* _square, rde_vec_2F _tl, f32 _size, f64 _elapsed) {
-    const kana_history_stroke* _strokes = (const kana_history_stroke*)_album->history.strokes.memory;
-    const kana_history_point*  _points  = (const kana_history_point*)_album->history.points.memory;
-    const kana_theme*          _theme   = kana_theme_active();
+// One attempt as it was drawn — strokes [_first, +_count) of _strokes — in the
+// square at _tl (_size wide). _elapsed < 0 draws it whole; otherwise as far as a
+// replay has got after _elapsed seconds — each stroke at the speed it was
+// written, a pause between strokes — with the pen's tip where it is.
+RDE_INTERNAL void kana_album_draw_attempt(kana_album* _album, const kana_history_stroke* _strokes, const kana_history_point* _points, u32 _first, u32 _count,
+                                          rde_vec_2F _tl, f32 _size, f64 _elapsed) {
+    const kana_theme* _theme = kana_theme_active();
 
     // The practice pen's width: the model's own stroke width, as a part of the square.
     const f32        _radius = fmaxf(0.8f, _size * KANA_GLYPH_WIDTH / KANA_KANJI_BOX * 0.5f);
@@ -281,8 +326,8 @@ RDE_INTERNAL void kana_album_draw_attempt(kana_album* _album, const kana_history
     const f32        _k      = _size / 65535.0f;
     f64              _clock  = _elapsed;
 
-    for(u32 _s = 0; _s < _square->stroke_count; _s++) {
-        const kana_history_stroke* _stroke = &_strokes[_square->first_stroke + _s];
+    for(u32 _s = 0; _s < _count; _s++) {
+        const kana_history_stroke* _stroke = &_strokes[_first + _s];
         if(_stroke->point_count == 0) {
             continue;
         }
@@ -405,7 +450,128 @@ RDE_INTERNAL void kana_album_render_overview(kana_album* _album, rde_font* _font
     #undef KANA_ALBUM_SY
 }
 
+// --- the exams ------------------------------------------------------------------------------
+
+// The exams view: every exam, newest first, a card each — what it was of, when,
+// passed or not, how many right and the points, and each character asked (green
+// when right, red when not). A tap: the exam's results (exam.h).
+RDE_INTERNAL void kana_album_render_exams(kana_album* _album, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
+    const kana_theme*        _theme  = kana_theme_active();
+    const f32                _scroll = _album->scroller.offset;
+    const u32                _count  = kana_examlog_count();
+    const kana_examlog_exam* _exams  = kana_examlog_exams();
+    const kana_examlog_item* _items  = kana_examlog_items();
+    #define KANA_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
+
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_ALBUM), _left, KANA_ALBUM_SY(0.0f) - 32.0f, 24.0f, _theme->text);
+    c8  _line[160];
+    u32 _passed = 0;
+    for(u32 _e = 0; _e < _count; _e++) {
+        _passed += (f32)_exams[_e].correct >= KANA_EXAM_PASS * (f32)_exams[_e].item_count ? 1u : 0u;
+    }
+    if(_count == 0) {
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_STATS_NO_EXAMS));
+    } else {
+        KANA_TEXTF(_line, KANA_TEXT_ALBUM_EXAMS_COUNTS, KANA_TN(_count), KANA_TN(_passed));
+    }
+    kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(0.0f) - 60.0f, kana_draw_text_px_to_fit(_font, _font_px, _line, 17.0f, _right - _left, 0.6f),
+                   _theme->text_soft);
+
+    const f32 _width    = _right - _left;
+    const u32 _per_row  = (u32)fmaxf(1.0f, floorf((_width - 2.0f * KANA_ALBUM_EXAM_PAD) / KANA_ALBUM_EXAM_STEP));
+    f32       _y        = KANA_ALBUM_TITLE_H;
+    for(u32 _n = 0; _n < _count; _n++) {
+        const u32                _e    = _count - 1u - _n;
+        const kana_examlog_exam* _exam = &_exams[_e];
+        const u32                _rows = (_exam->item_count + _per_row - 1u) / _per_row;
+        const f32                _h    = 2.0f * KANA_ALBUM_EXAM_PAD + 52.0f + (f32)_rows * KANA_ALBUM_EXAM_STEP;
+        const f32                _sy   = KANA_ALBUM_SY(_y);
+        if(!(_sy - _h > _top || _sy < _bottom)) {
+            const kana_album_hit _hit = { _left, _y, _width, _h, _e };
+            rde_arr_add(&_album->hits, &_hit);
+            kana_draw_card((rde_vec_2F){ _left, _sy - _h }, (rde_vec_2F){ _right, _sy }, 14.0f, _theme->surface, _theme->outline);
+
+            // What it was of and when; passed or not, at the right.
+            const f32 _x       = _left + KANA_ALBUM_EXAM_PAD;
+            const f32 _base    = _sy - KANA_ALBUM_EXAM_PAD - 18.0f;
+            const b8  _ok      = (f32)_exam->correct >= KANA_EXAM_PASS * (f32)_exam->item_count;
+            const c8* _verdict = kana_text(_ok ? KANA_TEXT_EXAM_PASSED : KANA_TEXT_EXAM_NOT_PASSED);
+            const f32 _chip_w  = kana_draw_text_width(_font, _font_px, _verdict, 12.0f) + 22.0f;
+            kana_draw_chip(_font, _font_px, _verdict, _right - KANA_ALBUM_EXAM_PAD - _chip_w, _base + 6.0f, 12.0f, _ok ? _theme->score_good : _theme->score_poor,
+                           _theme->on_accent);
+            c8 _date[96];
+            kana_text_date_time(_date, sizeof(_date), _exam->time);
+            KANA_TEXTF(_line, KANA_TEXT_EXAM_KEPT, KANA_TS(kana_exam_source_name((KANA_EXAM_SOURCE_)_exam->source)), KANA_TS(_date));
+            kana_draw_text(_font, _font_px, _line, _x, _base,
+                           kana_draw_text_px_to_fit(_font, _font_px, _line, 18.0f, _width - 2.0f * KANA_ALBUM_EXAM_PAD - _chip_w - 12.0f, 0.6f), _theme->text);
+            KANA_TEXTF(_line, KANA_TEXT_EXAM_RESULT, KANA_TN(_exam->correct), KANA_TN(_exam->item_count), KANA_TN(lroundf(_exam->score)));
+            kana_draw_text(_font, _font_px, _line, _x, _base - 24.0f, 15.0f, _theme->text_soft);
+
+            // Each character asked.
+            for(u32 _i = 0; _i < _exam->item_count; _i++) {
+                const kana_examlog_item* _it = &_items[_exam->first_item + _i];
+                const rde_vec_2F         _tl = { _x + (f32)(_i % _per_row) * KANA_ALBUM_EXAM_STEP,
+                                                 _base - 40.0f - (f32)(_i / _per_row) * KANA_ALBUM_EXAM_STEP };
+                if(_tl.y - KANA_ALBUM_EXAM_GLYPH > _top || _tl.y < _bottom) {
+                    continue;
+                }
+                kana_glyph_character(&_album->glyph, _it->codepoint, _tl, KANA_ALBUM_EXAM_GLYPH, _it->correct ? _theme->score_good : _theme->score_poor);
+            }
+        }
+        _y += _h + KANA_ALBUM_EXAM_GAP;
+    }
+    _album->content_height = _y + KANA_ALBUM_MARGIN;
+    #undef KANA_ALBUM_SY
+}
+
 // --- a character's page ------------------------------------------------------------------
+
+// One exam answer on the page, from content y _y: right or wrong, which exam and
+// when, then the writing (over the model, faint) and its points or what it read
+// as. Where the next thing goes.
+RDE_INTERNAL f32 kana_album_render_answer(kana_album* _album, rde_font* _font, f32 _font_px, u32 _index, f32 _left, f32 _top, f32 _bottom, f32 _y, f32 _thumb,
+                                          f64 _now) {
+    const kana_theme*           _theme  = kana_theme_active();
+    const f32                   _scroll = _album->page_scroller.offset;
+    const kana_examlog_writing* _answer = &((const kana_examlog_writing*)_album->page_exams.memory)[_index];
+    const kana_examlog_exam*    _exam   = &kana_examlog_exams()[_answer->exam];
+    const kana_examlog_item*    _item   = &kana_examlog_items()[_exam->first_item + _answer->item];
+    #define KANA_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
+
+    c8        _title[64], _date[96], _line[32];
+    const f32 _base = KANA_ALBUM_SY(_y) - 24.0f;
+    kana_draw_verdict((rde_vec_2F){ _left + 11.0f, _base + 6.0f }, 11.0f, _item->correct);
+    KANA_TEXTF(_title, KANA_TEXT_EXAM_TITLE_SOURCE, KANA_TS(kana_exam_source_name((KANA_EXAM_SOURCE_)_exam->source)));
+    kana_draw_text(_font, _font_px, _title, _left + 30.0f, _base, 17.0f, _theme->text);
+    kana_text_date_time(_date, sizeof(_date), _exam->time);
+    kana_draw_text(_font, _font_px, _date, _left + 30.0f + kana_draw_text_width(_font, _font_px, _title, 17.0f) + 12.0f, _base, 17.0f, _theme->text_soft);
+    _y += KANA_ALBUM_SESSION_H;
+
+    const rde_vec_2F _tl          = { _left, KANA_ALBUM_SY(_y) };
+    const b8         _is_selected = _album->selected_answer == (i32)_index;
+    if(!(_tl.y - _thumb - KANA_ALBUM_LABEL_H > _top || _tl.y < _bottom)) {
+        const kana_album_hit _hit = { _tl.x, _y, _thumb, _thumb + KANA_ALBUM_LABEL_H, KANA_ALBUM_EXAM | _index };
+        rde_arr_add(&_album->hits, &_hit);
+        kana_glyph_box(_tl, _thumb);
+        kana_glyph_character(&_album->glyph, _album->page_codepoint, _tl, _thumb, _theme->reference);
+        kana_album_draw_attempt(_album, (const kana_history_stroke*)_album->page_exam_strokes.memory, (const kana_history_point*)_album->page_exam_points.memory,
+                                _answer->first_stroke, _answer->stroke_count, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
+        if(_is_selected) {
+            kana_draw_outline((rde_vec_2F){ _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, (rde_vec_2F){ _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, 1.5f, _theme->select);
+        }
+        if(_item->correct) {
+            snprintf(_line, sizeof(_line), "%.0f", (f64)_item->score);
+            kana_draw_text(_font, _font_px, _line, _tl.x + 2.0f, _tl.y - _thumb - 19.0f, 15.0f, kana_theme_grade(_item->score));
+        } else if(_item->read_as != 0 && _item->read_as != _album->page_codepoint) {
+            const c8* _read = kana_text(KANA_TEXT_EXAM_READ_AS);
+            kana_draw_text(_font, _font_px, _read, _tl.x + 2.0f, _tl.y - _thumb - 18.0f, 13.0f, _theme->text_soft);
+            kana_glyph_character(&_album->glyph, _item->read_as, (rde_vec_2F){ _tl.x + 8.0f + kana_draw_text_width(_font, _font_px, _read, 13.0f), _tl.y - _thumb - 3.0f },
+                                 18.0f, _theme->score_poor);
+        }
+    }
+    #undef KANA_ALBUM_SY
+    return _y + _thumb + KANA_ALBUM_LABEL_H + KANA_ALBUM_THUMB_GAP + KANA_ALBUM_SESSION_GAP;
+}
 
 RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const kana_theme*           _theme    = kana_theme_active();
@@ -447,8 +613,18 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
     const f64 _now   = rde_engine_get_time_now();
     f32       _y     = KANA_ALBUM_HEAD_H;
 
-    for(u32 _n = 0; _n < _count; _n++) {
-        const kana_history_session* _session = &_sessions[_count - 1u - _n];
+    // Sessions and exam answers, the newer of the next two each time.
+    const kana_examlog_writing* _answers  = (const kana_examlog_writing*)_album->page_exams.memory;
+    const kana_examlog_exam*    _exams    = kana_examlog_exams();
+    u32                         _ns       = _count;                                   // still to show, the newest last
+    u32                         _na       = (u32)rde_arr_length(&_album->page_exams);
+    while(_ns > 0 || _na > 0) {
+        if(_na > 0 && (_ns == 0 || _exams[_answers[_na - 1u].exam].time >= _sessions[_ns - 1u].time)) {
+            _na--;
+            _y = kana_album_render_answer(_album, _font, _font_px, _na, _left, _top, _bottom, _y, _thumb, _now);
+            continue;
+        }
+        const kana_history_session* _session = &_sessions[--_ns];
 
         // Its average, then when.
         snprintf(_line, sizeof(_line), "%.0f", (f64)_session->average);
@@ -483,7 +659,8 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
 
             kana_glyph_box(_tl, _thumb);
             kana_glyph_character(&_album->glyph, _album->page_codepoint, _tl, _thumb, _theme->reference);
-            kana_album_draw_attempt(_album, _square, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
+            kana_album_draw_attempt(_album, (const kana_history_stroke*)_album->history.strokes.memory, (const kana_history_point*)_album->history.points.memory,
+                                    _square->first_stroke, _square->stroke_count, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
             if(_is_selected) {
                 kana_draw_outline((rde_vec_2F){ _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, (rde_vec_2F){ _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, 1.5f, _theme->select);
             }
@@ -530,6 +707,8 @@ void kana_album_render(kana_album* _album, rde_window* _window, rde_font* _font,
                                       (rde_vec_2UI){ (u32)(_right - _left + 8.0f), (u32)(_top - _bottom) });
     if(_album->page_open) {
         kana_album_render_page(_album, _font, _font_px, _left, _right, _top, _bottom);
+    } else if(_album->view == KANA_ALBUM_VIEW_EXAMS) {
+        kana_album_render_exams(_album, _font, _font_px, _left, _right, _top, _bottom);
     } else {
         kana_album_render_overview(_album, _font, _font_px, _left, _right, _top, _bottom);
     }

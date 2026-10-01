@@ -1,5 +1,6 @@
 #include "draw.h"
 #include "kanji.h"
+#include "theme.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -93,6 +94,21 @@ f32 kana_draw_chip(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _
     return _w;
 }
 
+void kana_draw_verdict(rde_vec_2F _center, f32 _radius, b8 _right) {
+    const kana_theme* _theme = kana_theme_active();
+    rde_rendering_2d_draw_circle(_center, _radius, 24, _right ? _theme->score_good : _theme->score_poor, NULL);
+    const f32        _u = _radius * 0.5f;
+    const f32        _w = fmaxf(1.2f, _radius * 0.13f);
+    const rde_vec_2F _c = _center;
+    if(_right) {
+        kana_draw_line((rde_vec_2F){ _c.x - _u, _c.y }, (rde_vec_2F){ _c.x - _u * 0.25f, _c.y - _u * 0.7f }, _w, _theme->on_accent);
+        kana_draw_line((rde_vec_2F){ _c.x - _u * 0.25f, _c.y - _u * 0.7f }, (rde_vec_2F){ _c.x + _u, _c.y + _u * 0.75f }, _w, _theme->on_accent);
+    } else {
+        kana_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y - _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y + _u * 0.7f }, _w, _theme->on_accent);
+        kana_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y + _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y - _u * 0.7f }, _w, _theme->on_accent);
+    }
+}
+
 // --- text widths -----------------------------------------------------------------
 
 // How wide _probe's characters are on average, per unit of size.
@@ -181,6 +197,14 @@ f32 kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px
         _w += kana_draw_advance(_font, _font_px, _cp) * _px;
     }
     return _w;
+}
+
+f32 kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale) {
+    const f32 _w = kana_draw_text_width(_font, _font_px, _text, _px);
+    if(_w <= _width || _w <= 0.0f) {
+        return _px;
+    }
+    return _px * fmaxf(_min_scale, _width / _w);
 }
 
 void kana_draw_text_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, c8* _out, usize _size) {

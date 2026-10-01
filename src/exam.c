@@ -157,6 +157,7 @@ RDE_INTERNAL void kana_exam_set_items(kana_exam* _exam, const u32* _records, u32
     _exam->asked   = 0;
     _exam->current = 0;
     _exam->saved   = false;
+    _exam->kept    = UINT32_MAX;
     _exam->grading = UINT32_MAX;
     _exam->tapped  = -1;
     _exam->pen     = false;
@@ -184,6 +185,81 @@ void kana_exam_open_with(kana_exam* _exam, const u32* _records, u32 _count) {
     _exam->source = KANA_EXAM_SOURCE_SELECTION;
     _exam->length = KANA_EXAM_LENGTHS - 1u;   // all of them
     kana_exam_preview(_exam);
+}
+
+b8 kana_exam_open_kept(kana_exam* _exam, u32 _index) {
+    if(_exam->db == NULL || _index >= kana_examlog_count()) {
+        return false;
+    }
+    const kana_examlog_exam* _kept  = &kana_examlog_exams()[_index];
+    const kana_examlog_item* _items = &kana_examlog_items()[_kept->first_item];
+
+    // Its characters the data still has, as they were asked.
+    u32 _records[KANA_EXAM_MAX];
+    u32 _from[KANA_EXAM_MAX];   // each one's item in the log
+    u32 _n = 0;
+    for(u32 _i = 0; _i < _kept->item_count && _n < KANA_EXAM_MAX; _i++) {
+        if(kana_kanji_find_index(_exam->db, _items[_i].codepoint, &_records[_n])) {
+            _from[_n++] = _i;
+        }
+    }
+    rde_arr_clear(&_exam->selection);
+    kana_exam_set_items(_exam, _records, _n);
+    for(u32 _k = 0; _k < _n; _k++) {
+        kana_exam_item*          _it  = &_exam->items[_k];
+        const kana_examlog_item* _log = &_items[_from[_k]];
+        u32                      _read;
+        _it->answered = _it->graded = true;
+        _it->correct  = _log->correct;
+        _it->score    = _log->score;
+        _it->quality  = _log->quality;
+        _it->read_as  = _log->read_as != 0 && kana_kanji_find_index(_exam->db, _log->read_as, &_read) ? _read : UINT32_MAX;
+        _exam->order[_k] = _k;
+    }
+
+    // The writing, back from the log into each answer's ink.
+    rde_memory_allocator* _heap     = rde_memory_allocator_get_default_std();
+    rde_arr               _writings = rde_arr_new(sizeof(kana_examlog_writing), _heap);
+    rde_arr               _strokes  = rde_arr_new(sizeof(kana_history_stroke), _heap);
+    rde_arr               _points   = rde_arr_new(sizeof(kana_history_point), _heap);
+    rde_arr               _ink      = rde_arr_new(sizeof(kana_ink_point), _heap);
+    kana_examlog_read_writing(_index, 0u, &_writings, &_strokes, &_points);
+    const kana_examlog_writing* _w = (const kana_examlog_writing*)_writings.memory;
+    const kana_history_stroke*  _s = (const kana_history_stroke*)_strokes.memory;
+    const kana_history_point*   _p = (const kana_history_point*)_points.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_writings); _i++) {
+        for(u32 _k = 0; _k < _n; _k++) {
+            if(_from[_k] != _w[_i].item) {
+                continue;
+            }
+            for(u32 _t = 0; _t < _w[_i].stroke_count; _t++) {
+                const kana_history_stroke* _stroke = &_s[_w[_i].first_stroke + _t];
+                rde_arr_clear(&_ink);
+                kana_ink_point* _q = (kana_ink_point*)rde_arr_add_n(&_ink, _stroke->point_count);
+                for(u32 _j = 0; _j < _stroke->point_count; _j++) {
+                    const kana_history_point* _hp = &_p[_stroke->first_point + _j];
+                    _q[_j] = (kana_ink_point){
+                        .position = { (f32)_hp->x / 65535.0f * KANA_EXAM_UNITS, (f32)_hp->y / 65535.0f * KANA_EXAM_UNITS },
+                        .pressure = 1.0f, .radius = KANA_EXAM_PEN_RADIUS, .time = _hp->time
+                    };
+                }
+                kana_ink_add_loaded_stroke(&_exam->items[_k].ink, _q, _stroke->point_count, KANA_THEME_INK, true);
+            }
+            break;
+        }
+    }
+    rde_arr_free(&_writings);
+    rde_arr_free(&_strokes);
+    rde_arr_free(&_points);
+    rde_arr_free(&_ink);
+
+    _exam->source = _kept->source < KANA_EXAM_SOURCE_COUNT ? (KANA_EXAM_SOURCE_)_kept->source : KANA_EXAM_SOURCE_STUDYING;
+    _exam->asked  = _n;
+    _exam->saved  = true;   // already kept
+    _exam->kept   = _index;
+    _exam->stage  = KANA_EXAM_RESULTS;
+    _exam->open   = true;
+    return true;
 }
 
 void kana_exam_close(kana_exam* _exam) {
@@ -858,7 +934,17 @@ RDE_INTERNAL void kana_exam_render_results(kana_exam* _exam, rde_window* _window
                        _top - 30.0f + KANA_EXAM_TITLE_PX * 0.42f, 12.0f, _passed ? _theme->score_good : _theme->score_poor, _theme->on_accent);
     }
 
-    const f32 _grid_top = _top - 56.0f;
+    // A kept exam: which, and when.
+    f32 _grid_top = _top - 56.0f;
+    if(_exam->kept < kana_examlog_count()) {
+        c8 _title[64], _when[96];
+        KANA_TEXTF(_title, KANA_TEXT_EXAM_TITLE_SOURCE, KANA_TS(kana_exam_source_name(_exam->source)));
+        kana_text_date_time(_when, sizeof(_when), kana_examlog_exams()[_exam->kept].time);
+        KANA_TEXTF(_line, KANA_TEXT_EXAM_KEPT, KANA_TS(_title), KANA_TS(_when));
+        kana_draw_text(_font, _font_px, _line, _left, _top - 54.0f, kana_draw_text_px_to_fit(_font, _font_px, _line, KANA_EXAM_CAPTION_PX, _right - _left, 0.6f),
+                       _theme->text_soft);
+        _grid_top = _top - 72.0f;
+    }
     kana_exam_grid(_exam, _left, _right, _grid_top, _bottom, KANA_EXAM_RESULT_MIN, _exam->asked);
     if(_grid_top <= _bottom) {
         return;
@@ -893,15 +979,7 @@ RDE_INTERNAL void kana_exam_render_results(kana_exam* _exam, rde_window* _window
             rde_rendering_2d_draw_circle_border(_c, _r, 1.5f, 24, _theme->text_soft, NULL);
             continue;
         }
-        rde_rendering_2d_draw_circle(_c, _r, 24, _it->correct ? _theme->score_good : _theme->score_poor, NULL);
-        const f32 _u = _r * 0.5f;
-        if(_it->correct) {
-            kana_draw_line((rde_vec_2F){ _c.x - _u, _c.y }, (rde_vec_2F){ _c.x - _u * 0.25f, _c.y - _u * 0.7f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
-            kana_draw_line((rde_vec_2F){ _c.x - _u * 0.25f, _c.y - _u * 0.7f }, (rde_vec_2F){ _c.x + _u, _c.y + _u * 0.75f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
-        } else {
-            kana_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y - _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y + _u * 0.7f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
-            kana_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y + _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y - _u * 0.7f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
-        }
+        kana_draw_verdict(_c, _r, _it->correct);
         if(_it->correct) {
             snprintf(_line, sizeof(_line), "%.0f", (f64)_it->score);
             kana_draw_text(_font, _font_px, _line, _tl.x + _sq - kana_draw_text_width(_font, _font_px, _line, 18.0f) - 6.0f, _tl.y - _sq + 8.0f, 18.0f,

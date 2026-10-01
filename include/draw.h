@@ -37,10 +37,17 @@ void kana_draw_icon(rde_font* _font, f32 _font_px, const c8* _icon, rde_vec_2F _
 void kana_draw_set_icon_fill(rde_font* _font, f32 _font_px);
 void kana_draw_icon_fill(const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color);
 
+// Right or wrong, as a disc (the score's good or poor colour) with a tick or a
+// cross, _radius, centred on _center.
+void kana_draw_verdict(rde_vec_2F _center, f32 _radius, b8 _right);
+
 // How wide _text is at _px: a short one (a label, a chip) measured for real
 // the first time and kept; a long one estimated — an advance per character,
 // measured once per font: Japanese (all one width) and Latin (the average).
 f32  kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px);
+// The size to draw _text at so it fits _width: _px, or smaller (down to
+// _min_scale of it) when it would not fit.
+f32  kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);
 // _text into _out, cut with "…" (at a word when one is near) where it would pass
 // _width at _px.
 void kana_draw_text_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, c8* _out, usize _size);
