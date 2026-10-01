@@ -1,4 +1,5 @@
 #include "exam.h"
+#include "review.h"
 #include "chart.h"
 #include "draw.h"
 #include "examlog.h"
@@ -38,9 +39,9 @@ static const c8* const KANA_EXAM_LENGTH_NAMES[KANA_EXAM_LENGTHS]  = { "10", "20"
 // The sources' names (text.h); the JLPT levels are the same in every language.
 static const KANA_TEXT_ KANA_EXAM_SOURCE_TEXTS[KANA_EXAM_SOURCE_COUNT] = {
     KANA_TEXT_STUDYING, KANA_TEXT_KNOWN, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT,
-    KANA_TEXT_HIRAGANA, KANA_TEXT_KATAKANA, KANA_TEXT_EXAM_SELECTION
+    KANA_TEXT_HIRAGANA, KANA_TEXT_KATAKANA, KANA_TEXT_EXAM_SELECTION, KANA_TEXT_REVIEWS
 };
-static const c8* const KANA_EXAM_SOURCE_LEVELS[KANA_EXAM_SOURCE_COUNT] = { NULL, NULL, "N5", "N4", "N3", "N2", "N1", NULL, NULL, NULL };
+static const c8* const KANA_EXAM_SOURCE_LEVELS[KANA_EXAM_SOURCE_COUNT] = { NULL, NULL, "N5", "N4", "N3", "N2", "N1", NULL, NULL, NULL, NULL };
 
 const c8* kana_exam_source_name(KANA_EXAM_SOURCE_ _source) {
     if(_source >= KANA_EXAM_SOURCE_COUNT) {
@@ -105,7 +106,7 @@ RDE_INTERNAL b8 kana_exam_in_source(const kana_exam* _exam, KANA_EXAM_SOURCE_ _s
 }
 
 u32 kana_exam_source_size(const kana_exam* _exam, KANA_EXAM_SOURCE_ _source) {
-    if(_source == KANA_EXAM_SOURCE_SELECTION) {
+    if(_source == KANA_EXAM_SOURCE_SELECTION || _source == KANA_EXAM_SOURCE_REVIEW) {
         return (u32)rde_arr_length(&_exam->selection);
     }
     u32 _n = 0;
@@ -168,8 +169,8 @@ RDE_INTERNAL void kana_exam_set_items(kana_exam* _exam, const u32* _records, u32
 
 void kana_exam_open(kana_exam* _exam) {
     rde_arr_clear(&_exam->selection);
-    if(_exam->source == KANA_EXAM_SOURCE_SELECTION) {
-        _exam->source = KANA_EXAM_SOURCE_STUDYING;
+    if(_exam->source == KANA_EXAM_SOURCE_SELECTION || _exam->source == KANA_EXAM_SOURCE_REVIEW) {
+        _exam->source = KANA_EXAM_SOURCE_STUDYING;   // those were a list given: gone with it
     }
     _exam->rng   = (u32)time(NULL) | 1u;
     _exam->stage = KANA_EXAM_SETUP;
@@ -185,6 +186,13 @@ void kana_exam_open_with(kana_exam* _exam, const u32* _records, u32 _count) {
     _exam->source = KANA_EXAM_SOURCE_SELECTION;
     _exam->length = KANA_EXAM_LENGTHS - 1u;   // all of them
     kana_exam_preview(_exam);
+}
+
+void kana_exam_open_review(kana_exam* _exam, const u32* _records, u32 _count) {
+    kana_exam_open_with(_exam, _records, _count);
+    _exam->source = KANA_EXAM_SOURCE_REVIEW;
+    kana_exam_preview(_exam);
+    kana_exam_start(_exam);   // no preview: what is due is what is asked
 }
 
 b8 kana_exam_open_kept(kana_exam* _exam, u32 _index) {
@@ -273,7 +281,7 @@ void kana_exam_close(kana_exam* _exam) {
 void kana_exam_preview(kana_exam* _exam) {
     static u32 _records[16384];
     u32        _n = 0;
-    if(_exam->source == KANA_EXAM_SOURCE_SELECTION) {
+    if(_exam->source == KANA_EXAM_SOURCE_SELECTION || _exam->source == KANA_EXAM_SOURCE_REVIEW) {
         const u32* _sel = (const u32*)_exam->selection.memory;
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_exam->selection) && _n < 16384u; _i++) {
             _records[_n++] = _sel[_i];
@@ -482,6 +490,10 @@ RDE_INTERNAL void kana_exam_keep(kana_exam* _exam) {
     }
     kana_marks_set_many(_known, _nk, KANA_MARK_KNOWN);
     kana_marks_set_many(_studying, _ns, KANA_MARK_STUDYING);
+    // Every answer written from memory is a review (review.h): the schedules move.
+    for(u32 _i = 0; _i < _exam->asked; _i++) {
+        kana_reviews_answer(_log[_i].codepoint, _log[_i].correct, _log[_i].quality);
+    }
     _exam->saved = true;
 }
 
@@ -680,8 +692,8 @@ RDE_INTERNAL void kana_exam_render_setup(kana_exam* _exam, rde_font* _font, f32 
             b8 _usable = true;
             b8 _chosen;
             if(_group == 0) {
-                if(_i == KANA_EXAM_SOURCE_SELECTION && rde_arr_length(&_exam->selection) == 0) {
-                    continue;   // only when opened from Select mode
+                if((_i == KANA_EXAM_SOURCE_SELECTION && rde_arr_length(&_exam->selection) == 0) || _i == KANA_EXAM_SOURCE_REVIEW) {
+                    continue;   // only when opened from Select mode; Reviews has its own way in
                 }
                 const u32 _size = kana_exam_source_size(_exam, (KANA_EXAM_SOURCE_)_i);
                 snprintf(_label, sizeof(_label), "%s  %u", kana_exam_source_name((KANA_EXAM_SOURCE_)_i), _size);

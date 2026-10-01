@@ -59,6 +59,17 @@
 //           words' (JMdict's glosses in it, when full JMdict was baked); u32 the
 //           text's size, the text (NUL-terminated strings). Anything not there
 //           shows in English.
+//   'WFRQ'  (optional) how common each word is: u32 count (the word count), then
+//           a u16 per word, lower the commoner (JMdict's newspaper band, else
+//           about where its other lists sit; 1000 on: not common). For telling
+//           words spelt alike apart (本 ほん, 本 もと). The words: every kanji's, and
+//           every other COMMON word of the characters here (on no kanji's list:
+//           wordsplit.h reads text with them).
+//   'SENT'  (optional) example sentences, Tatoeba's (CC BY 2.0 FR): u32 n, u32
+//           the text's size, then n sentences, each five NUL-terminated strings —
+//           the Japanese, then English, Spanish, French, Portuguese ("" where it
+//           has none); then u32 the word count and a u32 per word: its sentence
+//           (UINT32_MAX: none) — one with the word in it, a comfortable length.
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -74,6 +85,8 @@
 #define KANA_KANJI_CHUNK_TEXT   KANA_TAG('T', 'E', 'X', 'T')
 #define KANA_KANJI_CHUNK_PARTS  KANA_TAG('P', 'A', 'R', 'T')
 #define KANA_KANJI_CHUNK_WORDS  KANA_TAG('W', 'O', 'R', 'D')
+#define KANA_KANJI_CHUNK_WORD_FREQ KANA_TAG('W', 'F', 'R', 'Q')
+#define KANA_KANJI_CHUNK_SENTENCES KANA_TAG('S', 'E', 'N', 'T')
 #define KANA_KANJI_MAX_PARTS    32u
 #define KANA_KANJI_MAX_WORDS    20u    // words a character can list (examples, then more)
 #define KANA_KANJI_LANGUAGES    8u     // other languages' meanings read ('LNxx')
@@ -131,6 +144,10 @@ RDE_STRUCT {
     u32       _word_lists_size;
     u32       word_count;
     const c8** _word_text;     // word_count pointers to each word's written form (then reading, meaning)
+    const u8*  _word_freq;     // 'WFRQ': a u16 per word, or NULL
+    const c8** _sentences;     // 'SENT': each sentence's Japanese (its translations follow), or NULL
+    u32        sentence_count;
+    const u8*  _sentence_of;   // a u32 per word: its sentence, or NULL
     kana_kanji_language _languages[KANA_KANJI_LANGUAGES];
     u32                 _language_count;
     i32                 _language;   // the meanings shown: one of _languages, -1 English
@@ -154,6 +171,11 @@ b8   kana_kanji_find_index(const kana_kanji_db* _db, u32 _codepoint, u32* _index
 
 // Stroke _index (0-based, in writing order) of a character.
 b8   kana_kanji_stroke_at(const kana_kanji_db* _db, const kana_kanji_info* _info, u32 _index, kana_kanji_stroke* _out);
+
+// Segment _segment of a stroke: a cubic Bézier from where the one before ends
+// (the first: from start) — its two control points, then its end (KanjiVG
+// units, Y down). For drawing the curves as they are (a PDF's).
+void kana_kanji_stroke_segment(const kana_kanji_stroke* _stroke, u32 _segment, rde_vec_2F _out[3]);
 
 // A stroke as points (KanjiVG units, Y down), fine enough that no chord strays
 // more than _tolerance units from the curve. Writes at most _max points and
@@ -183,6 +205,17 @@ const c8* kana_kanji_meanings_english(const kana_kanji_db* _db, const kana_kanji
 // NULL or anything the file lacks: English). Words and kanji without one in
 // it stay English.
 void      kana_kanji_set_language(kana_kanji_db* _db, const c8* _code);
+// An example sentence ('SENT'): the Japanese and its translation.
+RDE_STRUCT {
+    const c8* japanese;
+    const c8* translation;   // in the language set (kana_kanji_set_language), else English
+} kana_kanji_sentence;
+
+// Word _word's example sentence. False when it has none.
+b8        kana_kanji_word_sentence(const kana_kanji_db* _db, u32 _word, kana_kanji_sentence* _out);
+
+// How common word _word is: lower the commoner ('WFRQ'); 0xFFFF when unknown.
+u16       kana_kanji_word_freq(const kana_kanji_db* _db, u32 _word);
 // Word _word's meaning in English, whatever the language (search).
 const c8* kana_kanji_word_meaning_english(const kana_kanji_db* _db, u32 _word);
 

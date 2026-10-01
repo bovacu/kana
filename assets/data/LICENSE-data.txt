@@ -52,3 +52,17 @@ The JLPT N5-N1 level of each kanji.
   (commercial or non-commercial), but credit my site").
   These are community lists: since 2010 the JLPT publishes no official kanji
   lists, and the levels are Waller's best estimate.
+
+
+Tatoeba
+-------
+Example sentences: a Japanese sentence for a word, and its English, Spanish,
+French and Portuguese translations.
+
+  Sentences from Tatoeba (https://tatoeba.org), the work of its contributors,
+  used under the Creative Commons Attribution 2.0 France licence:
+  https://creativecommons.org/licenses/by/2.0/fr/
+  Kana keeps a selection of them (one for each word, chosen by length) and
+  changes none.
+  Source used: Tatoeba's per-language exports
+  (https://downloads.tatoeba.org/exports/per_language/), downloaded 2026-10-01.

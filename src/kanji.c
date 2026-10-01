@@ -13,6 +13,7 @@
 
 void kana_kanji_unload(kana_kanji_db* _db) {
     rde_free(_db->_word_text);
+    rde_free((any)_db->_sentences);
     kana_file_free(_db->_file);
     memset(_db, 0, sizeof(*_db));
 }
@@ -110,6 +111,39 @@ void kana_kanji_set_language(kana_kanji_db* _db, const c8* _code) {
     }
 }
 
+// The 'SENT' chunk: an index to each sentence (five strings each, all checked
+// there), and the words' table when it is for these words.
+RDE_INTERNAL void kana_kanji_load_sentences(kana_kanji_db* _db, kana_reader* _r) {
+    const u32 _n    = kana_get_u32(_r);
+    const u32 _size = kana_get_u32(_r);
+    if(!_r->ok || _n == 0 || (u64)_size > (u64)(_r->size - _r->pos)) {
+        return;
+    }
+    const c8* _text  = (const c8*)&_r->data[_r->pos];
+    const c8** _starts = (const c8**)rde_malloc(sizeof(c8*) * _n);
+    u32       _at    = 0;
+    for(u32 _s = 0; _s < _n; _s++) {
+        _starts[_s] = &_text[_at];
+        for(u32 _k = 0; _k < 5u; _k++) {
+            const c8* _nul = _at < _size ? memchr(&_text[_at], 0, _size - _at) : NULL;
+            if(_nul == NULL) {
+                rde_free(_starts);
+                return;   // cut short: no sentences rather than broken ones
+            }
+            _at = (u32)(_nul - _text) + 1u;
+        }
+    }
+    _r->pos += _size;
+    const u32 _words = kana_get_u32(_r);
+    if(!_r->ok || _words != _db->word_count || (u64)_words * 4u > (u64)(_r->size - _r->pos)) {
+        rde_free(_starts);
+        return;   // for other words: none rather than wrong ones
+    }
+    _db->_sentences     = _starts;
+    _db->sentence_count = _n;
+    _db->_sentence_of   = &_r->data[_r->pos];
+}
+
 b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     memset(_db, 0, sizeof(*_db));
     _db->_language = -1;
@@ -133,6 +167,10 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     u32         _parts_count = 0;
     u32         _words_count = 0;
     kana_reader _words       = { 0 };
+    const u8*   _freq        = NULL;
+    u32         _freq_count  = 0;
+    kana_reader _sent        = { 0 };
+    b8          _has_sent    = false;
     while(kana_next_chunk(&_r, &_tag, &_chunk)) {
         if(_tag == KANA_KANJI_CHUNK_CHARS) {
             const u32 _count  = kana_get_u32(&_chunk);
@@ -158,6 +196,15 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         } else if(_tag == KANA_KANJI_CHUNK_WORDS) {
             _words_count = kana_get_u32(&_chunk);
             _words       = _chunk;
+        } else if(_tag == KANA_KANJI_CHUNK_SENTENCES) {
+            _sent     = _chunk;
+            _has_sent = true;
+        } else if(_tag == KANA_KANJI_CHUNK_WORD_FREQ) {
+            const u32 _count = kana_get_u32(&_chunk);
+            if(_chunk.ok && (u64)_count * 2u <= (u64)(_chunk.size - _chunk.pos)) {
+                _freq       = &_chunk.data[_chunk.pos];
+                _freq_count = _count;
+            }
         } else if((_tag & 0xFFFFu) == (KANA_TAG('L', 'N', 0, 0) & 0xFFFFu)) {
             kana_kanji_load_language(_db, _tag, &_chunk);
         }
@@ -175,6 +222,10 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     }
     if(_words_count == _db->count) {
         kana_kanji_load_words(_db, &_words);
+    }
+    _db->_word_freq = _freq != NULL && _freq_count == _db->word_count ? _freq : NULL;   // for these words, or none
+    if(_has_sent) {
+        kana_kanji_load_sentences(_db, &_sent);
     }
 
     return true;
@@ -228,6 +279,38 @@ b8 kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out
         }
     }
     return true;
+}
+
+b8 kana_kanji_word_sentence(const kana_kanji_db* _db, u32 _word, kana_kanji_sentence* _out) {
+    if(_db->_sentences == NULL || _db->_sentence_of == NULL || _word >= _db->word_count) {
+        return false;
+    }
+    const u8* _p = &_db->_sentence_of[(usize)_word * 4u];
+    const u32 _s = (u32)_p[0] | ((u32)_p[1] << 8) | ((u32)_p[2] << 16) | ((u32)_p[3] << 24);
+    if(_s >= _db->sentence_count) {
+        return false;
+    }
+    // Its texts: the Japanese, then en, es, fr, pt.
+    const c8* _texts[5];
+    _texts[0] = _db->_sentences[_s];
+    for(u32 _k = 1; _k < 5u; _k++) {
+        _texts[_k] = _texts[_k - 1u] + strlen(_texts[_k - 1u]) + 1u;
+    }
+    u32 _slot = 1u;   // English
+    if(_db->_language >= 0) {
+        const c8* _code = _db->_languages[_db->_language].code;
+        _slot = strcmp(_code, "es") == 0 ? 2u : strcmp(_code, "fr") == 0 ? 3u : strcmp(_code, "pt") == 0 ? 4u : 1u;
+    }
+    _out->japanese    = _texts[0];
+    _out->translation = _texts[_slot][0] != 0 ? _texts[_slot] : _texts[1];
+    return true;
+}
+
+u16 kana_kanji_word_freq(const kana_kanji_db* _db, u32 _word) {
+    if(_db->_word_freq == NULL || _word >= _db->word_count) {
+        return 0xFFFFu;
+    }
+    return (u16)(_db->_word_freq[_word * 2u] | (_db->_word_freq[_word * 2u + 1u] << 8));
 }
 
 const c8* kana_kanji_word_meaning_english(const kana_kanji_db* _db, u32 _word) {
@@ -396,6 +479,16 @@ RDE_INTERNAL void kana_kanji_flatten(rde_vec_2F _p0, rde_vec_2F _p1, rde_vec_2F 
 
     kana_kanji_flatten(_p0, _a, _ab, _mid, _tolerance, _depth + 1u, _out, _max, _count);
     kana_kanji_flatten(_mid, _bc, _c, _p3, _tolerance, _depth + 1u, _out, _max, _count);
+}
+
+void kana_kanji_stroke_segment(const kana_kanji_stroke* _stroke, u32 _segment, rde_vec_2F _out[3]) {
+    kana_reader _r = kana_reader_make(_stroke->_data, _stroke->segments * KANA_KANJI_SEGMENT_SIZE);
+    _r.pos         = _segment < _stroke->segments ? _segment * KANA_KANJI_SEGMENT_SIZE : _r.size;
+    for(u32 _i = 0; _i < 3u; _i++) {
+        const f32 _x = kana_kanji_coord(&_r);   // one read per statement (see below)
+        const f32 _y = kana_kanji_coord(&_r);
+        _out[_i]     = _r.ok ? (rde_vec_2F){ _x, _y } : _stroke->start;
+    }
 }
 
 u32 kana_kanji_stroke_points(const kana_kanji_stroke* _stroke, f32 _tolerance, rde_vec_2F* _out, u32 _max) {

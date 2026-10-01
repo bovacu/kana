@@ -4,6 +4,8 @@
 #include "theme.h"
 #include "mlkit.h"
 #include "icons.h"
+#include "speech.h"
+#include "userwords.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -33,6 +35,9 @@
 #define KANA_SCAN_PANEL_TR_PX   17.0f   // its translation
 #define KANA_SCAN_PANEL_TR_LINE 24.0f
 #define KANA_SCAN_PANEL_ROW_GAP 14.0f
+#define KANA_SCAN_PANEL_SPEAK   40.0f   // a row's speaker, at its right (where there is a voice)
+#define KANA_SCAN_PANEL_WORD    26.0f   // a word's row under the translation
+#define KANA_SCAN_PANEL_WORD_PX 14.0f
 
 void kana_scan_init(kana_scan* _scan) {
     memset(_scan, 0, sizeof(*_scan));
@@ -470,9 +475,27 @@ void kana_scan_pointer_up(kana_scan* _scan, f64 _time) {
     f32             _area  = 1e30f;
     if(kana_scan_panel_shown(_scan) && _at.y <= _scan->panel_rows_top && _at.y >= _scan->panel_rows_bottom &&
        _at.x >= _scan->panel_left && _at.x <= _scan->panel_right) {
+        // A word: to the learner's words, or back out of them.
+        for(u32 _h = 0; _h < _scan->word_hit_count; _h++) {
+            const kana_scan_word_hit* _hit = &_scan->word_hits[_h];
+            kana_kanji_word           _w;
+            if(_at.y <= _hit->top && _at.y > _hit->bottom && _scan->db != NULL && kana_kanji_word_at(_scan->db, _hit->word, &_w)) {
+                const u32 _kanji = kana_wordsplit_kanji(_scan->db, _w.written);
+                if(_kanji != 0 && kana_userwords_has(_kanji, _w.written, _w.reading)) {
+                    kana_userwords_remove(_kanji, _w.written, _w.reading);
+                } else if(_kanji != 0) {
+                    kana_userwords_add(_kanji, _w.written, _w.reading, _w.meaning);
+                }
+                return;
+            }
+        }
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_scan->lines); _i++) {
             if(_at.y <= _lines[_i].row_top && _at.y > _lines[_i].row_bottom) {
-                _lines[_i].kept = !_lines[_i].kept;
+                if(kana_speech_available() && _at.x >= _scan->panel_right - KANA_SCAN_PANEL_PAD - KANA_SCAN_PANEL_SPEAK) {
+                    kana_speak(_lines[_i].text);   // its speaker: the line aloud
+                } else {
+                    _lines[_i].kept = !_lines[_i].kept;
+                }
                 break;
             }
         }
@@ -511,8 +534,9 @@ RDE_INTERNAL void kana_scan_draw_panel(kana_scan* _scan, rde_window* _window, rd
     kana_translate_draw_badge(_left + KANA_SCAN_PANEL_PAD, _badge_y, 0.299f * (f32)_s.r + 0.587f * (f32)_s.g + 0.114f * (f32)_s.b < 128.0f);
 
     // The rows, under the badge, clipped to the card.
+    const b8  _speak  = kana_speech_available();
     const f32 _x      = _left + KANA_SCAN_PANEL_PAD;
-    const f32 _w      = _right - _left - 2.0f * KANA_SCAN_PANEL_PAD;
+    const f32 _w      = _right - _left - 2.0f * KANA_SCAN_PANEL_PAD - (_speak ? KANA_SCAN_PANEL_SPEAK : 0.0f);
     const f32 _view_t = _badge_y - KANA_TRANSLATE_BADGE_H * 0.5f - 12.0f;
     const f32 _view_b = _bottom + 8.0f;
     _scan->panel_view        = fmaxf(_view_t - _view_b, 1.0f);
@@ -528,6 +552,7 @@ RDE_INTERNAL void kana_scan_draw_panel(kana_scan* _scan, rde_window* _window, rd
     kana_scan_line* _lines = (kana_scan_line*)_scan->lines.memory;
     const u32       _count = (u32)rde_arr_length(&_scan->lines);
     f32             _y     = _view_t + _scan->taps.offset;   // the next row's top
+    _scan->word_hit_count  = 0;
     for(u32 _i = 0; _i < _count; _i++) {
         kana_scan_line* _line = &_lines[_i];
         const c8*       _tr   = _line->translated != KANA_SCAN_TRANSLATION_DONE ? kana_text(KANA_TEXT_SCAN_TRANSLATING)
@@ -536,7 +561,12 @@ RDE_INTERNAL void kana_scan_draw_panel(kana_scan* _scan, rde_window* _window, rd
         const b8        _soft = _line->translated != KANA_SCAN_TRANSLATION_DONE || _line->translation[0] == 0;
         const u32       _jp_n = kana_draw_text_wrap_lines(_font, _font_px, _line->text, KANA_SCAN_PANEL_JP_PX, _w);
         const u32       _tr_n = kana_draw_text_wrap_lines(_font, _font_px, _tr, KANA_SCAN_PANEL_TR_PX, _w);
-        const f32       _h    = (f32)_jp_n * KANA_SCAN_PANEL_JP_LINE + 4.0f + (f32)_tr_n * KANA_SCAN_PANEL_TR_LINE;
+        if(!_line->words_found && _scan->db != NULL) {
+            _line->words_found = true;
+            _line->word_count  = (u8)kana_wordsplit(_scan->db, _line->text, _line->words, KANA_WORDSPLIT_MAX);
+        }
+        const f32       _words_h = _line->word_count > 0 ? 6.0f + (f32)_line->word_count * KANA_SCAN_PANEL_WORD : 0.0f;
+        const f32       _h    = (f32)_jp_n * KANA_SCAN_PANEL_JP_LINE + 4.0f + (f32)_tr_n * KANA_SCAN_PANEL_TR_LINE + _words_h;
         _line->row_top    = _y;
         _line->row_bottom = _y - _h - KANA_SCAN_PANEL_ROW_GAP;
         if(_y - _h < _view_t && _y > _view_b) {
@@ -548,6 +578,32 @@ RDE_INTERNAL void kana_scan_draw_panel(kana_scan* _scan, rde_window* _window, rd
             kana_draw_text_wrap(_font, _font_px, _line->text, _x, _y - 16.0f, KANA_SCAN_PANEL_JP_PX, _w, KANA_SCAN_PANEL_JP_LINE, _jp_c);
             kana_draw_text_wrap(_font, _font_px, _tr, _x, _y - (f32)_jp_n * KANA_SCAN_PANEL_JP_LINE - 4.0f - 18.0f, KANA_SCAN_PANEL_TR_PX, _w,
                                 KANA_SCAN_PANEL_TR_LINE, _tr_c);
+            if(_speak) {
+                kana_draw_icon(_font, _font_px, KANA_ICON_SPEAK, (rde_vec_2F){ _right - KANA_SCAN_PANEL_PAD - KANA_SCAN_PANEL_SPEAK * 0.5f, _y - 14.0f },
+                               20.0f, _theme->accent);
+            }
+            // Its words: + to add (✓ the learner's), the word, its reading, its meaning.
+            f32 _wy = _y - (f32)_jp_n * KANA_SCAN_PANEL_JP_LINE - 4.0f - (f32)_tr_n * KANA_SCAN_PANEL_TR_LINE - 6.0f;
+            for(u32 _k = 0; _k < _line->word_count; _k++) {
+                kana_kanji_word _word;
+                if(_scan->db == NULL || !kana_kanji_word_at(_scan->db, _line->words[_k], &_word)) {
+                    continue;
+                }
+                const f32 _mid  = _wy - KANA_SCAN_PANEL_WORD * 0.5f;
+                const u32 _kanji = kana_wordsplit_kanji(_scan->db, _word.written);
+                const b8  _theirs = _kanji != 0 && kana_userwords_has(_kanji, _word.written, _word.reading);
+                kana_draw_icon(_font, _font_px, _theirs ? KANA_ICON_CHECK_CIRCLE : KANA_ICON_PLUS, (rde_vec_2F){ _x + 9.0f, _mid }, 16.0f, _theme->accent);
+                c8 _say[400];
+                snprintf(_say, sizeof(_say), "%s  %s  ·  %s", _word.written, _word.reading, _word.meaning);
+                const f32 _px = kana_draw_text_px_to_fit(_font, _font_px, _say, KANA_SCAN_PANEL_WORD_PX, _w - 28.0f, 0.55f);
+                rde_color _c  = _theirs ? _theme->text : _theme->text_soft;
+                _c.a          = (u8)((u32)_c.a * _alpha / 255u);
+                kana_draw_text(_font, _font_px, _say, _x + 28.0f, _mid - _px * 0.36f, _px, _c);
+                if(_scan->word_hit_count < KANA_SCAN_WORD_HITS && _wy - KANA_SCAN_PANEL_WORD < _view_t && _wy > _view_b) {
+                    _scan->word_hits[_scan->word_hit_count++] = (kana_scan_word_hit){ _wy, _wy - KANA_SCAN_PANEL_WORD, _line->words[_k] };
+                }
+                _wy -= KANA_SCAN_PANEL_WORD;
+            }
         }
         _y -= _h + KANA_SCAN_PANEL_ROW_GAP;
         if(_i + 1u < _count && _y + KANA_SCAN_PANEL_ROW_GAP * 0.5f < _view_t) {

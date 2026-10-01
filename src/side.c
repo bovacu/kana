@@ -1,4 +1,6 @@
 #include "side.h"
+#include "review.h"
+#include "marks.h"
 #include "toolbar.h"
 #include "toolbar_kit.h"
 #include "version.h"
@@ -199,6 +201,39 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_exams(rde_ui_node* _node, const r
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// What review.h has due today, of the Studying and Known characters: records
+// into _out (at most _max). How many.
+RDE_INTERNAL u32 kana_side_reviews_due(kana_toolbar* _toolbar, u32* _out, u32 _max) {
+    static u32 _marked[4096];
+    u32        _n = kana_marks_list(KANA_MARK_STUDYING, _marked, 4096u);
+    _n += kana_marks_list(KANA_MARK_KNOWN, _marked + _n, 4096u - _n);
+    u32       _due[KANA_REVIEW_SESSION];
+    const u32 _d = kana_reviews_due(_marked, _n, _due, KANA_REVIEW_SESSION);
+    u32       _r = 0;
+    for(u32 _i = 0; _i < _d && _r < _max; _i++) {
+        if(_toolbar->browse != NULL && _toolbar->browse->db != NULL && kana_kanji_find_index(_toolbar->browse->db, _due[_i], &_out[_r])) {
+            _r++;
+        }
+    }
+    return _r;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_reviews(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    u32           _records[KANA_REVIEW_SESSION];
+    const u32     _n = kana_side_reviews_due(_toolbar, _records, KANA_REVIEW_SESSION);
+    if(_n == 0 || _toolbar->exam == NULL) {
+        kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_REVIEWS_NONE));
+        return RDE_UI_EVENT_RESULT_CONSUME;
+    }
+    _toolbar->side.open = false;
+    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
+    kana_exam_open_review(_toolbar->exam, _records, _n);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // Statistics: over everything else but the page (a character tapped there opens the viewer over it).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_statistics(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -290,6 +325,25 @@ void kana_side_data_confirm(kana_toolbar* _toolbar, u8* _backup, usize _size, co
     _toolbar->side.data_backup_size = _size;
     _toolbar->side.data_confirming  = true;
     kana_side_data_message(_toolbar, _question, false);
+}
+
+// Rate Kana: the store's page for a review (RDE: the App Store's write-review
+// page once KANA_APP_STORE_ID is set, the rating sheet until then; Play's listing).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_rate(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.open = false;
+    rde_mobile_open_review_page(KANA_APP_STORE_ID);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// The tutorial again (the welcome, welcome.h): the panel closes, kana.c shows it.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_tutorial(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.open            = false;
+    _toolbar->side.welcome_request = true;
+    return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
@@ -1074,6 +1128,7 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     KANA_SIDE_ROW(_side->kanji);
     KANA_SIDE_ROW(_side->kana);
     KANA_SIDE_ROW(_side->album);
+    KANA_SIDE_ROW(_side->reviews);
     KANA_SIDE_ROW(_side->exams);
     KANA_SIDE_ROW(_side->statistics);
     _y -= KANA_SIDE_MARGIN * 0.5f;
@@ -1088,9 +1143,19 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     #undef KANA_SIDE_ROW
     #undef KANA_SIDE_HEADER
 
-    // The bottom: the version on the left, Settings on the right.
+    // The bottom: the version on the left, Settings on the right; the tutorial
+    // over them.
     const f32 _by = (f32)_insets.w + KANA_SIDE_MARGIN + 20.0f;
-    const f32 _list_bottom = _by + 20.0f + KANA_SIDE_MARGIN;
+    const f32 _ty = _by + 20.0f + KANA_SIDE_GAP + 20.0f;
+    kana_toolbar_place(rde_ui_button_as_node(_side->tutorial), (rde_vec_2F){ _x0 + _cw - 60.0f, _ty }, (rde_vec_2F){ 120.0f, 40.0f });
+    // Rate Kana over the tutorial, where there is a store.
+#if defined(RDE_PLATFORM_MOBILE)
+    const f32 _ry_rate = _ty + 20.0f + KANA_SIDE_GAP + 20.0f;
+    kana_toolbar_place(rde_ui_button_as_node(_side->rate), (rde_vec_2F){ _x0 + _cw - 60.0f, _ry_rate }, (rde_vec_2F){ 120.0f, 40.0f });
+    const f32 _list_bottom = _ry_rate + 20.0f + KANA_SIDE_MARGIN;
+#else
+    const f32 _list_bottom = _ty + 20.0f + KANA_SIDE_MARGIN;
+#endif
     const f32 _list_h      = fmaxf(KANA_SIDE_NOTE_H, _y - _list_bottom);
     kana_toolbar_place(rde_ui_scroll_area_as_node(_side->notes_list), (rde_vec_2F){ _x0 + _cw * 0.5f, _list_bottom + _list_h * 0.5f }, (rde_vec_2F){ _cw, _list_h });
     _side->_list_bl   = (rde_vec_2F){ _x0, _list_bottom };
@@ -1272,17 +1337,20 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->kana        = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_KANA), kana_side_on_kana);
     _side->album       = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_ALBUM), kana_side_on_album);
     _side->exams       = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_EXAMS), kana_side_on_exams);
+    _side->reviews     = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_REVIEWS), kana_side_on_reviews);
+    _side->_reviews_shown = UINT32_MAX;
     _side->statistics  = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_STATISTICS), kana_side_on_statistics);
     // The rows' icons: the Japanese ones as characters.
     kana_toolbar_icon(_side->kanji, "\xE5\xAD\x97", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 字
     kana_toolbar_icon(_side->kana, "\xE3\x81\x82", KANA_TOOLBAR_ICON_LEFT, 15.0f);         // あ
     kana_toolbar_icon(_side->album, KANA_ICON_BOOKS, KANA_TOOLBAR_ICON_LEFT, 16.0f);
     kana_toolbar_icon(_side->exams, "\xE8\xA9\xA6", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 試
+    kana_toolbar_icon(_side->reviews, "\xE5\xBE\xA9", KANA_TOOLBAR_ICON_LEFT, 15.0f);      // 復
     kana_toolbar_icon(_side->statistics, KANA_ICON_CHART_LINE, KANA_TOOLBAR_ICON_LEFT, 16.0f);
     if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->kanji, false); }   // no character data
     if(kana_chart_count(_toolbar->chart) == 0)   { kana_toolbar_set_enabled(_side->kana, false); }
     if(_toolbar->album->db == NULL)              { kana_toolbar_set_enabled(_side->album, false); }
-    if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->exams, false); }
+    if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->exams, false); kana_toolbar_set_enabled(_side->reviews, false); }
 
     _side->notes_label = kana_side_label(_toolbar, _panel, kana_text(KANA_TEXT_SIDE_NOTES), KANA_SIDE_HEADER_PX);
     _side->new_folder  = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_FOLDER), kana_side_on_new_folder);
@@ -1311,6 +1379,13 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->version         = kana_side_label(_toolbar, _panel, _version, 11.0f);
     _side->settings_button = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_SETTINGS), kana_side_on_settings);
     kana_toolbar_icon(_side->settings_button, KANA_ICON_SETTINGS, KANA_TOOLBAR_ICON_LEFT, 15.0f);
+    _side->tutorial = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_TUTORIAL), kana_side_on_tutorial);
+    kana_toolbar_icon(_side->tutorial, KANA_ICON_INFO, KANA_TOOLBAR_ICON_LEFT, 15.0f);
+    _side->rate = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_RATE), kana_side_on_rate);
+    kana_toolbar_icon(_side->rate, KANA_ICON_STAR, KANA_TOOLBAR_ICON_LEFT, 15.0f);
+#if !defined(RDE_PLATFORM_MOBILE)
+    rde_ui_node_set_active(rde_ui_button_as_node(_side->rate), false);   // no store here
+#endif
 
     // The menu button: an icon on a small card of its own, over the page.
     _side->menu_button = kana_toolbar_button(_toolbar, _root, kana_text(KANA_TEXT_MENU), kana_side_on_menu);
@@ -1501,6 +1576,22 @@ void kana_side_update(kana_toolbar* _toolbar, b8 _full) {
     }
 
     kana_side_show(rde_ui_button_as_node(_side->menu_button), !_full, &_side->_shown_menu);
+    // Reviews · n: counted again when a mark, an answer or the day changes.
+    if(_side->open) {
+        const u32 _for = kana_marks_revision() * 31u + kana_reviews_revision() * 7u + kana_reviews_today();
+        if(_for != _side->_reviews_for || _side->_reviews_shown == UINT32_MAX) {
+            u32       _records[KANA_REVIEW_SESSION];
+            const u32 _n = kana_side_reviews_due(_toolbar, _records, KANA_REVIEW_SESSION);
+            _side->_reviews_for = _for;
+            if(_n != _side->_reviews_shown) {
+                _side->_reviews_shown = _n;
+                c8 _label[64];
+                if(_n > 0) { KANA_TEXTF(_label, KANA_TEXT_REVIEWS_N, KANA_TN(_n)); }
+                else       { snprintf(_label, sizeof(_label), "%s", kana_text(KANA_TEXT_REVIEWS)); }
+                rde_ui_button_set_text(_side->reviews, _label);
+            }
+        }
+    }
     b8 _backdrop_shown = _side->_shown_panel;
     kana_side_show(rde_ui_button_as_node(_side->backdrop), _side->open, &_backdrop_shown);
     kana_side_show(rde_ui_image_as_node(_side->panel), _side->open, &_side->_shown_panel);
@@ -1606,12 +1697,12 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_button_round(_side->menu_button, 12.0f);
 
     // The panel's rows are quiet, their icons in the accent.
-    rde_ui_button* const _rows[] = { _side->kanji, _side->kana, _side->album, _side->exams, _side->statistics };
+    rde_ui_button* const _rows[] = { _side->kanji, _side->kana, _side->album, _side->reviews, _side->exams, _side->statistics };
     for(u32 _i = 0; _i < sizeof(_rows) / sizeof(_rows[0]); _i++) {
         kana_toolbar_restyle_quiet(_rows[_i]);
         kana_toolbar_icon_color(_rows[_i], _t->accent);
     }
-    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button };
+    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button, _side->tutorial, _side->rate };
     for(u32 _i = 0; _i < sizeof(_quiet) / sizeof(_quiet[0]); _i++) {
         kana_toolbar_restyle_quiet(_quiet[_i]);
     }

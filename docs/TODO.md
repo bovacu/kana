@@ -514,6 +514,102 @@ menu's Paste text), to see on the iPad.*
 - The app grew: the executable 47 → 95 MB, the .ipa 24 → 41 MB (ML Kit's text
   recognition engine). Stripping it (below) matters more now: 95 → 68 MB.
 
+## 10c. Missing features (Borja, 2026-10-01: "all of them, except the daily reminder")
+
+Asked what Kana lacked; Borja chose everything proposed but a daily reminder
+("apps that constantly remind to open them piss me off"), and no sync (it needs
+a server): export / import instead. Built in this order:
+
+- [x] **Your data** (backup.h; Settings › Your data): says Kana is offline (the
+      writing never leaves the device; ML Kit downloads its models once), that the
+      platform's own backup has it (iOS: iCloud Backup; Android: Google's Auto
+      Backup, on by default — RDE's manifest does not turn it off; the desktop:
+      Kana's folder), and Export / Import. Export: everything in the save folder
+      but the .bak/.tmp/.bad copies and diagnostics, in one .kanabackup (checksummed)
+      — shared on a tablet or phone (the system sheet: Files, iCloud Drive, a
+      message), saved where chosen on the desktop. Import: picked (RDE's open
+      dialog — on iOS a document picker RDE gained: SDL has no iOS dialog), checked
+      whole, a question ("from <date>, n pages"), then Replace: what was there goes
+      to before-import/, the backup's files are written (all or nothing: a failure
+      puts everything back), and Kana reads everything again in place. A "restore
+      from iCloud" button is not possible (iCloud Backup is the whole device's, out
+      of an app's reach; an app's own iCloud needs the paid account) — Export to
+      iCloud Drive + Import does the same. Tested (backuptest): what goes in, damage,
+      the round trip, a failed import changing nothing, paths that would leave the
+      folder refused; on the Mac: export, change, import, Replace — the page as
+      exported. RDE: rde_ios_pick_documents; the Windows crawl's missing separator
+      in subfolders fixed (not built here: Borja's to build on Windows).
+- [x] **Apple Pencil's double tap** (RDE: RDE_EVENT_TYPE_PEN_DOUBLE_TAP,
+      rde_pen_listen_double_tap — UIPencilInteraction; the user's own setting comes
+      with it, RDE_PEN_TAP_ACTION_): the eraser and back, the tool before, or the
+      colour palette — as set in the iPad's Apple Pencil settings; nothing when off.
+      Built with the iOS 17.4 SDK here: the 17.5 callback is compiled in only with
+      a newer one (iOS keeps calling the older one). Borja's to try.
+- [x] **Read aloud** (speech.h; iOS: AVSpeechSynthesizer): a speaker before each
+      word's reading in the viewer (a tap on the reading says it — the kana, so the
+      pronunciation is exact), the 音 / 訓 lines (the readings, without the
+      okurigana marks), each row of Text from a photo's translations, and the lasso
+      translation card. Borja: "low quality" — the basic voice iOS gives when asked
+      for ja-JP. Now the best Japanese voice installed is picked each time (Premium,
+      then Enhanced; never a Personal Voice), and while only the basic one is there
+      a notice says, once a run, where the better ones are (Settings › Accessibility
+      › Spoken Content › Voices — free; Siri's voices are not open to apps).
+      Android: to come (TextToSpeech).
+- [x] **The welcome / Tutorial** (welcome.h): four pages the first time Kana opens
+      (no settings yet) — what Kana is (offline), the pen and the fingers, the long
+      press and the lasso, the menu — Skip / Next / Start writing; the bar and the
+      menu hide under it. Again from the side panel's Tutorial (Borja: above
+      Settings and the version). --welcome[=PAGE] for looks.
+- [x] **Reviews** (review.h): spaced repetition of the Studying and Known
+      characters — 1 day, 3 days, then the step times the ease (2.5, up with clean
+      answers, down with shaky ones, down more when wrong); wrong: tomorrow, the
+      steps start over; right early: nothing changes. At most 10 new a day, 50 a
+      sitting. Every exam's answers move the schedules; the side panel's "Reviews · n"
+      opens an exam of what is due, straight to writing (its own source, never a
+      setup chip; the log and the album name it Reviews). reviews.kana (in
+      backups). Tested (reviewtest: the steps, early, wrong, the day's new ones,
+      the order, kept) — it caught a wrong answer restarting at two days.
+      Borja found "Reviews · 1" opening an empty exam (0 of 0): the exam never read
+      the list it was given for a review, and the Exam opened after one kept that
+      empty list. Fixed; examtest covers both.
+- [x] **Rate Kana** (Borja: not invasive — a button in the side panel, over
+      Tutorial, on a tablet or phone only): RDE gained rde_mobile_open_review_page —
+      iOS: the App Store's write-review page for KANA_APP_STORE_ID (version.h; empty
+      until App Store Connect gives the app its Apple ID: until then the system's
+      rating sheet, which may not appear), Android: the Play listing.
+- [x] **Words from a photo / a translation** (wordsplit.h): the words of a line
+      (Kana's dictionary: longest match, verbs and adjectives by their endings,
+      alike-spelt words equally common all listed), each with its reading and
+      meaning, under the translation in Text from a photo and in the lasso's
+      card; a tap adds it to the learner's words (or takes it off). The bake keeps
+      every common word now, numbered, with how common it is ('WFRQ': 2,653 more
+      words). Tested (wordsplittest, on the real data).
+- [x] **Example sentences** (Tatoeba, CC BY 2.0 FR; kanji.h 'SENT'): one per word,
+      ~1.6 MB, chosen by length and how many of the languages translate it,
+      translated into the app's language (English where Tatoeba has none). Which
+      word a sentence has comes from Tatoeba's word index (jpn_indices.csv, with
+      readings: 行 ぎょう is not the 行 of 行って); sentences not indexed are
+      searched as text, never for a one-kanji word. 16,415 words have one. The
+      viewer shows one under the words — the learner's words' first, › for the
+      next word's, a tap reads it aloud — when there is room (on a tall screen two
+      word rows give way to it; the character stays ≥ 300). Credited in Credits
+      and LICENSE-data.txt. While at it, the bake ranks a word's rarer spelling
+      below another word written alike (本 ほん before 本 もと, which is usually
+      元): 16 kanji's lists changed, 本's for the better. Tested (wordsplittest's
+      sentence checks).
+- [x] **Practice sheets** (sheet.h): a PDF to print — per character its meaning,
+      readings, JLPT and strokes, its stroke order a box per stroke (the new one
+      dark, a red dot where it starts), then rows of ten boxes with the dashed
+      cross: the model (numbered up to six strokes), three faded to write over,
+      the rest empty. One character fills an A4 page (12 rows); more share
+      pages, six at most; up to 200 characters. Japanese is drawn from the
+      KanjiVG curves (no font in the file), Latin text in Helvetica; the credit
+      (KanjiVG, CC BY-SA 3.0) at every page's foot. From the viewer's new Sheet
+      button (the character) and Select mode's (the ticked, in order): shared on
+      a tablet (the share sheet prints), a save dialog on the desktop.
+      --sheet=FILE for looks. Tested (sheettest: 1, 3, 7, 200+ characters, en/ja/fr,
+      every cross-reference and stream length checked; rendered with sips).
+
 ## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.

@@ -54,6 +54,7 @@ typedef enum {
     KANA_EXAM_SOURCE_HIRAGANA,
     KANA_EXAM_SOURCE_KATAKANA,
     KANA_EXAM_SOURCE_SELECTION,
+    KANA_EXAM_SOURCE_REVIEW,       // what review.h has due (the side panel's Reviews; never a chip)
     KANA_EXAM_SOURCE_COUNT
 } KANA_EXAM_SOURCE_;
 
@@ -133,6 +134,8 @@ void kana_exam_open(kana_exam* _exam);
 b8   kana_exam_open_kept(kana_exam* _exam, u32 _index);
 // Select mode's ticks: straight to the preview of them.
 void kana_exam_open_with(kana_exam* _exam, const u32* _records, u32 _count);
+// Reviews (review.h): what is due, straight to writing them.
+void kana_exam_open_review(kana_exam* _exam, const u32* _records, u32 _count);
 void kana_exam_close(kana_exam* _exam);
 
 // SETUP: how many characters a source has; the choice.

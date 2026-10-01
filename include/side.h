@@ -80,6 +80,9 @@ RDE_STRUCT {
     rde_ui_button*  kana;
     rde_ui_button*  album;
     rde_ui_button*  exams;
+    rde_ui_button*  reviews;              // Reviews · n: what review.h has due today
+    u32             _reviews_shown;       // the count it shows (UINT32_MAX: not yet)
+    u32             _reviews_for;         // ...for this marks + reviews revision and day
     rde_ui_button*  statistics;
     rde_ui_label*   theme_label;
     rde_ui_button*  themes[KANA_THEME_COUNT];
@@ -172,6 +175,10 @@ RDE_STRUCT {
     f32                 _licence_line_h;
     f32                 _licence_width;   // the scroll area's, for the lines
     b8                  _shown_licences;
+
+    rde_ui_button*      tutorial;             // in the panel, over Settings: the welcome again
+    rde_ui_button*      rate;                 // over it, on a phone or tablet: the store's review page
+    b8                  welcome_request;      // for kana.c (it owns the welcome): show it
 
     // Your data: a card over Settings — Kana is offline, the platform's own
     // backup, Export and Import (backup.h). kana.c does the work (it owns the

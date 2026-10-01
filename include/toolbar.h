@@ -19,6 +19,7 @@
 #include "stats.h"
 #include "textink.h"
 #include "scan.h"
+#include "wordsplit.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -67,6 +68,13 @@ typedef enum {
     KANA_TOOLBAR_TRANSLATION_FAILED      // the models could not be downloaded
 } KANA_TOOLBAR_TRANSLATION_;
 
+// A practice sheet asked for (sheet.h): of what.
+typedef enum {
+    KANA_TOOLBAR_SHEET_NONE = 0,
+    KANA_TOOLBAR_SHEET_VIEWER,       // the viewer's character
+    KANA_TOOLBAR_SHEET_SELECTION     // Select mode's ticks
+} KANA_TOOLBAR_SHEET_;
+
 // A floating row of buttons: the menu over a lasso selection, the page's
 // context menu.
 RDE_STRUCT {
@@ -111,8 +119,12 @@ struct kana_toolbar {
     kana_stats*    stats;           // statistics (stats.h); set by the owner after init
     kana_scan*     scan;            // text from a photo (scan.h); set by the owner after init
     b8*            show_hud;
+    u8             _sheet_asked;    // KANA_TOOLBAR_SHEET_: for kana_toolbar_take_sheet
+    u32            _sheet_one;      // ...the viewer's character's record
 
     KANA_TOOL_     tool;
+    KANA_TOOL_     tool_before;   // the one before it (a pen's double tap goes back to it)
+    b8             covered;       // one of Kana's own screens is over everything (the welcome): the bar and the menu hide
     b8             vertical;
     rde_vec_2F     center;          // panel centre, UI canvas units (bottom-left origin, Y up)
     rde_vec_2F     panel_size;
@@ -173,6 +185,15 @@ struct kana_toolbar {
     c8                       translation[KANA_TRANSLATE_TEXT];
     rde_vec_2F               translation_min;     // the card on screen, Kana's screen space (last frame)
     rde_vec_2F               translation_max;
+    rde_vec_2F               translation_speak_min;   // its speaker (none: min = max)
+    rde_vec_2F               translation_speak_max;
+    // What was read, as words (wordsplit.h): each a row on the card, + to add it
+    // to the learner's words.
+    u32                      translation_words[KANA_WORDSPLIT_MAX];
+    u32                      translation_word_count;
+    f32                      translation_words_top;   // the rows on screen (last frame)
+    f32                      translation_words_left;
+    f32                      translation_words_right;
     // The page's context menu, opened by a long press: Paste, Paste text, Select all.
     kana_toolbar_menu        context_menu;
     rde_vec_2F               context_canvas;   // where it was opened, on the page — where Paste lands
@@ -284,11 +305,25 @@ struct kana_toolbar {
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
                              kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, kana_check* _check, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
+// A line on the page, a moment (kana.c draws it): what an action did.
+void       kana_toolbar_notice(kana_toolbar* _toolbar, const c8* _text);
+// A practice sheet asked for (the viewer's Sheet, or Select mode's): its records
+// (valid until the selection changes), how many; 0 when none was. Once per ask.
+u32        kana_toolbar_take_sheet(kana_toolbar* _toolbar, const u32** _records);
+
+// Apple Pencil's double tap (RDE_EVENT_TYPE_PEN_DOUBLE_TAP), as the learner set
+// it in the system's settings (_action, RDE_PEN_TAP_ACTION_): the eraser and back,
+// the tool before, or the colour palette; nothing when they turned it off.
+void       kana_toolbar_pen_double_tap(kana_toolbar* _toolbar, u8 _action);
+
 // Translate with Google on the selection (its menu's button, and a look flag):
 // read, translated, and shown in a card by it (kana_toolbar_render_translation).
 void       kana_toolbar_translate_selection(kana_toolbar* _toolbar);
 // The card, once a frame over the page (Kana's screen space).
 void       kana_toolbar_render_translation(kana_toolbar* _toolbar, rde_window* _window);
+// A press at _screen (Kana's screen space): on the card's speaker, what was read
+// is said aloud (speech.h). True when it was the speaker.
+b8         kana_toolbar_card_press(kana_toolbar* _toolbar, rde_vec_2F _screen);
 
 // The app went to the background or the OS is short of memory: the fonts give
 // back the GPU memory their glyphs grew into (rde_font_trim). Before drawing.

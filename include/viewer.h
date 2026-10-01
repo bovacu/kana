@@ -17,6 +17,10 @@
 // JMdict (kanji.h), each a row with its reading and meaning, scrolling when they
 // do not all fit; tapping one practises its kanji as a set.
 //
+// Under the words, an example sentence (Tatoeba's, kanji.h) with its
+// translation: one of the words', the learner's first; › shows the next word's,
+// and a tap on the sentence reads it aloud.
+//
 // ADD, by the words: the character's further JMdict words to pick from, each
 // with a tick (tap: added to the learner's words, or taken off), and — the
 // toolbar's form — a word typed in.
@@ -30,6 +34,7 @@
 
 #define KANA_VIEWER_WORD_KANJI  4u    // kanji a word can bring to practice
 #define KANA_VIEWER_ROWS        64u   // words listed at most (the learner's and the character's)
+#define KANA_VIEWER_SENTENCES   24u   // words whose example sentences can be gone through
 
 typedef enum {
     KANA_VIEWER_ROW_EXAMPLE = 0,   // one of the character's examples
@@ -72,6 +77,24 @@ RDE_STRUCT {
     rde_vec_2F           add_min;     // Add, as laid out last frame (none: min = max)
     rde_vec_2F           add_max;
     c8                   _tapped[KANA_USERWORD_WRITTEN];   // a word tapped, for kana_viewer_take_word ("": none)
+    // Read aloud (speech.h, where there is a voice): a tap on a word's reading
+    // says it; one on the 音 / 訓 lines, the character's readings.
+    f32                  reading_x0;  // the readings' column in the rows (screen, last frame)
+    f32                  reading_x1;
+    rde_vec_2F           readings_min;   // the 音 / 訓 lines (none: min = max)
+    rde_vec_2F           readings_max;
+    b8                   readings_pressed;
+    // The example sentence: the character's words that have one, the one shown.
+    u32                  sentences[KANA_VIEWER_SENTENCES];   // word numbers (kanji.h)
+    u32                  sentence_count;
+    u32                  sentence_at;
+    u32                  sentences_for;     // the record they were found for (UINT32_MAX: none)
+    u32                  sentences_words;   // ...and kana_userwords_revision then
+    rde_vec_2F           sentence_min;      // the Japanese: read aloud (none: min = max)
+    rde_vec_2F           sentence_max;
+    rde_vec_2F           next_min;          // ›: the next word's (none: min = max)
+    rde_vec_2F           next_max;
+    u8                   sentence_pressed;  // 0 none, 1 the sentence, 2 ›
 } kana_viewer;
 
 void kana_viewer_init(kana_viewer* _viewer, const kana_kanji_db* _db);

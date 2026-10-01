@@ -60,6 +60,10 @@
 #include "draw.h"
 #include "recognize.h"
 #include "backup.h"
+#include "sheet.h"
+#include "welcome.h"
+#include "review.h"
+#include "speech.h"
 #include <time.h>
 
 #define KANA_CONFIG_PATH "./assets/config.rdef"
@@ -74,6 +78,7 @@ RDE_INTERNAL f32         font_px = 14.0f;
 RDE_INTERNAL kana_ink    ink;
 RDE_INTERNAL kana_canvas canvas;
 RDE_INTERNAL kana_toolbar toolbar;
+RDE_INTERNAL kana_welcome welcome;   // the first time, and from Settings (welcome.h)
 RDE_INTERNAL kana_lasso   lasso;
 RDE_INTERNAL kana_kanji_db kanji_db;
 RDE_INTERNAL kana_viewer  viewer;
@@ -130,9 +135,11 @@ RDE_INTERNAL b8        look_scan_translate = false;  // --scan-demo-translate: a
 RDE_INTERNAL const c8* look_translate_probe = NULL; // --translate-probe=xx: ML Kit's translator tried on the device (see kana_translate_probe)
 RDE_INTERNAL b8        look_translate_sel = false;  // --translate-selection: the selection (after --paste-text) translated, translate.h pretending
 RDE_INTERNAL b8        look_data        = false;  // --data: Settings › Your data
+RDE_INTERNAL i32       look_welcome     = -1;     // --welcome[=PAGE]: the welcome, on that page (from 1)
 RDE_INTERNAL const c8* look_data_export = NULL;   // --data-export=FILE: everything exported to FILE (no dialog)
 RDE_INTERNAL const c8* look_data_import = NULL;   // --data-import=FILE: FILE picked to import (its question shown)...
 RDE_INTERNAL b8        look_data_replace = false; // --data-replace: ...and Replace pressed
+RDE_INTERNAL const c8* look_sheet       = NULL;   // --sheet=FILE: the viewer's character as a practice sheet at FILE (no dialog)
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -405,12 +412,15 @@ RDE_INTERNAL void kana_load_saves(void) {
     kana_examlog_open(_path);
     snprintf(_path, sizeof(_path), "%swords.kana", _dir);
     kana_userwords_open(_path);
+    snprintf(_path, sizeof(_path), "%sreviews.kana", _dir);
+    kana_reviews_open(_path);
 
     kana_settings    _settings = kana_gather_settings();
     const KANA_LOAD_ _loaded   = kana_load_settings(settings_path, &_settings);
     if(_loaded == KANA_LOAD_OK) {
         kana_apply_settings(&_settings);
     } else if(_loaded == KANA_LOAD_MISSING) {
+        kana_welcome_open(&welcome);   // the very first time: what Kana is, and its gestures
         // The very first time: the theme the device is in — Night when it is
         // dark, Paper otherwise, as the launch screen was — and the settings
         // saved at once (below), so from now on the theme is the learner's.
@@ -592,25 +602,113 @@ RDE_INTERNAL b8 kana_data_outbox_entry(const c8* _path, b8 _is_dir, any _user_da
     return true;
 }
 
+#if defined(RDE_PLATFORM_MOBILE)
+// A file to share goes in the outbox (what an earlier one left there let go):
+// its path, _name in it.
+RDE_INTERNAL void kana_outbox_path(c8* _out, usize _size, const c8* _name) {
+    c8 _outbox[RDE_MAX_PATH];
+    snprintf(_outbox, sizeof(_outbox), "%s%s/", kana_save_dir(), KANA_BACKUP_OUTBOX);
+    if(rde_file_dir_exists(_outbox)) {
+        rde_file_crawl_dir_recursively(_outbox, kana_data_outbox_entry, NULL, 0, NULL);
+    }
+    snprintf(_out, _size, "%s%s", _outbox, _name);
+    rde_file_create_missing_dirs(_out);
+}
+#endif
+
+// Today, for a file's name: 2026-10-01.
+RDE_INTERNAL void kana_file_date(c8* _out, usize _size) {
+    const time_t     _now = time(NULL);
+    const struct tm* _tm  = localtime(&_now);
+    strftime(_out, _size, "%Y-%m-%d", _tm);
+}
+
+// --- Practice sheets (sheet.h) -----------------------------------------------------------
+
+#if !defined(RDE_PLATFORM_MOBILE)
+RDE_INTERNAL u32 sheet_records[KANA_SHEET_MAX];   // the desktop: what the save dialog's answer is for
+RDE_INTERNAL u32 sheet_count;
+RDE_INTERNAL b8  sheet_cut;                       // ...more were asked for
+#endif
+
+// _records as a sheet at _path: shared (the system's sheet, which prints) on a
+// phone or tablet, or already where the learner chose. A note when _cut (more
+// were asked for than a sheet takes).
+RDE_INTERNAL void kana_sheet_make(const u32* _records, u32 _count, b8 _cut, const c8* _path, b8 _share) {
+    kana_sheet_info _info;
+    if(!kana_sheet_write(&kanji_db, _records, _count, _path, &_info) || (_share && !rde_mobile_share_file(_path, "application/pdf", kana_text(KANA_TEXT_SHEET_TITLE)))) {
+        kana_toolbar_notice(&toolbar, kana_text(KANA_TEXT_SHEET_FAILED));
+        return;
+    }
+    c8 _line[400];
+    if(_cut) {
+        KANA_TEXTF(_line, KANA_TEXT_SHEET_FIRST_N, KANA_TN(KANA_SHEET_MAX));
+        kana_toolbar_notice(&toolbar, _line);
+    } else if(!_share) {
+        KANA_TEXTF(_line, KANA_TEXT_SHEET_SAVED, KANA_TS(_path));
+        kana_toolbar_notice(&toolbar, _line);
+    }
+    rde_log_level(RDE_LOG_LEVEL_INFO, "kana: practice sheet, %u characters on %u pages (%u bytes): %s", _info.characters, _info.pages, _info.bytes, _path);
+}
+
+#if !defined(RDE_PLATFORM_MOBILE)
+// The desktop: where to save it chosen (rde_dialog_save_file).
+RDE_INTERNAL void kana_sheet_on_save_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
+    RDE_UNUSED(_filter); RDE_UNUSED(_user_data);
+    if(_paths == NULL) {
+        kana_toolbar_notice(&toolbar, kana_text(KANA_TEXT_SHEET_FAILED));
+        return;
+    }
+    if(_count == 0) {
+        return;   // cancelled
+    }
+    c8          _path[RDE_MAX_PATH];
+    const usize _n   = strlen(_paths[0]);
+    const b8    _has = _n >= 4u && (strcmp(_paths[0] + _n - 4u, ".pdf") == 0 || strcmp(_paths[0] + _n - 4u, ".PDF") == 0);
+    snprintf(_path, sizeof(_path), "%s%s", _paths[0], _has ? "" : ".pdf");
+    kana_sheet_make(sheet_records, sheet_count, sheet_cut, _path, false);
+}
+#endif
+
+// Once a frame: a sheet asked for — to share, or (the desktop) where to save it.
+RDE_INTERNAL void kana_sheet_update(void) {
+    const u32* _records = NULL;
+    const u32  _count   = kana_toolbar_take_sheet(&toolbar, &_records);
+    if(_count == 0u) {
+        return;
+    }
+#if defined(RDE_PLATFORM_MOBILE)
+    c8 _date[32];
+    c8 _name[160];
+    c8 _path[RDE_MAX_PATH];
+    kana_file_date(_date, sizeof(_date));
+    snprintf(_name, sizeof(_name), "%s %s.pdf", kana_text(KANA_TEXT_SHEET_TITLE), _date);
+    kana_outbox_path(_path, sizeof(_path), _name);
+    kana_sheet_make(_records, _count, _count > KANA_SHEET_MAX, _path, true);
+#else
+    sheet_count = 0;
+    for(u32 _i = 0; _i < _count && _i < KANA_SHEET_MAX; _i++) {
+        sheet_records[sheet_count++] = _records[_i];
+    }
+    sheet_cut = _count > KANA_SHEET_MAX;
+    static const rde_dialog_filter _filter = { "PDF", "pdf" };
+    rde_dialog_save_file(window, &_filter, 1, NULL, kana_sheet_on_save_path, NULL);
+#endif
+}
+
 // Once a frame: what Your data asked for.
 RDE_INTERNAL void kana_data_update(void) {
     switch(kana_side_take_data_request(&toolbar)) {
         case KANA_SIDE_DATA_EXPORT: {
             kana_save_now(false);   // what is on screen, in the files first
-            c8               _date[32];
-            const time_t     _now = time(NULL);
-            const struct tm* _tm  = localtime(&_now);
-            strftime(_date, sizeof(_date), "%Y-%m-%d", _tm);
 #if defined(RDE_PLATFORM_MOBILE)
-            // Written to the outbox (the last one let go), then shared from there.
-            c8 _outbox[RDE_MAX_PATH];
-            snprintf(_outbox, sizeof(_outbox), "%s%s/", kana_save_dir(), KANA_BACKUP_OUTBOX);
-            if(rde_file_dir_exists(_outbox)) {
-                rde_file_crawl_dir_recursively(_outbox, kana_data_outbox_entry, NULL, 0, NULL);
-            }
+            // Written to the outbox, then shared from there.
+            c8 _date[32];
+            c8 _name[96];
             c8 _path[RDE_MAX_PATH];
-            snprintf(_path, sizeof(_path), "%sKana backup %s.%s", _outbox, _date, KANA_BACKUP_EXTENSION);
-            rde_file_create_missing_dirs(_path);
+            kana_file_date(_date, sizeof(_date));
+            snprintf(_name, sizeof(_name), "Kana backup %s.%s", _date, KANA_BACKUP_EXTENSION);
+            kana_outbox_path(_path, sizeof(_path), _name);
             kana_data_export_to(_path, true);
 #else
             static const rde_dialog_filter _filter = { "Kana backup", KANA_BACKUP_EXTENSION };
@@ -674,6 +772,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_exam_init(&exam, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     kana_stats_init(&stats, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     kana_scan_init(&scan);
+    scan.db = _have_kanji ? &kanji_db : NULL;   // the lines' words (wordsplit.h)
     browse.selection = &selection;
     chart.selection  = &selection;
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
@@ -823,11 +922,17 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--data") == 0) {
             look_data = true;
         }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--welcome", 9) == 0) {
+            look_welcome = _argv[_i][9] == '=' ? (i32)strtol(_argv[_i] + 10, NULL, 10) - 1 : 0;
+        }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--data-export=", 14) == 0) {
             look_data_export = _argv[_i] + 14;
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--data-import=", 14) == 0) {
             look_data_import = _argv[_i] + 14;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--sheet=", 8) == 0) {
+            look_sheet = _argv[_i] + 8;
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--data-replace") == 0) {
             look_data_replace = true;
@@ -925,7 +1030,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 // album, whichever is open.
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     list_last = _screen;
-    if(viewer.open)     { kana_viewer_pointer_down(&viewer, _screen, _now); }
+    if(welcome.open)    { kana_welcome_pointer_down(&welcome, _screen); }   // over everything
+    else if(viewer.open) { kana_viewer_pointer_down(&viewer, _screen, _now); }
     else if(scan.open)  { kana_scan_pointer_down(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_down(&exam, _screen, _pen, _now); }
     else if(stats.open) { kana_stats_pointer_down(&stats, _screen, _now); }
@@ -936,7 +1042,8 @@ RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
 }
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     list_last = _screen;
-    if(viewer.open)     { kana_viewer_pointer_moved(&viewer, _screen, _now); }
+    if(welcome.open)    { }
+    else if(viewer.open) { kana_viewer_pointer_moved(&viewer, _screen, _now); }
     else if(scan.open)  { kana_scan_pointer_moved(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_moved(&exam, _screen, _now); }
     else if(stats.open) { kana_stats_pointer_moved(&stats, _screen, _now); }
@@ -946,7 +1053,8 @@ RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     else                { kana_browse_pointer_moved(&browse, _screen, _now); }
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
-    if(viewer.open)     { kana_viewer_pointer_up(&viewer, _now); }
+    if(welcome.open)    { kana_welcome_pointer_up(&welcome, list_last); }
+    else if(viewer.open) { kana_viewer_pointer_up(&viewer, _now); }
     else if(scan.open)  { kana_scan_pointer_up(&scan, _now); }
     else if(exam.open)  { kana_exam_pointer_up(&exam, _now); }
     else if(stats.open) { kana_stats_pointer_up(&stats, _now); }
@@ -1095,7 +1203,7 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open) {
+    if(welcome.open || practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -1129,7 +1237,9 @@ void on_event(rde_window* _window, rde_event* _event) {
 
             // On the toolbar the pen is pressing a button — the UI gets it as a
             // synthetic mouse click right after this event — so it must not also
-            // write underneath.
+            // write underneath. (Translate with Google's card is drawn by Kana:
+            // its speaker answers here.)
+            kana_toolbar_card_press(&toolbar, _screen);
             if(kana_toolbar_hit(&toolbar, _screen)) {
                 pen_on_ui = true;
                 break;
@@ -1192,6 +1302,13 @@ void on_event(rde_window* _window, rde_event* _event) {
             kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
         } break;
 
+        // Apple Pencil's double tap: what the learner set it to do (the system's
+        // Apple Pencil settings) — the eraser and back, most often.
+        case RDE_EVENT_TYPE_PEN_DOUBLE_TAP: {
+            ink.pen_seen = true;
+            kana_toolbar_pen_double_tap(&toolbar, _event->data.pen_event_data.tap_action);
+        } break;
+
         // Leaving: save now. See KANA_AUTOSAVE_DELAY for why this is not the only save.
         case RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND:
         case RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND:
@@ -1227,6 +1344,9 @@ void on_event(rde_window* _window, rde_event* _event) {
 
             // A finger on the toolbar is using it, not moving the page. One landing
             // while the pen writes or erases is a resting palm.
+            if(!ink.drawing && !erasing) {
+                kana_toolbar_card_press(&toolbar, _pos);   // the translation card's speaker
+            }
             if(kana_toolbar_hit(&toolbar, _pos)) {
                 break;
             }
@@ -1272,6 +1392,9 @@ void on_event(rde_window* _window, rde_event* _event) {
             const rde_vec_2F _screen = { (f32)_m.x, (f32)_m.y };
 
             // The UI already took this click (a button), or it landed on the bar.
+            if(!_event->handled) {
+                kana_toolbar_card_press(&toolbar, _screen);   // the translation card's speaker
+            }
             if(_event->handled || kana_toolbar_hit(&toolbar, _screen)) {
                 break;
             }
@@ -1447,7 +1570,26 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         kana_translate_probe();
     }
     kana_follow_language();   // a language chosen: the UI and the meanings in it
+#if defined(RDE_PLATFORM_IOS)
+    // Apple Pencil's double tap: asked for once the app's view is there (a few
+    // frames at most after launch).
+    static b8  _pencil_taps = false;
+    static u32 _pencil_tries = 0;
+    if(!_pencil_taps && _pencil_tries < 120u) {
+        _pencil_tries++;
+        _pencil_taps = rde_pen_listen_double_tap(window);
+    }
+#endif
     kana_data_update();       // Settings › Your data: export, import
+    kana_sheet_update();      // a practice sheet: shared, or saved where chosen
+    if(toolbar.side.welcome_request) {
+        toolbar.side.welcome_request = false;
+        kana_welcome_open(&welcome);
+    }
+    toolbar.covered = welcome.open;   // the bar and the menu hide under it
+    if(kana_speech_take_hint()) {
+        kana_toolbar_notice(&toolbar, kana_text(KANA_TEXT_SPEECH_BETTER_VOICE));   // the basic voice spoke: where better ones are
+    }
     // --paper: the paper panel, open once the bar has been laid out.
     if(look_paper && ++look_frames == 20u) {
         kana_toolbar_open_paper(&toolbar);
@@ -1464,12 +1606,19 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         if(look_shot_frames == 28u && look_translate_sel) {
             kana_toolbar_translate_selection(&toolbar);
         }
+        if(look_shot_frames == 10u && look_welcome >= 0) {
+            kana_welcome_open(&welcome);
+            welcome.page = (u32)look_welcome < KANA_WELCOME_PAGES ? (u32)look_welcome : 0u;
+        }
         if(look_shot_frames == 15u && look_data) {
             kana_side_open_settings(&toolbar, -1);
             toolbar.side.data_open = true;
         }
         if(look_shot_frames == 20u && look_data_export != NULL) {
             kana_data_export_to(look_data_export, false);
+        }
+        if(look_shot_frames == 20u && look_sheet != NULL && viewer.open && rde_arr_length(&viewer.list) > 0) {
+            kana_sheet_make(&((const u32*)viewer.list.memory)[viewer.position], 1u, false, look_sheet, false);
         }
         if(look_shot_frames == 22u && look_data_import != NULL) {
             const c8* const _picked[2] = { look_data_import, NULL };
@@ -1950,6 +2099,7 @@ RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
         kana_toolbar_render_translation(&toolbar, _window);   // Translate with Google, by the selection
         kana_draw_notice(_window);
     }
+    kana_welcome_render(&welcome, _window, font, font_px);   // over everything
     rde_rendering_2d_end_drawing();
 }
 

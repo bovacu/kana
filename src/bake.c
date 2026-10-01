@@ -63,9 +63,10 @@ typedef struct {
     c8  reading[64];
     c8  meaning[128];
     c8  meaning_in[KANA_BAKE_LANGS][128];   // in the other languages ("": none)
-    u32 index;         // in the file, UINT32_MAX until a kanji keeps it
+    u32 index;         // in the file, UINT32_MAX until a kanji keeps it (or, common, it is kept for reading text)
     u8  chars;
     b8  common;        // on a common list: can be an example
+    u16 freq;          // how common: lower the commoner ('WFRQ')
 } kana_bake_word;
 
 // A word as a candidate example for one of its kanji; lower scores first.
@@ -85,6 +86,13 @@ typedef struct {
     kana_bytes                   word_lists;
     u32                          word_count;   // words kept (numbered in the file)
     kana_bytes                   word_text;
+    kana_bytes                   word_freqs;   // a u16 per word kept, in number order ('WFRQ')
+    // Tatoeba's example sentences ('SENT'): each kept once (Japanese, then en, es,
+    // fr, pt, NUL-terminated, "" when there is none), and each word's (or UINT32_MAX).
+    kana_bytes                   sentences;
+    u32                          sentence_count;
+    u32*                         sentence_words;
+    u32                          words_unlisted;   // common words kept on no kanji's list (for reading text)
     // The other languages (KANA_BAKE_LANG_LIST): each one's texts, and its words'
     // (word number, text offset) pairs, in number order.
     kana_bytes                   lang_text[KANA_BAKE_LANGS];
@@ -944,6 +952,15 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
         }
 
         kana_bake_word _word = { .index = UINT32_MAX, .chars = (u8)_chars, .common = _e->keb_common[_k] > 0 };
+        // How common, plainly (no example's preferences): the newspaper band,
+        // else about where the other lists sit; more lists, more common.
+        {
+            i32 _freq = _word.common ? (_e->keb_nf[_k] != 0 ? (i32)_e->keb_nf[_k] : _e->keb_ichi[_k] ? 18 : 26) - 3 * ((i32)_e->keb_common[_k] - 1)
+                                     : 1000 + (_e->keb_nf[_k] != 0 ? (i32)_e->keb_nf[_k] : 60);
+            _freq     += _e->reb_common[_reading] ? 0 : 2;
+            _freq     += _e->keb_common[0] > _e->keb_common[_k] ? 1 : 0;   // a word usually written otherwise (本 for 元 もと; not 七月 for ７月)
+            _word.freq = (u16)(_freq < 0 ? 0 : _freq > 0xFFFE ? 0xFFFE : _freq);
+        }
         snprintf(_word.written, sizeof(_word.written), "%s", _e->keb[_k]);
         snprintf(_word.reading, sizeof(_word.reading), "%s", _e->reb[_reading]);
         snprintf(_word.meaning, sizeof(_word.meaning), "%s", _e->sense[_sense]);
@@ -972,6 +989,7 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
         _base += _e->sense_kana[_sense] ? 20 : 0;                 // usually kana: a poor example of its kanji
         _base += kana_bake_is_name(_word.reading, _word.meaning) ? 20 : 0;
         _base += _e->reb_common[_reading] ? 0 : 2;                // 下 した (a common reading) before 下 もと
+        _base += _e->keb_common[0] > _e->keb_common[_k] ? 1 : 0;  // 本 ほん before 本 もと, whose usual form is 元
 
         // A candidate for each of its kanji (once each), less so the harder its
         // other kanji are than that one.
@@ -1016,8 +1034,27 @@ RDE_INTERNAL int kana_bake_compare_refs(const void* _a, const void* _b) {
     return _x->word < _y->word ? -1 : (_x->word > _y->word ? 1 : 0);   // JMdict's own order breaks ties: stable across bakes
 }
 
+// A word kept: numbered, its text (and its meanings in the other languages,
+// and how common it is) written.
+RDE_INTERNAL void kana_bake_number_word(kana_bake* _bake, kana_bake_word* _w) {
+    _w->index = _bake->word_count++;
+    kana_put_data(&_bake->word_text, _w->written, (u32)strlen(_w->written) + 1u);
+    kana_put_data(&_bake->word_text, _w->reading, (u32)strlen(_w->reading) + 1u);
+    kana_put_data(&_bake->word_text, _w->meaning, (u32)strlen(_w->meaning) + 1u);
+    kana_put_u16(&_bake->word_freqs, _w->freq);
+    for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+        if(_w->meaning_in[_l][0] != 0) {
+            kana_put_u32(&_bake->lang_words[_l], _w->index);
+            kana_put_u32(&_bake->lang_words[_l], kana_bytes_size(&_bake->lang_text[_l]));
+            kana_put_data(&_bake->lang_text[_l], _w->meaning_in[_l], (u32)strlen(_w->meaning_in[_l]) + 1u);
+            _bake->lang_word_count[_l]++;
+        }
+    }
+}
+
 // Every candidate in, each kanji keeps its best (see above) and the words kept
-// are numbered.
+// are numbered — then every other common word, on no kanji's list: what text
+// is read with (wordsplit.h: 食べる, 行く, 本 ほん...).
 RDE_INTERNAL void kana_bake_choose_words(kana_bake* _bake) {
     const u32           _refs  = (u32)rde_arr_length(&_bake->word_refs);
     kana_bake_word_ref* _ref   = (kana_bake_word_ref*)_bake->word_refs.memory;
@@ -1072,24 +1109,22 @@ RDE_INTERNAL void kana_bake_choose_words(kana_bake* _bake) {
             for(u32 _k = 0; _k < _count; _k++) {
                 kana_bake_word* _w = &_words[_kept[_k]];
                 if(_w->index == UINT32_MAX) {
-                    _w->index = _bake->word_count++;
-                    kana_put_data(&_bake->word_text, _w->written, (u32)strlen(_w->written) + 1u);
-                    kana_put_data(&_bake->word_text, _w->reading, (u32)strlen(_w->reading) + 1u);
-                    kana_put_data(&_bake->word_text, _w->meaning, (u32)strlen(_w->meaning) + 1u);
-                    for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
-                        if(_w->meaning_in[_l][0] != 0) {
-                            kana_put_u32(&_bake->lang_words[_l], _w->index);
-                            kana_put_u32(&_bake->lang_words[_l], kana_bytes_size(&_bake->lang_text[_l]));
-                            kana_put_data(&_bake->lang_text[_l], _w->meaning_in[_l], (u32)strlen(_w->meaning_in[_l]) + 1u);
-                            _bake->lang_word_count[_l]++;
-                        }
-                    }
+                    kana_bake_number_word(_bake, _w);
                 }
                 kana_put_u32(&_bake->word_lists, _w->index);
             }
             _bake->with_words++;
         }
         _i = _end;
+    }
+
+    // Every other common word, on no kanji's list (in JMdict's order).
+    const u32 _all = (u32)rde_arr_length(&_bake->words);
+    for(u32 _w = 0; _w < _all; _w++) {
+        if(_words[_w].index == UINT32_MAX && _words[_w].common) {
+            kana_bake_number_word(_bake, &_words[_w]);
+            _bake->words_unlisted++;
+        }
     }
 }
 
@@ -1234,6 +1269,509 @@ RDE_INTERNAL b8 kana_bake_jmdict(kana_bake* _bake, const c8* _path) {
 
 // --- the bake --------------------------------------------------------------------------
 
+// --- Tatoeba: example sentences -----------------------------------------------------------
+// Japanese sentences from Tatoeba (CC BY 2.0 FR) with their translations: English
+// (required), Spanish, French and Portuguese where there are. Each word kept gets
+// the best sentence with it in. Tatoeba's word index (jpn_indices.csv: each
+// sentence's words as dictionary forms, with the reading where it is not the
+// usual one) says which word a sentence has — 行 read ぎょう is not the 行 of
+// 行って: the word with that form and reading, or the commonest with that form,
+// its kanji all in the sentence as written. A sentence not indexed is searched as
+// text — a word as written, or a verb's or adjective's stem followed by its
+// conjugation (食べ + ました), never one kanji alone (whose reading the text does
+// not say) — and loses to any indexed one. Best: a comfortable length (about 14
+// characters, between KANA_BAKE_SENT_MIN and _MAX), then translated into more of
+// the languages; one the index marks as a good example (~) first. kanji.h 'SENT'.
+
+#define KANA_BAKE_SENT_MIN   6u
+#define KANA_BAKE_SENT_MAX   40u
+#define KANA_BAKE_SENT_IDEAL 14
+#define KANA_BAKE_SENT_LANGS 4u     // en, es, fr, pt: their order in the file
+#define KANA_BAKE_SENT_GOOD  10     // a score's bonus: the index says it is a good example
+#define KANA_BAKE_SENT_TEXT  40     // ...its malus: found as text, not in the index
+static const c8* const KANA_BAKE_SENT_CODES[KANA_BAKE_SENT_LANGS] = { "eng", "spa", "fra", "por" };
+
+typedef struct { u32 id; u32 at; u32 len; } kana_bake_sentence;    // a sentence: its id, where its text is in its file
+typedef struct { u32 from; u32 to; } kana_bake_link;               // a Japanese sentence's id, a translation's id
+
+RDE_INTERNAL int kana_bake_by_sentence_id(const void* _a, const void* _b) {
+    const u32 _x = ((const kana_bake_sentence*)_a)->id, _y = ((const kana_bake_sentence*)_b)->id;
+    return _x < _y ? -1 : (_x > _y ? 1 : 0);
+}
+
+RDE_INTERNAL int kana_bake_by_link(const void* _a, const void* _b) {
+    const kana_bake_link* _x = (const kana_bake_link*)_a;
+    const kana_bake_link* _y = (const kana_bake_link*)_b;
+    if(_x->from != _y->from) {
+        return _x->from < _y->from ? -1 : 1;
+    }
+    return _x->to < _y->to ? -1 : (_x->to > _y->to ? 1 : 0);
+}
+
+RDE_INTERNAL int kana_bake_by_u32(const void* _a, const void* _b) {
+    const u32 _x = *(const u32*)_a, _y = *(const u32*)_b;
+    return _x < _y ? -1 : (_x > _y ? 1 : 0);
+}
+
+// The kept words by written form (word numbers, alike ones together): for the index.
+static const kana_bake_word* kana_bake_sort_words;
+RDE_INTERNAL int kana_bake_by_written(const void* _a, const void* _b) {
+    return strcmp(kana_bake_sort_words[*(const u32*)_a].written, kana_bake_sort_words[*(const u32*)_b].written);
+}
+
+// Tatoeba's index line for a sentence ("word(reading)[sense]{as written}~ ..."):
+// each word it names that is kept, scored _score (better when marked ~), as that
+// word's best sentence _i when better than its best so far.
+RDE_INTERNAL void kana_bake_index_words(const c8* _line, u32 _size, const kana_bake_word* _words, const u32* _sorted, u32 _sorted_count, u32 _i, i32 _score,
+                                        u32* _best, i32* _best_score) {
+    u32 _p = 0;
+    while(_p < _size) {
+        while(_p < _size && _line[_p] == ' ') {
+            _p++;
+        }
+        u32 _end = _p;
+        while(_end < _size && _line[_end] != ' ') {
+            _end++;
+        }
+        // The dictionary form, then its marks.
+        u32 _h = _p;
+        while(_h < _end && _line[_h] != '(' && _line[_h] != '[' && _line[_h] != '{' && _line[_h] != '~') {
+            _h++;
+        }
+        c8  _written[4u * KANA_BAKE_WORD_CHARS + 1u];
+        c8  _reading[64]   = "";
+        c8  _as[128]       = "";
+        b8  _good          = false;
+        b8  _fits          = _h - _p > 0 && _h - _p < sizeof(_written);
+        if(_fits) {
+            memcpy(_written, &_line[_p], _h - _p);
+            _written[_h - _p] = 0;
+        }
+        for(u32 _m = _h; _m < _end;) {
+            const c8 _open = _line[_m];
+            if(_open == '~') {
+                _good = true;
+                _m++;
+                continue;
+            }
+            const c8 _close = _open == '(' ? ')' : _open == '[' ? ']' : '}';
+            u32      _q     = _m + 1u;
+            while(_q < _end && _line[_q] != _close) {
+                _q++;
+            }
+            const u32 _n = _q - (_m + 1u);
+            if(_open == '(' && _n > 0 && _line[_m + 1u] != '#' && _n < sizeof(_reading)) {
+                memcpy(_reading, &_line[_m + 1u], _n);
+                _reading[_n] = 0;
+            } else if(_open == '{' && _n < sizeof(_as)) {
+                memcpy(_as, &_line[_m + 1u], _n);
+                _as[_n] = 0;
+            }
+            _m = _q + 1u;
+        }
+        _p = _end;
+        if(!_fits) {
+            continue;
+        }
+        // Its kanji all in the sentence as written (直ぐに written すぐに has none).
+        const c8* _shown = _as[0] != 0 ? _as : _written;
+        b8        _all   = true;
+        for(const c8* _c = _written; *_c != 0 && _all;) {
+            u32       _len = 0;
+            const u32 _cp  = kana_bake_decode_utf8(_c, &_len);
+            if(kana_bake_is_kanji(_cp)) {
+                c8 _one[8] = { 0 };
+                memcpy(_one, _c, _len < 7u ? _len : 7u);
+                _all = strstr(_shown, _one) != NULL;
+            }
+            _c += _len > 0 ? _len : 1u;
+        }
+        if(!_all) {
+            continue;
+        }
+        // The word: with that reading when one is given, else the commonest of that
+        // form (none when two are as common: which, the index does not say).
+        u32 _lo = 0, _hi = _sorted_count;
+        while(_lo < _hi) {
+            const u32 _mid = (_lo + _hi) / 2u;
+            if(strcmp(_words[_sorted[_mid]].written, _written) < 0) {
+                _lo = _mid + 1u;
+            } else {
+                _hi = _mid;
+            }
+        }
+        u32 _word = UINT32_MAX;
+        b8  _tied = false;
+        for(u32 _k = _lo; _k < _sorted_count && strcmp(_words[_sorted[_k]].written, _written) == 0; _k++) {
+            const kana_bake_word* _w = &_words[_sorted[_k]];
+            if(_reading[0] != 0) {
+                _word = strcmp(_w->reading, _reading) == 0 ? _sorted[_k] : _word;
+            } else if(_word == UINT32_MAX || _w->freq < _words[_word].freq) {
+                _word = _sorted[_k];
+                _tied = false;
+            } else if(_w->freq == _words[_word].freq) {
+                _tied = true;
+            }
+        }
+        if(_tied) {
+            continue;
+        }
+        const i32 _s = _score - (_good ? KANA_BAKE_SENT_GOOD : 0);
+        if(_word != UINT32_MAX && _s < _best_score[_word]) {
+            _best[_word]       = _i;
+            _best_score[_word] = _s;
+        }
+    }
+}
+
+// A Tatoeba export's lines, "id <tab> lang <tab> text": each sentence (whose id
+// is in _wanted, sorted, when given) into _out.
+RDE_INTERNAL void kana_bake_read_sentences(const u8* _data, u32 _size, const u32* _wanted, u32 _wanted_count, rde_arr* _out) {
+    u32 _at = 0;
+    while(_at < _size) {
+        u32 _end = _at;
+        while(_end < _size && _data[_end] != '\n') {
+            _end++;
+        }
+        // id
+        u32 _id = 0;
+        u32 _p  = _at;
+        while(_p < _end && _data[_p] >= '0' && _data[_p] <= '9') {
+            _id = _id * 10u + (u32)(_data[_p++] - '0');
+        }
+        // lang, then the text
+        if(_p < _end && _data[_p] == '\t') {
+            _p++;
+            while(_p < _end && _data[_p] != '\t') {
+                _p++;
+            }
+            if(_p < _end && _data[_p] == '\t' && (_wanted == NULL || bsearch(&_id, _wanted, _wanted_count, sizeof(u32), kana_bake_by_u32) != NULL)) {
+                u32 _len = _end - (_p + 1u);
+                if(_len > 0 && _data[_p + 1u + _len - 1u] == '\r') {
+                    _len--;
+                }
+                const kana_bake_sentence _s = { _id, _p + 1u, _len };
+                rde_arr_add(_out, (any)&_s);
+            }
+        }
+        _at = _end + 1u;
+    }
+    qsort(_out->memory, rde_arr_length(_out), sizeof(kana_bake_sentence), kana_bake_by_sentence_id);
+}
+
+// "from <tab> to" lines, sorted.
+RDE_INTERNAL void kana_bake_read_links(const u8* _data, u32 _size, rde_arr* _out) {
+    u32 _at = 0;
+    while(_at < _size) {
+        kana_bake_link _l = { 0, 0 };
+        while(_at < _size && _data[_at] >= '0' && _data[_at] <= '9') {
+            _l.from = _l.from * 10u + (u32)(_data[_at++] - '0');
+        }
+        if(_at < _size && _data[_at] == '\t') {
+            _at++;
+            while(_at < _size && _data[_at] >= '0' && _data[_at] <= '9') {
+                _l.to = _l.to * 10u + (u32)(_data[_at++] - '0');
+            }
+            rde_arr_add(_out, (any)&_l);
+        }
+        while(_at < _size && _data[_at] != '\n') {
+            _at++;
+        }
+        _at++;
+    }
+    qsort(_out->memory, rde_arr_length(_out), sizeof(kana_bake_link), kana_bake_by_link);
+}
+
+// The first translation of Japanese sentence _from among _links: its id, or 0.
+RDE_INTERNAL u32 kana_bake_link_of(const rde_arr* _links, u32 _from) {
+    const kana_bake_link* _l  = (const kana_bake_link*)_links->memory;
+    u32                   _lo = 0, _hi = (u32)rde_arr_length(_links);
+    while(_lo < _hi) {
+        const u32 _mid = (_lo + _hi) / 2u;
+        if(_l[_mid].from < _from) { _lo = _mid + 1u; } else { _hi = _mid; }
+    }
+    return _lo < (u32)rde_arr_length(_links) && _l[_lo].from == _from ? _l[_lo].to : 0u;
+}
+
+RDE_INTERNAL const kana_bake_sentence* kana_bake_sentence_of(const rde_arr* _sentences, u32 _id) {
+    const kana_bake_sentence _key = { _id, 0, 0 };
+    return (const kana_bake_sentence*)bsearch(&_key, _sentences->memory, rde_arr_length(_sentences), sizeof(kana_bake_sentence), kana_bake_by_sentence_id);
+}
+
+// The words kept, by their written form (or a conjugating one's stem): an
+// open-addressed table of word numbers.
+typedef struct { u32 hash; u32 word; u16 length; u8 stem; } kana_bake_word_key;
+
+RDE_INTERNAL u32 kana_bake_hash_bytes(const u8* _s, u32 _n) {
+    u32 _h = 2166136261u;
+    for(u32 _i = 0; _i < _n; _i++) {
+        _h = (_h ^ _s[_i]) * 16777619u;
+    }
+    return _h != 0u ? _h : 1u;
+}
+
+// A whole (big) file, outside RDE's pool: Tatoeba's English alone is ~100 MB.
+// Free with free(). NULL when it cannot be read.
+RDE_INTERNAL u8* kana_bake_slurp(const c8* _path, u32* _size) {
+    *_size = 0;
+    FILE* _f = fopen(_path, "rb");
+    if(_f == NULL) {
+        return NULL;
+    }
+    fseek(_f, 0, SEEK_END);
+    const long _n = ftell(_f);
+    fseek(_f, 0, SEEK_SET);
+    u8* _data = _n > 0 && _n < 0x7FFFFFFFL ? (u8*)malloc((usize)_n) : NULL;
+    if(_data != NULL && fread(_data, 1, (usize)_n, _f) != (usize)_n) {
+        free(_data);
+        _data = NULL;
+    }
+    fclose(_f);
+    *_size = _data != NULL ? (u32)_n : 0u;
+    return _data;
+}
+
+RDE_INTERNAL b8 kana_bake_tatoeba(kana_bake* _bake, const c8* _dir) {
+    c8 _path[RDE_MAX_PATH];
+    snprintf(_path, sizeof(_path), "%s/jpn_sentences.tsv", _dir);
+    if(!rde_file_exists(_path)) {
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "bake: %s not found; no example sentences", _path);
+        return true;
+    }
+    const f64 _t0 = rde_engine_get_time_now();
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+
+    // The Japanese sentences, and each language's links from them.
+    u32 _jsize = 0;
+    u8* _jdata = kana_bake_slurp(_path, &_jsize);
+    rde_arr _japanese = rde_arr_new(sizeof(kana_bake_sentence), _heap);
+    kana_bake_read_sentences(_jdata, _jsize, NULL, 0, &_japanese);
+    // The word index: "id <tab> meaning id <tab> words", read as the sentences are.
+    snprintf(_path, sizeof(_path), "%s/jpn_indices.csv", _dir);
+    u32     _isize = 0;
+    u8*     _idata = rde_file_exists(_path) ? kana_bake_slurp(_path, &_isize) : NULL;
+    rde_arr _index = rde_arr_new(sizeof(kana_bake_sentence), _heap);
+    if(_idata != NULL) {
+        kana_bake_read_sentences(_idata, _isize, NULL, 0, &_index);
+    } else {
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "bake: %s not found; sentences found as text only", _path);
+    }
+    rde_arr _links[KANA_BAKE_SENT_LANGS];
+    rde_arr _texts[KANA_BAKE_SENT_LANGS];
+    u8*     _tdata[KANA_BAKE_SENT_LANGS];
+    for(u32 _l = 0; _l < KANA_BAKE_SENT_LANGS; _l++) {
+        _links[_l] = rde_arr_new(sizeof(kana_bake_link), _heap);
+        _texts[_l] = rde_arr_new(sizeof(kana_bake_sentence), _heap);
+        _tdata[_l] = NULL;
+        snprintf(_path, sizeof(_path), "%s/jpn-%s_links.tsv", _dir, KANA_BAKE_SENT_CODES[_l]);
+        u32 _size = 0;
+        u8* _data = rde_file_exists(_path) ? kana_bake_slurp(_path, &_size) : NULL;
+        if(_data != NULL) {
+            kana_bake_read_links(_data, _size, &_links[_l]);
+            free(_data);
+        }
+        // Only the sentences linked to: their ids, then their texts.
+        const u32 _n      = (u32)rde_arr_length(&_links[_l]);
+        u32*      _wanted = (u32*)malloc(sizeof(u32) * (_n > 0 ? _n : 1u));
+        for(u32 _i = 0; _i < _n; _i++) {
+            _wanted[_i] = ((const kana_bake_link*)_links[_l].memory)[_i].to;
+        }
+        qsort(_wanted, _n, sizeof(u32), kana_bake_by_u32);
+        snprintf(_path, sizeof(_path), "%s/%s_sentences.tsv", _dir, KANA_BAKE_SENT_CODES[_l]);
+        u32 _size2 = 0;
+        _tdata[_l] = rde_file_exists(_path) ? kana_bake_slurp(_path, &_size2) : NULL;
+        if(_tdata[_l] != NULL) {
+            kana_bake_read_sentences(_tdata[_l], _size2, _wanted, _n, &_texts[_l]);
+        }
+        free(_wanted);
+    }
+
+    // The words kept, by written form, and by stem where they conjugate.
+    kana_bake_word* _words = (kana_bake_word*)_bake->words.memory;
+    const u32       _all   = (u32)rde_arr_length(&_bake->words);
+    u32             _tsize = 1u;
+    while(_tsize < _bake->word_count * 4u) {
+        _tsize <<= 1u;
+    }
+    kana_bake_word_key* _table = (kana_bake_word_key*)calloc(_tsize, sizeof(kana_bake_word_key));
+    for(u32 _w = 0; _w < _all; _w++) {
+        if(_words[_w].index == UINT32_MAX) {
+            continue;
+        }
+        const u8* _s = (const u8*)_words[_w].written;
+        const u32 _n = (u32)strlen(_words[_w].written);
+        // The written form; and, ending in a verb's or an i-adjective's kana, its stem.
+        u32 _last_at = 0, _last = 0, _cps = 0;
+        for(u32 _i = 0; _i < _n;) {
+            u32       _len = 0;
+            const u32 _cp  = kana_bake_decode_utf8((const c8*)_s + _i, &_len);
+            _last_at = _i;
+            _last    = _cp;
+            _i      += _len > 0 ? _len : 1u;
+            _cps++;
+        }
+        static const u32 _endings[] = { 0x3046u, 0x304Fu, 0x3050u, 0x3059u, 0x3064u, 0x306Cu, 0x3076u, 0x3080u, 0x308Bu, 0x3044u };
+        b8 _conjugates = false;
+        for(u32 _e = 0; _e < sizeof(_endings) / sizeof(_endings[0]); _e++) {
+            _conjugates |= _last == _endings[_e];
+        }
+        for(u32 _k = 0; _k < (_conjugates && _cps >= 2u ? 2u : 1u); _k++) {
+            const u32 _len = _k == 0 ? _n : _last_at;
+            const u32 _h   = kana_bake_hash_bytes(_s, _len);
+            for(u32 _i = _h & (_tsize - 1u);; _i = (_i + 1u) & (_tsize - 1u)) {
+                if(_table[_i].hash == 0u) {
+                    _table[_i] = (kana_bake_word_key){ _h, _w, (u16)_len, (u8)_k };
+                    break;
+                }
+                if(_table[_i].hash == _h && _table[_i].length == _len && _table[_i].stem == _k &&
+                   memcmp(_words[_table[_i].word].written, _s, _len) == 0) {
+                    break;   // spelt alike: the first keeps the place (both are numbered: the first is enough here)
+                }
+            }
+        }
+    }
+
+    // ...and by written form, every one, for the index.
+    u32* _sorted       = (u32*)malloc(sizeof(u32) * (_all > 0 ? _all : 1u));
+    u32  _sorted_count = 0;
+    for(u32 _w = 0; _w < _all; _w++) {
+        if(_words[_w].index != UINT32_MAX) {
+            _sorted[_sorted_count++] = _w;
+        }
+    }
+    kana_bake_sort_words = _words;
+    qsort(_sorted, _sorted_count, sizeof(u32), kana_bake_by_written);
+
+    // Each word's best sentence so far: its index in _japanese, and its score.
+    u32* _best       = (u32*)malloc(sizeof(u32) * _all);
+    i32* _best_score = (i32*)malloc(sizeof(i32) * _all);
+    for(u32 _w = 0; _w < _all; _w++) {
+        _best[_w]       = UINT32_MAX;
+        _best_score[_w] = 0x7FFFFFFF;
+    }
+    const kana_bake_sentence* _js = (const kana_bake_sentence*)_japanese.memory;
+    u32 _candidates = 0;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_japanese); _i++) {
+        // As code points (and where each is), within the lengths kept.
+        u32 _cps[KANA_BAKE_SENT_MAX + 1u];
+        u32 _at[KANA_BAKE_SENT_MAX + 2u];
+        u32 _n = 0;
+        b8  _fits = true;
+        for(u32 _p = 0; _p < _js[_i].len;) {
+            if(_n == KANA_BAKE_SENT_MAX + 1u) {
+                _fits = false;
+                break;
+            }
+            u32       _len = 0;
+            const u32 _cp  = kana_bake_decode_utf8((const c8*)_jdata + _js[_i].at + _p, &_len);
+            _at[_n]    = _p;
+            _cps[_n++] = _cp;
+            _p += _len > 0 ? _len : 1u;
+        }
+        if(!_fits || _n < KANA_BAKE_SENT_MIN || _n > KANA_BAKE_SENT_MAX) {
+            continue;
+        }
+        _at[_n] = _js[_i].len;
+        // English it must have; each other language is a point in its favour.
+        const u32 _en = kana_bake_link_of(&_links[0], _js[_i].id);
+        if(_en == 0 || kana_bake_sentence_of(&_texts[0], _en) == NULL) {
+            continue;
+        }
+        _candidates++;
+        i32 _score = (i32)(_n > KANA_BAKE_SENT_IDEAL ? _n - KANA_BAKE_SENT_IDEAL : KANA_BAKE_SENT_IDEAL - _n) * 4;
+        for(u32 _l = 1; _l < KANA_BAKE_SENT_LANGS; _l++) {
+            const u32 _o = kana_bake_link_of(&_links[_l], _js[_i].id);
+            _score += _o != 0 && kana_bake_sentence_of(&_texts[_l], _o) != NULL ? 0 : 6;
+        }
+        // Indexed: the words the index names.
+        const kana_bake_sentence* _ix = kana_bake_sentence_of(&_index, _js[_i].id);
+        if(_ix != NULL) {
+            kana_bake_index_words((const c8*)_idata + _ix->at, _ix->len, _words, _sorted, _sorted_count, _i, _score, _best, _best_score);
+            continue;
+        }
+        // Not: every stretch of two to five characters — a word as written, or a stem with kana after it.
+        _score += KANA_BAKE_SENT_TEXT;
+        for(u32 _a = 0; _a < _n; _a++) {
+            for(u32 _len = 1; _len <= 5u && _a + _len <= _n; _len++) {
+                const u8* _s     = _jdata + _js[_i].at + _at[_a];
+                const u32 _bytes = _at[_a + _len] - _at[_a];
+                const u32 _h     = kana_bake_hash_bytes(_s, _bytes);
+                for(u32 _k = 0; _k < 2u; _k++) {
+                    if(_k == 1u && !(_a + _len < _n && _cps[_a + _len] >= 0x3041u && _cps[_a + _len] <= 0x309Fu)) {
+                        continue;   // a stem only with kana after it
+                    }
+                    for(u32 _t = _h & (_tsize - 1u); _table[_t].hash != 0u; _t = (_t + 1u) & (_tsize - 1u)) {
+                        if(_table[_t].hash != _h || _table[_t].length != _bytes || _table[_t].stem != _k ||
+                           memcmp(_words[_table[_t].word].written, _s, _bytes) != 0) {
+                            continue;
+                        }
+                        if(_len == 1u) {
+                            break;   // one kanji alone: which word, the text does not say
+                        }
+                        const u32 _w = _table[_t].word;
+                        if(_score < _best_score[_w]) {
+                            _best[_w]       = _i;
+                            _best_score[_w] = _score;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // The sentences chosen, each once, numbered in order; then each word's.
+    u32* _number = (u32*)malloc(sizeof(u32) * (rde_arr_length(&_japanese) > 0 ? rde_arr_length(&_japanese) : 1u));
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_japanese); _i++) {
+        _number[_i] = UINT32_MAX;
+    }
+    _bake->sentence_words = (u32*)malloc(sizeof(u32) * (_bake->word_count > 0 ? _bake->word_count : 1u));
+    for(u32 _i = 0; _i < _bake->word_count; _i++) {
+        _bake->sentence_words[_i] = UINT32_MAX;
+    }
+    u32 _with = 0;
+    for(u32 _w = 0; _w < _all; _w++) {
+        if(_words[_w].index == UINT32_MAX || _best[_w] == UINT32_MAX) {
+            continue;
+        }
+        const u32 _i = _best[_w];
+        if(_number[_i] == UINT32_MAX) {
+            _number[_i] = _bake->sentence_count++;
+            kana_put_data(&_bake->sentences, _jdata + _js[_i].at, _js[_i].len);
+            kana_put_u8(&_bake->sentences, 0u);
+            for(u32 _l = 0; _l < KANA_BAKE_SENT_LANGS; _l++) {
+                const u32                 _o = kana_bake_link_of(&_links[_l], _js[_i].id);
+                const kana_bake_sentence* _t = _o != 0 ? kana_bake_sentence_of(&_texts[_l], _o) : NULL;
+                if(_t != NULL) {
+                    kana_put_data(&_bake->sentences, _tdata[_l] + _t->at, _t->len);
+                }
+                kana_put_u8(&_bake->sentences, 0u);
+            }
+        }
+        _bake->sentence_words[_words[_w].index] = _number[_i];
+        _with++;
+    }
+    rde_log_level(RDE_LOG_LEVEL_INFO, "bake: Tatoeba: %u Japanese sentences, %u with English and a fitting length; %u words with an example sentence, %u sentences kept (%.2f MB), %.2f s",
+                  (u32)rde_arr_length(&_japanese), _candidates, _with, _bake->sentence_count, (f64)kana_bytes_size(&_bake->sentences) / (1024.0 * 1024.0),
+                  rde_engine_get_time_now() - _t0);
+
+    free(_number);
+    free(_sorted);
+    rde_arr_free(&_index);
+    free(_idata);
+    free(_best);
+    free(_best_score);
+    free(_table);
+    for(u32 _l = 0; _l < KANA_BAKE_SENT_LANGS; _l++) {
+        rde_arr_free(&_links[_l]);
+        rde_arr_free(&_texts[_l]);
+        free(_tdata[_l]);
+    }
+    rde_arr_free(&_japanese);
+    free(_jdata);
+    return true;
+}
+
 RDE_INTERNAL const c8* kana_bake_arg(i32 _argc, c8** _argv, const c8* _prefix, const c8* _default) {
     const usize _len = strlen(_prefix);
     for(i32 _i = 1; _i < _argc; _i++) {
@@ -1260,6 +1798,7 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
     // The full JMdict when it is there (English and the other languages), else JMdict_e (English).
     const c8* _jmdict   = kana_bake_arg(_argc, _argv, "--jmdict=",   rde_file_exists("data/raw/JMdict.xml") ? "data/raw/JMdict.xml" : "data/raw/JMdict_e.xml");
     const c8* _out      = kana_bake_arg(_argc, _argv, "--out=",      KANA_KANJI_FILE);
+    const c8* _tatoeba  = kana_bake_arg(_argc, _argv, "--tatoeba=",  "data/raw/tatoeba");
 
     for(u32 _i = 0; _i < 2; _i++) {
         const c8* _src = _i == 0 ? _kanjivg : _kanjidic;
@@ -1279,6 +1818,8 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         .word_refs  = rde_arr_new(sizeof(kana_bake_word_ref), _heap),
         .word_lists = kana_bytes_new(128u * 1024u),
         .word_text  = kana_bytes_new(512u * 1024u),
+        .word_freqs = kana_bytes_new(128u * 1024u),
+        .sentences  = kana_bytes_new(1024u * 1024u),
         .min_coord = 1e9f,
         .max_coord = -1e9f,
     };
@@ -1309,13 +1850,18 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         if(!kana_bake_jmdict(&_bake, _jmdict)) {
             _rc = 1;
         }
+        // After the words: their example sentences.
+        if(_rc == 0 && !kana_bake_tatoeba(&_bake, _tatoeba)) {
+            _rc = 1;
+        }
     }
 
     if(_rc == 0) {
         const u32   _count = (u32)rde_arr_length(&_bake.chars);
         kana_bytes  _file  = kana_bytes_new(KANA_FILE_HEADER_SIZE + 16u + _count * KANA_KANJI_RECORD_SIZE + 8u + kana_bytes_size(&_bake.geometry) + 8u + kana_bytes_size(&_bake.text) +
                                             12u + _count * 4u + kana_bytes_size(&_bake.parts) +
-                                            20u + _count * 4u + kana_bytes_size(&_bake.word_lists) + kana_bytes_size(&_bake.word_text) + 1u);
+                                            20u + _count * 4u + kana_bytes_size(&_bake.word_lists) + kana_bytes_size(&_bake.word_text) +
+                                            kana_bytes_size(&_bake.word_freqs) + 16u + kana_bytes_size(&_bake.sentences) + _bake.word_count * 4u + 32u + 1u);
         kana_put_header(&_file, KANA_KANJI_VERSION, KANA_KANJI_KIND);
 
         u32 _chunk = kana_chunk_begin(&_file, KANA_KANJI_CHUNK_CHARS);
@@ -1363,6 +1909,23 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
             kana_put_data(&_file, _bake.word_lists.memory, kana_bytes_size(&_bake.word_lists));
             kana_put_data(&_file, _bake.word_text.memory, kana_bytes_size(&_bake.word_text));
             kana_chunk_end(&_file, _chunk);
+            // How common each word is (kanji.h 'WFRQ').
+            _chunk = kana_chunk_begin(&_file, KANA_KANJI_CHUNK_WORD_FREQ);
+            kana_put_u32(&_file, _bake.word_count);
+            kana_put_data(&_file, _bake.word_freqs.memory, kana_bytes_size(&_bake.word_freqs));
+            kana_chunk_end(&_file, _chunk);
+            // Their example sentences (kanji.h 'SENT').
+            if(_bake.sentence_count > 0 && _bake.sentence_words != NULL) {
+                _chunk = kana_chunk_begin(&_file, KANA_KANJI_CHUNK_SENTENCES);
+                kana_put_u32(&_file, _bake.sentence_count);
+                kana_put_u32(&_file, kana_bytes_size(&_bake.sentences));
+                kana_put_data(&_file, _bake.sentences.memory, kana_bytes_size(&_bake.sentences));
+                kana_put_u32(&_file, _bake.word_count);
+                for(u32 _w = 0; _w < _bake.word_count; _w++) {
+                    kana_put_u32(&_file, _bake.sentence_words[_w]);
+                }
+                kana_chunk_end(&_file, _chunk);
+            }
         }
 
         // The other languages: a chunk each (see kanji.h's 'LNxx').
@@ -1419,6 +1982,7 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
                           (f64)(kana_bytes_size(&_bake.word_lists) + kana_bytes_size(&_bake.word_text)) / (1024.0 * 1024.0),
                           (f64)_geometry_bytes / (1024.0 * 1024.0), (f64)_text_bytes / (1024.0 * 1024.0),
                           (f64)_bake.min_coord, (f64)_bake.max_coord);
+        rde_log_color(RDE_LOG_COLOR_GREEN, "  of the words, %u common ones on no kanji's list (kept for reading text: wordsplit.h)", _bake.words_unlisted);
         }
     }
 
@@ -1430,6 +1994,9 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
     rde_arr_free(&_bake.word_refs);
     rde_arr_free(&_bake.word_lists);
     rde_arr_free(&_bake.word_text);
+    rde_arr_free(&_bake.word_freqs);
+    rde_arr_free(&_bake.sentences);
+    free(_bake.sentence_words);
     for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
         rde_arr_free(&_bake.lang_text[_l]);
         rde_arr_free(&_bake.lang_words[_l]);

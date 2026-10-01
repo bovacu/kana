@@ -5,6 +5,8 @@
 #include "scroll.h"
 #include "textscan.h"
 #include "translate.h"
+#include "kanji.h"
+#include "wordsplit.h"
 
 // ===========================================================================
 // Text from a photo: a screen over the page, opened from its long-press menu.
@@ -32,7 +34,10 @@
 // translation into the reader's language and Google's badge on top. Asked for
 // once the picture holds still (a photo, or Hold), a few lines at a time; the
 // first time, the models download (the screen says so). Left-out lines show
-// faded. A drag scrolls the panel when it is long.
+// faded. A drag scrolls the panel when it is long. Under each translation, the
+// line's words (Kana's dictionary, wordsplit.h): each with its reading and
+// meaning, + to add it to the learner's words (✓ once theirs; again to take it
+// back).
 // ===========================================================================
 
 typedef enum {
@@ -58,7 +63,20 @@ RDE_STRUCT {
     c8                     translation[KANA_TRANSLATE_TEXT];
     f32                    row_top;        // its row in the panel, screen y (last frame; a tap there leaves it out)
     f32                    row_bottom;
+    // Its words (wordsplit.h), found the first time its row shows.
+    b8                     words_found;
+    u8                     word_count;
+    u32                    words[KANA_WORDSPLIT_MAX];
 } kana_scan_line;
+
+// A word's row in the panel, last frame: a tap adds it to (or takes it from)
+// the learner's words.
+RDE_STRUCT {
+    f32 top;
+    f32 bottom;
+    u32 word;
+} kana_scan_word_hit;
+#define KANA_SCAN_WORD_HITS 64u
 
 RDE_STRUCT {
     b8                            open;
@@ -103,6 +121,9 @@ RDE_STRUCT {
     f32                           panel_right;
     f32                           panel_rows_top;
     f32                           panel_rows_bottom;
+    const kana_kanji_db*          db;               // for the lines' words (NULL: none shown)
+    kana_scan_word_hit            word_hits[KANA_SCAN_WORD_HITS];
+    u32                           word_hit_count;
     KANA_SCAN_STAGE_              _before;          // the stage to go back to if the pick is cancelled
 
     // Layout of the last frame: where the picture is on screen.
