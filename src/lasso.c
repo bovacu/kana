@@ -185,6 +185,10 @@ void kana_lasso_paste(kana_lasso* _lasso, kana_ink* _ink, rde_vec_2F _canvas) {
     kana_lasso_paste_from(_lasso, _ink, &_lasso->clipboard, _canvas);
 }
 
+void kana_lasso_paste_clip(kana_lasso* _lasso, kana_ink* _ink, const kana_clip* _clip, rde_vec_2F _canvas) {
+    kana_lasso_paste_from(_lasso, _ink, _clip, _canvas);
+}
+
 b8 kana_lasso_can_paste(const kana_lasso* _lasso) {
     return rde_arr_length(&_lasso->clipboard.strokes) > 0;
 }

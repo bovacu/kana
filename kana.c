@@ -115,6 +115,8 @@ RDE_INTERNAL b8        look_stats       = false;
 RDE_INTERNAL i64       look_kept_exam   = -1;
 RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open screen scrolled down (Statistics, the album)
 RDE_INTERNAL i32       look_theme       = -1;     // --theme=N: shown, not saved
+RDE_INTERNAL const c8* look_paste_text  = NULL;   // --paste-text=TEXT: Paste text, as if the clipboard held it, mid-page
+RDE_INTERNAL b8        look_deselect    = false;  // --deselect: and nothing left selected after it
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -144,6 +146,8 @@ RDE_INTERNAL f32 frame_ms = 0.0f;
 // The zoom, shown for a moment at the bottom-right whenever it changes.
 #define KANA_ZOOM_TOAST_TIME 1.2    // seconds it stays...
 #define KANA_ZOOM_TOAST_FADE 0.4    // ...then fades out over this
+#define KANA_NOTICE_TIME     2.6    // the toolbar's notice (Copy as text, Paste text) stays...
+#define KANA_NOTICE_FADE     0.4    // ...then fades out over this
 RDE_INTERNAL f32 zoom_seen     = -1.0f;   // < 0: not seen yet (no toast for the loaded zoom)
 RDE_INTERNAL f64 zoom_shown_at = -100.0;
 
@@ -578,6 +582,20 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--shot=", 7) == 0) {
             look_shot = _argv[_i] + 7;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--paste-text=", 13) == 0) {
+            // "\\n" for a line break: RDE reads its arguments as config lines.
+            static c8 _pasted[512];
+            usize     _n = 0;
+            for(const c8* _p = _argv[_i] + 13; *_p != 0 && _n + 1u < sizeof(_pasted); _p++) {
+                if(_p[0] == '\\' && _p[1] == 'n') { _pasted[_n++] = '\n'; _p++; }
+                else                               { _pasted[_n++] = *_p; }
+            }
+            _pasted[_n]     = 0;
+            look_paste_text = _pasted;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--deselect") == 0) {
+            look_deselect = true;
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--scroll=", 9) == 0) {
             look_scroll = strtof(_argv[_i] + 9, NULL);
@@ -1088,6 +1106,12 @@ RDE_INTERNAL void kana_update(f32 _dt) {
     }
     if(look_shot != NULL) {
         ++look_shot_frames;
+        if(look_shot_frames == 20u && look_paste_text != NULL) {
+            kana_toolbar_paste_text(&toolbar, look_paste_text, kana_canvas_from_screen(&canvas, (rde_vec_2F){ 0.0f, 0.0f }));
+        }
+        if(look_shot_frames == 25u && look_deselect) {
+            kana_lasso_clear(&lasso, &ink);
+        }
         if(look_shot_frames == 30u && look_scroll > 0.0f) {
             stats.scroller.offset       = look_scroll;
             album.scroller.offset       = look_scroll;
@@ -1383,6 +1407,36 @@ RDE_INTERNAL void kana_draw_zoom_toast(rde_window* _window) {
     kana_draw_text(font, font_px, _text, _center.x - _measured.x * 0.5f, _center.y - _digits * 0.5f, _px, _ink);
 }
 
+// The toolbar's notice — what Copy as text copied, what Paste text left out — in
+// a pill at the bottom, in the middle, a moment.
+RDE_INTERNAL void kana_draw_notice(rde_window* _window) {
+    if(toolbar.notice_at <= 0.0 || toolbar.notice[0] == 0 || font == NULL) {
+        return;
+    }
+    const f64 _age = rde_engine_get_time_now() - toolbar.notice_at;
+    if(_age >= KANA_NOTICE_TIME + KANA_NOTICE_FADE) {
+        toolbar.notice_at = 0.0;
+        return;
+    }
+    const f32         _fade = _age <= KANA_NOTICE_TIME ? 1.0f : 1.0f - (f32)((_age - KANA_NOTICE_TIME) / KANA_NOTICE_FADE);
+    const kana_theme* _t    = kana_theme_active();
+    const rde_vec_2I  _size = rde_window_get_size(_window);
+    const rde_vec_4I  _safe = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const f32         _px   = kana_draw_text_px_to_fit(font, font_px, toolbar.notice, 17.0f, (f32)_size.x * 0.85f - 40.0f, 0.6f);
+    const f32         _w    = kana_draw_text_width(font, font_px, toolbar.notice, _px);
+    const rde_vec_2F  _pill = { _w + 40.0f, _px + 26.0f };
+    const rde_vec_2F  _c    = { 0.0f, -(f32)_size.y * 0.5f + (f32)_safe.w + 72.0f + _pill.y * 0.5f };
+
+    rde_color _back = _t->panel;
+    _back.a         = (u8)((f32)_back.a * _fade);
+    rde_color _edge = _t->outline;
+    _edge.a         = (u8)((f32)_edge.a * _fade);
+    kana_draw_card((rde_vec_2F){ _c.x - _pill.x * 0.5f, _c.y - _pill.y * 0.5f }, (rde_vec_2F){ _c.x + _pill.x * 0.5f, _c.y + _pill.y * 0.5f }, _pill.y * 0.5f, _back, _edge);
+    rde_color _ink = _t->text;
+    _ink.a         = (u8)((f32)_ink.a * _fade);
+    kana_draw_text(font, font_px, toolbar.notice, _c.x - _w * 0.5f, _c.y - _px * 0.36f, _px, _ink);
+}
+
 RDE_INTERNAL void kana_draw_hud(rde_window* _window) {
     const rde_vec_2I _size   = rde_window_get_size(_window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
@@ -1497,6 +1551,7 @@ RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
             kana_draw_hud(_window);
         }
         kana_draw_zoom_toast(_window);
+        kana_draw_notice(_window);
     }
     rde_rendering_2d_end_drawing();
 }

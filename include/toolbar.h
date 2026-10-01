@@ -17,6 +17,7 @@
 #include "exam.h"
 #include "marks.h"
 #include "stats.h"
+#include "textink.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -143,12 +144,19 @@ struct kana_toolbar {
     b8                       paper_open;
     rde_vec_2F               paper_center;   // UI canvas units, set whenever it is placed
     rde_vec_2F               paper_size;
-    // Over a lasso selection: Cut, Copy, Duplicate, Delete.
+    // Over a lasso selection: Cut, Copy, Copy as text, Duplicate, Check, Delete.
     kana_toolbar_menu        selection_menu;
-    f64                      copied_until;     // Copy reads "Copied" until then (engine clock)
-    // The page's context menu, opened by a long press: Paste, Select all.
+    f64                      copied_until;     // Copy (or Copy as text) reads "Copied" until then (engine clock)
+    kana_textink_reader      text_reader;      // Copy as text: the selection being read (textink.h)
+    b8                       _text_reader_ready;
+    // The page's context menu, opened by a long press: Paste, Paste text, Select all.
     kana_toolbar_menu        context_menu;
     rde_vec_2F               context_canvas;   // where it was opened, on the page — where Paste lands
+    kana_clip                _text_clip;       // Paste text: the system clipboard's text, written as strokes
+    // A line for the page a moment (kana.c draws it): what Copy as text copied,
+    // what Paste text left out.
+    c8                       notice[192];
+    f64                      notice_at;        // when it was set (engine clock); 0: none
     // Under the character viewer: Prev, Replay, Next, Close. While the viewer is
     // open the bar itself and every other menu hide.
     kana_toolbar_menu        viewer_menu;
@@ -276,6 +284,10 @@ void       kana_toolbar_update(kana_toolbar* _toolbar);
 
 // The paper panel, open (as Paper does).
 void       kana_toolbar_open_paper(kana_toolbar* _toolbar);
+// _text (UTF-8) written in the characters' own strokes with the brush
+// (textink.h), centred at _canvas, selected (Paste text's work; the clipboard is
+// its caller's to read). What could not be written is said in the notice.
+void       kana_toolbar_paste_text(kana_toolbar* _toolbar, const c8* _text, rde_vec_2F _canvas);
 
 // Once a frame, outside the UI's own events (a language chosen in Settings
 // rebuilds the whole UI, the button that chose it included): every widget built

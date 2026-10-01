@@ -278,6 +278,12 @@ void kana_ink_erase_end(kana_ink* _ink);
 // or out-of-range indices are skipped.
 void kana_ink_erase_strokes(kana_ink* _ink, const u32* _ids, u32 _count);
 
+// @func kana_ink_pen_radius
+// @desc The half-width (canvas units) a stroke written now at _pressure (0..1)
+// gets: the brush's constant width or its pressure width, held to the page or
+// the screen as the brush scale says. For strokes the app writes (pasted text).
+f32 kana_ink_pen_radius(const kana_ink* _ink, f32 _pressure);
+
 // @func kana_ink_add_strokes
 // @desc Appends strokes as ONE undoable edit (a paste, a duplicate). _strokes
 // supplies each stroke's point_count, colour and flags, and its first_point

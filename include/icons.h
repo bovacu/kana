@@ -96,5 +96,7 @@
 #define KANA_ICON_COPY          "\xEE\x87\x8A"   // ph-copy U+E1CA
 #define KANA_ICON_DUPLICATE     "\xEE\x87\x8C"   // ph-copy-simple U+E1CC
 #define KANA_ICON_FOLDER_OPEN   "\xEE\x89\x96"   // ph-folder-open U+E256
+#define KANA_ICON_TEXT_COPY     "\xEE\x9B\xAE"   // ph-text-aa U+E6EE
+#define KANA_ICON_TEXT_PASTE    "\xEE\x86\x98"   // ph-clipboard-text U+E198
 
 #endif

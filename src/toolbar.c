@@ -52,11 +52,14 @@
 #define KANA_TOOLBAR_ROW_RADIUS       18.0f
 #define KANA_TOOLBAR_CONTEXT_LIFT  56.0f  // the context menu sits this far above the finger
 #define KANA_TOOLBAR_COPIED_TIME   1.2    // seconds Copy reads "Copied"
+#define KANA_TOOLBAR_TEXT_CELL     72.0f  // Paste text: a character's cell, screen points at the zoom it is pasted at
+#define KANA_TOOLBAR_TEXT_WIDTH    0.8f   // ...and its lines no wider than this much of the screen
+#define KANA_TOOLBAR_NOTICE_CHARS  16u    // Copy as text says what it copied up to this long; more, how many
 
 // Button order in each menu.
-enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK, KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
+enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_COPY_TEXT, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK, KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
 enum { KANA_CHECK_MENU_BACK = 0, KANA_CHECK_MENU_ORDER, KANA_CHECK_MENU_PRACTICE, KANA_CHECK_MENU_COUNT };
-enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
+enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_PASTE_TEXT, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
 enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_STUDY, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
 enum { KANA_CHART_MENU_HIRAGANA = 0, KANA_CHART_MENU_KATAKANA, KANA_CHART_MENU_SELECT, KANA_CHART_MENU_PRACTICE, KANA_CHART_MENU_CLOSE, KANA_CHART_MENU_COUNT };
 enum { KANA_BROWSE_MENU_SELECT = 0, KANA_BROWSE_MENU_PRACTICE, KANA_BROWSE_MENU_CLOSE, KANA_BROWSE_MENU_COUNT };
@@ -72,6 +75,7 @@ enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
 enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_GUIDED, KANA_PRACTICE_COUNT };
 enum { KANA_ALBUM_MENU_EXAMS = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_PRACTICE, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
 RDE_INTERNAL void kana_toolbar_album_show_view(kana_toolbar* _toolbar);
+RDE_INTERNAL void kana_toolbar_update_text_copy(kana_toolbar* _toolbar);
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
 enum { KANA_PRACTICE_SUMMARY_AGAIN = 0, KANA_PRACTICE_SUMMARY_DONE, KANA_PRACTICE_SUMMARY_COUNT };
 
@@ -147,6 +151,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE184u,  96 },
     { 0xE18Au,  96 },
     { 0xE196u, 160 },
+    { 0xE198u, 160 },
     { 0xE19Au,  96 },
     { 0xE1CAu, 128 },
     { 0xE1CCu, 128 },
@@ -201,6 +206,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE69Au, 128 },
     { 0xE69Eu, 128 },
     { 0xE6C8u,  96 },
+    { 0xE6EEu,  32 },
     { 0xE742u,  96 },
     { 0xE746u, 128 },
     { 0xE74Eu,  32 },
@@ -212,7 +218,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xEAE0u,  96 },
     { 0xEAE2u, 320 },
     { 0xEDC6u,  64 },
-    { 0xEDF2u, 192 }
+    { 0xEDF2u, 192 },
 };
 
 f32 kana_toolbar_icon_bearing(const c8* _glyph) {
@@ -694,10 +700,11 @@ RDE_INTERNAL void kana_toolbar_update_selection_menu(kana_toolbar* _toolbar) {
 
     kana_toolbar_menu_show(_toolbar, &_toolbar->selection_menu, _show, _center);
 
-    // "Copied" goes back to "Copy".
+    // "Copied" goes back to "Copy" (and "Copy as text").
     if(_toolbar->copied_until > 0.0 && rde_engine_get_time_now() >= _toolbar->copied_until) {
         _toolbar->copied_until = 0.0;
         rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY], kana_text(KANA_TEXT_SEL_COPY));
+        rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_COPY_TEXT));
     }
 }
 
@@ -925,6 +932,7 @@ void kana_toolbar_update(kana_toolbar* _toolbar) {
     }
 
     kana_toolbar_update_viewer(_toolbar);
+    kana_toolbar_update_text_copy(_toolbar);
 
     kana_toolbar_update_selection_menu(_toolbar);
 
@@ -1178,6 +1186,8 @@ void kana_toolbar_open_context_menu(kana_toolbar* _toolbar, rde_vec_2F _screen, 
 
     _toolbar->context_canvas = _canvas;
     kana_toolbar_set_enabled(_toolbar->context_menu.buttons[KANA_CONTEXT_PASTE], kana_lasso_can_paste(_toolbar->lasso));
+    // Asks only whether there is text (iOS says nothing): reading it is Paste text's.
+    kana_toolbar_set_enabled(_toolbar->context_menu.buttons[KANA_CONTEXT_PASTE_TEXT], !rde_engine_is_clipboard_empty());
 
     // Kana screen (centre origin) → UI canvas (bottom-left origin); above the
     // finger, or below it with no room above.
@@ -1283,6 +1293,72 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_copy(rde_ui_node* _node, const
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
+// A line for the page (kana.c shows it a moment).
+RDE_INTERNAL void kana_toolbar_notice(kana_toolbar* _toolbar, const c8* _text) {
+    snprintf(_toolbar->notice, sizeof(_toolbar->notice), "%s", _text);
+    _toolbar->notice_at = rde_engine_get_time_now();
+}
+
+// Copy as text: the selection read (textink.h); the text goes to the system
+// clipboard when the reading is done (kana_toolbar_update_text_copy).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_copy_text(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(!_toolbar->_text_reader_ready) {
+        kana_textink_reader_init(&_toolbar->text_reader, _toolbar->browse->db, &_toolbar->browse->catalog);
+        _toolbar->_text_reader_ready = true;
+    }
+    if(kana_textink_read(&_toolbar->text_reader, _toolbar->ink, (const u32*)_toolbar->lasso->selected.memory, kana_lasso_count(_toolbar->lasso))) {
+        rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_READING));
+        _toolbar->copied_until = 0.0;
+    }
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Once a frame: a reading done goes to the clipboard, and the page says what.
+RDE_INTERNAL void kana_toolbar_update_text_copy(kana_toolbar* _toolbar) {
+    if(!_toolbar->_text_reader_ready || !kana_textink_update(&_toolbar->text_reader)) {
+        return;
+    }
+    const c8* _text = _toolbar->text_reader.text;
+    c8        _line[256];
+    if(_text[0] == 0) {
+        rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_COPY_TEXT));
+        kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_NOTICE_NOTHING_READ));
+        return;
+    }
+    rde_engine_set_clipboard(_text);
+    rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_COPIED));
+    _toolbar->copied_until = rde_engine_get_time_now() + KANA_TOOLBAR_COPIED_TIME;
+
+    // What was copied, when it is short (on one line); otherwise how much.
+    u32       _chars = 0;
+    c8        _one_line[sizeof(_toolbar->text_reader.text)];
+    usize     _n     = 0;
+    const c8* _p     = _text;
+    for(;;) {
+        const c8* _from = _p;
+        const u32 _cp   = kana_kanji_utf8_next(&_p);
+        if(_cp == 0) {
+            break;
+        }
+        _chars++;
+        if(_cp == '\n') {
+            _one_line[_n++] = ' ';
+        } else {
+            memcpy(&_one_line[_n], _from, (usize)(_p - _from));
+            _n += (usize)(_p - _from);
+        }
+    }
+    _one_line[_n] = 0;
+    if(_chars <= KANA_TOOLBAR_NOTICE_CHARS) {
+        KANA_TEXTF(_line, KANA_TEXT_NOTICE_COPIED_TEXT, KANA_TS(_one_line));
+    } else {
+        KANA_TEXTF(_line, KANA_TEXT_NOTICE_COPIED_N, KANA_TN(_chars));
+    }
+    kana_toolbar_notice(_toolbar, _line);
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_duplicate(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
@@ -1299,6 +1375,41 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_paste(rde_ui_node* _node, cons
     kana_toolbar_set_tool(_toolbar, KANA_TOOL_LASSO);
     kana_lasso_paste(_toolbar->lasso, _toolbar->ink, _toolbar->context_canvas);
     kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+void kana_toolbar_paste_text(kana_toolbar* _toolbar, const c8* _text, rde_vec_2F _canvas) {
+    const f32 _zoom  = _toolbar->view->view.zoom > 0.0f ? _toolbar->view->view.zoom : 1.0f;
+    const f32 _width = (f32)rde_window_get_size(_toolbar->window).x * KANA_TOOLBAR_TEXT_WIDTH;
+    const kana_textink_result _r = kana_textink_write(_toolbar->browse->db, _text, KANA_TOOLBAR_TEXT_CELL / _zoom, _width / _zoom,
+                                                     kana_ink_pen_radius(_toolbar->ink, 0.5f), _toolbar->ink->color, &_toolbar->_text_clip);
+    if(_r.drawn == 0) {
+        kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_NOTICE_NOTHING_TO_WRITE));
+        return;
+    }
+    // What was written comes in selected, ready to drag: the Lasso's job, as Paste.
+    kana_toolbar_set_tool(_toolbar, KANA_TOOL_LASSO);
+    kana_lasso_paste_clip(_toolbar->lasso, _toolbar->ink, &_toolbar->_text_clip, _canvas);
+    if(_r.skipped > 0) {
+        c8 _line[192];
+        KANA_TEXTF(_line, KANA_TEXT_NOTICE_LEFT_OUT, KANA_TN(_r.skipped));
+        kana_toolbar_notice(_toolbar, _line);
+    }
+    kana_toolbar_update(_toolbar);
+}
+
+// Paste text: the system clipboard's text, where the menu was opened.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_paste_text(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_toolbar_close_context_menu(_toolbar);
+    c8* _text = rde_engine_get_clipboard();
+    if(_text == NULL) {
+        kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_NOTICE_NO_TEXT));
+        return RDE_UI_EVENT_RESULT_DEFAULT;
+    }
+    kana_toolbar_paste_text(_toolbar, _text, _toolbar->context_canvas);
+    rde_engine_free_clipboard_str_ptr(_text);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -2585,16 +2696,17 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     // over the selection by kana_toolbar_update; the context menu opens at a
     // long press.
     {
-        const c8* const             _labels[KANA_SELECTION_COUNT]    = { kana_text(KANA_TEXT_SEL_CUT), kana_text(KANA_TEXT_SEL_COPY), kana_text(KANA_TEXT_SEL_DUPLICATE), kana_text(KANA_TEXT_SEL_CHECK), kana_text(KANA_TEXT_DELETE) };
-        const c8* const             _icons[KANA_SELECTION_COUNT]     = { KANA_ICON_CUT, KANA_ICON_COPY, KANA_ICON_DUPLICATE, KANA_ICON_SEARCH, KANA_ICON_TRASH };
-        const rde_ui_event_callback _callbacks[KANA_SELECTION_COUNT] = { kana_toolbar_on_cut, kana_toolbar_on_copy, kana_toolbar_on_duplicate, kana_toolbar_on_check,
+        const c8* const             _labels[KANA_SELECTION_COUNT]    = { kana_text(KANA_TEXT_SEL_CUT), kana_text(KANA_TEXT_SEL_COPY), kana_text(KANA_TEXT_SEL_COPY_TEXT), kana_text(KANA_TEXT_SEL_DUPLICATE),
+                                                                         kana_text(KANA_TEXT_SEL_CHECK), kana_text(KANA_TEXT_DELETE) };
+        const c8* const             _icons[KANA_SELECTION_COUNT]     = { KANA_ICON_CUT, KANA_ICON_COPY, KANA_ICON_TEXT_COPY, KANA_ICON_DUPLICATE, KANA_ICON_SEARCH, KANA_ICON_TRASH };
+        const rde_ui_event_callback _callbacks[KANA_SELECTION_COUNT] = { kana_toolbar_on_cut, kana_toolbar_on_copy, kana_toolbar_on_copy_text, kana_toolbar_on_duplicate, kana_toolbar_on_check,
                                                                          kana_toolbar_on_delete_selection };
         kana_toolbar_menu_create(_toolbar, &_toolbar->selection_menu, _root, _labels, _icons, _callbacks, KANA_SELECTION_COUNT);
     }
     {
-        const c8* const             _labels[KANA_CONTEXT_COUNT]    = { kana_text(KANA_TEXT_CTX_PASTE), kana_text(KANA_TEXT_CTX_SELECT_ALL) };
-        const c8* const             _icons[KANA_CONTEXT_COUNT]     = { KANA_ICON_PASTE, KANA_ICON_SELECT_ALL };
-        const rde_ui_event_callback _callbacks[KANA_CONTEXT_COUNT] = { kana_toolbar_on_paste, kana_toolbar_on_select_all };
+        const c8* const             _labels[KANA_CONTEXT_COUNT]    = { kana_text(KANA_TEXT_CTX_PASTE), kana_text(KANA_TEXT_CTX_PASTE_TEXT), kana_text(KANA_TEXT_CTX_SELECT_ALL) };
+        const c8* const             _icons[KANA_CONTEXT_COUNT]     = { KANA_ICON_PASTE, KANA_ICON_TEXT_PASTE, KANA_ICON_SELECT_ALL };
+        const rde_ui_event_callback _callbacks[KANA_CONTEXT_COUNT] = { kana_toolbar_on_paste, kana_toolbar_on_paste_text, kana_toolbar_on_select_all };
         kana_toolbar_menu_create(_toolbar, &_toolbar->context_menu, _root, _labels, _icons, _callbacks, KANA_CONTEXT_COUNT);
     }
     {
@@ -2864,6 +2976,12 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     _toolbar->vertical        = _kept.vertical;
     _toolbar->center          = _kept.center;
     _toolbar->minimized       = _kept.minimized;
+    // What these own moves over (the old struct is gone).
+    _toolbar->text_reader        = _kept.text_reader;
+    _toolbar->_text_reader_ready = _kept._text_reader_ready;
+    _toolbar->_text_clip         = _kept._text_clip;
+    _toolbar->notice_at          = _kept.notice_at;
+    memcpy(_toolbar->notice, _kept.notice, sizeof(_toolbar->notice));
     _toolbar->_album_practice_shown = UINT32_MAX;
     _toolbar->_album_view_shown     = UINT32_MAX;
     kana_toolbar_build(_toolbar, false);
@@ -2881,6 +2999,16 @@ void kana_toolbar_destroy(kana_toolbar* _toolbar) {
     if(_toolbar->ui != NULL) {
         rde_ui_canvas_destroy(_toolbar->ui);
         _toolbar->ui = NULL;
+    }
+    if(_toolbar->_text_reader_ready) {
+        kana_textink_reader_destroy(&_toolbar->text_reader);
+        _toolbar->_text_reader_ready = false;
+    }
+    rde_arr* const _clip[] = { &_toolbar->_text_clip.strokes, &_toolbar->_text_clip.points };
+    for(u32 _i = 0; _i < 2u; _i++) {
+        if(rde_arr_is_inited(_clip[_i])) {
+            rde_arr_free(_clip[_i]);
+        }
     }
 
     if(_toolbar->font != NULL) {

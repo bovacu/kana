@@ -396,6 +396,27 @@ by the Words title.
       then English. CC BY-SA 4.0 like their sources: a line in
       LICENSE-data.txt and the About credits saying they are machine-translated.
 
+## 10b. Text in and out of the canvas
+
+*Built 2026-10-01 (textink.h/.c; the selection's Copy as text, the context
+menu's Paste text), to see on the iPad.*
+
+- [x] **Copy as text** (the lasso's selection menu): the selection read as Check
+      reads it — ML Kit's best reading, Kana's own (segment.h) without it — and
+      put on the system clipboard; the page says what was copied (up to 16
+      characters; more: how many).
+- [x] **Paste text** (the page's long-press menu, when the clipboard has text):
+      the text written in each character's own strokes with the brush — 72
+      points a character at the zoom it is pasted at, lines wrapping at 80% of
+      the screen, line breaks kept — where the menu was opened, selected to drag.
+      What the data does not have is left out and counted (the data has kana,
+      kanji, 、。 and the full-width Latin letters).
+- Tested (textinktest): written and read back the same — one line, two lines,
+  small and large; spaces, wrapping, centring, an emoji left out.
+- Open: text from a photo or the camera (Apple's Vision reads Japanese on the
+  device from iOS 16; ML Kit's Text Recognition v2 has a Japanese model for
+  Android too) — then Paste text's writing does the rest.
+
 ## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.

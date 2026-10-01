@@ -414,6 +414,11 @@ RDE_INTERNAL f32 kana_ink_radius_from_pressure(f32 _pressure) {
     return KANA_INK_WIDTH_BASE + KANA_INK_WIDTH_PRESSURE * _pressure;
 }
 
+f32 kana_ink_pen_radius(const kana_ink* _ink, f32 _pressure) {
+    const f32 _radius = _ink->width_mode == KANA_INK_WIDTH_MODE_PRESSURE ? kana_ink_radius_from_pressure(_pressure) : _ink->constant_radius;
+    return kana_ink_width_to_canvas(_ink, _radius);
+}
+
 RDE_INTERNAL kana_ink_stroke* kana_ink_open_pen_stroke(kana_ink* _ink) {
     if(!_ink->drawing || kana_ink_len(&_ink->strokes) == 0) {
         return NULL;

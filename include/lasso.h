@@ -89,6 +89,9 @@ void kana_lasso_copy(kana_lasso* _lasso, const kana_ink* _ink);
 void kana_lasso_cut(kana_lasso* _lasso, kana_ink* _ink);
 void kana_lasso_duplicate(kana_lasso* _lasso, kana_ink* _ink, f32 _zoom);
 void kana_lasso_paste(kana_lasso* _lasso, kana_ink* _ink, rde_vec_2F _canvas);
+// The same with strokes from elsewhere (text written as ink, textink.h): _clip
+// centred at _canvas, one undo step, left selected. The lasso's clipboard is untouched.
+void kana_lasso_paste_clip(kana_lasso* _lasso, kana_ink* _ink, const kana_clip* _clip, rde_vec_2F _canvas);
 b8   kana_lasso_can_paste(const kana_lasso* _lasso);
 // Selects every stroke on the page.
 void kana_lasso_select_all(kana_lasso* _lasso, kana_ink* _ink);
