@@ -16,7 +16,6 @@
 
 #define KANA_TOOLBAR_FONT_PATH   "assets/fonts/Roboto-Regular.ttf"
 #define KANA_TOOLBAR_FONT_JP_PATH "assets/fonts/NotoSansJP-Regular.otf"
-#define KANA_TOOLBAR_FONT_JP_GLYPHS 2048u   // distinct Japanese glyphs on screen at once (see kana_toolbar_init)
 #define KANA_TOOLBAR_FONT_ICONS_PATH      "assets/fonts/Phosphor-Regular.ttf"
 #define KANA_TOOLBAR_FONT_ICONS_FILL_PATH "assets/fonts/Phosphor-Fill.ttf"
 #define KANA_TOOLBAR_CHECK_FIELD (rde_vec_2F){ 360.0f, 44.0f }
@@ -2623,34 +2622,22 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     _toolbar->tool     = KANA_TOOL_DRAW;
     _toolbar->vertical = true;
 
-    rde_font_parameters _slug = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
+    // Every font is Slug with RDE's defaults: its glyph textures start small
+    // and grow to what is drawn — more slots as more glyphs show at once,
+    // wider ones as bigger glyphs come (a kanji like 鬱 takes ~4x a Latin
+    // letter) — so nothing is measured per font, and no glyph is left out for
+    // being too big (録 once was, with fixed budgets). Going to the background
+    // gives the memory back (kana_toolbar_trim_fonts).
+    const rde_font_parameters _slug = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
     _toolbar->font = rde_font_load(KANA_TOOLBAR_FONT_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
     // Japanese falls through to Noto Sans JP (its glyphs load as they are first used).
-    // Kanji need bigger budgets than Latin: with the defaults (128 curves) over a
-    // quarter of Noto's kanji were silently left out (録, 鬱...). Measured over
-    // every kana and kanji in the font (Slug's own curve split and bands): at
-    // most 578 curve texels and 1,220 band texels. A glyph keeps its slot while
-    // it is drawn; once all are taken, new glyphs reuse those drawn longest ago
-    // (RDE frees them), so the slots only need to cover one screen — 2,048 is
-    // far more, and seldom-seen kanji rarely need uploading twice. ~31 MB of
-    // GPU memory in all.
-    rde_font_parameters _slug_jp = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
-    _slug_jp.max_glyphs              = KANA_TOOLBAR_FONT_JP_GLYPHS;
-    _slug_jp.curves_per_glyph_budget = 304u;    // 608 texels
-    _slug_jp.bands_per_glyph_budget  = 1280u;
-    _toolbar->font_jp = rde_font_load(KANA_TOOLBAR_FONT_JP_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug_jp, NULL);
+    _toolbar->font_jp = rde_font_load(KANA_TOOLBAR_FONT_JP_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
     if(_toolbar->font != NULL && _toolbar->font_jp != NULL) {
         rde_font_add_fallback(_toolbar->font, _toolbar->font_jp);
     }
-    // The icons (icons.h): Phosphor, last in line. Its busiest icon needs 540
-    // curve texels and 875 band texels (measured over all 1,513); the app uses a
-    // few dozen, and a font of its own for Fill.
-    rde_font_parameters _slug_icons = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
-    _slug_icons.max_glyphs              = 256u;
-    _slug_icons.curves_per_glyph_budget = 288u;   // 576 texels
-    _slug_icons.bands_per_glyph_budget  = 1024u;
-    _toolbar->font_icons      = rde_font_load(KANA_TOOLBAR_FONT_ICONS_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug_icons, NULL);
-    _toolbar->font_icons_fill = rde_font_load(KANA_TOOLBAR_FONT_ICONS_FILL_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug_icons, NULL);
+    // The icons (icons.h): Phosphor, last in line, and a font of its own for Fill.
+    _toolbar->font_icons      = rde_font_load(KANA_TOOLBAR_FONT_ICONS_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
+    _toolbar->font_icons_fill = rde_font_load(KANA_TOOLBAR_FONT_ICONS_FILL_PATH, KANA_TOOLBAR_FONT_SIZE, NULL, &_slug, NULL);
     if(_toolbar->font != NULL && _toolbar->font_icons != NULL) {
         rde_font_add_fallback(_toolbar->font, _toolbar->font_icons);
     }
@@ -3107,6 +3094,15 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
 void kana_toolbar_follow_language(kana_toolbar* _toolbar) {
     if(_toolbar->ui != NULL && _toolbar->_text_revision != kana_text_revision()) {
         kana_toolbar_rebuild(_toolbar);
+    }
+}
+
+void kana_toolbar_trim_fonts(kana_toolbar* _toolbar) {
+    rde_font* const _fonts[] = { _toolbar->font, _toolbar->font_jp, _toolbar->font_icons, _toolbar->font_icons_fill };
+    for(u32 _i = 0; _i < sizeof(_fonts) / sizeof(_fonts[0]); _i++) {
+        if(_fonts[_i] != NULL) {
+            rde_font_trim(_fonts[_i]);
+        }
     }
 }
 

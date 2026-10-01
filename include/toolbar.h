@@ -262,6 +262,9 @@ struct kana_toolbar {
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
                              kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, kana_check* _check, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
+// The app went to the background or the OS is short of memory: the fonts give
+// back the GPU memory their glyphs grew into (rde_font_trim). Before drawing.
+void       kana_toolbar_trim_fonts(kana_toolbar* _toolbar);
 
 // Is this point on the toolbar, its open palette or paper panel, or an open menu? _screen is
 // Kana's screen space (centre-origin, Y up) — what pen positions convert to.

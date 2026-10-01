@@ -119,6 +119,7 @@ RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open scree
 RDE_INTERNAL i32       look_theme       = -1;     // --theme=N: shown, not saved
 RDE_INTERNAL const c8* look_paste_text  = NULL;   // --paste-text=TEXT: Paste text, as if the clipboard held it, mid-page
 RDE_INTERNAL b8        look_deselect    = false;  // --deselect: and nothing left selected after it
+RDE_INTERNAL b8        look_trim_fonts  = false;  // --trim-fonts: the fonts trimmed (as on going to the background) just before the shot
 RDE_INTERNAL const c8* look_scan_demo   = NULL;   // --scan-demo=PNG: Text from a photo on that image, its lines as given below
 RDE_INTERNAL f32       look_scan_turn   = 0.0f;   // --scan-demo-turn=DEG: the image as a camera frame that needs DEG clockwise
 RDE_INTERNAL b8        look_scan_live   = false;  // --scan-live: Text from a photo, the camera live (to measure it with --perf)
@@ -633,6 +634,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--deselect") == 0) {
             look_deselect = true;
         }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--trim-fonts") == 0) {
+            look_trim_fonts = true;
+        }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--scroll=", 9) == 0) {
             look_scroll = strtof(_argv[_i] + 9, NULL);
         }
@@ -878,6 +882,13 @@ void on_event(rde_window* _window, rde_event* _event) {
 
     if(baking || _event == NULL) {
         return;
+    }
+
+    // Out of sight, or the OS short of memory: the fonts' glyph memory goes back
+    // to what they started with (each glyph uploads again when next drawn). An
+    // event comes before the frame draws, as rde_font_trim needs.
+    if(_event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_LOW_MEMORY) {
+        kana_toolbar_trim_fonts(&toolbar);
     }
 
     // The screens have the whole screen: nothing reaches the page (their buttons
@@ -1191,6 +1202,9 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         }
         if(look_shot_frames == 25u && look_deselect) {
             kana_lasso_clear(&lasso, &ink);
+        }
+        if(look_shot_frames == 40u && look_trim_fonts) {
+            kana_toolbar_trim_fonts(&toolbar);   // the shot then shows every glyph uploaded again
         }
         if(look_shot_frames == 30u && look_scroll > 0.0f) {
             stats.scroller.offset       = look_scroll;

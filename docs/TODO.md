@@ -131,6 +131,24 @@ iPad 2026-09-30.*
   longer a limit over time (2026-10-01): once all are taken, RDE gives a new
   glyph the slot of the one drawn longest ago (unused for 3 frames at least),
   so 2,048 only bounds the distinct glyphs on one screen.
+- Slug's glyph textures grow and shrink (2026-10-01, Borja): nothing about a
+  Slug font is set any more — rde_font_parameters lost max_glyphs and the two
+  per-glyph budgets. A font starts at 128 slots of 128 curve + 256 band texels;
+  slots double when all are taken and none has gone ~10 s undrawn (up to 4096),
+  and the slots widen when a bigger glyph comes (up to 2048 curves / 4096 band
+  texels a glyph, past any real font: Noto's busiest kanji needs 289 / 1,220).
+  rde_font_trim takes a font back to the start; Kana trims its four fonts on
+  going to the background or a low-memory warning. Kana's fonts held ~46 MB of
+  GPU memory from launch (Japanese 30, Latin 10, the two icon fonts 3 each);
+  they now start at 1.5 MB and sit at ~3 MB after the usual screens (鬱's
+  viewer takes the Japanese font to 1.7 MB). No glyph can be left out for
+  being too big any more (録 once was). Checked on the Mac with every font
+  started at 8 slots, so rows and widths grew together and were trimmed
+  mid-run: Statistics, Settings, Browse and the viewer on 鬱 and 録
+  pixel-identical to the normal shots (only the stroke animation's frame
+  differs), also with RDE's threaded renderer. --trim-fonts (debug) trims just
+  before the shot. On the iPad: installed and launching; going to the
+  background and back is Borja's to see.
 - Open: words for kana (あ: あさ, あめ…)? JMdict has them, but which ones to
   show is a different choice (words that start with it?).
 

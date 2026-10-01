@@ -164,7 +164,8 @@ Looks, without the device (debug builds: a release takes no arguments): a screen
 --kept-exam=N, --viewer=HEX; --scan-demo=PNG the Text from a photo screen fed
 that image and some lines, --scan-demo-turn=DEG and --scan-demo-top-first to
 show it as a camera frame is; --scan-live the live camera, for measuring on the
-device), its size and theme (--size=744x1133 is an iPad
+device), --trim-fonts (the fonts trimmed as on going to the background, just
+before the shot: every glyph drawn again from nothing), its size and theme (--size=744x1133 is an iPad
 mini's points, --theme=N), how far down (--scroll=PX), and --shot=FILE: a PNG
 of the window once it has settled, then the app quits.
 
