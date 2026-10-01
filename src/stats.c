@@ -424,7 +424,7 @@ RDE_INTERNAL f32 kana_stats_card_height(const kana_stats* _stats, KANA_STATS_CAR
         }
         case KANA_STATS_CARD_SCORES:     return _frame + 220.0f;
         case KANA_STATS_CARD_EXAMS:      return _frame + (_stats->data.exams > 0 ? 222.0f : 30.0f);
-        case KANA_STATS_CARD_MARKS:      return _frame + (_stats->data.mark_changes > 0 ? 236.0f : 52.0f);
+        case KANA_STATS_CARD_MARKS:      return _frame + (_stats->data.mark_changes > 0 ? 242.0f : 52.0f);
         case KANA_STATS_CARD_COVERAGE:   return _frame + (f32)KANA_STATS_GROUP_COUNT * KANA_STATS_ROW + 28.0f;
         case KANA_STATS_CARD_MISTAKES:   return _frame + (_stats->data.squares > 0 ? (f32)KANA_STATS_MISTAKE_COUNT * KANA_STATS_ROW + 28.0f : 30.0f);
         case KANA_STATS_CARD_CHARACTERS: return _frame + (_stats->data.weakest_count > 0 ? 2.0f * (26.0f + KANA_STATS_GLYPH + 26.0f) : 30.0f);
@@ -537,7 +537,8 @@ RDE_INTERNAL void kana_stats_draw_activity(const kana_stats_box* _b) {
     }
     c8 _line[96];
     KANA_TEXTF(_line, KANA_TEXT_STATS_ACTIVITY_CAPTION, KANA_TN(KANA_STATS_WEEKS));
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 7.0f * _cell - 22.0f, 14.0f, _theme->text_soft);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 7.0f * _cell - 22.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 14.0f, _b->width, 0.6f),
+                   _theme->text_soft);
 }
 
 // A chart area with lines at 0, 50 (fair) and 80 (good), 0..100.
@@ -573,7 +574,7 @@ RDE_INTERNAL void kana_stats_draw_scores(const kana_stats_box* _b) {
     } else {
         KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_ALL, KANA_TN(lroundf(_d->average)));
     }
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, 16.0f, _theme->text);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
 
     // Weekly averages: a line through the weeks that had practice.
     const f32 _x = _b->left + 28.0f, _y = _b->top - 36.0f, _w = _b->width - 28.0f, _h = 140.0f;
@@ -593,7 +594,7 @@ RDE_INTERNAL void kana_stats_draw_scores(const kana_stats_box* _b) {
         _have = true;
     }
     KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_CAPTION, KANA_TN(KANA_STATS_WEEKS));
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 36.0f, 13.0f, _theme->text_soft);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 36.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
 }
 
 RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
@@ -606,7 +607,7 @@ RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
     }
     KANA_TEXTF(_line, KANA_TEXT_STATS_EXAMS_LINE, KANA_TN(_d->exams), KANA_TN(_d->exams_passed), KANA_TN(_d->exam_right), KANA_TN(_d->exam_items),
                KANA_TN(lroundf(_d->exam_points)));
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, 16.0f, _theme->text);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
 
     // The last exams: how many right (the bar), how many points (the dot).
     const f32 _x = _b->left + 28.0f, _y = _b->top - 36.0f, _w = _b->width - 28.0f, _h = 130.0f;
@@ -634,7 +635,7 @@ RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
                        _theme->text_soft);
     }
     KANA_TEXTF(_line, KANA_TEXT_STATS_EXAMS_CAPTION, KANA_TN(KANA_STATS_EXAMS), KANA_TN(lroundf(100.0f * KANA_EXAM_PASS)));
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, 13.0f, _theme->text_soft);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
 }
 
 // A chart's top value for _max: a round number at or above it (10 at least).
@@ -706,7 +707,7 @@ RDE_INTERNAL void kana_stats_draw_marks(const kana_stats_box* _b) {
     }
 
     // The legend, then what it shows.
-    const f32 _ly = _y - _h - 26.0f;
+    const f32 _ly = _y - _h - 32.0f;
     const struct { KANA_TEXT_ text; rde_color color; } _legend[2] = {
         { KANA_TEXT_STATS_LEGEND_KNOWN, _known_c },
         { KANA_TEXT_STATS_LEGEND_STUDYING, _studying_c },
@@ -797,7 +798,8 @@ RDE_INTERNAL void kana_stats_draw_mistakes(const kana_stats_box* _b) {
         kana_stats_text_right(_b, _line, _b->left + _b->width, _y - 22.0f, 14.0f, _theme->text_soft);
     }
     KANA_TEXTF(_line, KANA_TEXT_STATS_MISTAKES_CAPTION, KANA_TN(KANA_STATS_RECENT));
-    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - (f32)KANA_STATS_MISTAKE_COUNT * KANA_STATS_ROW - 14.0f, 13.0f, _theme->text_soft);
+    kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - (f32)KANA_STATS_MISTAKE_COUNT * KANA_STATS_ROW - 14.0f,
+                   kana_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
 }
 
 RDE_INTERNAL void kana_stats_draw_characters(const kana_stats_box* _b) {

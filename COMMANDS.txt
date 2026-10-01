@@ -145,6 +145,17 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ./build/osx-silicon/debug/project/exe/runnable                  # the app
   ./build/osx-silicon/debug/project/exe/runnable --viewer=6728    # straight into the viewer on 木 (hex code point)
 
+Looks, without the device: a screen (--browse, --kana, --stats, --exam,
+--exam-start, --side, --paper, --album, --album-exams, --album-page=HEX,
+--kept-exam=N, --viewer=HEX), its size and theme (--size=744x1133 is an iPad
+mini's points, --theme=N), how far down (--scroll=PX), and --shot=FILE: a PNG
+of the window once it has settled, then the app quits.
+
+  ./build/osx-silicon/debug/project/exe/runnable --size=744x1133 --stats --scroll=900 --shot=/tmp/stats.png
+
+Saves are ./saves/ under the folder it runs in: run it from another folder
+(with links to runnable, libRDE.dylib and assets) to look at planted data.
+
 
 THE CHARACTER DATA BAKE
 -----------------------

@@ -202,6 +202,7 @@ struct kana_toolbar {
     kana_toolbar_menu        album_page_menu;
     kana_toolbar_chip_ref    album_sort_refs[KANA_ALBUM_SORT_COUNT];
     u32                      _album_practice_shown;   // the count "Practice n" shows
+    u32                      _album_view_shown;       // the album view its menu shows selected (KANA_ALBUM_VIEW_)
     // Practice over a set: Back, Undo, Clear, Score, Next (Finish on the last);
     // and the set's summary: Weakest again, Done.
     kana_toolbar_menu        practice_set_menu;

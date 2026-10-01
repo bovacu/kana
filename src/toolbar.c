@@ -71,6 +71,7 @@ enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
 #define KANA_TOOLBAR_BACKDROP  (rde_color){ 0, 0, 0, 110 }
 enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRACTICE_SCORE, KANA_PRACTICE_FEWER, KANA_PRACTICE_MORE, KANA_PRACTICE_GUIDED, KANA_PRACTICE_COUNT };
 enum { KANA_ALBUM_MENU_EXAMS = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_PRACTICE, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
+RDE_INTERNAL void kana_toolbar_album_show_view(kana_toolbar* _toolbar);
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
 enum { KANA_PRACTICE_SUMMARY_AGAIN = 0, KANA_PRACTICE_SUMMARY_DONE, KANA_PRACTICE_SUMMARY_COUNT };
 
@@ -898,6 +899,9 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
                            (rde_vec_2F){ _screen.x - (f32)_insets.z - 16.0f - _w * 0.5f, _screen.y - (f32)_insets.y - 8.0f - _size.y * 0.5f },
                            (rde_vec_2F){ _w, _size.y });
     }
+    if(_albuming && _toolbar->_album_view_shown != (u32)_toolbar->album->view) {
+        kana_toolbar_album_show_view(_toolbar);   // the view changed by something other than its menu
+    }
     kana_toolbar_menu_show(_toolbar, &_toolbar->album_menu, _albuming && !_toolbar->album->page_open, _center);
     kana_toolbar_menu_show(_toolbar, &_toolbar->album_page_menu, _albuming && _toolbar->album->page_open, _center);
 
@@ -1412,6 +1416,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_reset_view(rde_ui_node* _node,
 // The album's sorts and Exams, one of them selected: the order shown, or the exams.
 RDE_INTERNAL void kana_toolbar_album_show_view(kana_toolbar* _toolbar) {
     const u32 _shown = _toolbar->album->view == KANA_ALBUM_VIEW_EXAMS ? (u32)KANA_ALBUM_MENU_EXAMS : (u32)_toolbar->album->sort;
+    _toolbar->_album_view_shown = (u32)_toolbar->album->view;
     for(u32 _i = 0; _i <= (u32)KANA_ALBUM_MENU_EXAMS; _i++) {
         if(_i == _shown) { kana_toolbar_button_selected(_toolbar->album_menu.buttons[_i]); }
         else             { kana_toolbar_button_quiet(_toolbar->album_menu.buttons[_i]); }
@@ -2399,6 +2404,7 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     _toolbar->notes    = _notes;
     _toolbar->check    = _check;
     _toolbar->_album_practice_shown = UINT32_MAX;   // not shown yet: the first update sets it
+    _toolbar->_album_view_shown     = KANA_ALBUM_VIEW_CHARACTERS;
     _toolbar->show_hud = _show_hud;
     _toolbar->tool     = KANA_TOOL_DRAW;
     _toolbar->vertical = true;
@@ -2859,6 +2865,7 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     _toolbar->center          = _kept.center;
     _toolbar->minimized       = _kept.minimized;
     _toolbar->_album_practice_shown = UINT32_MAX;
+    _toolbar->_album_view_shown     = UINT32_MAX;
     kana_toolbar_build(_toolbar, false);
     _toolbar->side.open          = _kept.side.open;
     _toolbar->side.settings_open = _kept.side.settings_open;

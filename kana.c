@@ -106,6 +106,14 @@ RDE_INTERNAL u8 settings_language = 0;   // the saved language (RDE_LANGUAGE_; 0
 // --paper (desktop looks): the paper panel opened a few frames in.
 RDE_INTERNAL b8  look_paper  = false;
 RDE_INTERNAL u32 look_frames = 0;
+// --shot=FILE: a screenshot of the window once the screen has settled, then quit
+// (with the other look flags: a screen, a size, a theme — checked without a device).
+RDE_INTERNAL const c8* look_shot        = NULL;
+RDE_INTERNAL u32       look_shot_frames = 0;
+// Look flags that need the saves (the exams, the marks): acted on once they are loaded.
+RDE_INTERNAL b8        look_stats       = false;
+RDE_INTERNAL i64       look_kept_exam   = -1;
+RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open screen scrolled down (Statistics, the album)
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -501,6 +509,19 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--album") == 0) {
             kana_album_open(&album);
         }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--album-exams") == 0) {
+            kana_album_open(&album);
+            kana_album_set_view(&album, KANA_ALBUM_VIEW_EXAMS);
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--album-page=", 13) == 0) {
+            kana_album_open(&album);
+            kana_album_open_page(&album, (u32)strtoul(_argv[_i] + 13, NULL, 16));
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--kept-exam=", 12) == 0) {
+            kana_album_open(&album);
+            kana_album_set_view(&album, KANA_ALBUM_VIEW_EXAMS);
+            look_kept_exam = (i64)strtoul(_argv[_i] + 12, NULL, 10);
+        }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--browse") == 0) {
             kana_browse_open(&browse);
         }
@@ -525,7 +546,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
         // Looks, for the desktop: --size=744x1133 the window (an iPad mini's
         // points), --theme=2 a theme, --side / --paper / --stats / --exam /
-        // --exam-start (an N5 exam, writing) a screen.
+        // --exam-start (an N5 exam, writing) / --album-exams / --album-page=HEX /
+        // --kept-exam=N a screen, --shot=FILE a screenshot of it (then quit).
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--size=", 7) == 0) {
             c8*       _end = NULL;
             const i32 _w   = (i32)strtol(_argv[_i] + 7, &_end, 10);
@@ -544,6 +566,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--paper") == 0) {
             look_paper = true;
         }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--shot=", 7) == 0) {
+            look_shot = _argv[_i] + 7;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--scroll=", 9) == 0) {
+            look_scroll = strtof(_argv[_i] + 9, NULL);
+        }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--perf=", 7) == 0) {
             perf_seconds = strtod(_argv[_i] + 7, NULL);
             for(i32 _k = 1; _k < _argc; _k++) {
@@ -554,7 +582,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             }
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--stats") == 0) {
-            kana_stats_open(&stats);
+            look_stats = true;
         }
         if(_argv[_i] != NULL && (strcmp(_argv[_i], "--exam") == 0 || strcmp(_argv[_i], "--exam-start") == 0)) {
             kana_exam_open(&exam);
@@ -567,6 +595,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     kana_load_saves();
+    if(look_stats) {
+        kana_stats_open(&stats);
+    }
+    if(look_kept_exam >= 0) {
+        kana_exam_open_kept(&exam, (u32)look_kept_exam);
+    }
     kana_mlkit_prepare();   // after the settings: when ML Kit is on, its model downloads the first time (iOS; nothing elsewhere)
 
     rde_log_color(RDE_LOG_COLOR_GREEN, "%s",
@@ -1036,6 +1070,19 @@ RDE_INTERNAL void kana_update(f32 _dt) {
     if(look_paper && ++look_frames == 20u) {
         kana_toolbar_open_paper(&toolbar);
         look_paper = false;
+    }
+    if(look_shot != NULL) {
+        ++look_shot_frames;
+        if(look_shot_frames == 30u && look_scroll > 0.0f) {
+            stats.scroller.offset       = look_scroll;
+            album.scroller.offset       = look_scroll;
+            album.page_scroller.offset  = look_scroll;
+        }
+        if(look_shot_frames == 45u) {
+            rde_window_take_screenshot(window, (rde_vec_2I){ 0, 0 }, (rde_vec_2I){ 0, 0 }, look_shot, NULL);   // the next frame, whole
+        } else if(look_shot_frames == 50u) {
+            rde_engine_set_running(false);
+        }
     }
     if(notes.open != current_canvas) {
         kana_switch_canvas();   // chosen (or made, or its canvas deleted) in the side panel
