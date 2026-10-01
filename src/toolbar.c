@@ -59,7 +59,7 @@
 // Button order in each menu.
 enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_COPY_TEXT, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK, KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
 enum { KANA_CHECK_MENU_BACK = 0, KANA_CHECK_MENU_ORDER, KANA_CHECK_MENU_PRACTICE, KANA_CHECK_MENU_COUNT };
-enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_PASTE_TEXT, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
+enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_PASTE_TEXT, KANA_CONTEXT_SCAN, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
 enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_STUDY, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
 enum { KANA_CHART_MENU_HIRAGANA = 0, KANA_CHART_MENU_KATAKANA, KANA_CHART_MENU_SELECT, KANA_CHART_MENU_PRACTICE, KANA_CHART_MENU_CLOSE, KANA_CHART_MENU_COUNT };
 enum { KANA_BROWSE_MENU_SELECT = 0, KANA_BROWSE_MENU_PRACTICE, KANA_BROWSE_MENU_CLOSE, KANA_BROWSE_MENU_COUNT };
@@ -69,6 +69,7 @@ enum { KANA_EXAM_PREVIEW_BACK = 0, KANA_EXAM_PREVIEW_ALL, KANA_EXAM_PREVIEW_NONE
 enum { KANA_EXAM_MENU_QUIT = 0, KANA_EXAM_MENU_UNDO, KANA_EXAM_MENU_CLEAR, KANA_EXAM_MENU_NEXT, KANA_EXAM_MENU_COUNT };
 enum { KANA_EXAM_RESULTS_DONE = 0, KANA_EXAM_RESULTS_RETRY, KANA_EXAM_RESULTS_PRACTICE, KANA_EXAM_RESULTS_COUNT };
 enum { KANA_STATS_MENU_CLOSE = 0, KANA_STATS_MENU_COUNT };
+enum { KANA_SCAN_MENU_BACK = 0, KANA_SCAN_MENU_CAMERA, KANA_SCAN_MENU_PHOTOS, KANA_SCAN_MENU_WRITE, KANA_SCAN_MENU_COUNT };
 enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
 #define KANA_TOOLBAR_WORD_CARD (rde_vec_2F){ 540.0f, 308.0f }
 #define KANA_TOOLBAR_BACKDROP  (rde_color){ 0, 0, 0, 110 }
@@ -143,6 +144,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE0E6u,  64 },
     { 0xE0F8u,  96 },
     { 0xE10Au, 128 },
+    { 0xE10Eu,  96 },
     { 0xE138u, 288 },
     { 0xE13Au, 352 },
     { 0xE150u,  96 },
@@ -172,6 +174,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE266u,  96 },
     { 0xE272u,  64 },
     { 0xE296u, 160 },
+    { 0xE2CAu,  96 },
     { 0xE2CEu,  96 },
     { 0xE2D8u,  64 },
     { 0xE2DCu, 160 },
@@ -181,6 +184,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE32Au, 128 },
     { 0xE34Cu, 128 },
     { 0xE39Cu,  96 },
+    { 0xE39Eu, 160 },
     { 0xE3ACu, 128 },
     { 0xE3B4u, 128 },
     { 0xE3D0u, 256 },
@@ -217,6 +221,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xEADCu, 128 },
     { 0xEAE0u,  96 },
     { 0xEAE2u, 320 },
+    { 0xEBB6u, 128 },
     { 0xEDC6u,  64 },
     { 0xEDF2u, 192 },
 };
@@ -786,13 +791,14 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     const b8 _examining  = _exam_open && !_toolbar->viewer->open && !_practicing;   // the viewer and Practice go over an exam's results
     const b8 _stats_open = _toolbar->stats != NULL && _toolbar->stats->open;
     const b8 _statsing   = _stats_open && !_toolbar->viewer->open && !_practicing;   // the viewer goes over a tapped character
-    const b8 _under      = _toolbar->viewer->open || _practicing || _exam_open || _stats_open;   // something covers Browse / the chart / the album
+    const b8 _scanning   = _toolbar->scan != NULL && _toolbar->scan->open;
+    const b8 _under      = _toolbar->viewer->open || _practicing || _exam_open || _stats_open || _scanning;   // something covers Browse / the chart / the album
     const b8 _browsing   = _toolbar->browse->open && !_under;
     const b8 _charting   = _toolbar->chart->open && !_under;
     const b8 _albuming   = _toolbar->album->open && !_under;
     const b8 _checking   = _toolbar->check->open && !_under;
     const b8 _full       = _practicing || _toolbar->viewer->open || _toolbar->browse->open || _toolbar->chart->open || _toolbar->album->open ||
-                           _toolbar->check->open || _exam_open || _stats_open;
+                           _toolbar->check->open || _exam_open || _stats_open || _scanning;
 
     if(_full != _toolbar->_viewer_shown) {
         _toolbar->_viewer_shown = _full;
@@ -830,6 +836,25 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
     }
     kana_toolbar_show_exam(_toolbar, _examining, _center);
     kana_toolbar_menu_show(_toolbar, &_toolbar->stats_menu, _statsing, _center);
+    // Text from a photo: Hold while the camera is live; then "Write n", as many
+    // lines as are kept.
+    if(_scanning) {
+        const b8  _live = _toolbar->scan->stage == KANA_SCAN_LIVE;
+        const u32 _kept = kana_scan_kept(_toolbar->scan);
+        const u32 _for  = _live ? UINT32_MAX - 1u : _kept;
+        if(_for != _toolbar->_scan_kept_shown) {
+            _toolbar->_scan_kept_shown = _for;
+            c8 _label[48];
+            if(_live)          { snprintf(_label, sizeof(_label), "%s", kana_text(KANA_TEXT_SCAN_HOLD)); }
+            else if(_kept > 0) { KANA_TEXTF(_label, KANA_TEXT_SCAN_WRITE_N, KANA_TN(_kept)); }
+            else               { snprintf(_label, sizeof(_label), "%s", kana_text(KANA_TEXT_SCAN_WRITE)); }
+            rde_ui_button_set_text(_toolbar->scan_menu.buttons[KANA_SCAN_MENU_WRITE], _label);
+            kana_toolbar_icon(_toolbar->scan_menu.buttons[KANA_SCAN_MENU_WRITE], _live ? KANA_ICON_PAUSE : KANA_ICON_PEN, KANA_TOOLBAR_ICON_ABOVE,
+                              KANA_TOOLBAR_ROW_ICON_PX);
+            kana_toolbar_set_enabled(_toolbar->scan_menu.buttons[KANA_SCAN_MENU_WRITE], _live || _kept > 0);
+        }
+    }
+    kana_toolbar_menu_show(_toolbar, &_toolbar->scan_menu, _scanning, _center);
     // Select mode (select.h) ends when Browse and the chart are gone; while on, its
     // row takes their place.
     kana_selection* const _sel = _toolbar->selection;
@@ -1083,10 +1108,23 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
         { rde_ui_button_as_node(_toolbar->brush_scale), { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->paper),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_image_as_node(_toolbar->separators[3]), _sep },
+        { rde_ui_button_as_node(_toolbar->camera),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
+        { rde_ui_image_as_node(_toolbar->separators[4]), _sep },
         { rde_ui_button_as_node(_toolbar->rotate),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->reset_view),  { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
     };
-    const u32 _count = sizeof(_items) / sizeof(_items[0]);
+    // The camera only where text can be read from it (textscan.h): elsewhere it
+    // and the hairline after it are left out of the bar, not shown dead.
+    const b8 _camera = kana_textscan_available();
+    rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->camera), _camera);
+    rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->separators[4]), _camera);
+    u32 _count = 0;
+    for(u32 _i = 0; _i < sizeof(_items) / sizeof(_items[0]); _i++) {
+        if(!_camera && (_items[_i].node == rde_ui_button_as_node(_toolbar->camera) || _items[_i].node == rde_ui_image_as_node(_toolbar->separators[4]))) {
+            continue;
+        }
+        _items[_count++] = _items[_i];
+    }
 
     // The slider runs along the bar; its thumb has to be wider than its track.
     rde_ui_slider_set_orientation(_toolbar->size, _v ? RDE_UI_ORIENTATION_VERTICAL : RDE_UI_ORIENTATION_HORIZONTAL);
@@ -1188,6 +1226,7 @@ void kana_toolbar_open_context_menu(kana_toolbar* _toolbar, rde_vec_2F _screen, 
     kana_toolbar_set_enabled(_toolbar->context_menu.buttons[KANA_CONTEXT_PASTE], kana_lasso_can_paste(_toolbar->lasso));
     // Asks only whether there is text (iOS says nothing): reading it is Paste text's.
     kana_toolbar_set_enabled(_toolbar->context_menu.buttons[KANA_CONTEXT_PASTE_TEXT], !rde_engine_is_clipboard_empty());
+    kana_toolbar_set_enabled(_toolbar->context_menu.buttons[KANA_CONTEXT_SCAN], _toolbar->scan != NULL && kana_textscan_available());
 
     // Kana screen (centre origin) → UI canvas (bottom-left origin); above the
     // finger, or below it with no room above.
@@ -1510,6 +1549,24 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_rotate(rde_ui_node* _node, con
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
     _toolbar->vertical = !_toolbar->vertical;
     kana_toolbar_layout(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// The bar's camera: Text from a photo with the camera live straight away; what
+// is written goes to the middle of the page as it is on screen.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_camera(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(_toolbar->scan == NULL) {
+        return RDE_UI_EVENT_RESULT_DEFAULT;
+    }
+    kana_toolbar_close_context_menu(_toolbar);
+    kana_toolbar_set_palette_open(_toolbar, false);
+    kana_toolbar_set_paper_open(_toolbar, false);
+    kana_scan_open(_toolbar->scan, _toolbar->window, kana_canvas_from_screen(_toolbar->view, (rde_vec_2F){ 0.0f, 0.0f }));
+    kana_scan_camera(_toolbar->scan);
+    _toolbar->_scan_kept_shown = UINT32_MAX;
+    kana_toolbar_update(_toolbar);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -1845,6 +1902,50 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_viewer_add_type(rde_ui_node* _
 }
 
 // --- exams ----------------------------------------------------------------------------
+
+// --- text from a photo ------------------------------------------------------------------
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_toolbar_close_context_menu(_toolbar);
+    kana_scan_open(_toolbar->scan, _toolbar->window, _toolbar->context_canvas);   // its lines go where the menu was opened
+    _toolbar->_scan_kept_shown = UINT32_MAX;
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_back(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_scan_close(_toolbar->scan);
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_camera(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_scan_camera(((kana_toolbar*)_user_data)->scan);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_photos(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_scan_photos(((kana_toolbar*)_user_data)->scan);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Live: Hold. Otherwise Write — the owner writes them on the page (kana_scan_take_text).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_write(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_scan* _scan = ((kana_toolbar*)_user_data)->scan;
+    if(_scan->stage == KANA_SCAN_LIVE) {
+        kana_scan_hold(_scan);
+    } else {
+        kana_scan_write(_scan);
+    }
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
 
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_stats_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -2419,7 +2520,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     // The bar's tools are quiet; the ones that show a state are set after.
     rde_ui_button* const _tools[] = {
         _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
-        _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view,
+        _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view, _toolbar->camera,
         _toolbar->paper_choices[0], _toolbar->paper_choices[1], _toolbar->paper_choices[2], _toolbar->paper_choices[3],
     };
     for(u32 _i = 0; _i < sizeof(_tools) / sizeof(_tools[0]); _i++) {
@@ -2436,7 +2537,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu, &_toolbar->select_menu, &_toolbar->exam_setup_menu,
                                           &_toolbar->exam_preview_menu, &_toolbar->exam_menu, &_toolbar->exam_results_menu,
-                                          &_toolbar->stats_menu, &_toolbar->viewer_add_menu };
+                                          &_toolbar->stats_menu, &_toolbar->scan_menu, &_toolbar->viewer_add_menu };
     for(u32 _m = 0; _m < sizeof(_menus) / sizeof(_menus[0]); _m++) {
         kana_toolbar_style_panel(_menus[_m]->panel, KANA_TOOLBAR_ROW_RADIUS, 1.0f);
         for(u32 _i = 0; _i < _menus[_m]->count; _i++) {
@@ -2461,6 +2562,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
         _toolbar->chart_menu.buttons[KANA_CHART_MENU_PRACTICE],
         _toolbar->album_menu.buttons[KANA_ALBUM_MENU_PRACTICE],
         _toolbar->exam_results_menu.buttons[KANA_EXAM_RESULTS_PRACTICE],
+        _toolbar->scan_menu.buttons[KANA_SCAN_MENU_WRITE],
     };
     for(u32 _i = 0; _i < sizeof(_primary) / sizeof(_primary[0]); _i++) {
         kana_toolbar_button_primary(_primary[_i]);
@@ -2515,6 +2617,7 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     _toolbar->notes    = _notes;
     _toolbar->check    = _check;
     _toolbar->_album_practice_shown = UINT32_MAX;   // not shown yet: the first update sets it
+    _toolbar->_scan_kept_shown      = UINT32_MAX;
     _toolbar->_album_view_shown     = KANA_ALBUM_VIEW_CHARACTERS;
     _toolbar->show_hud = _show_hud;
     _toolbar->tool     = KANA_TOOL_DRAW;
@@ -2643,12 +2746,13 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     _toolbar->paper       = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_PAPER),  kana_toolbar_on_paper);
     _toolbar->rotate      = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_ROTATE), kana_toolbar_on_rotate);
     _toolbar->reset_view  = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_RESET),  kana_toolbar_on_reset_view);
+    _toolbar->camera      = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_SCAN_CAMERA), kana_toolbar_on_camera);
     {
         const struct { rde_ui_button* button; const c8* icon; } _icons[] = {
             { _toolbar->undo, KANA_ICON_UNDO }, { _toolbar->redo, KANA_ICON_REDO }, { _toolbar->draw, KANA_ICON_DRAW },
             { _toolbar->erase, KANA_ICON_ERASE }, { _toolbar->lasso_tool, KANA_ICON_LASSO }, { _toolbar->clear, KANA_ICON_TRASH },
             { _toolbar->brush_scale, KANA_ICON_PAGE }, { _toolbar->paper, KANA_ICON_PAPER_DOTS }, { _toolbar->rotate, KANA_ICON_ROTATE },
-            { _toolbar->reset_view, KANA_ICON_RESET_VIEW },
+            { _toolbar->reset_view, KANA_ICON_RESET_VIEW }, { _toolbar->camera, KANA_ICON_CAMERA },
         };
         for(u32 _i = 0; _i < sizeof(_icons) / sizeof(_icons[0]); _i++) {
             kana_toolbar_icon(_icons[_i].button, _icons[_i].icon, KANA_TOOLBAR_ICON_ONLY, KANA_TOOLBAR_TOOL_ICON_PX);
@@ -2704,9 +2808,10 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
         kana_toolbar_menu_create(_toolbar, &_toolbar->selection_menu, _root, _labels, _icons, _callbacks, KANA_SELECTION_COUNT);
     }
     {
-        const c8* const             _labels[KANA_CONTEXT_COUNT]    = { kana_text(KANA_TEXT_CTX_PASTE), kana_text(KANA_TEXT_CTX_PASTE_TEXT), kana_text(KANA_TEXT_CTX_SELECT_ALL) };
-        const c8* const             _icons[KANA_CONTEXT_COUNT]     = { KANA_ICON_PASTE, KANA_ICON_TEXT_PASTE, KANA_ICON_SELECT_ALL };
-        const rde_ui_event_callback _callbacks[KANA_CONTEXT_COUNT] = { kana_toolbar_on_paste, kana_toolbar_on_paste_text, kana_toolbar_on_select_all };
+        const c8* const             _labels[KANA_CONTEXT_COUNT]    = { kana_text(KANA_TEXT_CTX_PASTE), kana_text(KANA_TEXT_CTX_PASTE_TEXT), kana_text(KANA_TEXT_CTX_SCAN),
+                                                                       kana_text(KANA_TEXT_CTX_SELECT_ALL) };
+        const c8* const             _icons[KANA_CONTEXT_COUNT]     = { KANA_ICON_PASTE, KANA_ICON_TEXT_PASTE, KANA_ICON_SCAN, KANA_ICON_SELECT_ALL };
+        const rde_ui_event_callback _callbacks[KANA_CONTEXT_COUNT] = { kana_toolbar_on_paste, kana_toolbar_on_paste_text, kana_toolbar_on_scan, kana_toolbar_on_select_all };
         kana_toolbar_menu_create(_toolbar, &_toolbar->context_menu, _root, _labels, _icons, _callbacks, KANA_CONTEXT_COUNT);
     }
     {
@@ -2795,6 +2900,14 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
         const c8* const             _icons[KANA_STATS_MENU_COUNT]     = { KANA_ICON_CLOSE };
         const rde_ui_event_callback _callbacks[KANA_STATS_MENU_COUNT] = { kana_toolbar_on_stats_close };
         kana_toolbar_menu_create(_toolbar, &_toolbar->stats_menu, _root, _labels, _icons, _callbacks, KANA_STATS_MENU_COUNT);
+    }
+    {
+        const c8* const             _labels[KANA_SCAN_MENU_COUNT]    = { kana_text(KANA_TEXT_BACK), kana_text(KANA_TEXT_SCAN_CAMERA), kana_text(KANA_TEXT_SCAN_PHOTOS),
+                                                                         kana_text(KANA_TEXT_SCAN_WRITE_N) };
+        const c8* const             _icons[KANA_SCAN_MENU_COUNT]     = { KANA_ICON_BACK, KANA_ICON_CAMERA, KANA_ICON_IMAGE, KANA_ICON_PEN };
+        const rde_ui_event_callback _callbacks[KANA_SCAN_MENU_COUNT] = { kana_toolbar_on_scan_back, kana_toolbar_on_scan_camera, kana_toolbar_on_scan_photos,
+                                                                         kana_toolbar_on_scan_write };
+        kana_toolbar_menu_create(_toolbar, &_toolbar->scan_menu, _root, _labels, _icons, _callbacks, KANA_SCAN_MENU_COUNT);
     }
     {
         const c8* const             _labels[KANA_VIEWER_ADD_COUNT]    = { kana_text(KANA_TEXT_DONE), kana_text(KANA_TEXT_TYPE_YOUR_OWN) };
@@ -2967,6 +3080,7 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     _toolbar->selection       = _kept.selection;
     _toolbar->exam            = _kept.exam;
     _toolbar->stats           = _kept.stats;
+    _toolbar->scan            = _kept.scan;
     _toolbar->show_hud        = _kept.show_hud;
     _toolbar->font            = _kept.font;
     _toolbar->font_jp         = _kept.font_jp;
@@ -2984,6 +3098,7 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     memcpy(_toolbar->notice, _kept.notice, sizeof(_toolbar->notice));
     _toolbar->_album_practice_shown = UINT32_MAX;
     _toolbar->_album_view_shown     = UINT32_MAX;
+    _toolbar->_scan_kept_shown      = UINT32_MAX;
     kana_toolbar_build(_toolbar, false);
     _toolbar->side.open          = _kept.side.open;
     _toolbar->side.settings_open = _kept.side.settings_open;
@@ -3079,7 +3194,7 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
                                           &_toolbar->album_menu, &_toolbar->album_page_menu, &_toolbar->practice_set_menu,
                                           &_toolbar->practice_summary_menu, &_toolbar->select_menu, &_toolbar->exam_setup_menu,
                                           &_toolbar->exam_preview_menu, &_toolbar->exam_menu, &_toolbar->exam_results_menu,
-                                          &_toolbar->stats_menu, &_toolbar->viewer_add_menu };
+                                          &_toolbar->stats_menu, &_toolbar->scan_menu, &_toolbar->viewer_add_menu };
     for(u32 _i = 0; _i < sizeof(_menus) / sizeof(_menus[0]); _i++) {
         if(_menus[_i]->open && kana_toolbar_rect_contains(_menus[_i]->center, _menus[_i]->size, _p)) {
             return true;

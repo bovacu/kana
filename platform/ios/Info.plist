@@ -26,5 +26,10 @@
     <false/>
     <key>CFBundleDisplayName</key>
     <string>Kana</string>
+    <!-- Text from a photo (scan.h): the live camera, asked for the first time it
+         is used. The photo library needs nothing: its picker hands over only the
+         photo chosen. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Kana reads the Japanese text the camera sees, so you can write it on the page.</string>
 </dict>
 </plist>

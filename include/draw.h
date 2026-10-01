@@ -45,6 +45,10 @@ void kana_draw_verdict(rde_vec_2F _center, f32 _radius, b8 _right);
 // the first time and kept; a long one estimated — an advance per character,
 // measured once per font: Japanese (all one width) and Latin (the average).
 f32  kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px);
+// _text in lines no wider than _width — broken at spaces, or between Japanese
+// characters, and at line breaks — the first line's baseline at _y, the next
+// _line below each. How many lines.
+u32  kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color);
 // The size to draw _text at so it fits _width: _px, or smaller (down to
 // _min_scale of it) when it would not fit.
 f32  kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);

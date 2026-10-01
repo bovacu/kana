@@ -20,7 +20,7 @@
 //             folder it will go into; near the list's ends it scrolls.
 //   ...and at the bottom the version on the left, Settings on the right.
 // Settings is a card over everything: the theme (each shown in its own colours),
-// the language (a flag and its name each), the diagnostics HUD, pen width, and About — the version and the credits the
+// the language (a flag and its name each), pen width, and About — the version and the credits the
 // character data's licences require.
 //
 // Built on the toolbar's UI canvas and font (toolbar_kit.h); the toolbar owns it
@@ -127,8 +127,6 @@ RDE_STRUCT {
     rde_ui_button*  settings_backdrop;
     rde_ui_image*   card;
     rde_ui_label*   settings_title;
-    rde_ui_label*   hud_label;
-    rde_ui_button*  hud_toggle;
     rde_ui_label*   width_label;
     rde_ui_button*  width_even;
     rde_ui_button*  width_pressure;

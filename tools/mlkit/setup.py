@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 # ===========================================================================
-# Google ML Kit Digital Ink Recognition for Kana's iOS build — without CocoaPods.
+# Google ML Kit for Kana's iOS build — without CocoaPods: Digital Ink
+# Recognition (handwriting, recognize.h) and Text Recognition with its Japanese
+# model (text in photos, scan.h).
 #
 # Downloads the pinned pods (what `pod 'GoogleMLKit/DigitalInkRecognition', '9.0.0'`
-# resolves to), builds the source pods it needs into one static library the way
-# CocoaPods would (the subspecs used, <Pod/Header.h> headers, defines, ARC per
-# pod), and lays everything out in third_party/mlkit/ (git-ignored):
+# and `pod 'GoogleMLKit/TextRecognitionJapanese', '9.0.0'` resolve to), builds
+# the source pods they need into one static library the way CocoaPods would (the
+# subspecs used, <Pod/Header.h> headers, defines, ARC per pod), and lays
+# everything out in third_party/mlkit/ (git-ignored):
 #
-#   frameworks/  MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD (prebuilt, static)
+#   frameworks/  MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD,
+#                MLKitTextRecognitionJapanese, MLKitTextRecognitionCommon,
+#                MLKitVision, MLImage (prebuilt, static)
 #   lib/         libmlkit_deps.a — GTMSessionFetcher, GoogleDataTransport, nanopb,
 #                PromisesObjC, GoogleToolboxForMac, GoogleUtilities, SSZipArchive
 #   include/     the frameworks' headers as <MLKit.../X.h>, for the builder's -I
 #   bundles/     copied into the .app beside the executable (--ios_bundle=bundles):
-#                MLKitDigitalInkRecognition_resource.bundle, and every SDK's
-#                PRIVACY MANIFEST in a bundle of its own, named as CocoaPods names
-#                them — static code has no framework to carry one, and Apple's
-#                privacy report reads every manifest in the app
+#                MLKitDigitalInkRecognition_resource.bundle, JapaneseOCRResources.bundle
+#                (the Japanese text model, in the app: no download), and every
+#                SDK's PRIVACY MANIFEST in a bundle of its own, named as CocoaPods
+#                names them — static code has no framework to carry one, and
+#                Apple's privacy report reads every manifest in the app
 #
 # and, into the app's assets (they ship, and Settings > Licences shows them):
 #   assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
@@ -36,6 +42,10 @@ PINS = [
     ("MLKitDigitalInkRecognition", "https://dl.google.com/dl/cpdc/95473d50497208d4/MLKitDigitalInkRecognition-8.0.0.tar.gz"),
     ("MLKitCommon", "https://dl.google.com/dl/cpdc/00f258dabdb58dfa/MLKitCommon-14.0.0.tar.gz"),
     ("MLKitMDD", "https://dl.google.com/dl/cpdc/b14ff2c7cc91cb0f/MLKitMDD-10.0.0.tar.gz"),
+    ("MLKitTextRecognitionJapanese", "https://dl.google.com/dl/cpdc/1855262723e8ed6b/MLKitTextRecognitionJapanese-6.0.0.tar.gz"),
+    ("MLKitTextRecognitionCommon", "https://dl.google.com/dl/cpdc/ffd1e8a2dd89e128/MLKitTextRecognitionCommon-6.0.0.tar.gz"),
+    ("MLKitVision", "https://dl.google.com/dl/cpdc/4e1652530984149e/MLKitVision-10.0.0.tar.gz"),
+    ("MLImage", "https://dl.google.com/dl/cpdc/438c904a2516b489/MLImage-1.0.0-beta8.tar.gz"),
     ("SSZipArchive", "https://github.com/ZipArchive/ZipArchive/archive/refs/tags/2.6.0.tar.gz"),
     ("GTMSessionFetcher", "https://github.com/google/gtm-session-fetcher/archive/refs/tags/v3.5.0.tar.gz"),
     ("GoogleDataTransport", "https://github.com/google/GoogleDataTransport/archive/refs/tags/CocoaPods-10.1.1.tar.gz"),
@@ -105,7 +115,8 @@ for pod, (globs, arc, defs, mods) in plan.items():
 for d in ("frameworks", "lib", "include"):
     shutil.rmtree(os.path.join(OUT, d), ignore_errors=True); os.makedirs(os.path.join(OUT, d))
 subprocess.check_call(["xcrun", "libtool", "-static", "-o", os.path.join(OUT, "lib", "libmlkit_deps.a")] + objs)
-for fw in ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD"):
+FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage")
+for fw in FRAMEWORKS:
     src = os.path.join(PODS, fw, "Frameworks", fw + ".framework")
     shutil.copytree(src, os.path.join(OUT, "frameworks", fw + ".framework"), symlinks=True)
     if os.path.isdir(os.path.join(src, "Headers")):
@@ -134,6 +145,8 @@ def bundle(name, files):
         else: shutil.copy(src, os.path.join(d, dst))
 res = os.path.join(PODS, "MLKitDigitalInkRecognition", "Resources", "MLKitDigitalInkRecognition_resource")
 bundle("MLKitDigitalInkRecognition_resource", [(os.path.join(res, f), f) for f in os.listdir(res)])
+res = os.path.join(PODS, "MLKitTextRecognitionJapanese", "Resources", "JapaneseOCRResources")
+bundle("JapaneseOCRResources", [(os.path.join(res, f), f) for f in os.listdir(res)])
 PRIVACY = [   # bundle name, pod, its manifest
     ("GTMSessionFetcher_Core_Privacy",     "GTMSessionFetcher",   "Sources/Core/Resources/PrivacyInfo.xcprivacy"),
     ("GoogleDataTransport_Privacy",        "GoogleDataTransport", "GoogleDataTransport/Resources/PrivacyInfo.xcprivacy"),
@@ -146,7 +159,7 @@ PRIVACY = [   # bundle name, pod, its manifest
 ]
 for name, pod, path in PRIVACY:
     bundle(name, [(os.path.join(root[pod], path), "PrivacyInfo.xcprivacy")])
-for fw in ("MLKitCommon", "MLKitDigitalInkRecognition"):
+for fw in FRAMEWORKS:
     manifest = os.path.join(PODS, fw, "Frameworks", fw + ".framework", "PrivacyInfo.xcprivacy")
     if os.path.isfile(manifest):
         bundle(fw + "_Privacy", [(manifest, "PrivacyInfo.xcprivacy")])
@@ -154,10 +167,19 @@ for fw in ("MLKitCommon", "MLKitDigitalInkRecognition"):
 # The licences, into the app's assets.
 LIC = os.path.join(ROOT, "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
 with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
-    out.write("GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD)\n"
+    out.write("GOOGLE ML KIT (" + ", ".join(FRAMEWORKS) + ")\n"
               "Used under Google's terms: developers.google.com/ml-kit/terms\n"
               "Notices for the software it contains, as Google ships them:\n\n")
-    out.write(open(os.path.join(PODS, "MLKitDigitalInkRecognition", "NOTICES"), encoding="utf-8", errors="replace").read())
+    written = set()
+    for fw in ("MLKitDigitalInkRecognition", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage"):
+        notices = os.path.join(PODS, fw, "NOTICES")
+        if not os.path.isfile(notices):
+            continue
+        text = open(notices, encoding="utf-8", errors="replace").read()
+        if text in written:
+            continue   # the same notices again
+        written.add(text)
+        out.write("-" * 60 + "\n" + fw + "\n" + "-" * 60 + "\n\n" + text + "\n")
 LICENCES = [   # what, pod, its licence files
     ("GTMSessionFetcher (Google) - Apache License 2.0",   "GTMSessionFetcher",   ["LICENSE"]),
     ("GoogleDataTransport (Google) - Apache License 2.0", "GoogleDataTransport", ["LICENSE"]),

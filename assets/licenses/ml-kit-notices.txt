@@ -1,6 +1,10 @@
-GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD)
+GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD, MLKitTextRecognitionJapanese, MLKitTextRecognitionCommon, MLKitVision, MLImage)
 Used under Google's terms: developers.google.com/ml-kit/terms
 Notices for the software it contains, as Google ships them:
+
+------------------------------------------------------------
+MLKitDigitalInkRecognition
+------------------------------------------------------------
 
 Abseil
 
@@ -29357,3 +29361,4 @@ freely, subject to the following restrictions:
 2. Altered source versions must be plainly marked as such, and must not be
   misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
+

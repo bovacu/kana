@@ -199,6 +199,63 @@ f32 kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px
     return _w;
 }
 
+u32 kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) {
+    u32       _lines = 0;
+    const c8* _s     = _text;
+    c8        _row[512];
+    while(*_s != 0) {
+        while(*_s == ' ') {
+            _s++;
+        }
+        if(*_s == 0) {
+            break;
+        }
+        // As far as fits: back to the last place a line may break when it does not.
+        const c8* _p     = _s;
+        const c8* _fit   = _s;
+        const c8* _next  = _s;
+        const c8* _break = NULL;
+        for(;;) {
+            const c8* _at = _p;
+            const u32 _cp = kana_kanji_utf8_next(&_p);
+            if(_cp == 0 || (usize)(_p - _s) >= sizeof(_row)) {
+                _fit = _next = _at;
+                break;
+            }
+            if(_cp == '\n') {
+                _fit  = _at;
+                _next = _p;
+                break;
+            }
+            const usize _n = (usize)(_p - _s);
+            memcpy(_row, _s, _n);
+            _row[_n] = 0;
+            if(_at > _s && kana_draw_text_width(_font, _font_px, _row, _px) > _width) {
+                _fit = _next = _break != NULL ? _break : _at;
+                break;
+            }
+            if(_cp == ' ') {
+                _break = _at;    // before a space
+            } else if(_cp >= 0x2E80u) {
+                _break = _p;     // after a Japanese character
+            }
+        }
+        usize _n = (usize)(_fit - _s);
+        while(_n > 0 && _s[_n - 1] == ' ') {
+            _n--;
+        }
+        memcpy(_row, _s, _n);
+        _row[_n] = 0;
+        kana_draw_text(_font, _font_px, _row, _x, _y - (f32)_lines * _line, _px, _color);
+        _lines++;
+        if(_next == _s) {
+            break;   // nothing would fit: stop rather than loop
+        }
+        _s = _next;
+    }
+    return _lines;
+}
+
 f32 kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale) {
     const f32 _w = kana_draw_text_width(_font, _font_px, _text, _px);
     if(_w <= _width || _w <= 0.0f) {

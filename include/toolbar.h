@@ -18,6 +18,7 @@
 #include "marks.h"
 #include "stats.h"
 #include "textink.h"
+#include "scan.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -54,7 +55,7 @@ typedef enum {
 typedef struct kana_toolbar kana_toolbar;
 
 #define KANA_TOOLBAR_MENU_MAX 7
-#define KANA_TOOLBAR_SEPARATORS 4
+#define KANA_TOOLBAR_SEPARATORS 5
 
 // A floating row of buttons: the menu over a lasso selection, the page's
 // context menu.
@@ -98,6 +99,7 @@ struct kana_toolbar {
     kana_selection* selection;      // Browse's and the chart's ticks (select.h); set by the owner after init
     kana_exam*     exam;            // exams (exam.h); set by the owner after init
     kana_stats*    stats;           // statistics (stats.h); set by the owner after init
+    kana_scan*     scan;            // text from a photo (scan.h); set by the owner after init
     b8*            show_hud;
 
     KANA_TOOL_     tool;
@@ -127,6 +129,7 @@ struct kana_toolbar {
     rde_ui_button* paper;           // opens the paper panel: the page's dots, lines, squares or nothing (canvas.h)
     rde_ui_button* rotate;
     rde_ui_button* reset_view;
+    rde_ui_button* camera;          // Text from a photo, the camera live (scan.h); only where it can be read
     rde_ui_image*  separators[KANA_TOOLBAR_SEPARATORS];   // between the groups of tools
 
     rde_ui_image*            palette;
@@ -183,6 +186,9 @@ struct kana_toolbar {
     u32                      _exam_shown;       // what the rows' labels were set for (a hash of stage and counts)
     // Statistics' row: Close.
     kana_toolbar_menu        stats_menu;
+    // Text from a photo's row: Back, Camera, Photos, Write n.
+    kana_toolbar_menu        scan_menu;
+    u32                      _scan_kept_shown;   // the count "Write n" shows (UINT32_MAX: not yet)
     // The viewer's Add (viewer.h): its row — Done, Type your own — and the form
     // for a word typed in: written, reading (kana or romaji), meaning.
     kana_toolbar_menu        viewer_add_menu;

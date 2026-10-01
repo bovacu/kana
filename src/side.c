@@ -119,15 +119,11 @@ RDE_INTERNAL void kana_side_refresh_mlkit(kana_toolbar* _toolbar) {
     kana_toolbar_set_enabled(_side->mlkit_toggle, _state != KANA_MLKIT_UNAVAILABLE);
 }
 
-// What the settings show: the HUD on or off, the pen's width mode.
+// What the settings show: the pen's width mode, the paper size, ML Kit.
 RDE_INTERNAL void kana_side_refresh_settings(kana_toolbar* _toolbar) {
     kana_side* _side = &_toolbar->side;
     _side->_mlkit_shown = -1;
     kana_side_refresh_mlkit(_toolbar);
-    const b8   _hud  = _toolbar->show_hud != NULL && *_toolbar->show_hud;
-    rde_ui_button_set_text(_side->hud_toggle, kana_text(_hud ? KANA_TEXT_ON : KANA_TEXT_OFF));
-    if(_hud) { kana_toolbar_button_selected(_side->hud_toggle); } else { kana_toolbar_button_plain(_side->hud_toggle); }
-
     const b8 _pressure = _toolbar->ink->width_mode == KANA_INK_WIDTH_MODE_PRESSURE;
     if(_pressure) { kana_toolbar_button_plain(_side->width_even); kana_toolbar_button_selected(_side->width_pressure); }
     else          { kana_toolbar_button_selected(_side->width_even); kana_toolbar_button_plain(_side->width_pressure); }
@@ -261,16 +257,6 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_settings_close(rde_ui_node* _node
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
     _toolbar->side.settings_open = false;
     kana_toolbar_update(_toolbar);
-    return RDE_UI_EVENT_RESULT_CONSUME;
-}
-
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_hud(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
-    if(_toolbar->show_hud != NULL) {
-        *_toolbar->show_hud = !*_toolbar->show_hud;
-    }
-    kana_side_refresh_settings(_toolbar);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
@@ -1064,9 +1050,6 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
                            (rde_vec_2F){ _gw, 62.0f });
     }
     _ry -= 66.0f;
-    kana_toolbar_place(rde_ui_label_as_node(_side->hud_label), (rde_vec_2F){ _m + _lw * 0.3f, _ry }, (rde_vec_2F){ _lw * 0.6f, 44.0f });
-    kana_toolbar_place(rde_ui_button_as_node(_side->hud_toggle), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
-    _ry -= 54.0f;
     kana_toolbar_place(rde_ui_label_as_node(_side->width_label), (rde_vec_2F){ _m + _lw * 0.25f, _ry }, (rde_vec_2F){ _lw * 0.5f, 44.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _kw - _m - 186.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
@@ -1254,8 +1237,6 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
         rde_ui_button_set_on_click(_side->languages[_i], kana_side_on_language, &_side->language_refs[_i]);
         kana_side_flag(_side->languages[_i], _i);
     }
-    _side->hud_label      = kana_side_label(_toolbar, _card, kana_text(KANA_TEXT_SETTINGS_HUD), KANA_SIDE_ROW_PX);
-    _side->hud_toggle     = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_OFF), kana_side_on_hud);
     _side->width_label    = kana_side_label(_toolbar, _card, kana_text(KANA_TEXT_SETTINGS_PEN_WIDTH), KANA_SIDE_ROW_PX);
     _side->width_even     = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_SETTINGS_EVEN), kana_side_on_width_even);
     _side->width_pressure = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_SETTINGS_PRESSURE), kana_side_on_width_pressure);
@@ -1466,7 +1447,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < sizeof(_quiet) / sizeof(_quiet[0]); _i++) {
         kana_toolbar_restyle_quiet(_quiet[_i]);
     }
-    rde_ui_button* const _buttons[] = { _side->hud_toggle, _side->width_even, _side->width_pressure, _side->settings_close,
+    rde_ui_button* const _buttons[] = { _side->width_even, _side->width_pressure, _side->settings_close,
                                         _side->paper_sizes[0], _side->paper_sizes[1], _side->paper_sizes[2],
                                         _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,
                                         _side->licences_docs[0], _side->licences_docs[1], _side->licences_docs[2], _side->licences_docs[3],
@@ -1514,7 +1495,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _i = 0; _i < sizeof(_headers) / sizeof(_headers[0]); _i++) {
         rde_ui_label_set_color(_headers[_i], _t->text_soft);
     }
-    rde_ui_label* const _texts[] = { _side->settings_title, _side->hud_label, _side->width_label, _side->paper_label, _side->note_title,
+    rde_ui_label* const _texts[] = { _side->settings_title, _side->width_label, _side->paper_label, _side->note_title,
                                      _side->mlkit_label, _side->licences_title };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->text);

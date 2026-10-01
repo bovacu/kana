@@ -51,6 +51,7 @@
 #include "kanji.h"
 #include "exam.h"
 #include "stats.h"
+#include "scan.h"
 #include "examlog.h"
 #include "marks.h"
 #include "userwords.h"
@@ -79,6 +80,7 @@ RDE_INTERNAL kana_chart   chart;
 RDE_INTERNAL kana_selection selection;   // Browse's and the chart's ticks (select.h)
 RDE_INTERNAL kana_exam      exam;        // exams (exam.h), over Browse, the chart and the album
 RDE_INTERNAL kana_stats     stats;       // statistics (stats.h)
+RDE_INTERNAL kana_scan      scan;        // text from a photo (scan.h)
 RDE_INTERNAL kana_practice practice;
 RDE_INTERNAL kana_album    album;
 RDE_INTERNAL kana_check    check;                         // the lasso's selection, checked (check.h)
@@ -117,6 +119,10 @@ RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open scree
 RDE_INTERNAL i32       look_theme       = -1;     // --theme=N: shown, not saved
 RDE_INTERNAL const c8* look_paste_text  = NULL;   // --paste-text=TEXT: Paste text, as if the clipboard held it, mid-page
 RDE_INTERNAL b8        look_deselect    = false;  // --deselect: and nothing left selected after it
+RDE_INTERNAL const c8* look_scan_demo   = NULL;   // --scan-demo=PNG: Text from a photo on that image, its lines as given below
+RDE_INTERNAL f32       look_scan_turn   = 0.0f;   // --scan-demo-turn=DEG: the image as a camera frame that needs DEG clockwise
+RDE_INTERNAL b8        look_scan_live   = false;  // --scan-live: Text from a photo, the camera live (to measure it with --perf)
+RDE_INTERNAL b8        look_scan_rows   = false;  // --scan-demo-top-first: and its rows top first, as a camera frame's are
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -137,8 +143,25 @@ RDE_INTERNAL b8 pen_on_ui = false;
 // The pen (or mouse) is down with the Erase tool: its path erases.
 RDE_INTERNAL b8 erasing   = false;
 
+// A developer's build (debug, RDE_DEBUG): the diagnostics HUD (H) and the raw
+// pen samples (M) can be shown, and launch arguments are read (the look flags,
+// --perf, the bake). A release build has none of it — it takes no arguments at
+// all (main) — unless built with -DKANA_ALLOW_ARGS, to measure a release on the
+// device (--perf, COMMANDS.txt). The HUD starts hidden either way, and is not
+// a setting: nothing saved shows it.
+#if defined(RDE_DEBUG)
+#define KANA_DEVELOPER 1
+#else
+#define KANA_DEVELOPER 0
+#endif
+#if KANA_DEVELOPER || defined(KANA_ALLOW_ARGS)
+#define KANA_TAKES_ARGS 1
+#else
+#define KANA_TAKES_ARGS 0
+#endif
+
 RDE_INTERNAL b8  show_samples = false;
-RDE_INTERNAL b8  show_hud     = true;
+RDE_INTERNAL b8  show_hud     = false;
 
 // Frame time, smoothed. The raw value jitters too much to read off a screen.
 RDE_INTERNAL f32 frame_ms = 0.0f;
@@ -243,7 +266,7 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     memset(&_s, 0, sizeof(_s));
     _s.tool           = (u8)toolbar.tool;
     _s.vertical       = toolbar.vertical;
-    _s.show_hud       = show_hud;
+    _s.show_hud       = false;   // not a setting any more (the byte stays in the file)
     _s.brush_scale    = (u8)ink.brush_scale;
     _s.width_mode     = (u8)ink.width_mode;
     _s.color          = ink.color;
@@ -260,7 +283,6 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
 
 RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     toolbar.tool         = _s->tool == KANA_TOOL_ERASE ? KANA_TOOL_ERASE : _s->tool == KANA_TOOL_LASSO ? KANA_TOOL_LASSO : KANA_TOOL_DRAW;
-    show_hud             = _s->show_hud;
     ink.brush_scale      = _s->brush_scale == KANA_INK_BRUSH_SCALE_SCREEN ? KANA_INK_BRUSH_SCALE_SCREEN : KANA_INK_BRUSH_SCALE_PAGE;
     ink.width_mode       = _s->width_mode == KANA_INK_WIDTH_MODE_PRESSURE ? KANA_INK_WIDTH_MODE_PRESSURE : KANA_INK_WIDTH_MODE_CONSTANT;
     ink.color            = _s->color;
@@ -479,6 +501,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_selection_init(&selection, _have_kanji ? kanji_db.count : 0u);
     kana_exam_init(&exam, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     kana_stats_init(&stats, _have_kanji ? &kanji_db : NULL, &browse.catalog);
+    kana_scan_init(&scan);
     browse.selection = &selection;
     chart.selection  = &selection;
     kana_practice_init(&practice, _have_kanji ? &kanji_db : NULL);
@@ -493,6 +516,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     toolbar.selection = &selection;
     toolbar.exam      = &exam;
     toolbar.stats     = &stats;
+    toolbar.scan      = &scan;
     if(toolbar.font != NULL) {
         font    = toolbar.font;
         font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
@@ -594,6 +618,18 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             _pasted[_n]     = 0;
             look_paste_text = _pasted;
         }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--scan-demo=", 12) == 0) {
+            look_scan_demo = _argv[_i] + 12;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--scan-demo-turn=", 17) == 0) {
+            look_scan_turn = strtof(_argv[_i] + 17, NULL);
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--scan-demo-top-first") == 0) {
+            look_scan_rows = true;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--scan-live") == 0) {
+            look_scan_live = true;
+        }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--deselect") == 0) {
             look_deselect = true;
         }
@@ -634,6 +670,46 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     if(look_kept_exam >= 0) {
         kana_exam_open_kept(&exam, (u32)look_kept_exam);
     }
+    if(look_scan_live) {
+        kana_scan_open(&scan, window, kana_canvas_from_screen(&canvas, (rde_vec_2F){ 0.0f, 0.0f }));
+        kana_scan_camera(&scan);
+    }
+    if(look_scan_demo != NULL) {
+        // A PNG (its size read from its header) with four lines across it, the
+        // second left out: the screen as a photo read would show it.
+        kana_scan_open(&scan, window, kana_canvas_from_screen(&canvas, (rde_vec_2F){ 0.0f, 0.0f }));   // no such file: the screen empty
+        FILE* _f = fopen(look_scan_demo, "rb");
+        if(_f != NULL) {
+            static u8 _png[8u << 20];
+            const usize _n = fread(_png, 1, sizeof(_png), _f);
+            fclose(_f);
+            static kana_textscan_line _demo[4];
+            const c8* const _texts[4] = { "今日は、日本語を", "勉強します。", "Hello 漢字", "とかな" };
+            for(u32 _l = 0; _l < 4u; _l++) {
+                snprintf(_demo[_l].text, sizeof(_demo[_l].text), "%s", _texts[_l]);
+                const f32 _y0 = 288.0f + 90.0f * (f32)_l, _y1 = _y0 + 64.0f;
+                _demo[_l].corners[0] = (rde_vec_2F){ 86.0f, _y0 };
+                _demo[_l].corners[1] = (rde_vec_2F){ _l == 3u ? 300.0f : 660.0f, _y0 };
+                _demo[_l].corners[2] = (rde_vec_2F){ _l == 3u ? 300.0f : 660.0f, _y1 };
+                _demo[_l].corners[3] = (rde_vec_2F){ 86.0f, _y1 };
+                _demo[_l].block      = _l < 2u ? 0u : 1u;
+            }
+            const kana_textscan_result _r = { _png, _n, ((u32)_png[16] << 24) | ((u32)_png[17] << 16) | ((u32)_png[18] << 8) | _png[19],
+                                              ((u32)_png[20] << 24) | ((u32)_png[21] << 16) | ((u32)_png[22] << 8) | _png[23], _demo, 4u };
+            kana_scan_show(&scan, &_r);
+            ((kana_scan_line*)scan.lines.memory)[1].kept = false;
+            scan.shown_top_first = look_scan_rows;
+            if(look_scan_turn != 0.0f) {
+                // The file holds the picture turned the other way: shown as a frame is.
+                scan.shown_rotation = look_scan_turn;
+                if(fmodf(fabsf(look_scan_turn), 180.0f) > 45.0f) {
+                    const u32 _w = scan.picture_w;
+                    scan.picture_w = scan.picture_h;
+                    scan.picture_h = _w;
+                }
+            }
+        }
+    }
     kana_mlkit_prepare();   // after the settings: when ML Kit is on, its model downloads the first time (iOS; nothing elsewhere)
 
     rde_log_color(RDE_LOG_COLOR_GREEN, "%s",
@@ -645,6 +721,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     list_last = _screen;
     if(viewer.open)     { kana_viewer_pointer_down(&viewer, _screen, _now); }
+    else if(scan.open)  { kana_scan_pointer_down(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_down(&exam, _screen, _pen, _now); }
     else if(stats.open) { kana_stats_pointer_down(&stats, _screen, _now); }
     else if(check.open) { kana_check_pointer_down(&check, _screen, _now); }
@@ -655,6 +732,7 @@ RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
 RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     list_last = _screen;
     if(viewer.open)     { kana_viewer_pointer_moved(&viewer, _screen, _now); }
+    else if(scan.open)  { kana_scan_pointer_moved(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_moved(&exam, _screen, _now); }
     else if(stats.open) { kana_stats_pointer_moved(&stats, _screen, _now); }
     else if(check.open) { kana_check_pointer_moved(&check, _screen, _now); }
@@ -664,6 +742,7 @@ RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
 }
 RDE_INTERNAL void kana_list_up(f64 _now) {
     if(viewer.open)     { kana_viewer_pointer_up(&viewer, _now); }
+    else if(scan.open)  { kana_scan_pointer_up(&scan, _now); }
     else if(exam.open)  { kana_exam_pointer_up(&exam, _now); }
     else if(stats.open) { kana_stats_pointer_up(&stats, _now); }
     else if(check.open) { kana_check_pointer_up(&check, _now); }
@@ -804,10 +883,11 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open) {
+    if(practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
+            kana_scan_pause(&scan);   // the camera stops: what was in view stays
         }
         if(practice.open) {
             kana_practice_event(_event);
@@ -1172,6 +1252,28 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         return;
     }
 
+    // Text from a photo: the photo read, and the lines kept written on the page
+    // (Paste text's way) where its menu was opened.
+    if(scan.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_scan_update(&scan, _dt);
+        static c8 _lines[KANA_TEXTSCAN_LINES * 64u];
+        if(kana_scan_take_text(&scan, _lines, sizeof(_lines))) {
+            const rde_vec_2F _at = scan.canvas_at;
+            kana_scan_close(&scan);
+            kana_toolbar_paste_text(&toolbar, _lines, _at);
+        }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_scan_close(&scan); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
     // Statistics: a tapped character opens the viewer, walking its list.
     if(stats.open) {
 #if !defined(RDE_PLATFORM_MOBILE)
@@ -1306,6 +1408,7 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         kana_lasso_clear(&lasso, &ink);
     }
 
+#if KANA_DEVELOPER
     if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_M)) {
         show_samples = !show_samples;
     }
@@ -1314,6 +1417,7 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         show_hud = !show_hud;
         kana_toolbar_sync(&toolbar);
     }
+#endif
 
     if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_R)) {
         kana_canvas_reset_view(&canvas);
@@ -1527,6 +1631,8 @@ RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
                              -_hh + (f32)_safe.w + toolbar.practice_menu.size.y + 24.0f);
     } else if(viewer.open) {
         kana_viewer_render(&viewer, _window, font, font_px, toolbar.viewer_menu.size.y + 16.0f);
+    } else if(scan.open) {
+        kana_scan_render(&scan, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.scan_menu.size.y + 24.0f);
     } else if(stats.open) {
         kana_stats_render(&stats, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.stats_menu.size.y + 24.0f);
     } else if(exam.open) {
@@ -1564,9 +1670,14 @@ RDE_INTERNAL void kana_perf_write(f64 _now) {
     snprintf(_path, sizeof(_path), "%sperf.txt", kana_save_dir());
     FILE* _f = fopen(_path, "a");
     if(_f != NULL) {
-        fprintf(_f, "%s| %u frames in %.1f s: %.1f fps, frame %.2f ms avg, %.2f ms worst, %u over 20 ms | update %.2f ms avg, %.2f worst | render %.2f ms avg, %.2f worst\n",
+        fprintf(_f, "%s| %u frames in %.1f s: %.1f fps, frame %.2f ms avg, %.2f ms worst, %u over 20 ms | update %.2f ms avg, %.2f worst | render %.2f ms avg, %.2f worst",
                 perf_label, perf_frames, _span, _n / _span, 1000.0 * perf_dt_sum / _n, 1000.0 * perf_dt_max, perf_slow,
                 1000.0 * perf_update_sum / _n, 1000.0 * perf_update_max, 1000.0 * perf_render_sum / _n, 1000.0 * perf_render_max);
+        if(scan.open) {   // the camera: frames shown, and ML Kit's reads of them
+            fprintf(_f, " | camera %u frames shown, %u read, %.0f ms a read", scan.frames_shown, scan.frames_read,
+                    scan.frames_read > 0 ? 1000.0 * scan.read_seconds / (f64)scan.frames_read : 0.0);
+        }
+        fprintf(_f, "\n");
         fclose(_f);
     }
     rde_log_level(RDE_LOG_LEVEL_INFO, "kana perf: %u frames, %.2f ms avg, %.2f ms worst (written to %s)", perf_frames, 1000.0 * perf_dt_sum / _n, 1000.0 * perf_dt_max, _path);
@@ -1631,6 +1742,7 @@ void end_func(void) {
     kana_selection_destroy(&selection);
     kana_exam_destroy(&exam);
     kana_stats_destroy(&stats);
+    kana_scan_destroy(&scan);
     kana_marks_close();
     kana_examlog_close();
     kana_userwords_close();
@@ -1644,6 +1756,11 @@ void end_func(void) {
 }
 
 int main(i32 _argc, c8* _argv[]) {
+#if !KANA_TAKES_ARGS
+    // A release: whatever it is launched with is ignored — by Kana and by RDE
+    // (which reads arguments as config overrides). Only the program's name.
+    _argc = _argc > 1 ? 1 : _argc;
+#endif
     return rde_run(
         _argc,
         _argv,

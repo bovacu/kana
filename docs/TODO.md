@@ -413,9 +413,52 @@ menu's Paste text), to see on the iPad.*
       kanji, 、。 and the full-width Latin letters).
 - Tested (textinktest): written and read back the same — one line, two lines,
   small and large; spaces, wrapping, centring, an emoji left out.
-- Open: text from a photo or the camera (Apple's Vision reads Japanese on the
-  device from iOS 16; ML Kit's Text Recognition v2 has a Japanese model for
-  Android too) — then Paste text's writing does the rest.
+- [x] **Text from a photo** (2026-10-01, to see on the iPad; Borja chose ML Kit
+      for both platforms): the page's long-press menu → a screen with Back,
+      Camera, Photos, Hold / Write n. CAMERA is live (RDE's camera, 1280x720,
+      its permission asked through RDE the first time): every line ML Kit finds
+      is boxed over the picture, read again and again — the newest frame each
+      time the last read is done — and Hold keeps the frame and its lines (the
+      camera stops; it also stops when the app goes to the background). PHOTOS:
+      the system photo picker (no permission: only that photo reaches the app).
+      Either is read by ML Kit Text Recognition's Japanese model — in the app,
+      1.9 MB, no download — and shown with every line boxed, all kept at first;
+      a tap leaves one out. Write puts the kept lines on the page, in the order
+      read, as Paste text does. RDE gained rde_engine_enable_subsystem (Borja: the
+      camera is not among what the engine starts — RDE_SUBSYSTEM_CAMERA, SENSOR,
+      GAMEPAD turned on and off by the app; Kana turns the camera on only while
+      it is live), rde_device_camera_get_rotation (SDL's
+      per-frame turn, which RDE dropped), rde_memory_texture_get_texture, and
+      rde_device_camera_update_texture refusing a texture of the wrong size (it
+      wrote past it). With ML
+      Kit switched off in Settings it says so. tools/mlkit/setup.py now fetches
+      the text recognition pods too (MLKitTextRecognitionJapanese 6.0.0, its
+      Common, MLKitVision, MLImage). textscan.h is the platform's part (iOS:
+      textscan_ios.m; Android to come, with the same ML Kit recognizer; the
+      desktop: not available), scan.h the screen, the same everywhere.
+- Seen working on the iPad (2026-10-01), after three fixes: the picture was
+  upside down (RDE draws a texture's first row at the bottom; the camera's rows
+  come top first — mirrored back — and RDE turns CLOCKWISE for a positive angle,
+  checked with --scan-demo-turn / --scan-demo-top-first); the camera gave ONE
+  frame a second (SDL reads a frame rate of 0 as "the slowest": RDE now asks for
+  30); a read's preparation (copy, upright redraw) moved off the frame loop. On
+  the iPad mini 6, release, --scan-live --perf=10: the app 59.8 fps, the camera
+  33 frames a second shown, 17 read a second at 33 ms a read.
+- The floating bar's camera (2026-10-01, Borja): a button between the paper and
+  rotate (its own hairline) opens Text from a photo with the camera already
+  live; what is written goes to the middle of the page as it is on screen. Left
+  out of the bar where text cannot be read (kana_textscan_available: the
+  desktop, Android until its side is written). Seen on the Mac (no camera, the
+  bar as before); on the iPad: installed, Borja's to try.
+- Tested (scantest): taps on lines (vertical ones too), what Write writes,
+  a photo with no text, one that cannot be shown; live with a stubbed camera:
+  the first frame telling the size, frames turned a quarter (upright 1080x1920),
+  Hold, the background, Back — the camera closed each time. The screen seen on the Mac
+  with --scan-demo=PNG (a debug look flag that feeds it lines). On the iPad:
+  installed and launching; the camera, the picker and ML Kit's reading are
+  Borja's to try.
+- The app grew: the executable 47 → 95 MB, the .ipa 24 → 41 MB (ML Kit's text
+  recognition engine). Stripping it (below) matters more now: 95 → 68 MB.
 
 ## 11. Release polish
 
@@ -438,6 +481,13 @@ See `docs/app_store.md` for privacy, licences and permissions.
       cached until the iPad restarts; Info.plist: iPad
       only, every orientation, full screen, ITSAppUsesNonExemptEncryption false.
       The builder's new --ios_assets / --ios_launch_storyboard / --ios_plist.
+- [x] Nothing developer-only in a release (2026-10-01, Borja): the diagnostics
+      HUD always starts hidden and is no longer a setting (its Settings row is
+      gone, a saved "on" is ignored); H (HUD) and M (raw samples) work in debug
+      builds only; a release build ignores every launch argument — main hands
+      RDE only the program's name — unless built with -DKANA_ALLOW_ARGS (for
+      --perf). Checked on the iPad: a release launched with --stats --perf=3
+      opened as usual and measured nothing.
 - [x] The first theme follows the device (2026-10-01, Borja): with no settings
       saved yet, Kana starts in Night when the device is in dark mode and Paper
       otherwise — as the launch screen does — and saves the settings at once;
