@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 # ===========================================================================
 # Google ML Kit for Kana's iOS build — without CocoaPods: Digital Ink
-# Recognition (handwriting, recognize.h) and Text Recognition with its Japanese
-# model (text in photos, scan.h).
+# Recognition (handwriting, recognize.h), Text Recognition with its Japanese
+# model (text in photos, scan.h) and Translation (translate.h).
 #
-# Downloads the pinned pods (what `pod 'GoogleMLKit/DigitalInkRecognition', '9.0.0'`
-# and `pod 'GoogleMLKit/TextRecognitionJapanese', '9.0.0'` resolve to), builds
+# Downloads the pinned pods (what `pod 'GoogleMLKit/DigitalInkRecognition', '9.0.0'`,
+# `pod 'GoogleMLKit/TextRecognitionJapanese', '9.0.0'` and
+# `pod 'GoogleMLKit/Translate', '9.0.0'` resolve to), builds
 # the source pods they need into one static library the way CocoaPods would (the
 # subspecs used, <Pod/Header.h> headers, defines, ARC per pod), and lays
 # everything out in third_party/mlkit/ (git-ignored):
 #
 #   frameworks/  MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD,
 #                MLKitTextRecognitionJapanese, MLKitTextRecognitionCommon,
-#                MLKitVision, MLImage (prebuilt, static)
+#                MLKitVision, MLImage, MLKitTranslate, MLKitNaturalLanguage
+#                (prebuilt, static)
 #   lib/         libmlkit_deps.a — GTMSessionFetcher, GoogleDataTransport, nanopb,
 #                PromisesObjC, GoogleToolboxForMac, GoogleUtilities, SSZipArchive
 #   include/     the frameworks' headers as <MLKit.../X.h>, for the builder's -I
 #   bundles/     copied into the .app beside the executable (--ios_bundle=bundles):
 #                MLKitDigitalInkRecognition_resource.bundle, JapaneseOCRResources.bundle
-#                (the Japanese text model, in the app: no download), and every
+#                (the Japanese text model, in the app: no download),
+#                MLKitTranslate_resource.bundle (the translation models are NOT in
+#                it: ML Kit downloads one per language when first asked), and every
 #                SDK's PRIVACY MANIFEST in a bundle of its own, named as CocoaPods
 #                names them — static code has no framework to carry one, and
 #                Apple's privacy report reads every manifest in the app
@@ -46,6 +50,8 @@ PINS = [
     ("MLKitTextRecognitionCommon", "https://dl.google.com/dl/cpdc/ffd1e8a2dd89e128/MLKitTextRecognitionCommon-6.0.0.tar.gz"),
     ("MLKitVision", "https://dl.google.com/dl/cpdc/4e1652530984149e/MLKitVision-10.0.0.tar.gz"),
     ("MLImage", "https://dl.google.com/dl/cpdc/438c904a2516b489/MLImage-1.0.0-beta8.tar.gz"),
+    ("MLKitTranslate", "https://dl.google.com/dl/cpdc/2beeb631ff9efd40/MLKitTranslate-8.0.0.tar.gz"),
+    ("MLKitNaturalLanguage", "https://dl.google.com/dl/cpdc/16c4bb76b6337f56/MLKitNaturalLanguage-10.0.0.tar.gz"),
     ("SSZipArchive", "https://github.com/ZipArchive/ZipArchive/archive/refs/tags/2.6.0.tar.gz"),
     ("GTMSessionFetcher", "https://github.com/google/gtm-session-fetcher/archive/refs/tags/v3.5.0.tar.gz"),
     ("GoogleDataTransport", "https://github.com/google/GoogleDataTransport/archive/refs/tags/CocoaPods-10.1.1.tar.gz"),
@@ -78,7 +84,8 @@ plan = {
                          ["PB_FIELD_32BIT=1", "PB_NO_PACKED_STRUCTS=1", "PB_ENABLE_MALLOC=1", "GDTCOR_VERSION=10.1.1"], ["GoogleDataTransport"]),
   "nanopb":             (["*.h", "*.c"], False, ["PB_FIELD_32BIT=1", "PB_NO_PACKED_STRUCTS=1", "PB_ENABLE_MALLOC=1"], ["nanopb"]),
   "PromisesObjC":       (["Sources/FBLPromises/**/*.h", "Sources/FBLPromises/**/*.m"], True, [], ["FBLPromises", "PromisesObjC"]),
-  "GoogleToolboxForMac":(["GTMDefines.h", "Foundation/GTMLogger.h", "Foundation/GTMLogger.m", "Foundation/GTMNSData+zlib.h", "Foundation/GTMNSData+zlib.m"],
+  "GoogleToolboxForMac":(["GTMDefines.h", "Foundation/GTMLogger.h", "Foundation/GTMLogger.m", "Foundation/GTMNSData+zlib.h", "Foundation/GTMNSData+zlib.m",
+                          "Foundation/GTMStringEncoding.h", "Foundation/GTMStringEncoding.m"],
                          ["Foundation/GTMNSData+zlib.m"], [], ["GoogleToolboxForMac"]),
   "GoogleUtilities":    (["GoogleUtilities/Environment/**/*.m", "GoogleUtilities/Environment/**/*.h", "third_party/IsAppEncrypted/**/*.m", "third_party/IsAppEncrypted/**/*.h",
                           "GoogleUtilities/Logger/**/*.m", "GoogleUtilities/Logger/**/*.h", "GoogleUtilities/UserDefaults/**/*.m", "GoogleUtilities/UserDefaults/**/*.h"], True, [], ["GoogleUtilities"]),
@@ -115,7 +122,8 @@ for pod, (globs, arc, defs, mods) in plan.items():
 for d in ("frameworks", "lib", "include"):
     shutil.rmtree(os.path.join(OUT, d), ignore_errors=True); os.makedirs(os.path.join(OUT, d))
 subprocess.check_call(["xcrun", "libtool", "-static", "-o", os.path.join(OUT, "lib", "libmlkit_deps.a")] + objs)
-FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage")
+FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
+              "MLKitTranslate", "MLKitNaturalLanguage")
 for fw in FRAMEWORKS:
     src = os.path.join(PODS, fw, "Frameworks", fw + ".framework")
     shutil.copytree(src, os.path.join(OUT, "frameworks", fw + ".framework"), symlinks=True)
@@ -147,6 +155,8 @@ res = os.path.join(PODS, "MLKitDigitalInkRecognition", "Resources", "MLKitDigita
 bundle("MLKitDigitalInkRecognition_resource", [(os.path.join(res, f), f) for f in os.listdir(res)])
 res = os.path.join(PODS, "MLKitTextRecognitionJapanese", "Resources", "JapaneseOCRResources")
 bundle("JapaneseOCRResources", [(os.path.join(res, f), f) for f in os.listdir(res)])
+res = os.path.join(PODS, "MLKitTranslate", "Resources", "MLKitTranslate_resource")
+bundle("MLKitTranslate_resource", [(os.path.join(res, f), f) for f in os.listdir(res)])
 PRIVACY = [   # bundle name, pod, its manifest
     ("GTMSessionFetcher_Core_Privacy",     "GTMSessionFetcher",   "Sources/Core/Resources/PrivacyInfo.xcprivacy"),
     ("GoogleDataTransport_Privacy",        "GoogleDataTransport", "GoogleDataTransport/Resources/PrivacyInfo.xcprivacy"),
@@ -168,10 +178,18 @@ for fw in FRAMEWORKS:
 LIC = os.path.join(ROOT, "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
 with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
     out.write("GOOGLE ML KIT (" + ", ".join(FRAMEWORKS) + ")\n"
-              "Used under Google's terms: developers.google.com/ml-kit/terms\n"
+              "Used under Google's terms: developers.google.com/ml-kit/terms\n\n"
+              # Google's disclaimer for its translations (Translate with Google),
+              # as its attribution requirements give it for apps:
+              # docs.cloud.google.com/translate/attribution
+              "TRANSLATIONS: THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE. GOOGLE "
+              "DISCLAIMS ALL WARRANTIES RELATED TO THE TRANSLATIONS, EXPRESS OR IMPLIED, INCLUDING "
+              "ANY WARRANTIES OF ACCURACY, RELIABILITY, AND ANY IMPLIED WARRANTIES OF "
+              "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n\n"
               "Notices for the software it contains, as Google ships them:\n\n")
     written = set()
-    for fw in ("MLKitDigitalInkRecognition", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage"):
+    for fw in ("MLKitDigitalInkRecognition", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
+               "MLKitTranslate", "MLKitNaturalLanguage"):
         notices = os.path.join(PODS, fw, "NOTICES")
         if not os.path.isfile(notices):
             continue

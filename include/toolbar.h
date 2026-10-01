@@ -57,6 +57,16 @@ typedef struct kana_toolbar kana_toolbar;
 #define KANA_TOOLBAR_MENU_MAX 7
 #define KANA_TOOLBAR_SEPARATORS 5
 
+// Translate with Google on a selection: where it is.
+typedef enum {
+    KANA_TOOLBAR_TRANSLATION_NONE = 0,   // no card
+    KANA_TOOLBAR_TRANSLATION_READING,    // the selection being read (text_reader)
+    KANA_TOOLBAR_TRANSLATION_GETTING,    // its models asked for / on their way
+    KANA_TOOLBAR_TRANSLATION_ASKED,      // the translator has it
+    KANA_TOOLBAR_TRANSLATION_DONE,       // translation: in (empty: it could not be)
+    KANA_TOOLBAR_TRANSLATION_FAILED      // the models could not be downloaded
+} KANA_TOOLBAR_TRANSLATION_;
+
 // A floating row of buttons: the menu over a lasso selection, the page's
 // context menu.
 RDE_STRUCT {
@@ -152,6 +162,17 @@ struct kana_toolbar {
     f64                      copied_until;     // Copy (or Copy as text) reads "Copied" until then (engine clock)
     kana_textink_reader      text_reader;      // Copy as text: the selection being read (textink.h)
     b8                       _text_reader_ready;
+    b8                       text_for_translate;   // the reading is for Translate with Google, not the clipboard
+    // Translate with Google on a selection: what was read, into the translator
+    // (translate.h), shown in a card by the selection until it goes.
+    KANA_TOOLBAR_TRANSLATION_ translation_state;
+    u32                      translation_ticket;
+    u32                      translation_of;      // the selection it is for (kana_toolbar_selection_key)
+    b8                       translation_prepared;
+    c8                       translation_from[256];
+    c8                       translation[KANA_TRANSLATE_TEXT];
+    rde_vec_2F               translation_min;     // the card on screen, Kana's screen space (last frame)
+    rde_vec_2F               translation_max;
     // The page's context menu, opened by a long press: Paste, Paste text, Select all.
     kana_toolbar_menu        context_menu;
     rde_vec_2F               context_canvas;   // where it was opened, on the page — where Paste lands
@@ -189,6 +210,7 @@ struct kana_toolbar {
     // Text from a photo's row: Back, Camera, Photos, Write n.
     kana_toolbar_menu        scan_menu;
     u32                      _scan_kept_shown;   // the count "Write n" shows (UINT32_MAX: not yet)
+    u8                       _scan_translate_shown;   // Translate with Google's look: 0 off, 1 on (UINT8_MAX: not yet)
     // The viewer's Add (viewer.h): its row — Done, Type your own — and the form
     // for a word typed in: written, reading (kana or romaji), meaning.
     kana_toolbar_menu        viewer_add_menu;
@@ -262,6 +284,12 @@ struct kana_toolbar {
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
                              kana_viewer* _viewer, kana_browse* _browse, kana_chart* _chart, kana_practice* _practice, kana_album* _album, kana_notes* _notes, kana_check* _check, b8* _show_hud);
 void       kana_toolbar_destroy(kana_toolbar* _toolbar);
+// Translate with Google on the selection (its menu's button, and a look flag):
+// read, translated, and shown in a card by it (kana_toolbar_render_translation).
+void       kana_toolbar_translate_selection(kana_toolbar* _toolbar);
+// The card, once a frame over the page (Kana's screen space).
+void       kana_toolbar_render_translation(kana_toolbar* _toolbar, rde_window* _window);
+
 // The app went to the background or the OS is short of memory: the fonts give
 // back the GPU memory their glyphs grew into (rde_font_trim). Before drawing.
 void       kana_toolbar_trim_fonts(kana_toolbar* _toolbar);

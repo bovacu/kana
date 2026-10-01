@@ -5,6 +5,7 @@
 #include "draw.h"
 #include "icons.h"
 #include "text.h"
+#include "mlkit.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -41,6 +42,13 @@
 #define KANA_TOOLBAR_DOUBLE_TAP_SLOP 32.0f   // and how far apart they can be
 
 #define KANA_TOOLBAR_MENU_GAP    6.0f     // between the selection box and its menu
+// Translate with Google's card by the selection.
+#define KANA_TOOLBAR_CARD_W      440.0f   // at most (narrower screens: what fits)
+#define KANA_TOOLBAR_CARD_PAD    14.0f
+#define KANA_TOOLBAR_CARD_FROM   16.0f    // what was read: size and line
+#define KANA_TOOLBAR_CARD_FROM_L 22.0f
+#define KANA_TOOLBAR_CARD_TO     18.0f    // its translation
+#define KANA_TOOLBAR_CARD_TO_L   25.0f
 // A row of buttons (a screen's, the selection's): icons over labels.
 #define KANA_TOOLBAR_ROW_BUTTON_H     56.0f
 #define KANA_TOOLBAR_ROW_BUTTON_MIN_W 68.0f
@@ -56,7 +64,9 @@
 #define KANA_TOOLBAR_NOTICE_CHARS  16u    // Copy as text says what it copied up to this long; more, how many
 
 // Button order in each menu.
-enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_COPY_TEXT, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK, KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
+// Translate with Google only where there is a translator (translate.h).
+enum { KANA_SELECTION_CUT = 0, KANA_SELECTION_COPY, KANA_SELECTION_COPY_TEXT, KANA_SELECTION_TRANSLATE, KANA_SELECTION_DUPLICATE, KANA_SELECTION_CHECK,
+       KANA_SELECTION_DELETE, KANA_SELECTION_COUNT };
 enum { KANA_CHECK_MENU_BACK = 0, KANA_CHECK_MENU_ORDER, KANA_CHECK_MENU_PRACTICE, KANA_CHECK_MENU_COUNT };
 enum { KANA_CONTEXT_PASTE = 0, KANA_CONTEXT_PASTE_TEXT, KANA_CONTEXT_SCAN, KANA_CONTEXT_SELECT_ALL, KANA_CONTEXT_COUNT };
 enum { KANA_VIEWER_BACK = 0, KANA_VIEWER_PREV, KANA_VIEWER_REPLAY, KANA_VIEWER_NEXT, KANA_VIEWER_STUDY, KANA_VIEWER_PRACTICE, KANA_VIEWER_COUNT };
@@ -68,7 +78,8 @@ enum { KANA_EXAM_PREVIEW_BACK = 0, KANA_EXAM_PREVIEW_ALL, KANA_EXAM_PREVIEW_NONE
 enum { KANA_EXAM_MENU_QUIT = 0, KANA_EXAM_MENU_UNDO, KANA_EXAM_MENU_CLEAR, KANA_EXAM_MENU_NEXT, KANA_EXAM_MENU_COUNT };
 enum { KANA_EXAM_RESULTS_DONE = 0, KANA_EXAM_RESULTS_RETRY, KANA_EXAM_RESULTS_PRACTICE, KANA_EXAM_RESULTS_COUNT };
 enum { KANA_STATS_MENU_CLOSE = 0, KANA_STATS_MENU_COUNT };
-enum { KANA_SCAN_MENU_BACK = 0, KANA_SCAN_MENU_CAMERA, KANA_SCAN_MENU_PHOTOS, KANA_SCAN_MENU_WRITE, KANA_SCAN_MENU_COUNT };
+// Translate with Google only where there is a translator (translate.h): elsewhere the row has no such button.
+enum { KANA_SCAN_MENU_BACK = 0, KANA_SCAN_MENU_CAMERA, KANA_SCAN_MENU_PHOTOS, KANA_SCAN_MENU_TRANSLATE, KANA_SCAN_MENU_WRITE, KANA_SCAN_MENU_COUNT };
 enum { KANA_VIEWER_ADD_DONE = 0, KANA_VIEWER_ADD_TYPE, KANA_VIEWER_ADD_COUNT };
 #define KANA_TOOLBAR_WORD_CARD (rde_vec_2F){ 540.0f, 308.0f }
 #define KANA_TOOLBAR_BACKDROP  (rde_color){ 0, 0, 0, 110 }
@@ -76,6 +87,7 @@ enum { KANA_PRACTICE_BACK = 0, KANA_PRACTICE_UNDO, KANA_PRACTICE_CLEAR, KANA_PRA
 enum { KANA_ALBUM_MENU_EXAMS = KANA_ALBUM_SORT_COUNT, KANA_ALBUM_MENU_PRACTICE, KANA_ALBUM_MENU_CLOSE, KANA_ALBUM_MENU_COUNT };   // the sorts first, in KANA_ALBUM_SORT_ order
 RDE_INTERNAL void kana_toolbar_album_show_view(kana_toolbar* _toolbar);
 RDE_INTERNAL void kana_toolbar_update_text_copy(kana_toolbar* _toolbar);
+RDE_INTERNAL void kana_toolbar_update_translation(kana_toolbar* _toolbar);
 enum { KANA_PRACTICE_SET_BACK = 0, KANA_PRACTICE_SET_UNDO, KANA_PRACTICE_SET_CLEAR, KANA_PRACTICE_SET_SCORE, KANA_PRACTICE_SET_GUIDED, KANA_PRACTICE_SET_NEXT, KANA_PRACTICE_SET_COUNT };
 enum { KANA_PRACTICE_SUMMARY_AGAIN = 0, KANA_PRACTICE_SUMMARY_DONE, KANA_PRACTICE_SUMMARY_COUNT };
 
@@ -135,6 +147,7 @@ RDE_INTERNAL const c8 kana_toolbar_tag_glyph = 2;
 // from assets/fonts/Phosphor-Regular.ttf for the icons in icons.h (sorted by
 // code point; Fill draws the same shapes filled). An icon not here is left as is.
 static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[] = {
+    { 0xE010u, 128 },
     { 0xE036u, 128 },
     { 0xE038u,  64 },
     { 0xE058u, 128 },
@@ -220,6 +233,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xEADCu, 128 },
     { 0xEAE0u,  96 },
     { 0xEAE2u, 320 },
+    { 0xEAF0u, 160 },
     { 0xEBB6u, 128 },
     { 0xEDC6u,  64 },
     { 0xEDF2u, 192 },
@@ -622,7 +636,8 @@ RDE_INTERNAL b8 kana_toolbar_same_vec(rde_vec_2F _a, rde_vec_2F _b) {
 
 // A menu: a panel under the root with a row of buttons, each an icon over its
 // label, hidden until shown. A button is as wide as its label needs (a label
-// ending in a count, "Practice 0", with room for three digits).
+// ending in a count, "Practice 0", with room for three digits). A NULL label is
+// a button left out: its slot stays NULL, so the others keep their indices.
 RDE_INTERNAL void kana_toolbar_menu_create(kana_toolbar* _toolbar, kana_toolbar_menu* _menu, rde_ui_node* _root,
                                            const c8* const* _labels, const c8* const* _icons, const rde_ui_event_callback* _callbacks, u32 _count) {
     _menu->count = _count < KANA_TOOLBAR_MENU_MAX ? _count : KANA_TOOLBAR_MENU_MAX;
@@ -634,8 +649,16 @@ RDE_INTERNAL void kana_toolbar_menu_create(kana_toolbar* _toolbar, kana_toolbar_
     rde_ui_node_add_child(_root, _node);
 
     f32 _widths[KANA_TOOLBAR_MENU_MAX];
-    f32 _total = 2.0f * KANA_TOOLBAR_ROW_PADDING + KANA_TOOLBAR_ROW_SPACING * (f32)(_menu->count - 1u);
+    u32 _shown = 0;
     for(u32 _i = 0; _i < _menu->count; _i++) {
+        _shown += _labels[_i] != NULL ? 1u : 0u;
+    }
+    f32 _total = 2.0f * KANA_TOOLBAR_ROW_PADDING + KANA_TOOLBAR_ROW_SPACING * (f32)(_shown > 0 ? _shown - 1u : 0u);
+    for(u32 _i = 0; _i < _menu->count; _i++) {
+        if(_labels[_i] == NULL) {
+            _widths[_i] = 0.0f;
+            continue;
+        }
         c8          _measure[48];
         const usize _len = strlen(_labels[_i]);
         const b8    _count_at_end = _len >= 2 && _labels[_i][_len - 1] == '0' && _labels[_i][_len - 2] == ' ';
@@ -648,6 +671,10 @@ RDE_INTERNAL void kana_toolbar_menu_create(kana_toolbar* _toolbar, kana_toolbar_
 
     f32 _x = KANA_TOOLBAR_ROW_PADDING;
     for(u32 _i = 0; _i < _menu->count; _i++) {
+        if(_labels[_i] == NULL) {
+            _menu->buttons[_i] = NULL;
+            continue;
+        }
         _menu->buttons[_i] = kana_toolbar_button(_toolbar, _node, _labels[_i], _callbacks[_i]);
         kana_toolbar_place(rde_ui_button_as_node(_menu->buttons[_i]), (rde_vec_2F){ _x + _widths[_i] * 0.5f, _menu->size.y * 0.5f },
                            (rde_vec_2F){ _widths[_i], KANA_TOOLBAR_ROW_BUTTON_H });
@@ -852,6 +879,16 @@ RDE_INTERNAL void kana_toolbar_update_viewer(kana_toolbar* _toolbar) {
                               KANA_TOOLBAR_ROW_ICON_PX);
             kana_toolbar_set_enabled(_toolbar->scan_menu.buttons[KANA_SCAN_MENU_WRITE], _live || _kept > 0);
         }
+        // Translate with Google: chosen while the translations show.
+        rde_ui_button* const _translate = _toolbar->scan_menu.buttons[KANA_SCAN_MENU_TRANSLATE];
+        const u8             _on        = kana_scan_translating(_toolbar->scan) ? 1u : 0u;
+        if(_translate != NULL && _on != _toolbar->_scan_translate_shown) {
+            _toolbar->_scan_translate_shown = _on;
+            if(_on) { kana_toolbar_button_selected(_translate); }
+            else    { kana_toolbar_button_plain(_translate); }
+            kana_toolbar_button_round(_translate, 12.0f);
+            kana_toolbar_icon(_translate, KANA_ICON_TRANSLATE, KANA_TOOLBAR_ICON_ABOVE, KANA_TOOLBAR_ROW_ICON_PX);
+        }
     }
     kana_toolbar_menu_show(_toolbar, &_toolbar->scan_menu, _scanning, _center);
     // Select mode (select.h) ends when Browse and the chart are gone; while on, its
@@ -957,6 +994,7 @@ void kana_toolbar_update(kana_toolbar* _toolbar) {
 
     kana_toolbar_update_viewer(_toolbar);
     kana_toolbar_update_text_copy(_toolbar);
+    kana_toolbar_update_translation(_toolbar);
 
     kana_toolbar_update_selection_menu(_toolbar);
 
@@ -1337,20 +1375,171 @@ RDE_INTERNAL void kana_toolbar_notice(kana_toolbar* _toolbar, const c8* _text) {
     _toolbar->notice_at = rde_engine_get_time_now();
 }
 
-// Copy as text: the selection read (textink.h); the text goes to the system
-// clipboard when the reading is done (kana_toolbar_update_text_copy).
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_copy_text(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+// The selection read (textink.h), for the clipboard or the translator: false
+// when a reading cannot start now (one under way).
+RDE_INTERNAL b8 kana_toolbar_read_selection(kana_toolbar* _toolbar, b8 _for_translate) {
     if(!_toolbar->_text_reader_ready) {
         kana_textink_reader_init(&_toolbar->text_reader, _toolbar->browse->db, &_toolbar->browse->catalog);
         _toolbar->_text_reader_ready = true;
     }
-    if(kana_textink_read(&_toolbar->text_reader, _toolbar->ink, (const u32*)_toolbar->lasso->selected.memory, kana_lasso_count(_toolbar->lasso))) {
+    if(!kana_textink_read(&_toolbar->text_reader, _toolbar->ink, (const u32*)_toolbar->lasso->selected.memory, kana_lasso_count(_toolbar->lasso))) {
+        return false;
+    }
+    _toolbar->text_for_translate = _for_translate;
+    return true;
+}
+
+// Copy as text: the selection read; the text goes to the system clipboard when
+// the reading is done (kana_toolbar_update_text_copy).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_copy_text(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(kana_toolbar_read_selection(_toolbar, false)) {
         rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_READING));
         _toolbar->copied_until = 0.0;
     }
     return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// --- Translate with Google on a selection -------------------------------------------------
+
+// Which selection: its strokes, as one number (a new lasso, or strokes added or
+// taken away, gives another). The card is for the one it was read from.
+RDE_INTERNAL u32 kana_toolbar_selection_key(const kana_toolbar* _toolbar) {
+    const u32  _n   = kana_lasso_count(_toolbar->lasso);
+    const u32* _ids = (const u32*)_toolbar->lasso->selected.memory;
+    u32        _key = 2166136261u ^ _n;
+    for(u32 _i = 0; _i < _n; _i++) {
+        _key = (_key ^ _ids[_i]) * 16777619u;
+    }
+    return _n == 0 ? 0u : (_key | 1u);
+}
+
+void kana_toolbar_translate_selection(kana_toolbar* _toolbar) {
+    if(kana_lasso_count(_toolbar->lasso) == 0 || !kana_translate_available()) {
+        return;
+    }
+    if(!kana_mlkit_enabled()) {
+        kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_SEL_TRANSLATE_MLKIT_OFF));
+        return;
+    }
+    if(kana_toolbar_read_selection(_toolbar, true)) {
+        _toolbar->translation_state    = KANA_TOOLBAR_TRANSLATION_READING;
+        _toolbar->translation_of       = kana_toolbar_selection_key(_toolbar);
+        _toolbar->translation_prepared = false;
+        _toolbar->translation_from[0]  = 0;
+        _toolbar->translation[0]       = 0;
+    }
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_translate(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar_translate_selection((kana_toolbar*)_user_data);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+void kana_toolbar_render_translation(kana_toolbar* _toolbar, rde_window* _window) {
+    rde_vec_2F _min, _max;
+    if(_toolbar->translation_state == KANA_TOOLBAR_TRANSLATION_NONE || _toolbar->font == NULL ||
+       !kana_lasso_bounds(_toolbar->lasso, _toolbar->ink, &_min, &_max)) {
+        _toolbar->translation_min = _toolbar->translation_max = (rde_vec_2F){ 0.0f, 0.0f };
+        return;
+    }
+    const kana_theme* _t       = kana_theme_active();
+    rde_font* const   _font    = _toolbar->font;
+    const f32         _font_px = (f32)KANA_TOOLBAR_FONT_SIZE;
+    const rde_vec_2I  _size    = rde_window_get_size(_window);
+    const rde_vec_4I  _insets  = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const f32         _sl      = -(f32)_size.x * 0.5f + (f32)_insets.x + KANA_TOOLBAR_SCREEN_EDGE;
+    const f32         _sr      = (f32)_size.x * 0.5f - (f32)_insets.z - KANA_TOOLBAR_SCREEN_EDGE;
+    const f32         _st      = (f32)_size.y * 0.5f - (f32)_insets.y - KANA_TOOLBAR_SCREEN_EDGE;
+    const f32         _sb      = -(f32)_size.y * 0.5f + (f32)_insets.w + KANA_TOOLBAR_SCREEN_EDGE;
+
+    // What it says: what was read, and its translation — or how far it got.
+    const c8* _from = _toolbar->translation_state == KANA_TOOLBAR_TRANSLATION_READING ? kana_text(KANA_TEXT_SEL_READING) : _toolbar->translation_from;
+    const c8* _to   = NULL;
+    rde_color _to_c = _t->text_soft;
+    switch(_toolbar->translation_state) {
+        case KANA_TOOLBAR_TRANSLATION_GETTING:
+            _to = kana_text(kana_translate_state(kana_translate_target()) == KANA_TRANSLATE_DOWNLOADING ? KANA_TEXT_SCAN_TRANSLATE_GETTING : KANA_TEXT_SCAN_TRANSLATING);
+            break;
+        case KANA_TOOLBAR_TRANSLATION_ASKED:  _to = kana_text(KANA_TEXT_SCAN_TRANSLATING); break;
+        case KANA_TOOLBAR_TRANSLATION_FAILED: _to = kana_text(KANA_TEXT_SCAN_TRANSLATE_FAILED); _to_c = _t->score_poor; break;
+        case KANA_TOOLBAR_TRANSLATION_DONE:
+            _to   = _toolbar->translation[0] != 0 ? _toolbar->translation : kana_text(KANA_TEXT_SEL_TRANSLATION_NONE);
+            _to_c = _toolbar->translation[0] != 0 ? _t->text : _t->text_soft;
+            break;
+        default: break;
+    }
+
+    // Its size: as wide as it may be, as tall as its lines.
+    const f32 _w      = fminf(KANA_TOOLBAR_CARD_W, _sr - _sl);
+    const f32 _inner  = _w - 2.0f * KANA_TOOLBAR_CARD_PAD;
+    const u32 _from_n = kana_draw_text_wrap_lines(_font, _font_px, _from, KANA_TOOLBAR_CARD_FROM, _inner);
+    const u32 _to_n   = _to != NULL ? kana_draw_text_wrap_lines(_font, _font_px, _to, KANA_TOOLBAR_CARD_TO, _inner) : 0u;
+    const f32 _h      = 2.0f * KANA_TOOLBAR_CARD_PAD + KANA_TRANSLATE_BADGE_H + 10.0f + (f32)_from_n * KANA_TOOLBAR_CARD_FROM_L +
+                        (_to_n > 0 ? 6.0f + (f32)_to_n * KANA_TOOLBAR_CARD_TO_L : 0.0f);
+
+    // Where: on the selection's other side from its menu (the menu goes above
+    // when there is room), centred on it, kept on screen.
+    const kana_view* _view    = &_toolbar->view->view;
+    const f32        _box_t   = _max.y * _view->zoom + _view->offset.y + KANA_LASSO_BOX_PAD;
+    const f32        _box_b   = _min.y * _view->zoom + _view->offset.y - KANA_LASSO_BOX_PAD;
+    const f32        _cx      = (_min.x + _max.x) * 0.5f * _view->zoom + _view->offset.x;
+    const b8         _menu_up = _box_t + KANA_TOOLBAR_MENU_GAP + _toolbar->selection_menu.size.y <= _st;
+    f32              _top     = _menu_up ? _box_b - KANA_TOOLBAR_MENU_GAP : _box_t + KANA_TOOLBAR_MENU_GAP + _h;
+    _top = fmaxf(fminf(_top, _st), _sb + _h);
+    const f32 _left = fmaxf(fminf(_cx - _w * 0.5f, _sr - _w), _sl);
+    _toolbar->translation_min = (rde_vec_2F){ _left, _top - _h };
+    _toolbar->translation_max = (rde_vec_2F){ _left + _w, _top };
+
+    kana_draw_card(_toolbar->translation_min, _toolbar->translation_max, 16.0f, _t->surface, _t->outline);
+    const rde_color _s = _t->surface;
+    f32             _y = _top - KANA_TOOLBAR_CARD_PAD - KANA_TRANSLATE_BADGE_H * 0.5f;
+    kana_translate_draw_badge(_left + KANA_TOOLBAR_CARD_PAD, _y, 0.299f * (f32)_s.r + 0.587f * (f32)_s.g + 0.114f * (f32)_s.b < 128.0f);
+    _y -= KANA_TRANSLATE_BADGE_H * 0.5f + 10.0f;
+    kana_draw_text_wrap(_font, _font_px, _from, _left + KANA_TOOLBAR_CARD_PAD, _y - 16.0f, KANA_TOOLBAR_CARD_FROM, _inner, KANA_TOOLBAR_CARD_FROM_L, _t->text_soft);
+    _y -= (f32)_from_n * KANA_TOOLBAR_CARD_FROM_L + 6.0f;
+    if(_to != NULL) {
+        kana_draw_text_wrap(_font, _font_px, _to, _left + KANA_TOOLBAR_CARD_PAD, _y - 18.0f, KANA_TOOLBAR_CARD_TO, _inner, KANA_TOOLBAR_CARD_TO_L, _to_c);
+    }
+}
+
+// Once a frame: the card goes with its selection; otherwise the next step —
+// the models asked for (the first time), the text sent, the answer taken.
+RDE_INTERNAL void kana_toolbar_update_translation(kana_toolbar* _toolbar) {
+    if(_toolbar->translation_state == KANA_TOOLBAR_TRANSLATION_NONE) {
+        return;
+    }
+    if(kana_toolbar_selection_key(_toolbar) != _toolbar->translation_of) {
+        _toolbar->translation_state = KANA_TOOLBAR_TRANSLATION_NONE;
+        return;
+    }
+    const c8* _to = kana_translate_target();
+    if(_toolbar->translation_state == KANA_TOOLBAR_TRANSLATION_GETTING) {
+        const KANA_TRANSLATE_STATE_ _state = kana_translate_state(_to);
+        if(_state == KANA_TRANSLATE_READY) {
+            _toolbar->translation_ticket = kana_translate_text(_toolbar->translation_from, _to);
+            _toolbar->translation_state  = _toolbar->translation_ticket != 0u ? KANA_TOOLBAR_TRANSLATION_ASKED : KANA_TOOLBAR_TRANSLATION_DONE;
+        } else if(_state == KANA_TRANSLATE_MISSING || (_state == KANA_TRANSLATE_FAILED && !_toolbar->translation_prepared)) {
+            if(!_toolbar->translation_prepared) {
+                _toolbar->translation_prepared = true;
+                kana_translate_prepare(_to);
+            }
+        } else if(_state == KANA_TRANSLATE_FAILED || _state == KANA_TRANSLATE_UNAVAILABLE) {
+            _toolbar->translation_state = KANA_TOOLBAR_TRANSLATION_FAILED;
+        }
+    }
+    if(_toolbar->translation_state == KANA_TOOLBAR_TRANSLATION_ASKED) {
+        u32 _ticket;
+        c8  _answer[KANA_TRANSLATE_TEXT];
+        while(kana_translate_poll(&_ticket, _answer, sizeof(_answer))) {
+            if(_ticket == _toolbar->translation_ticket) {
+                memcpy(_toolbar->translation, _answer, sizeof(_toolbar->translation));
+                _toolbar->translation_state = KANA_TOOLBAR_TRANSLATION_DONE;
+            }
+        }
+    }
 }
 
 // Once a frame: a reading done goes to the clipboard, and the page says what.
@@ -1360,6 +1549,21 @@ RDE_INTERNAL void kana_toolbar_update_text_copy(kana_toolbar* _toolbar) {
     }
     const c8* _text = _toolbar->text_reader.text;
     c8        _line[256];
+    if(_toolbar->text_for_translate) {
+        // For Translate with Google: what was read goes to the translator.
+        _toolbar->text_for_translate = false;
+        if(_toolbar->translation_state != KANA_TOOLBAR_TRANSLATION_READING) {
+            return;   // the selection went since
+        }
+        if(_text[0] == 0) {
+            _toolbar->translation_state = KANA_TOOLBAR_TRANSLATION_NONE;
+            kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_NOTICE_NOTHING_READ));
+            return;
+        }
+        snprintf(_toolbar->translation_from, sizeof(_toolbar->translation_from), "%s", _text);
+        _toolbar->translation_state = KANA_TOOLBAR_TRANSLATION_GETTING;
+        return;
+    }
     if(_text[0] == 0) {
         rde_ui_button_set_text(_toolbar->selection_menu.buttons[KANA_SELECTION_COPY_TEXT], kana_text(KANA_TEXT_SEL_COPY_TEXT));
         kana_toolbar_notice(_toolbar, kana_text(KANA_TEXT_NOTICE_NOTHING_READ));
@@ -1931,6 +2135,15 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_camera(rde_ui_node* _node
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_photos(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_scan_photos(((kana_toolbar*)_user_data)->scan);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// Translate with Google, on or off: the panel of translations (scan.h).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_scan_translate(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_scan_translate(_toolbar->scan);
+    kana_toolbar_update(_toolbar);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -2540,10 +2753,14 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
     for(u32 _m = 0; _m < sizeof(_menus) / sizeof(_menus[0]); _m++) {
         kana_toolbar_style_panel(_menus[_m]->panel, KANA_TOOLBAR_ROW_RADIUS, 1.0f);
         for(u32 _i = 0; _i < _menus[_m]->count; _i++) {
+            if(_menus[_m]->buttons[_i] == NULL) {
+                continue;   // left out (see kana_toolbar_menu_create)
+            }
             kana_toolbar_restyle_quiet(_menus[_m]->buttons[_i]);
             kana_toolbar_button_round(_menus[_m]->buttons[_i], 12.0f);
         }
     }
+    _toolbar->_scan_translate_shown = UINT8_MAX;   // its look again, over the restyle
     kana_toolbar_button_danger_quiet(_toolbar->selection_menu.buttons[KANA_SELECTION_DELETE]);
     rde_ui_button* const _primary[] = {
         _toolbar->viewer_menu.buttons[KANA_VIEWER_PRACTICE],                 // the way on
@@ -2617,6 +2834,7 @@ void kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _i
     _toolbar->check    = _check;
     _toolbar->_album_practice_shown = UINT32_MAX;   // not shown yet: the first update sets it
     _toolbar->_scan_kept_shown      = UINT32_MAX;
+    _toolbar->_scan_translate_shown = UINT8_MAX;
     _toolbar->_album_view_shown     = KANA_ALBUM_VIEW_CHARACTERS;
     _toolbar->show_hud = _show_hud;
     _toolbar->tool     = KANA_TOOL_DRAW;
@@ -2787,10 +3005,12 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     // over the selection by kana_toolbar_update; the context menu opens at a
     // long press.
     {
-        const c8* const             _labels[KANA_SELECTION_COUNT]    = { kana_text(KANA_TEXT_SEL_CUT), kana_text(KANA_TEXT_SEL_COPY), kana_text(KANA_TEXT_SEL_COPY_TEXT), kana_text(KANA_TEXT_SEL_DUPLICATE),
+        const c8* const             _labels[KANA_SELECTION_COUNT]    = { kana_text(KANA_TEXT_SEL_CUT), kana_text(KANA_TEXT_SEL_COPY), kana_text(KANA_TEXT_SEL_COPY_TEXT),
+                                                                         kana_translate_available() ? kana_text(KANA_TEXT_SCAN_TRANSLATE) : NULL, kana_text(KANA_TEXT_SEL_DUPLICATE),
                                                                          kana_text(KANA_TEXT_SEL_CHECK), kana_text(KANA_TEXT_DELETE) };
-        const c8* const             _icons[KANA_SELECTION_COUNT]     = { KANA_ICON_CUT, KANA_ICON_COPY, KANA_ICON_TEXT_COPY, KANA_ICON_DUPLICATE, KANA_ICON_SEARCH, KANA_ICON_TRASH };
-        const rde_ui_event_callback _callbacks[KANA_SELECTION_COUNT] = { kana_toolbar_on_cut, kana_toolbar_on_copy, kana_toolbar_on_copy_text, kana_toolbar_on_duplicate, kana_toolbar_on_check,
+        const c8* const             _icons[KANA_SELECTION_COUNT]     = { KANA_ICON_CUT, KANA_ICON_COPY, KANA_ICON_TEXT_COPY, KANA_ICON_TRANSLATE, KANA_ICON_DUPLICATE, KANA_ICON_SEARCH, KANA_ICON_TRASH };
+        const rde_ui_event_callback _callbacks[KANA_SELECTION_COUNT] = { kana_toolbar_on_cut, kana_toolbar_on_copy, kana_toolbar_on_copy_text, kana_toolbar_on_translate,
+                                                                         kana_toolbar_on_duplicate, kana_toolbar_on_check,
                                                                          kana_toolbar_on_delete_selection };
         kana_toolbar_menu_create(_toolbar, &_toolbar->selection_menu, _root, _labels, _icons, _callbacks, KANA_SELECTION_COUNT);
     }
@@ -2890,10 +3110,11 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     }
     {
         const c8* const             _labels[KANA_SCAN_MENU_COUNT]    = { kana_text(KANA_TEXT_BACK), kana_text(KANA_TEXT_SCAN_CAMERA), kana_text(KANA_TEXT_SCAN_PHOTOS),
+                                                                         kana_translate_available() ? kana_text(KANA_TEXT_SCAN_TRANSLATE) : NULL,
                                                                          kana_text(KANA_TEXT_SCAN_WRITE_N) };
-        const c8* const             _icons[KANA_SCAN_MENU_COUNT]     = { KANA_ICON_BACK, KANA_ICON_CAMERA, KANA_ICON_IMAGE, KANA_ICON_PEN };
+        const c8* const             _icons[KANA_SCAN_MENU_COUNT]     = { KANA_ICON_BACK, KANA_ICON_CAMERA, KANA_ICON_IMAGE, KANA_ICON_TRANSLATE, KANA_ICON_PEN };
         const rde_ui_event_callback _callbacks[KANA_SCAN_MENU_COUNT] = { kana_toolbar_on_scan_back, kana_toolbar_on_scan_camera, kana_toolbar_on_scan_photos,
-                                                                         kana_toolbar_on_scan_write };
+                                                                         kana_toolbar_on_scan_translate, kana_toolbar_on_scan_write };
         kana_toolbar_menu_create(_toolbar, &_toolbar->scan_menu, _root, _labels, _icons, _callbacks, KANA_SCAN_MENU_COUNT);
     }
     {
@@ -3080,12 +3301,20 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     // What these own moves over (the old struct is gone).
     _toolbar->text_reader        = _kept.text_reader;
     _toolbar->_text_reader_ready = _kept._text_reader_ready;
+    _toolbar->text_for_translate   = _kept.text_for_translate;
+    _toolbar->translation_state    = _kept.translation_state;
+    _toolbar->translation_ticket   = _kept.translation_ticket;
+    _toolbar->translation_of       = _kept.translation_of;
+    _toolbar->translation_prepared = _kept.translation_prepared;
+    memcpy(_toolbar->translation_from, _kept.translation_from, sizeof(_toolbar->translation_from));
+    memcpy(_toolbar->translation, _kept.translation, sizeof(_toolbar->translation));
     _toolbar->_text_clip         = _kept._text_clip;
     _toolbar->notice_at          = _kept.notice_at;
     memcpy(_toolbar->notice, _kept.notice, sizeof(_toolbar->notice));
     _toolbar->_album_practice_shown = UINT32_MAX;
     _toolbar->_album_view_shown     = UINT32_MAX;
     _toolbar->_scan_kept_shown      = UINT32_MAX;
+    _toolbar->_scan_translate_shown = UINT8_MAX;
     kana_toolbar_build(_toolbar, false);
     _toolbar->side.open          = _kept.side.open;
     _toolbar->side.settings_open = _kept.side.settings_open;
@@ -3152,6 +3381,12 @@ b8 kana_toolbar_hit(const kana_toolbar* _toolbar, rde_vec_2F _screen) {
 
     // The side panel and Settings (while either is open, the whole screen), and the word form.
     if(kana_side_hit(_toolbar, _p) || _toolbar->word_open) {
+        return true;
+    }
+
+    // Translate with Google's card (kept in Kana's screen space).
+    if(_toolbar->translation_state != KANA_TOOLBAR_TRANSLATION_NONE && _screen.x >= _toolbar->translation_min.x && _screen.x <= _toolbar->translation_max.x &&
+       _screen.y >= _toolbar->translation_min.y && _screen.y <= _toolbar->translation_max.y) {
         return true;
     }
 

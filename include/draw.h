@@ -49,6 +49,8 @@ f32  kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _p
 // characters, and at line breaks — the first line's baseline at _y, the next
 // _line below each. How many lines.
 u32  kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color);
+// How many lines kana_draw_text_wrap would draw, drawing nothing.
+u32  kana_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
 // The size to draw _text at so it fits _width: _px, or smaller (down to
 // _min_scale of it) when it would not fit.
 f32  kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);

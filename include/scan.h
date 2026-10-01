@@ -4,6 +4,7 @@
 #include "rde.h"
 #include "scroll.h"
 #include "textscan.h"
+#include "translate.h"
 
 // ===========================================================================
 // Text from a photo: a screen over the page, opened from its long-press menu.
@@ -25,6 +26,13 @@
 // to allow it. It is closed as soon as it is not live: Hold, Back, the app
 // going to the background. With ML Kit switched off in Settings, the screen
 // says so instead.
+//
+// Translate with Google (where ML Kit's translator is: translate.h): the
+// picture shares the screen with a panel of the lines, each with its
+// translation into the reader's language and Google's badge on top. Asked for
+// once the picture holds still (a photo, or Hold), a few lines at a time; the
+// first time, the models download (the screen says so). Left-out lines show
+// faded. A drag scrolls the panel when it is long.
 // ===========================================================================
 
 typedef enum {
@@ -34,11 +42,22 @@ typedef enum {
     KANA_SCAN_RESULT          // a picture and its lines, to keep or leave out
 } KANA_SCAN_STAGE_;
 
+typedef enum {
+    KANA_SCAN_TRANSLATION_NONE = 0,   // not asked for yet
+    KANA_SCAN_TRANSLATION_ASKED,      // ticket: its answer is on its way
+    KANA_SCAN_TRANSLATION_DONE        // translation: in (empty: it could not be)
+} KANA_SCAN_TRANSLATION_;
+
 RDE_STRUCT {
-    c8         text[KANA_TEXTSCAN_TEXT];
-    rde_vec_2F corners[4];     // the upright picture's pixels, y down
-    u32        block;
-    b8         kept;           // written when Write is pressed
+    c8                     text[KANA_TEXTSCAN_TEXT];
+    rde_vec_2F             corners[4];     // the upright picture's pixels, y down
+    u32                    block;
+    b8                     kept;           // written when Write is pressed
+    KANA_SCAN_TRANSLATION_ translated;
+    u32                    ticket;
+    c8                     translation[KANA_TRANSLATE_TEXT];
+    f32                    row_top;        // its row in the panel, screen y (last frame; a tap there leaves it out)
+    f32                    row_bottom;
 } kana_scan_line;
 
 RDE_STRUCT {
@@ -72,6 +91,18 @@ RDE_STRUCT {
     f64                           _read_started;    // 0: no read under way
 
     b8                            write;            // Write was pressed: kana_scan_take_text
+    // Translate with Google: on (the panel shows), into which language, how
+    // many lines are on their way, and whether this turn's download was asked.
+    b8                            translate;
+    c8                            translate_to[8];
+    u32                           translate_asked;
+    b8                            translate_prepared;
+    f32                           panel_content;    // the panel's rows, tall (last frame), and its view
+    f32                           panel_view;
+    f32                           panel_left;       // where its rows are on screen (last frame)
+    f32                           panel_right;
+    f32                           panel_rows_top;
+    f32                           panel_rows_bottom;
     KANA_SCAN_STAGE_              _before;          // the stage to go back to if the pick is cancelled
 
     // Layout of the last frame: where the picture is on screen.
@@ -94,6 +125,10 @@ void kana_scan_camera(kana_scan* _scan);
 void kana_scan_photos(kana_scan* _scan);
 // Live: keeps the frame and its lines, and stops the camera.
 void kana_scan_hold(kana_scan* _scan);
+
+// Translate with Google, on or off (the panel); whether it is on.
+void kana_scan_translate(kana_scan* _scan);
+b8   kana_scan_translating(const kana_scan* _scan);
 
 // How many lines are kept; Write pressed.
 u32  kana_scan_kept(const kana_scan* _scan);

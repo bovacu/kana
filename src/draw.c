@@ -199,7 +199,8 @@ f32 kana_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px
     return _w;
 }
 
-u32 kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) {
+// kana_draw_text_wrap, drawing or (_draw false) only counting the lines.
+RDE_INTERNAL u32 kana_draw_text_wrap_do(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color, b8 _draw) {
     u32       _lines = 0;
     const c8* _s     = _text;
     c8        _row[512];
@@ -246,7 +247,9 @@ u32 kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, 
         }
         memcpy(_row, _s, _n);
         _row[_n] = 0;
-        kana_draw_text(_font, _font_px, _row, _x, _y - (f32)_lines * _line, _px, _color);
+        if(_draw) {
+            kana_draw_text(_font, _font_px, _row, _x, _y - (f32)_lines * _line, _px, _color);
+        }
         _lines++;
         if(_next == _s) {
             break;   // nothing would fit: stop rather than loop
@@ -254,6 +257,14 @@ u32 kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, 
         _s = _next;
     }
     return _lines;
+}
+
+u32 kana_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) {
+    return kana_draw_text_wrap_do(_font, _font_px, _text, _x, _y, _px, _width, _line, _color, true);
+}
+
+u32 kana_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
+    return kana_draw_text_wrap_do(_font, _font_px, _text, 0.0f, 0.0f, _px, _width, 0.0f, (rde_color){ 0, 0, 0, 0 }, false);
 }
 
 f32 kana_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale) {

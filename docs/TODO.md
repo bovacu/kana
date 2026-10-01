@@ -468,6 +468,42 @@ menu's Paste text), to see on the iPad.*
   out of the bar where text cannot be read (kana_textscan_available: the
   desktop, Android until its side is written). Seen on the Mac (no camera, the
   bar as before); on the iPad: installed, Borja's to try.
+- [x] **Translate with Google** (2026-10-01; Borja chose ML Kit's on-device
+      translator for both platforms over Apple's Translation + ML Kit on
+      Android): Japanese into the app's language (English when the app is in
+      Japanese). translate.h is the platform's part (iOS: translate_ios.m;
+      Android: to come, the same ML Kit API; the desktop: not available, but
+      debug builds can pretend). Two places use it:
+      - Text from a photo: a "Translate with Google" toggle in its row; with a
+        held picture (a photo, or Hold), a panel under it lists every line with
+        its translation, Google's badge on top, four lines asked at a time;
+        left-out lines fade, a tap on a row leaves its line out, a drag scrolls.
+      - A lasso selection's menu: "Translate with Google" reads the selection as
+        Copy as text does (textink.h), translates what was read, and shows both
+        in a card on the selection's other side from its menu, until the
+        selection changes or goes; the pen does not draw through it.
+      The models are not in the app: Japanese's and the target's (about 30 MB
+      each) download the first time (Wi-Fi or mobile data, as the handwriting
+      model), and the screens say so. Google's terms: the button reads
+      "Translate with Google", the "powered by Google Translate" badge
+      (assets/translate/, colour on light themes, white on dark) is by every
+      result, and Google's disclaimer heads Settings › Licences › ML Kit
+      (tools/mlkit/setup.py writes it). Off with ML Kit's Settings switch.
+      tools/mlkit/setup.py now fetches MLKitTranslate 8.0.0 and
+      MLKitNaturalLanguage 10.0.0 (and GTMStringEncoding). The .ipa grew 41 →
+      55 MB, the executable 95 → 139 MB before stripping.
+- Seen working on the iPad (2026-10-01, Borja: "working perfectly"), both
+  places. --translate-probe=es on the device: the Japanese and Spanish models
+  downloaded in 5.8 s; 今日は日本語を勉強します。→ "Yo estudiaré japonés hoy.",
+  駅はどこですか？→ "¿Dónde está la estación?", ~200 ms a sentence. (An iOS
+  app cannot quit itself: the probe first stopped RDE's loop to "quit", which
+  froze the app on screen — now it just carries on.)
+- Tested (scantest, translate.h pretending): nothing asked while off; four at a
+  time, in order; the answers to their lines, a failed one; the panel's layout,
+  the badge, the clip; a tap on a row; off again. Looked at on the Mac:
+  --scan-demo=PNG --scan-demo-translate (light, Night, --scroll), and
+  --paste-text=駅はどこですか --translate-selection (Kana's own reader read it
+  right).
 - Tested (scantest): taps on lines (vertical ones too), what Write writes,
   a photo with no text, one that cannot be shown; live with a stubbed camera:
   the first frame telling the size, frames turned a quarter (upright 1080x1920),

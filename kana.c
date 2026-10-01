@@ -59,6 +59,8 @@
 #include "theme.h"
 #include "draw.h"
 #include "recognize.h"
+#include "backup.h"
+#include <time.h>
 
 #define KANA_CONFIG_PATH "./assets/config.rdef"
 
@@ -124,6 +126,13 @@ RDE_INTERNAL const c8* look_scan_demo   = NULL;   // --scan-demo=PNG: Text from 
 RDE_INTERNAL f32       look_scan_turn   = 0.0f;   // --scan-demo-turn=DEG: the image as a camera frame that needs DEG clockwise
 RDE_INTERNAL b8        look_scan_live   = false;  // --scan-live: Text from a photo, the camera live (to measure it with --perf)
 RDE_INTERNAL b8        look_scan_rows   = false;  // --scan-demo-top-first: and its rows top first, as a camera frame's are
+RDE_INTERNAL b8        look_scan_translate = false;  // --scan-demo-translate: and Translate with Google on, translate.h pretending
+RDE_INTERNAL const c8* look_translate_probe = NULL; // --translate-probe=xx: ML Kit's translator tried on the device (see kana_translate_probe)
+RDE_INTERNAL b8        look_translate_sel = false;  // --translate-selection: the selection (after --paste-text) translated, translate.h pretending
+RDE_INTERNAL b8        look_data        = false;  // --data: Settings › Your data
+RDE_INTERNAL const c8* look_data_export = NULL;   // --data-export=FILE: everything exported to FILE (no dialog)
+RDE_INTERNAL const c8* look_data_import = NULL;   // --data-import=FILE: FILE picked to import (its question shown)...
+RDE_INTERNAL b8        look_data_replace = false; // --data-replace: ...and Replace pressed
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -472,6 +481,168 @@ RDE_INTERNAL void kana_switch_canvas(void) {
     zoom_seen        = -1.0f;   // the loaded zoom is not a change to show
 }
 
+// --- Your data (backup.h, Settings › Your data) -------------------------------------------
+
+// After an import put the backup's files in the save folder: everything read
+// again from them — the canvases, marks, exams, words, settings and the open
+// page. Every screen is closed first (each holds what it read before), and the
+// page is let go as on a canvas switch.
+RDE_INTERNAL void kana_reload_saves(void) {
+    if(practice.open) { kana_practice_close(&practice); }
+    if(viewer.open)   { kana_viewer_close(&viewer); }
+    if(browse.open)   { kana_browse_close(&browse); }
+    if(chart.open)    { kana_chart_close(&chart); }
+    if(album.open)    { kana_album_close(&album); }
+    if(check.open)    { kana_check_close(&check); }
+    if(exam.open)     { kana_exam_close(&exam); }
+    if(stats.open)    { kana_stats_close(&stats); }
+    if(scan.open)     { kana_scan_close(&scan); }
+    kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
+    kana_ink_erase_end(&ink);
+    kana_ink_end(&ink);
+    pen_on_ui = false;
+    erasing   = false;
+    kana_canvas_release_fingers(&canvas);
+    kana_lasso_clear(&lasso, &ink);
+    kana_ink_destroy(&ink);
+    kana_ink_init(&ink);
+    kana_canvas_reset_view(&canvas);
+    canvas.page = (kana_page){ 0 };
+    kana_load_saves();
+    toolbar.side._notes_built = false;   // the side panel's list, from the new notes
+    kana_toolbar_sync(&toolbar);
+    zoom_seen = -1.0f;
+}
+
+// Everything into one file at _path: shared (the system's sheet: Files, iCloud
+// Drive, a message...) on a phone or tablet, or already where the learner chose.
+RDE_INTERNAL void kana_data_export_to(const c8* _path, b8 _share) {
+    kana_backup_info _info;
+    c8               _line[400];
+    if(!kana_backup_export(kana_save_dir(), _path, &_info) || (_share && !rde_mobile_share_file(_path, "application/octet-stream", "Kana backup"))) {
+        kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_EXPORT_FAILED), true);
+        return;
+    }
+    if(_share) {
+        KANA_TEXTF(_line, KANA_TEXT_DATA_EXPORT_READY, KANA_TN(_info.files));
+    } else {
+        KANA_TEXTF(_line, KANA_TEXT_DATA_EXPORT_SAVED, KANA_TN(_info.files), KANA_TS(_path));
+    }
+    kana_side_data_message(&toolbar, _line, false);
+    rde_log_level(RDE_LOG_LEVEL_INFO, "kana: exported %u files (%llu bytes) to %s", _info.files, (unsigned long long)_info.bytes, _path);
+}
+
+#if !defined(RDE_PLATFORM_MOBILE)
+// The desktop: where to save it chosen (rde_dialog_save_file).
+RDE_INTERNAL void kana_data_on_save_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
+    RDE_UNUSED(_filter); RDE_UNUSED(_user_data);
+    if(_paths == NULL) {
+        kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_EXPORT_FAILED), true);
+        return;
+    }
+    if(_count == 0) {
+        return;   // cancelled
+    }
+    c8          _path[RDE_MAX_PATH];
+    const c8*   _ext = "." KANA_BACKUP_EXTENSION;
+    const usize _n   = strlen(_paths[0]);
+    const b8    _has = _n >= strlen(_ext) && strcmp(_paths[0] + _n - strlen(_ext), _ext) == 0;
+    snprintf(_path, sizeof(_path), "%s%s", _paths[0], _has ? "" : _ext);
+    kana_data_export_to(_path, false);
+}
+#endif
+
+// A file picked to import (rde_dialog_open_file): read, checked whole, and the
+// question asked — nothing changes until Replace.
+RDE_INTERNAL void kana_data_on_open_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
+    RDE_UNUSED(_filter); RDE_UNUSED(_user_data);
+    if(_paths == NULL) {
+        kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_CANT_OPEN), true);
+        return;
+    }
+    if(_count == 0) {
+        return;   // cancelled
+    }
+    rde_memory_allocator* _a    = rde_memory_allocator_get_default_std();
+    usize                 _size = 0;
+    u8*                   _data = rde_file_read_uri(_paths[0], &_size, _a);
+    if(_data == NULL) {
+        kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_CANT_OPEN), true);
+        return;
+    }
+    kana_backup_info _info;
+    if(!kana_backup_inspect(_data, _size, &_info)) {
+        _a->free(_a->allocator, _data);
+        kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_NOT_BACKUP), true);
+        return;
+    }
+    c8 _when[64];
+    c8 _question[400];
+    kana_text_date_time(_when, sizeof(_when), _info.created);
+    KANA_TEXTF(_question, KANA_TEXT_DATA_CONFIRM, KANA_TS(_when), KANA_TN(_info.canvases));
+    kana_side_data_confirm(&toolbar, _data, _size, _question);
+}
+
+// Deletes what an earlier export left in the outbox.
+RDE_INTERNAL b8 kana_data_outbox_entry(const c8* _path, b8 _is_dir, any _user_data) {
+    RDE_UNUSED(_user_data);
+    if(!_is_dir) {
+        rde_file_delete(_path);
+    }
+    return true;
+}
+
+// Once a frame: what Your data asked for.
+RDE_INTERNAL void kana_data_update(void) {
+    switch(kana_side_take_data_request(&toolbar)) {
+        case KANA_SIDE_DATA_EXPORT: {
+            kana_save_now(false);   // what is on screen, in the files first
+            c8               _date[32];
+            const time_t     _now = time(NULL);
+            const struct tm* _tm  = localtime(&_now);
+            strftime(_date, sizeof(_date), "%Y-%m-%d", _tm);
+#if defined(RDE_PLATFORM_MOBILE)
+            // Written to the outbox (the last one let go), then shared from there.
+            c8 _outbox[RDE_MAX_PATH];
+            snprintf(_outbox, sizeof(_outbox), "%s%s/", kana_save_dir(), KANA_BACKUP_OUTBOX);
+            if(rde_file_dir_exists(_outbox)) {
+                rde_file_crawl_dir_recursively(_outbox, kana_data_outbox_entry, NULL, 0, NULL);
+            }
+            c8 _path[RDE_MAX_PATH];
+            snprintf(_path, sizeof(_path), "%sKana backup %s.%s", _outbox, _date, KANA_BACKUP_EXTENSION);
+            rde_file_create_missing_dirs(_path);
+            kana_data_export_to(_path, true);
+#else
+            static const rde_dialog_filter _filter = { "Kana backup", KANA_BACKUP_EXTENSION };
+            rde_dialog_save_file(window, &_filter, 1, NULL, kana_data_on_save_path, NULL);
+#endif
+        } break;
+        case KANA_SIDE_DATA_IMPORT: {
+            static const rde_dialog_filter _filter = { "Kana backup", KANA_BACKUP_EXTENSION };
+            rde_dialog_open_file(window, &_filter, 1, NULL, false, kana_data_on_open_path, NULL);
+        } break;
+        case KANA_SIDE_DATA_REPLACE: {
+            kana_save_now(false);   // so what is set aside is what was on screen
+            kana_backup_info _info;
+            const b8 _whole = kana_backup_inspect(toolbar.side.data_backup, toolbar.side.data_backup_size, &_info);
+            const b8 _ok    = _whole && kana_backup_restore(toolbar.side.data_backup, toolbar.side.data_backup_size, kana_save_dir());
+            kana_side_data_done(&toolbar);
+            if(_ok) {
+                kana_reload_saves();
+                c8 _when[64];
+                c8 _line[400];
+                kana_text_date_time(_when, sizeof(_when), _info.created);
+                KANA_TEXTF(_line, KANA_TEXT_DATA_IMPORTED, KANA_TS(_when));
+                kana_side_data_message(&toolbar, _line, false);
+                rde_log_level(RDE_LOG_LEVEL_INFO, "kana: imported %u files from a backup made %s", _info.files, _when);
+            } else {
+                kana_side_data_message(&toolbar, kana_text(KANA_TEXT_DATA_IMPORT_FAILED), true);
+            }
+        } break;
+        default: break;
+    }
+}
+
 void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     if(kana_bake_requested(_argc, _argv)) {
         baking = true;
@@ -513,6 +684,18 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         rde_log_color(RDE_LOG_COLOR_GREEN, "kana: %u characters loaded", kanji_db.count);
     }
 
+    // --scan-demo-translate: translate.h pretends (debug builds), so the scan
+    // screen has its Translate with Google — known before the toolbar is built.
+    for(i32 _i = 1; _i < _argc; _i++) {
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--scan-demo-translate") == 0) {
+            kana_translate_demo(true);
+            look_scan_translate = true;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--translate-selection") == 0) {
+            kana_translate_demo(true);
+            look_translate_sel = true;
+        }
+    }
     kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
     toolbar.selection = &selection;
     toolbar.exam      = &exam;
@@ -637,6 +820,21 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--trim-fonts") == 0) {
             look_trim_fonts = true;
         }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--data") == 0) {
+            look_data = true;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--data-export=", 14) == 0) {
+            look_data_export = _argv[_i] + 14;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--data-import=", 14) == 0) {
+            look_data_import = _argv[_i] + 14;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--data-replace") == 0) {
+            look_data_replace = true;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--translate-probe=", 18) == 0) {
+            look_translate_probe = _argv[_i] + 18;
+        }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--scroll=", 9) == 0) {
             look_scroll = strtof(_argv[_i] + 9, NULL);
         }
@@ -702,6 +900,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
                                               ((u32)_png[20] << 24) | ((u32)_png[21] << 16) | ((u32)_png[22] << 8) | _png[23], _demo, 4u };
             kana_scan_show(&scan, &_r);
             ((kana_scan_line*)scan.lines.memory)[1].kept = false;
+            if(look_scan_translate) {
+                kana_scan_translate(&scan);
+            }
             scan.shown_top_first = look_scan_rows;
             if(look_scan_turn != 0.0f) {
                 // The file holds the picture turned the other way: shown as a frame is.
@@ -1185,11 +1386,68 @@ RDE_INTERNAL void kana_follow_language(void) {
     }
 }
 
+// --translate-probe=xx: Japanese into xx with ML Kit's translator, on the device
+// itself — its models downloaded when missing, then a few sentences — written to
+// <save dir>/translate.txt with the times. Three minutes at most. The app then
+// carries on as usual: an iOS app cannot quit itself (stopping RDE's loop only
+// freezes it on screen).
+RDE_INTERNAL void kana_translate_probe(void) {
+    static const c8* const _sentences[4] = { "今日は日本語を勉強します。", "駅はどこですか？", "この本はとても面白かったです。", "憂鬱" };
+    static f64 _start, _ready_at, _sent_at;
+    static u32 _tickets[4], _got;
+    static b8  _sent;
+    static c8  _answers[4][KANA_TRANSLATE_TEXT];
+    static f64 _took[4];
+    const f64 _now = rde_engine_get_time_now();
+    if(_start == 0.0) {
+        _start = _now;
+        kana_translate_prepare(look_translate_probe);
+    }
+    const KANA_TRANSLATE_STATE_ _state = kana_translate_state(look_translate_probe);
+    if(_state == KANA_TRANSLATE_READY && !_sent) {
+        _sent     = true;
+        _ready_at = _sent_at = _now;
+        for(u32 _i = 0; _i < 4u; _i++) {
+            _tickets[_i] = kana_translate_text(_sentences[_i], look_translate_probe);
+        }
+    }
+    u32 _ticket;
+    c8  _out[KANA_TRANSLATE_TEXT];
+    while(kana_translate_poll(&_ticket, _out, sizeof(_out))) {
+        for(u32 _i = 0; _i < 4u; _i++) {
+            if(_tickets[_i] != 0u && _tickets[_i] == _ticket) {
+                snprintf(_answers[_i], sizeof(_answers[_i]), "%s", _out);
+                _took[_i] = _now - _sent_at;
+                _got++;
+            }
+        }
+    }
+    if((_sent && _got == 4u) || _state == KANA_TRANSLATE_FAILED || _state == KANA_TRANSLATE_UNAVAILABLE || _now - _start > 180.0) {
+        c8 _path[RDE_MAX_PATH];
+        snprintf(_path, sizeof(_path), "%stranslate.txt", kana_save_dir());
+        FILE* _f = fopen(_path, "a");
+        if(_f != NULL) {
+            fprintf(_f, "ja -> %s: state %d, ready after %.1f s, %u of 4 answered\n", look_translate_probe, (i32)_state,
+                    _ready_at > 0.0 ? _ready_at - _start : -1.0, _got);
+            for(u32 _i = 0; _i < 4u; _i++) {
+                fprintf(_f, "  %s -> %s (%.0f ms)\n", _sentences[_i], _answers[_i], 1000.0 * _took[_i]);
+            }
+            fclose(_f);
+        }
+        rde_log_level(RDE_LOG_LEVEL_INFO, "kana translate probe: written to %s", _path);
+        look_translate_probe = NULL;
+    }
+}
+
 RDE_INTERNAL void kana_update(f32 _dt) {
     if(baking) {
         return;
     }
+    if(look_translate_probe != NULL) {
+        kana_translate_probe();
+    }
     kana_follow_language();   // a language chosen: the UI and the meanings in it
+    kana_data_update();       // Settings › Your data: export, import
     // --paper: the paper panel, open once the bar has been laid out.
     if(look_paper && ++look_frames == 20u) {
         kana_toolbar_open_paper(&toolbar);
@@ -1203,6 +1461,23 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         if(look_shot_frames == 25u && look_deselect) {
             kana_lasso_clear(&lasso, &ink);
         }
+        if(look_shot_frames == 28u && look_translate_sel) {
+            kana_toolbar_translate_selection(&toolbar);
+        }
+        if(look_shot_frames == 15u && look_data) {
+            kana_side_open_settings(&toolbar, -1);
+            toolbar.side.data_open = true;
+        }
+        if(look_shot_frames == 20u && look_data_export != NULL) {
+            kana_data_export_to(look_data_export, false);
+        }
+        if(look_shot_frames == 22u && look_data_import != NULL) {
+            const c8* const _picked[2] = { look_data_import, NULL };
+            kana_data_on_open_path(_picked, 1u, -1, NULL);
+        }
+        if(look_shot_frames == 26u && look_data_replace) {
+            toolbar.side.data_request = KANA_SIDE_DATA_REPLACE;
+        }
         if(look_shot_frames == 40u && look_trim_fonts) {
             kana_toolbar_trim_fonts(&toolbar);   // the shot then shows every glyph uploaded again
         }
@@ -1210,6 +1485,7 @@ RDE_INTERNAL void kana_update(f32 _dt) {
             stats.scroller.offset       = look_scroll;
             album.scroller.offset       = look_scroll;
             album.page_scroller.offset  = look_scroll;
+            scan.taps.offset            = look_scroll;   // the panel of translations
         }
         if(look_shot_frames == 45u) {
             rde_window_take_screenshot(window, (rde_vec_2I){ 0, 0 }, (rde_vec_2I){ 0, 0 }, look_shot, NULL);   // the next frame, whole
@@ -1671,6 +1947,7 @@ RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
             kana_draw_hud(_window);
         }
         kana_draw_zoom_toast(_window);
+        kana_toolbar_render_translation(&toolbar, _window);   // Translate with Google, by the selection
         kana_draw_notice(_window);
     }
     rde_rendering_2d_end_drawing();

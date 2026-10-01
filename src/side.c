@@ -260,6 +260,83 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_settings_close(rde_ui_node* _node
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// --- Your data --------------------------------------------------------------------------
+
+KANA_SIDE_DATA_ kana_side_take_data_request(kana_toolbar* _toolbar) {
+    const KANA_SIDE_DATA_ _r = _toolbar->side.data_request;
+    _toolbar->side.data_request = KANA_SIDE_DATA_NONE;
+    return _r;
+}
+
+void kana_side_data_message(kana_toolbar* _toolbar, const c8* _text, b8 _bad) {
+    snprintf(_toolbar->side.data_message, sizeof(_toolbar->side.data_message), "%s", _text != NULL ? _text : "");
+    _toolbar->side.data_message_bad = _bad;
+}
+
+void kana_side_data_done(kana_toolbar* _toolbar) {
+    kana_side* _side = &_toolbar->side;
+    if(_side->data_backup != NULL) {
+        rde_memory_allocator* _a = rde_memory_allocator_get_default_std();
+        _a->free(_a->allocator, _side->data_backup);
+    }
+    _side->data_backup      = NULL;
+    _side->data_backup_size = 0;
+    _side->data_confirming  = false;
+}
+
+void kana_side_data_confirm(kana_toolbar* _toolbar, u8* _backup, usize _size, const c8* _question) {
+    kana_side_data_done(_toolbar);
+    _toolbar->side.data_backup      = _backup;
+    _toolbar->side.data_backup_size = _size;
+    _toolbar->side.data_confirming  = true;
+    kana_side_data_message(_toolbar, _question, false);
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.data_open = true;
+    kana_side_data_message(_toolbar, "", false);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.data_open = false;
+    kana_side_data_done(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data_export(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    ((kana_toolbar*)_user_data)->side.data_request = KANA_SIDE_DATA_EXPORT;
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data_import(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    ((kana_toolbar*)_user_data)->side.data_request = KANA_SIDE_DATA_IMPORT;
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data_replace(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    if(_toolbar->side.data_confirming) {
+        _toolbar->side.data_request = KANA_SIDE_DATA_REPLACE;
+    }
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_data_cancel(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_side_data_done(_toolbar);
+    kana_side_data_message(_toolbar, "", false);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_width_even(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
@@ -1077,6 +1154,32 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
                        (rde_vec_2F){ _lw, fmaxf(20.0f, _text_top - _text_bottom) });
     kana_toolbar_place(rde_ui_button_as_node(_side->settings_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
     kana_toolbar_place(rde_ui_button_as_node(_side->licences_button), (rde_vec_2F){ _kw - _m - 186.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    kana_toolbar_place(rde_ui_button_as_node(_side->data_button), (rde_vec_2F){ _kw - _m - 312.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+
+    // Your data: the same card's size, over Settings — the title, what Kana
+    // does with your data, then the answer line, Export / Import (or Replace /
+    // Cancel) and Close at the bottom.
+    kana_toolbar_place(rde_ui_button_as_node(_side->data_backdrop), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, _screen);
+    kana_toolbar_place(rde_ui_image_as_node(_side->data_card), (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, (rde_vec_2F){ _kw, _kh });
+    kana_toolbar_place(rde_ui_label_as_node(_side->data_title), (rde_vec_2F){ _m + _lw * 0.5f, _kh - 36.0f }, (rde_vec_2F){ _lw, 44.0f });
+    {
+        const f32 _close_y   = _m + 22.0f;
+        const f32 _status_lo = _close_y + 22.0f + 12.0f;
+        const f32 _status_hi = _status_lo + 84.0f;
+        const f32 _row_y     = _status_hi + 12.0f + 22.0f;
+        const f32 _text_lo   = _row_y + 22.0f + 18.0f;
+        const f32 _text_hi   = _kh - 66.0f;
+        kana_toolbar_place(rde_ui_label_as_node(_side->data_text), (rde_vec_2F){ _m + _lw * 0.5f, (_text_lo + _text_hi) * 0.5f },
+                           (rde_vec_2F){ _lw, fmaxf(20.0f, _text_hi - _text_lo) });
+        const f32 _bw = fminf(200.0f, (_lw - KANA_SIDE_GAP) * 0.5f);
+        kana_toolbar_place(rde_ui_button_as_node(_side->data_export), (rde_vec_2F){ _m + _bw * 0.5f, _row_y }, (rde_vec_2F){ _bw, 44.0f });
+        kana_toolbar_place(rde_ui_button_as_node(_side->data_import), (rde_vec_2F){ _m + _bw * 1.5f + KANA_SIDE_GAP, _row_y }, (rde_vec_2F){ _bw, 44.0f });
+        kana_toolbar_place(rde_ui_button_as_node(_side->data_replace), (rde_vec_2F){ _m + _bw * 0.5f, _row_y }, (rde_vec_2F){ _bw, 44.0f });
+        kana_toolbar_place(rde_ui_button_as_node(_side->data_cancel), (rde_vec_2F){ _m + _bw * 1.5f + KANA_SIDE_GAP, _row_y }, (rde_vec_2F){ _bw, 44.0f });
+        kana_toolbar_place(rde_ui_label_as_node(_side->data_status), (rde_vec_2F){ _m + _lw * 0.5f, (_status_lo + _status_hi) * 0.5f },
+                           (rde_vec_2F){ _lw, _status_hi - _status_lo });
+        kana_toolbar_place(rde_ui_button_as_node(_side->data_close), (rde_vec_2F){ _kw - _m - 60.0f, _close_y }, (rde_vec_2F){ 120.0f, 44.0f });
+    }
 
     // Licences: the same card's size, over Settings: the title, the documents,
     // the text scrolling between them and Close.
@@ -1265,6 +1368,48 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_label_set_alignment(_side->about_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
     _side->settings_close = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_CLOSE), kana_side_on_settings_close);
     _side->licences_button = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_LICENCES), kana_side_on_licences);
+    _side->data_button     = kana_toolbar_button(_toolbar, _card, kana_text(KANA_TEXT_DATA), kana_side_on_data);
+
+    // Your data, over Settings: what Kana does with it, then Export and Import.
+    _side->data_backdrop = rde_ui_button_create(NULL, NULL);
+    rde_ui_button_set_on_click(_side->data_backdrop, kana_side_on_data_close, _toolbar);
+    rde_ui_node_add_child(_root, rde_ui_button_as_node(_side->data_backdrop));
+    _side->data_card = rde_ui_image_create(NULL);
+    rde_ui_node* _dcard = rde_ui_image_as_node(_side->data_card);
+    rde_ui_node_set_blocks_input(_dcard, true);
+    rde_ui_node_add_child(_root, _dcard);
+    _side->data_title = kana_side_label(_toolbar, _dcard, kana_text(KANA_TEXT_DATA), KANA_SIDE_TITLE_PX);
+    {
+        // Offline; where the platform keeps a copy; how to keep one yourself.
+#if defined(RDE_PLATFORM_IOS)
+        const KANA_TEXT_ _backup = KANA_TEXT_DATA_BACKUP_IOS;
+#elif defined(RDE_PLATFORM_ANDROID)
+        const KANA_TEXT_ _backup = KANA_TEXT_DATA_BACKUP_ANDROID;
+#else
+        const KANA_TEXT_ _backup = KANA_TEXT_DATA_BACKUP_DESKTOP;
+#endif
+        c8 _text[2048];
+        snprintf(_text, sizeof(_text), "%s\n\n%s\n\n%s", kana_text(KANA_TEXT_DATA_OFFLINE), kana_text(_backup), kana_text(KANA_TEXT_DATA_HOW));
+        _side->data_text = kana_side_label(_toolbar, _dcard, _text, KANA_SIDE_BODY_PX);
+    }
+    rde_ui_label_set_wrap(_side->data_text, true);
+    rde_ui_label_set_auto_fit(_side->data_text, true);
+    rde_ui_label_set_auto_fit_min_scale(_side->data_text, 0.7f);
+    rde_ui_label_set_alignment(_side->data_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
+    _side->data_status = kana_side_label(_toolbar, _dcard, "", KANA_SIDE_BODY_PX);
+    rde_ui_label_set_wrap(_side->data_status, true);
+    rde_ui_label_set_auto_fit(_side->data_status, true);
+    rde_ui_label_set_auto_fit_min_scale(_side->data_status, 0.7f);
+    rde_ui_label_set_alignment(_side->data_status, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
+    _side->data_export  = kana_toolbar_button(_toolbar, _dcard, kana_text(KANA_TEXT_DATA_EXPORT), kana_side_on_data_export);
+    _side->data_import  = kana_toolbar_button(_toolbar, _dcard, kana_text(KANA_TEXT_DATA_IMPORT), kana_side_on_data_import);
+    _side->data_replace = kana_toolbar_button(_toolbar, _dcard, kana_text(KANA_TEXT_DATA_REPLACE), kana_side_on_data_replace);
+    _side->data_cancel  = kana_toolbar_button(_toolbar, _dcard, kana_text(KANA_TEXT_CANCEL), kana_side_on_data_cancel);
+    _side->data_close   = kana_toolbar_button(_toolbar, _dcard, kana_text(KANA_TEXT_CLOSE), kana_side_on_data_close);
+    kana_toolbar_icon(_side->data_export, KANA_ICON_EXPORT, KANA_TOOLBAR_ICON_LEFT, 15.0f);
+    kana_toolbar_icon(_side->data_import, KANA_ICON_IMPORT, KANA_TOOLBAR_ICON_LEFT, 15.0f);
+    _side->_data_shown[0]      = 1;   // not yet: shown on the first update
+    _side->_data_confirm_shown = true;
 
     // Licences, over Settings.
     _side->licences_backdrop = rde_ui_button_create(NULL, NULL);
@@ -1325,7 +1470,8 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     rde_ui_node* const _hidden[] = { rde_ui_button_as_node(_side->backdrop), _panel, rde_ui_button_as_node(_side->menu_button),
                                      rde_ui_button_as_node(_side->settings_backdrop), _card,
                                      rde_ui_button_as_node(_side->note_backdrop), _note_card,
-                                     rde_ui_button_as_node(_side->licences_backdrop), _lcard };
+                                     rde_ui_button_as_node(_side->licences_backdrop), _lcard,
+                                     rde_ui_button_as_node(_side->data_backdrop), _dcard };
     for(u32 _i = 0; _i < sizeof(_hidden) / sizeof(_hidden[0]); _i++) {
         rde_ui_node_set_active(_hidden[_i], false);
     }
@@ -1373,6 +1519,28 @@ void kana_side_update(kana_toolbar* _toolbar, b8 _full) {
     }
     if(_side->settings_open) {
         kana_side_refresh_mlkit(_toolbar);   // the model's download moves on by itself
+    }
+    if(!_side->settings_open && _side->data_open) {
+        _side->data_open = false;
+        kana_side_data_done(_toolbar);
+    }
+    b8 _data_backdrop_shown = _side->_shown_data;
+    kana_side_show(rde_ui_button_as_node(_side->data_backdrop), _side->data_open, &_data_backdrop_shown);
+    kana_side_show(rde_ui_image_as_node(_side->data_card), _side->data_open, &_side->_shown_data);
+    if(_side->data_open) {
+        if(strcmp(_side->_data_shown, _side->data_message) != 0) {
+            snprintf(_side->_data_shown, sizeof(_side->_data_shown), "%s", _side->data_message);
+            rde_ui_label_set_text(_side->data_status, _side->data_message);
+            const kana_theme* _t = kana_theme_active();
+            rde_ui_label_set_color(_side->data_status, _side->data_message_bad ? _t->score_poor : _t->text);
+        }
+        if(_side->data_confirming != _side->_data_confirm_shown) {
+            _side->_data_confirm_shown = _side->data_confirming;
+            rde_ui_node_set_active(rde_ui_button_as_node(_side->data_export), !_side->data_confirming);
+            rde_ui_node_set_active(rde_ui_button_as_node(_side->data_import), !_side->data_confirming);
+            rde_ui_node_set_active(rde_ui_button_as_node(_side->data_replace), _side->data_confirming);
+            rde_ui_node_set_active(rde_ui_button_as_node(_side->data_cancel), _side->data_confirming);
+        }
     }
 
     const b8 _card = _side->card_mode != KANA_SIDE_CARD_NONE && _side->open;
@@ -1450,6 +1618,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     rde_ui_button* const _buttons[] = { _side->width_even, _side->width_pressure, _side->settings_close,
                                         _side->paper_sizes[0], _side->paper_sizes[1], _side->paper_sizes[2],
                                         _side->mlkit_toggle, _side->mlkit_download, _side->licences_button, _side->licences_close,
+                                        _side->data_button, _side->data_export, _side->data_import, _side->data_cancel, _side->data_close,
                                         _side->licences_docs[0], _side->licences_docs[1], _side->licences_docs[2], _side->licences_docs[3],
                                         _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
@@ -1457,6 +1626,11 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     }
     kana_toolbar_button_primary(_side->settings_close);
     kana_toolbar_button_primary(_side->licences_close);
+    kana_toolbar_button_primary(_side->data_close);
+    kana_toolbar_button_danger(_side->data_replace);
+    kana_toolbar_style_panel(_side->data_card, 18.0f, 1.0f);
+    kana_toolbar_button_colors(_side->data_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
+    _side->_data_shown[0] = 1;   // the answer line's colour again
     kana_toolbar_style_panel(_side->note_card, 18.0f, 1.0f);
     kana_toolbar_style_panel(_side->licences_card, 18.0f, 1.0f);
     kana_toolbar_button_colors(_side->licences_backdrop, KANA_SIDE_BACKDROP, 0.0f, (rde_color){ 0, 0, 0, 0 });
@@ -1496,7 +1670,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
         rde_ui_label_set_color(_headers[_i], _t->text_soft);
     }
     rde_ui_label* const _texts[] = { _side->settings_title, _side->width_label, _side->paper_label, _side->note_title,
-                                     _side->mlkit_label, _side->licences_title };
+                                     _side->mlkit_label, _side->licences_title, _side->data_title, _side->data_text };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->text);
     }

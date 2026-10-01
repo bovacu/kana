@@ -1,5 +1,8 @@
-GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD, MLKitTextRecognitionJapanese, MLKitTextRecognitionCommon, MLKitVision, MLImage)
+GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD, MLKitTextRecognitionJapanese, MLKitTextRecognitionCommon, MLKitVision, MLImage, MLKitTranslate, MLKitNaturalLanguage)
 Used under Google's terms: developers.google.com/ml-kit/terms
+
+TRANSLATIONS: THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE. GOOGLE DISCLAIMS ALL WARRANTIES RELATED TO THE TRANSLATIONS, EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OF ACCURACY, RELIABILITY, AND ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
 Notices for the software it contains, as Google ships them:
 
 ------------------------------------------------------------

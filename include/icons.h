@@ -99,6 +99,8 @@
 #define KANA_ICON_TEXT_COPY     "\xEE\x9B\xAE"   // ph-text-aa U+E6EE
 #define KANA_ICON_TEXT_PASTE    "\xEE\x86\x98"   // ph-clipboard-text U+E198
 #define KANA_ICON_CAMERA        "\xEE\x84\x8E"   // ph-camera U+E10E
+#define KANA_ICON_EXPORT        "\xEE\xAB\xB0"   // ph-export U+EAF0 (Your data: Export)
+#define KANA_ICON_IMPORT        "\xEE\x80\x90"   // ph-tray-arrow-down U+E010 (Your data: Import)
 #define KANA_ICON_IMAGE         "\xEE\x8B\x8A"   // ph-image U+E2CA
 #define KANA_ICON_SCAN          "\xEE\xAE\xB6"   // ph-scan U+EBB6
 #define KANA_ICON_PAUSE         "\xEE\x8E\x9E"   // ph-pause U+E39E

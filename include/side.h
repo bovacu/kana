@@ -59,6 +59,14 @@ typedef enum {
     KANA_SIDE_CARD_DELETE
 } KANA_SIDE_CARD_;
 
+// What Your data asks kana.c for.
+typedef enum {
+    KANA_SIDE_DATA_NONE = 0,
+    KANA_SIDE_DATA_EXPORT,    // everything into one file, to share or save
+    KANA_SIDE_DATA_IMPORT,    // a backup picked (its question asked)
+    KANA_SIDE_DATA_REPLACE    // Replace pressed: the picked backup in place of everything
+} KANA_SIDE_DATA_;
+
 RDE_STRUCT {
     b8              open;
     b8              settings_open;
@@ -165,6 +173,31 @@ RDE_STRUCT {
     f32                 _licence_width;   // the scroll area's, for the lines
     b8                  _shown_licences;
 
+    // Your data: a card over Settings — Kana is offline, the platform's own
+    // backup, Export and Import (backup.h). kana.c does the work (it owns the
+    // saves): kana_side_take_data_request, and the answer in data_message.
+    b8                  data_open;
+    rde_ui_button*      data_button;          // in Settings, by Licences
+    rde_ui_button*      data_backdrop;
+    rde_ui_image*       data_card;
+    rde_ui_label*       data_title;
+    rde_ui_label*       data_text;
+    rde_ui_label*       data_status;
+    rde_ui_button*      data_export;
+    rde_ui_button*      data_import;
+    rde_ui_button*      data_replace;         // a picked backup: Replace (or Cancel) everything with it
+    rde_ui_button*      data_cancel;
+    rde_ui_button*      data_close;
+    KANA_SIDE_DATA_     data_request;
+    b8                  data_confirming;      // a backup picked and whole: waiting for Replace or Cancel
+    u8*                 data_backup;          // it (default std allocator), until then
+    usize               data_backup_size;
+    c8                  data_message[400];    // what the last Export / Import did (or the question)
+    b8                  data_message_bad;
+    c8                  _data_shown[400];
+    b8                  _data_confirm_shown;
+    b8                  _shown_data;
+
     rde_vec_2F      _laid_out;            // the screen size the layout is for...
     rde_vec_4I      _laid_out_insets;     // ...and the safe area (iOS reports it only after the first frames)
     b8              _shown_panel;
@@ -187,6 +220,15 @@ void kana_side_close(struct kana_toolbar* _toolbar);
 // Opens Settings — and over it Licences on document _licences, if that is not
 // negative (developer launch options, kana.c).
 void kana_side_open_settings(struct kana_toolbar* _toolbar, i32 _licences);
+
+// Your data, for kana.c: what was asked for, once (KANA_SIDE_DATA_NONE: nothing);
+// the answer the card shows (_bad: in the warning colour); a picked backup,
+// whole, kept for Replace with its question; and the import done (or not): the
+// backup let go.
+KANA_SIDE_DATA_ kana_side_take_data_request(struct kana_toolbar* _toolbar);
+void kana_side_data_message(struct kana_toolbar* _toolbar, const c8* _text, b8 _bad);
+void kana_side_data_confirm(struct kana_toolbar* _toolbar, u8* _backup, usize _size, const c8* _question);
+void kana_side_data_done(struct kana_toolbar* _toolbar);
 // Frees what the panel holds besides its widgets (before the UI is built again).
 void kana_side_forget(struct kana_toolbar* _toolbar);
 
