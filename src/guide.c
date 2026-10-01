@@ -1,4 +1,5 @@
 #include "guide.h"
+#include "text.h"
 #include "match.h"
 #include "draw.h"
 #include "theme.h"
@@ -159,9 +160,9 @@ KANA_GUIDE_RESULT_ kana_guide_stroke(kana_guide* _guide, kana_ink* _ink, f32 _un
 
     const u32 _number = _guide->next + 1u;
     if(_other != UINT32_MAX && _other_dist < KANA_GUIDE_OTHER * fminf(_forward, _close)) {
-        snprintf(_guide->message, sizeof(_guide->message), "That is stroke %u. Stroke %u comes first.", _other + 1u, _number);
+        KANA_TEXTF(_guide->message, KANA_TEXT_GUIDE_WRONG_STROKE, KANA_TN(_other + 1u), KANA_TN(_number));
     } else if(_length >= KANA_GUIDE_SHORT && _backward + KANA_GUIDE_BACKWARDS < _forward && _backward <= _close) {
-        snprintf(_guide->message, sizeof(_guide->message), "Backwards: stroke %u starts at the dot.", _number);
+        KANA_TEXTF(_guide->message, KANA_TEXT_GUIDE_BACKWARDS, KANA_TN(_number));
     } else if(_forward <= _close) {
         // Right: it stays.
         _guide->next++;
@@ -173,9 +174,9 @@ KANA_GUIDE_RESULT_ kana_guide_stroke(kana_guide* _guide, kana_ink* _ink, f32 _un
         }
         return KANA_GUIDE_KEPT;
     } else if(_guide->stage == KANA_GUIDE_TRACE) {
-        snprintf(_guide->message, sizeof(_guide->message), "Not quite: follow stroke %u from the dot.", _number);
+        KANA_TEXTF(_guide->message, KANA_TEXT_GUIDE_FOLLOW, KANA_TN(_number));
     } else {
-        snprintf(_guide->message, sizeof(_guide->message), "Not quite: watch stroke %u, then write it from the dot.", _number);
+        KANA_TEXTF(_guide->message, KANA_TEXT_GUIDE_WATCH, KANA_TN(_number));
     }
 
     // Wrong: it flashes red and goes, and the stroke to write shows itself again.
@@ -318,15 +319,19 @@ void kana_guide_prompt(const kana_guide* _guide, c8* _out, usize _size) {
     const u32 _number = _guide->next + 1u < _total ? _guide->next + 1u : _total;
     switch(_guide->stage) {
         case KANA_GUIDE_TRACE:
-            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "Step 1 of 3 done. Next: only where each stroke starts"); }
-            else                           { snprintf(_out, _size, "Step 1 of 3  -  Trace stroke %u of %u: from the dot, the way the arrow points", _number, _total); }
+            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "%s", kana_text(KANA_TEXT_GUIDE_STEP1_DONE)); }
+            else                           { kana_text_format(_out, _size, KANA_TEXT_GUIDE_STEP1, (const kana_text_arg[]){ KANA_TN(_number), KANA_TN(_total) }, 2u); }
             break;
         case KANA_GUIDE_HINT:
-            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "Step 2 of 3 done. Next: from memory"); }
-            else                           { snprintf(_out, _size, "Step 2 of 3  -  Stroke %u of %u starts at the dot", _number, _total); }
+            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "%s", kana_text(KANA_TEXT_GUIDE_STEP2_DONE)); }
+            else                           { kana_text_format(_out, _size, KANA_TEXT_GUIDE_STEP2, (const kana_text_arg[]){ KANA_TN(_number), KANA_TN(_total) }, 2u); }
             break;
         default:
-            snprintf(_out, _size, "Step 3 of 3  -  From memory: the whole character, %u stroke%s", _total, _total == 1 ? "" : "s");
+            {
+                c8 _strokes[48];
+                KANA_TEXTF(_strokes, KANA_TEXT_STROKES_N, KANA_TN(_total));
+                kana_text_format(_out, _size, KANA_TEXT_GUIDE_STEP3, (const kana_text_arg[]){ KANA_TS(_strokes) }, 1u);
+            }
             break;
     }
 }

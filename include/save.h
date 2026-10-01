@@ -45,7 +45,8 @@
 //           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme,
 //           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
 //           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0),
-//           u8 paper_size (lines' and squares' size: KANA_PAPER_SIZE_)
+//           u8 paper_size (lines' and squares' size: KANA_PAPER_SIZE_),
+//           u8 language (RDE_LANGUAGE_: RDE's enum only grows; 0: never chosen)
 //           (new fields go at the END: an older file just ends sooner)
 // ===========================================================================
 
@@ -73,6 +74,7 @@ RDE_STRUCT {
     b8         mlkit;            // read handwriting with Google ML Kit (mlkit.h)
     b8         toolbar_minimized;   // the bar folded to its grip
     u8         paper_size;        // KANA_PAPER_SIZE_
+    u8         language;          // RDE_LANGUAGE_ (0: never chosen — the device's)
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

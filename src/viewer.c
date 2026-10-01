@@ -3,6 +3,7 @@
 #include "icons.h"
 #include "select.h"
 #include "theme.h"
+#include "text.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -358,17 +359,17 @@ RDE_INTERNAL void kana_viewer_render_adding(kana_viewer* _viewer, rde_window* _w
     kana_glyph_writing(&_viewer->glyph, _info, _tl, _size, rde_engine_get_time_now() - _viewer->started, _font, _font_px, 13.0f);
 
     const f32 _tx = _left + _size + 24.0f;
-    kana_draw_text(_font, _font_px, "Add words", _tx, _tl.y - 30.0f, 26.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_WORDS), _tx, _tl.y - 30.0f, 20.0f, _theme->text);
     c8 _line[160];
-    snprintf(_line, sizeof(_line), "%u of yours", kana_userwords_count(_info->codepoint));
+    KANA_TEXTF(_line, KANA_TEXT_VIEWER_YOURS_N, KANA_TN(kana_userwords_count(_info->codepoint)));
     kana_draw_text(_font, _font_px, _line, _tx, _tl.y - 62.0f, 17.0f, _theme->text_soft);
-    kana_draw_text(_font, _font_px, "Tap a word to add it to yours, or to take it off.", _tx, _tl.y - 96.0f, 16.0f, _theme->text_soft);
-    kana_draw_text(_font, _font_px, "Something else? Type your own.", _tx, _tl.y - 122.0f, 16.0f, _theme->text_soft);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_HELP), _tx, _tl.y - 96.0f, 13.0f, _theme->text_soft);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_OTHER), _tx, _tl.y - 122.0f, 13.0f, _theme->text_soft);
 
     const f32 _list_top = _tl.y - _size - 20.0f;
     kana_draw_line((rde_vec_2F){ _left, _list_top }, (rde_vec_2F){ _right, _list_top }, 0.5f, _theme->line);
     const u32 _visible = (u32)fmaxf(1.0f, floorf((_list_top - _bottom) / KANA_VIEWER_ROW));
-    kana_viewer_draw_rows(_viewer, _window, _font, _font_px, _left, _right, _list_top, _visible, "No more dictionary words for this one: Type your own.");
+    kana_viewer_draw_rows(_viewer, _window, _font, _font_px, _left, _right, _list_top, _visible, kana_text(KANA_TEXT_VIEWER_NO_MORE_WORDS));
 }
 
 void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _font, f32 _font_px, f32 _bottom_bar) {
@@ -402,18 +403,18 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
         const b8  _is_kana = kana_viewer_is_kana(_info.codepoint);
         const f32 _mid     = _top - 14.0f;
         f32       _x       = _left;
-        _x += kana_draw_chip(_font, _font_px, _is_kana ? (_info.codepoint < 0x30A0u ? "Hiragana" : "Katakana") : "Kanji", _x, _mid, KANA_VIEWER_CHIP_PX,
+        _x += kana_draw_chip(_font, _font_px, kana_text(_is_kana ? (_info.codepoint < 0x30A0u ? KANA_TEXT_HIRAGANA : KANA_TEXT_KATAKANA) : KANA_TEXT_KANJI), _x, _mid, KANA_VIEWER_CHIP_PX,
                              _theme->surface_2, _theme->text) + 6.0f;
         if(_info.jlpt_n != 0) {
             snprintf(_line, sizeof(_line), "N%u", _info.jlpt_n);
             _x += kana_draw_chip(_font, _font_px, _line, _x, _mid, KANA_VIEWER_CHIP_PX, _theme->accent, _theme->on_accent) + 6.0f;
         }
-        snprintf(_line, sizeof(_line), "%u stroke%s", _info.strokes, _info.strokes == 1 ? "" : "s");
+        KANA_TEXTF(_line, KANA_TEXT_STROKES_N, KANA_TN(_info.strokes));
         _x += kana_draw_chip(_font, _font_px, _line, _x, _mid, KANA_VIEWER_CHIP_PX, _theme->surface_2, _theme->text) + 6.0f;
         const c8* _grade = NULL;
-        if(_info.grade >= 1 && _info.grade <= 6)       { snprintf(_line, sizeof(_line), "Grade %u", _info.grade); _grade = _line; }
-        else if(_info.grade == 8)                      { _grade = "Secondary school"; }
-        else if(_info.grade == 9 || _info.grade == 10) { _grade = "Jinmeiyou (names)"; }
+        if(_info.grade >= 1 && _info.grade <= 6)       { KANA_TEXTF(_line, KANA_TEXT_GRADE_N, KANA_TN(_info.grade)); _grade = _line; }
+        else if(_info.grade == 8)                      { _grade = kana_text(KANA_TEXT_GRADE_SECONDARY); }
+        else if(_info.grade == 9 || _info.grade == 10) { _grade = kana_text(KANA_TEXT_GRADE_NAMES); }
         if(_grade != NULL) {
             kana_draw_chip(_font, _font_px, _grade, _x, _mid, KANA_VIEWER_CHIP_PX, _theme->surface_2, _theme->text);
         }
@@ -487,7 +488,7 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     // The meaning first, as the title; then each reading and the parts behind a
     // label that is itself Japanese — 音, 訓, 部 — written from its strokes.
     const c8* _meanings = kana_kanji_meanings(_viewer->db, &_info);
-    kana_draw_text_fit(_font, _font_px, _meanings[0] != 0 ? _meanings : "(no meaning listed)", KANA_VIEWER_MEANING_PX, _right - _x0, _line, sizeof(_line));
+    kana_draw_text_fit(_font, _font_px, _meanings[0] != 0 ? _meanings : kana_text(KANA_TEXT_NO_MEANING), KANA_VIEWER_MEANING_PX, _right - _x0, _line, sizeof(_line));
     kana_draw_text(_font, _font_px, _line, _x0, _y0 - KANA_VIEWER_LINE * 0.5f - KANA_VIEWER_MEANING_PX * 0.42f, KANA_VIEWER_MEANING_PX, _theme->text);
 
     const u32 _labels[3] = { 0x97F3u, 0x8A13u, 0x90E8u };   // 音 訓 部
@@ -519,20 +520,23 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     const f32 _cb    = _wy - KANA_VIEWER_TITLE - (f32)_visible * KANA_VIEWER_ROW - _inner;   // its bottom
     kana_draw_card((rde_vec_2F){ _x0, _cb }, (rde_vec_2F){ _right, _wy }, 14.0f, _theme->surface, _theme->outline);
     const f32 _tmid = _wy - KANA_VIEWER_TITLE * 0.5f;
-    kana_draw_text(_font, _font_px, "Words", _x0 + _inner, _tmid - 16.0f * 0.42f, 16.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_WORDS), _x0 + _inner, _tmid - 16.0f * 0.42f, 16.0f, _theme->text);
     {
         const u32 _yours = kana_userwords_count(_info.codepoint);
         const u32 _all   = _viewer->row_count >= _yours ? _viewer->row_count - _yours : 0u;
+        KANA_TEXTF(_line, KANA_TEXT_WORDS_EXAMPLES, KANA_TN(_all));
         if(_yours > 0) {
-            snprintf(_line, sizeof(_line), "%u yours \xC2\xB7 %u examples", _yours, _all);   // ·
-        } else {
-            snprintf(_line, sizeof(_line), "%u examples", _all);
+            c8 _examples[96];
+            snprintf(_examples, sizeof(_examples), "%s", _line);
+            KANA_TEXTF(_line, KANA_TEXT_WORDS_YOURS, KANA_TN(_yours));
+            snprintf(_line + strlen(_line), sizeof(_line) - strlen(_line), " \xC2\xB7 %s", _examples);   // ·
         }
-        kana_draw_text(_font, _font_px, _line, _x0 + _inner + kana_draw_text_width(_font, _font_px, "Words", 16.0f) + 12.0f, _tmid - 12.0f * 0.42f, 12.0f,
+        kana_draw_text(_font, _font_px, _line, _x0 + _inner + kana_draw_text_width(_font, _font_px, kana_text(KANA_TEXT_WORDS), 16.0f) + 12.0f, _tmid - 12.0f * 0.42f, 12.0f,
                        _theme->text_soft);
     }
     {
-        const c8* _label = KANA_ICON_PLUS " Add";
+        c8 _label[64];
+        snprintf(_label, sizeof(_label), KANA_ICON_PLUS " %s", kana_text(KANA_TEXT_ADD));
         const f32 _w     = kana_draw_text_width(_font, _font_px, _label, 13.0f) + 28.0f;
         const f32 _h     = 28.0f;
         _viewer->add_min = (rde_vec_2F){ _right - _inner - _w, _tmid - _h * 0.5f };
@@ -543,5 +547,5 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
                        _viewer->add_pressed ? _theme->on_accent : _theme->accent);
     }
     kana_draw_line((rde_vec_2F){ _x0, _wy - KANA_VIEWER_TITLE }, (rde_vec_2F){ _right, _wy - KANA_VIEWER_TITLE }, 0.5f, _theme->outline);
-    kana_viewer_draw_rows(_viewer, _window, _font, _font_px, _x0 + _inner, _right - _inner, _wy - KANA_VIEWER_TITLE, _visible, "No words yet: Add some.");
+    kana_viewer_draw_rows(_viewer, _window, _font, _font_px, _x0 + _inner, _right - _inner, _wy - KANA_VIEWER_TITLE, _visible, kana_text(KANA_TEXT_NO_WORDS));
 }

@@ -8,6 +8,7 @@
 #include "select.h"
 #include "theme.h"
 #include "userwords.h"
+#include "text.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -33,13 +34,19 @@
 #define KANA_EXAM_PEN_RADIUS  (KANA_EXAM_UNITS * KANA_GLYPH_WIDTH / KANA_KANJI_BOX * 0.5f)
 
 static const u32       KANA_EXAM_LENGTH_VALUES[KANA_EXAM_LENGTHS] = { 10u, 20u, 50u, 0u };   // 0: all
-static const c8* const KANA_EXAM_LENGTH_NAMES[KANA_EXAM_LENGTHS]  = { "10", "20", "50", "All" };
-static const c8* const KANA_EXAM_SOURCE_NAMES[KANA_EXAM_SOURCE_COUNT] = {
-    "Studying", "Known", "N5", "N4", "N3", "N2", "N1", "Hiragana", "Katakana", "Selection"
+static const c8* const KANA_EXAM_LENGTH_NAMES[KANA_EXAM_LENGTHS]  = { "10", "20", "50", NULL };   // NULL: All (text.h)
+// The sources' names (text.h); the JLPT levels are the same in every language.
+static const KANA_TEXT_ KANA_EXAM_SOURCE_TEXTS[KANA_EXAM_SOURCE_COUNT] = {
+    KANA_TEXT_STUDYING, KANA_TEXT_KNOWN, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT, KANA_TEXT_COUNT,
+    KANA_TEXT_HIRAGANA, KANA_TEXT_KATAKANA, KANA_TEXT_EXAM_SELECTION
 };
+static const c8* const KANA_EXAM_SOURCE_LEVELS[KANA_EXAM_SOURCE_COUNT] = { NULL, NULL, "N5", "N4", "N3", "N2", "N1", NULL, NULL, NULL };
 
 const c8* kana_exam_source_name(KANA_EXAM_SOURCE_ _source) {
-    return _source < KANA_EXAM_SOURCE_COUNT ? KANA_EXAM_SOURCE_NAMES[_source] : "";
+    if(_source >= KANA_EXAM_SOURCE_COUNT) {
+        return "";
+    }
+    return KANA_EXAM_SOURCE_LEVELS[_source] != NULL ? KANA_EXAM_SOURCE_LEVELS[_source] : kana_text(KANA_EXAM_SOURCE_TEXTS[_source]);
 }
 
 RDE_INTERNAL void kana_exam_fresh_ink(kana_ink* _ink) {
@@ -581,8 +588,7 @@ RDE_INTERNAL void kana_exam_header(kana_exam* _exam, rde_font* _font, f32 _font_
 
 RDE_INTERNAL void kana_exam_render_setup(kana_exam* _exam, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top) {
     const kana_theme* _theme = kana_theme_active();
-    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, "Exam",
-                     "Each character once, from memory: a kanji from its meaning and readings, a kana from its romaji.", NULL);
+    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, kana_text(KANA_TEXT_EXAM), kana_text(KANA_TEXT_EXAM_INTRO), NULL);
     f32 _y = _top - 56.0f;
 
     // What it is of, and how many.
@@ -590,7 +596,7 @@ RDE_INTERNAL void kana_exam_render_setup(kana_exam* _exam, rde_font* _font, f32 
     c8 _label[48];
     for(u32 _group = 0; _group < 2u; _group++) {
         _y -= 30.0f;
-        kana_draw_text(_font, _font_px, _group == 0 ? "WHAT" : "HOW MANY", _left, _y, KANA_EXAM_CAPTION_PX, _theme->text_soft);
+        kana_draw_text(_font, _font_px, kana_text(_group == 0 ? KANA_TEXT_EXAM_WHAT : KANA_TEXT_EXAM_HOW_MANY), _left, _y, KANA_EXAM_CAPTION_PX, _theme->text_soft);
         _y -= 12.0f;
         f32       _x   = _left;
         const u32 _n   = _group == 0 ? (u32)KANA_EXAM_SOURCE_COUNT : KANA_EXAM_LENGTHS;
@@ -602,11 +608,11 @@ RDE_INTERNAL void kana_exam_render_setup(kana_exam* _exam, rde_font* _font, f32 
                     continue;   // only when opened from Select mode
                 }
                 const u32 _size = kana_exam_source_size(_exam, (KANA_EXAM_SOURCE_)_i);
-                snprintf(_label, sizeof(_label), "%s  %u", KANA_EXAM_SOURCE_NAMES[_i], _size);
+                snprintf(_label, sizeof(_label), "%s  %u", kana_exam_source_name((KANA_EXAM_SOURCE_)_i), _size);
                 _usable = _size > 0;
                 _chosen = _exam->source == (KANA_EXAM_SOURCE_)_i;
             } else {
-                snprintf(_label, sizeof(_label), "%s", KANA_EXAM_LENGTH_NAMES[_i]);
+                snprintf(_label, sizeof(_label), "%s", KANA_EXAM_LENGTH_NAMES[_i] != NULL ? KANA_EXAM_LENGTH_NAMES[_i] : kana_text(KANA_TEXT_ALL));
                 _chosen = _exam->length == _i;
             }
             const f32 _w = fmaxf(64.0f, kana_draw_text_width(_font, _font_px, _label, KANA_EXAM_CHIP_PX) + 36.0f);
@@ -629,16 +635,16 @@ RDE_INTERNAL void kana_exam_render_setup(kana_exam* _exam, rde_font* _font, f32 
     const u32 _planned = kana_exam_planned(_exam);
     kana_draw_card((rde_vec_2F){ _left, _y - 76.0f }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
     if(_size == 0) {
-        snprintf(_label, sizeof(_label), "%s", _exam->source == KANA_EXAM_SOURCE_STUDYING ? "Nothing marked Studying yet" : "Nothing to ask here yet");
+        snprintf(_label, sizeof(_label), "%s", kana_text(_exam->source == KANA_EXAM_SOURCE_STUDYING ? KANA_TEXT_EXAM_NOTHING_STUDYING : KANA_TEXT_EXAM_NOTHING));
         kana_draw_text(_font, _font_px, _label, _left + 18.0f, _y - 32.0f, 15.0f, _theme->text);
-        kana_draw_text(_font, _font_px, "Mark characters with Study in the viewer, or in Browse's Select mode.", _left + 18.0f, _y - 56.0f, 12.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_EXAM_MARK_HINT), _left + 18.0f, _y - 56.0f, 12.0f, _theme->text_soft);
     } else {
         c8 _line[160];
-        snprintf(_line, sizeof(_line), "%u of the %u %s characters, shuffled", _planned, _size, KANA_EXAM_SOURCE_NAMES[_exam->source]);
+        KANA_TEXTF(_line, KANA_TEXT_EXAM_PLAN, KANA_TN(_planned), KANA_TN(_size), KANA_TS(kana_exam_source_name(_exam->source)));
         kana_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 32.0f, 15.0f, _theme->text);
-        snprintf(_line, sizeof(_line), "Right when it reads as the character (among its first three guesses); points for how well it is written.");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_EXAM_RULE));
         if(_size > KANA_EXAM_MAX && KANA_EXAM_LENGTH_VALUES[_exam->length] == 0u) {
-            snprintf(_line, sizeof(_line), "An exam asks %u at most.", KANA_EXAM_MAX);
+            KANA_TEXTF(_line, KANA_TEXT_EXAM_MAX, KANA_TN(KANA_EXAM_MAX));
         }
         kana_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 56.0f, 12.0f, _theme->text_soft);
     }
@@ -657,10 +663,10 @@ RDE_INTERNAL void kana_exam_grid(kana_exam* _exam, f32 _left, f32 _right, f32 _t
 RDE_INTERNAL void kana_exam_render_preview(kana_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const kana_theme* _theme = kana_theme_active();
     c8 _line[160];
-    snprintf(_line, sizeof(_line), "%u of %u", kana_exam_included(_exam), _exam->count);
+    KANA_TEXTF(_line, KANA_TEXT_OF_N, KANA_TN(kana_exam_included(_exam)), KANA_TN(_exam->count));
     c8 _title[96];
-    snprintf(_title, sizeof(_title), "Exam Â· %s", KANA_EXAM_SOURCE_NAMES[_exam->source]);   // ·
-    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, _title, "Tap one to leave it out", _line);
+    KANA_TEXTF(_title, KANA_TEXT_EXAM_TITLE_SOURCE, KANA_TS(kana_exam_source_name(_exam->source)));
+    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, _title, kana_text(KANA_TEXT_EXAM_TAP_TO_LEAVE), _line);
     RDE_UNUSED(_theme);
 
     const f32 _grid_top = _top - 60.0f;
@@ -742,13 +748,13 @@ RDE_INTERNAL f32 kana_exam_prompt(kana_exam* _exam, const kana_kanji_info* _info
     f32 _cy = _y - _pad - 10.0f;
     if(_kana) {
         const b8 _katakana = _info->codepoint >= 0x30A0u && _info->codepoint <= 0x30FFu;
-        kana_draw_text(_font, _font_px, _katakana ? "WRITE IN KATAKANA" : "WRITE IN HIRAGANA", _x, _cy, KANA_EXAM_CAPTION_PX, _theme->text_soft);
+        kana_draw_text(_font, _font_px, kana_text(_katakana ? KANA_TEXT_EXAM_WRITE_KATAKANA : KANA_TEXT_EXAM_WRITE_HIRAGANA), _x, _cy, KANA_EXAM_CAPTION_PX, _theme->text_soft);
         kana_draw_text(_font, _font_px, kana_chart_romaji(_info->codepoint), _x, _cy - 54.0f, 40.0f, _theme->text);
         return _y - _h;
     }
-    kana_draw_text(_font, _font_px, "WRITE THE KANJI FOR", _x, _cy, KANA_EXAM_CAPTION_PX, _theme->text_soft);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_EXAM_WRITE_KANJI), _x, _cy, KANA_EXAM_CAPTION_PX, _theme->text_soft);
     const c8* _meaning = kana_kanji_meanings(_exam->db, _info);
-    kana_draw_text_fit(_font, _font_px, _meaning[0] != 0 ? _meaning : "(no meaning listed)", KANA_EXAM_MEANING_PX, _right - _pad - _x, _line, sizeof(_line));
+    kana_draw_text_fit(_font, _font_px, _meaning[0] != 0 ? _meaning : kana_text(KANA_TEXT_NO_MEANING), KANA_EXAM_MEANING_PX, _right - _pad - _x, _line, sizeof(_line));
     kana_draw_text(_font, _font_px, _line, _x, _cy - 34.0f, KANA_EXAM_MEANING_PX, _theme->text);
     _cy -= 40.0f;
 
@@ -795,9 +801,9 @@ RDE_INTERNAL void kana_exam_render_writing(kana_exam* _exam, rde_window* _window
     // when there are many).
     c8 _title[96];
     c8 _line[64];
-    snprintf(_title, sizeof(_title), "Exam \xC2\xB7 %s", KANA_EXAM_SOURCE_NAMES[_exam->source]);   // ·
-    snprintf(_line, sizeof(_line), "%u of %u", _exam->current + 1u, _exam->asked);
-    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, _title, "Once each, from memory", _line);
+    KANA_TEXTF(_title, KANA_TEXT_EXAM_TITLE_SOURCE, KANA_TS(kana_exam_source_name(_exam->source)));
+    KANA_TEXTF(_line, KANA_TEXT_OF_N, KANA_TN(_exam->current + 1u), KANA_TN(_exam->asked));
+    kana_exam_header(_exam, _font, _font_px, _left, _right, _top, _title, kana_text(KANA_TEXT_EXAM_ONCE_EACH), _line);
     const f32 _py = _top - 54.0f;
     if(_exam->asked > 0 && _exam->asked <= 30u) {
         const f32 _gap = 3.0f;
@@ -828,7 +834,7 @@ RDE_INTERNAL void kana_exam_render_writing(kana_exam* _exam, rde_window* _window
     const rde_vec_2I _size = rde_window_get_size(_window);
     kana_ink_render(&_it->ink, (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / KANA_EXAM_UNITS,
                     (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, rde_engine_get_time_now(), false);
-    kana_draw_text(_font, _font_px, kana_exam_at_last(_exam) ? "Write it once, then Finish" : "Write it once, then Next",
+    kana_draw_text(_font, _font_px, kana_text(kana_exam_at_last(_exam) ? KANA_TEXT_EXAM_THEN_FINISH : KANA_TEXT_EXAM_THEN_NEXT),
                    _tl.x, _tl.y - _square - 20.0f, 12.0f, _theme->text_soft);
 }
 
@@ -836,7 +842,7 @@ RDE_INTERNAL void kana_exam_render_results(kana_exam* _exam, rde_window* _window
     const kana_theme* _theme = kana_theme_active();
     c8 _line[160];
     if(!kana_exam_graded(_exam)) {
-        snprintf(_line, sizeof(_line), "Reading your answers... %u of %u", kana_exam_graded_count(_exam), _exam->asked);
+        KANA_TEXTF(_line, KANA_TEXT_EXAM_READING_ANSWERS, KANA_TN(kana_exam_graded_count(_exam)), KANA_TN(_exam->asked));
         kana_draw_text(_font, _font_px, _line, _left, _top - 30.0f, KANA_EXAM_TITLE_PX, _theme->text);
     } else {
         u32 _right_n = 0;
@@ -846,9 +852,9 @@ RDE_INTERNAL void kana_exam_render_results(kana_exam* _exam, rde_window* _window
             _points  += _exam->items[_exam->order[_i]].score;
         }
         const b8 _passed = (f32)_right_n >= KANA_EXAM_PASS * (f32)_exam->asked;
-        snprintf(_line, sizeof(_line), "%u of %u right \xC2\xB7 %.0f points", _right_n, _exam->asked, (f64)(_points / (f32)_exam->asked));
+        KANA_TEXTF(_line, KANA_TEXT_EXAM_RESULT, KANA_TN(_right_n), KANA_TN(_exam->asked), KANA_TN(lroundf(_points / (f32)_exam->asked)));
         kana_draw_text(_font, _font_px, _line, _left, _top - 30.0f, KANA_EXAM_TITLE_PX, _theme->text);
-        kana_draw_chip(_font, _font_px, _passed ? "Passed" : "Not passed yet", _left + kana_draw_text_width(_font, _font_px, _line, KANA_EXAM_TITLE_PX) + 16.0f,
+        kana_draw_chip(_font, _font_px, kana_text(_passed ? KANA_TEXT_EXAM_PASSED : KANA_TEXT_EXAM_NOT_PASSED), _left + kana_draw_text_width(_font, _font_px, _line, KANA_EXAM_TITLE_PX) + 16.0f,
                        _top - 30.0f + KANA_EXAM_TITLE_PX * 0.42f, 12.0f, _passed ? _theme->score_good : _theme->score_poor, _theme->on_accent);
     }
 
@@ -904,8 +910,9 @@ RDE_INTERNAL void kana_exam_render_results(kana_exam* _exam, rde_window* _window
             // What it read as instead.
             kana_kanji_info _read;
             if(kana_kanji_at(_exam->db, _it->read_as, &_read)) {
-                kana_draw_text(_font, _font_px, "read as", _tl.x + 6.0f, _tl.y - _sq + 8.0f, 13.0f, _theme->text_soft);
-                kana_glyph_character(&_exam->glyph, _read.codepoint, (rde_vec_2F){ _tl.x + 56.0f, _tl.y - _sq + 26.0f }, 20.0f, _theme->score_poor);
+                kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_EXAM_READ_AS), _tl.x + 6.0f, _tl.y - _sq + 8.0f, 11.0f, _theme->text_soft);
+                const f32 _after = _tl.x + 12.0f + kana_draw_text_width(_font, _font_px, kana_text(KANA_TEXT_EXAM_READ_AS), 11.0f);
+                kana_glyph_character(&_exam->glyph, _read.codepoint, (rde_vec_2F){ _after, _tl.y - _sq + 26.0f }, 20.0f, _theme->score_poor);
             }
         }
     }

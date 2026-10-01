@@ -57,8 +57,62 @@ RDE_INTERNAL void kana_kanji_load_words(kana_kanji_db* _db, kana_reader* _chunk)
     _db->_word_text       = _starts;
 }
 
+// An 'LNxx' chunk: its pairs and text in place, when all there — the text
+// ends with a NUL, so every string in it does.
+RDE_INTERNAL void kana_kanji_load_language(kana_kanji_db* _db, u32 _tag, kana_reader* _chunk) {
+    if(_db->_language_count >= KANA_KANJI_LANGUAGES) {
+        return;
+    }
+    kana_kanji_language _l = { .code = { (c8)((_tag >> 16) & 0xFFu), (c8)((_tag >> 24) & 0xFFu), 0 } };
+    _l.kanji_count = kana_get_u32(_chunk);
+    if(!_chunk->ok || (u64)_l.kanji_count * 8u > (u64)(_chunk->size - _chunk->pos)) {
+        return;
+    }
+    _l.kanji       = &_chunk->data[_chunk->pos];
+    _chunk->pos   += _l.kanji_count * 8u;
+    _l.word_count  = kana_get_u32(_chunk);
+    if(!_chunk->ok || (u64)_l.word_count * 8u > (u64)(_chunk->size - _chunk->pos)) {
+        return;
+    }
+    _l.words       = &_chunk->data[_chunk->pos];
+    _chunk->pos   += _l.word_count * 8u;
+    _l.text_size   = kana_get_u32(_chunk);
+    if(!_chunk->ok || _l.text_size == 0 || _l.text_size > _chunk->size - _chunk->pos || _chunk->data[_chunk->pos + _l.text_size - 1u] != 0) {
+        return;
+    }
+    _l.text = (const c8*)&_chunk->data[_chunk->pos];
+    _db->_languages[_db->_language_count++] = _l;
+}
+
+// A pair list's text for _key (pairs sorted by key), or NULL.
+RDE_INTERNAL const c8* kana_kanji_lookup(const kana_kanji_language* _l, const u8* _pairs, u32 _count, u32 _key) {
+    u32 _lo = 0, _hi = _count;
+    while(_lo < _hi) {
+        const u32   _mid = (_lo + _hi) / 2u;
+        kana_reader _r   = kana_reader_make(&_pairs[(usize)_mid * 8u], 8u);
+        const u32   _k   = kana_get_u32(&_r);
+        const u32   _at  = kana_get_u32(&_r);
+        if(_k == _key) {
+            return _at < _l->text_size ? &_l->text[_at] : NULL;
+        }
+        if(_k < _key) { _lo = _mid + 1u; }
+        else          { _hi = _mid; }
+    }
+    return NULL;
+}
+
+void kana_kanji_set_language(kana_kanji_db* _db, const c8* _code) {
+    _db->_language = -1;
+    for(u32 _i = 0; _code != NULL && _i < _db->_language_count; _i++) {
+        if(strcmp(_db->_languages[_i].code, _code) == 0) {
+            _db->_language = (i32)_i;
+        }
+    }
+}
+
 b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     memset(_db, 0, sizeof(*_db));
+    _db->_language = -1;
 
     if(!rde_file_exists(_path)) {
         rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: no character data at %s (run the desktop build with --bake)", _path);
@@ -104,6 +158,8 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         } else if(_tag == KANA_KANJI_CHUNK_WORDS) {
             _words_count = kana_get_u32(&_chunk);
             _words       = _chunk;
+        } else if((_tag & 0xFFFFu) == (KANA_TAG('L', 'N', 0, 0) & 0xFFFFu)) {
+            kana_kanji_load_language(_db, _tag, &_chunk);
         }
     }
 
@@ -164,7 +220,22 @@ b8 kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out
     _out->written = _db->_word_text[_word];
     _out->reading = _out->written + strlen(_out->written) + 1u;
     _out->meaning = _out->reading + strlen(_out->reading) + 1u;
+    if(_db->_language >= 0) {
+        const kana_kanji_language* _l = &_db->_languages[_db->_language];
+        const c8*                  _m = kana_kanji_lookup(_l, _l->words, _l->word_count, _word);
+        if(_m != NULL && _m[0] != 0) {
+            _out->meaning = _m;
+        }
+    }
     return true;
+}
+
+const c8* kana_kanji_word_meaning_english(const kana_kanji_db* _db, u32 _word) {
+    if(_db->_word_text == NULL || _word >= _db->word_count) {
+        return "";
+    }
+    const c8* _reading = _db->_word_text[_word] + strlen(_db->_word_text[_word]) + 1u;
+    return _reading + strlen(_reading) + 1u;
 }
 
 b8 kana_kanji_has_parts(const kana_kanji_db* _db) {
@@ -380,7 +451,18 @@ RDE_INTERNAL const c8* kana_kanji_text(const kana_kanji_db* _db, const kana_kanj
 
 const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info)       { return kana_kanji_text(_db, _info, 0); }
 const c8* kana_kanji_kun(const kana_kanji_db* _db, const kana_kanji_info* _info)      { return kana_kanji_text(_db, _info, 1); }
-const c8* kana_kanji_meanings(const kana_kanji_db* _db, const kana_kanji_info* _info) { return kana_kanji_text(_db, _info, 2); }
+const c8* kana_kanji_meanings_english(const kana_kanji_db* _db, const kana_kanji_info* _info) { return kana_kanji_text(_db, _info, 2); }
+
+const c8* kana_kanji_meanings(const kana_kanji_db* _db, const kana_kanji_info* _info) {
+    if(_db->_language >= 0) {
+        const kana_kanji_language* _l = &_db->_languages[_db->_language];
+        const c8*                  _m = kana_kanji_lookup(_l, _l->kanji, _l->kanji_count, _info->codepoint);
+        if(_m != NULL && _m[0] != 0) {
+            return _m;
+        }
+    }
+    return kana_kanji_text(_db, _info, 2);
+}
 
 u32 kana_kanji_utf8_next(const c8** _s) {
     const u8* _u = (const u8*)*_s;

@@ -52,6 +52,13 @@
 //           NUL-terminated UTF-8 strings each, the written form, its reading
 //           (kana) and its meaning (English glosses joined by "; "). 日 has 日本
 //           にほん "Japan"; a word is stored once, however many of its kanji list it.
+//   'LNxx'  (optional) meanings in another language, xx its code ('LNes', 'LNpt',
+//           'LNfr'): u32 n, n pairs (u32 code point, u32 text offset) sorted
+//           by code point — the kanji's meanings (KANJIDIC2's m_lang); u32 m, m
+//           pairs (u32 word number, u32 text offset) sorted by number — the
+//           words' (JMdict's glosses in it, when full JMdict was baked); u32 the
+//           text's size, the text (NUL-terminated strings). Anything not there
+//           shows in English.
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -69,6 +76,18 @@
 #define KANA_KANJI_CHUNK_WORDS  KANA_TAG('W', 'O', 'R', 'D')
 #define KANA_KANJI_MAX_PARTS    32u
 #define KANA_KANJI_MAX_WORDS    20u    // words a character can list (examples, then more)
+#define KANA_KANJI_LANGUAGES    8u     // other languages' meanings read ('LNxx')
+
+// One other language's meanings, in place in the file.
+RDE_STRUCT {
+    c8        code[3];      // "es"
+    const u8* kanji;        // pairs (code point, offset), sorted
+    u32       kanji_count;
+    const u8* words;        // pairs (word number, offset), sorted
+    u32       word_count;
+    const c8* text;
+    u32       text_size;
+} kana_kanji_language;
 
 // One character's record, decoded.
 RDE_STRUCT {
@@ -112,6 +131,9 @@ RDE_STRUCT {
     u32       _word_lists_size;
     u32       word_count;
     const c8** _word_text;     // word_count pointers to each word's written form (then reading, meaning)
+    kana_kanji_language _languages[KANA_KANJI_LANGUAGES];
+    u32                 _language_count;
+    i32                 _language;   // the meanings shown: one of _languages, -1 English
 } kana_kanji_db;
 
 // An example word (see 'WORD'), UTF-8.
@@ -150,10 +172,19 @@ u32  kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max,
 // Word number _word. False when there is no such word.
 b8   kana_kanji_word_at(const kana_kanji_db* _db, u32 _word, kana_kanji_word* _out);
 
-// The character's text, "" when there is none.
+// The character's text, "" when there is none. Meanings in the language set
+// (kana_kanji_set_language) when the file has them, in English otherwise.
 const c8* kana_kanji_on(const kana_kanji_db* _db, const kana_kanji_info* _info);
 const c8* kana_kanji_kun(const kana_kanji_db* _db, const kana_kanji_info* _info);
 const c8* kana_kanji_meanings(const kana_kanji_db* _db, const kana_kanji_info* _info);
+const c8* kana_kanji_meanings_english(const kana_kanji_db* _db, const kana_kanji_info* _info);
+
+// The meanings (a kanji's, a word's) shown in language _code ("es", "pt", "fr";
+// NULL or anything the file lacks: English). Words and kanji without one in
+// it stay English.
+void      kana_kanji_set_language(kana_kanji_db* _db, const c8* _code);
+// Word _word's meaning in English, whatever the language (search).
+const c8* kana_kanji_word_meaning_english(const kana_kanji_db* _db, u32 _word);
 
 // UTF-8 of a code point into _out (at least 5 bytes), NUL-terminated.
 void kana_kanji_utf8(u32 _codepoint, c8* _out);

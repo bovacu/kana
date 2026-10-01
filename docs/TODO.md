@@ -209,14 +209,14 @@ working on the iPad 2026-09-30.*
 *Built 2026-09-30 (select.h/.c, Browse's and the chart's Select), waiting to be
 seen on the iPad.*
 
-- [ ] **Select** in Browse's row and the chart's: a tap ticks (or unticks) instead
+- [x] **Select** in Browse's row and the chart's: a tap ticks (or unticks) instead
       of opening; every cell shows a circle, a ticked one filled with a check
       and the cell tinted.
-- [ ] The row while selecting: **All** (Browse: every filtered, sorted, searched
+- [x] The row while selecting: **All** (Browse: every filtered, sorted, searched
       result; the chart: the section in view), **None**, **Practice n** (the
       ticked as a set, in the order ticked), **Done** (taps open again; the ticks
       stay until None, or the app quits).
-- [ ] One selection for both: kanji ticked in Browse and kana in the chart
+- [x] One selection for both: kanji ticked in Browse and kana in the chart
       practise together.
 - Later: exams and study marks from the same selection.
 
@@ -332,7 +332,7 @@ by the Words title.
       buttons, one panel style, across every screen. Icons (an icon font through
       Slug: sharp, theme-coloured, beside text in one label; Borja picks the
       set). Every UI string into a table, for translation.
-      - Done, to check on the iPad (from the mock-up Borja approved): light
+      - Done, seen working on the iPad 2026-10-01 (from the mock-up Borja approved): light
         surfaces and one accent per theme (theme.h: surface, surface_2,
         outline, accent, on_accent, tint); the kit's looks (plain, quiet,
         selected, primary, danger, chips) and Phosphor icons in buttons
@@ -341,8 +341,15 @@ by the Words title.
         with icons (字, あ, 試 as characters); outlined fields; the viewer's
         chips, 音 / 訓 / 部 written from their strokes, the words in a card;
         the exam's header, progress and prompt card; statistics' cards; the
-        marks as icons (Studying an amber star, Known a green seal).
-      - Still to do: the string table.
+        marks as icons (Studying an amber star, Known a green seal). Cards
+        (Settings, Licences, the note card, the word form) restyled; fields in
+        rounded boxes with themed text and caret (engine: the text editor's
+        new set_text_color / set_caret_color); icons centred for their
+        bearings (a label is off by a glyph's whole left bearing).
+      - The string table: done, to check on the iPad. Every UI string is an
+        id (include/text_ids.h, KANA_TEXT_*) in assets/text/strings.rdel (RDE's
+        localization: one block per language, {0} and plural placeholders);
+        text.h caches them and renders templates through RDE.
 
 ## 10. Other languages
 
@@ -351,6 +358,27 @@ by the Words title.
       German, Russian, Dutch, French, Spanish, Hungarian, Swedish, Slovenian
       (coverage of the common words to measure; English where missing). The
       UI strings translated too. Spanish first.
+      - Done, to check on the iPad: English, Spanish, Portuguese (Brazil),
+        Japanese and French — the UI in all five (strings.rdel), chosen in
+        Settings › Language (a flag each; the device's language at first, then
+        the choice, saved; the UI is rebuilt live). Meanings: the bake reads
+        the full JMdict — Spanish words 17,610 of 51,705, French 12,796, no
+        Portuguese; kanji from KANJIDIC2 (es 2,505, pt 1,944, fr 2,066). English
+        wherever a language has none (and Japanese is English throughout).
+        Browse searches the meaning in the language and in English, accents
+        folded ("arbol" finds 木).
+      - Translations to have a native speaker read before release.
+- [ ] **The meanings JMdict and KANJIDIC2 lack, translated by AI** (Borja: yes,
+      both phases; to run overnight). Still English-only after the bake:
+      words — es 34,095 (1,738 of them examples), pt 51,705 (8,818), fr 38,909
+      (1,647); kanji — es 3,908, pt 4,469 (282 JLPT), fr 4,347 (219 JLPT).
+      Phase A: every kanji meaning and the example words (~25,000 items).
+      Phase B: the rest of the words (~112,000). Translated with the Japanese
+      word and reading as context, in checked batches, into
+      data/translations/<lang>/{words,kanji}.tsv (keyed by written+reading,
+      and by character); the bake prefers EDRDG's, then these (flagged as AI),
+      then English. CC BY-SA 4.0 like their sources: a line in
+      LICENSE-data.txt and the About credits saying they are machine-translated.
 
 ## 11. Release polish
 

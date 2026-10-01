@@ -1,4 +1,5 @@
 #include "browse.h"
+#include "text.h"
 #include "marks.h"
 #include "draw.h"
 #include "chart.h"
@@ -94,6 +95,15 @@ void kana_browse_destroy(kana_browse* _browse) {
     kana_glyph_destroy(&_browse->glyph);
     kana_ink_destroy(&_browse->pad);
     memset(_browse, 0, sizeof(*_browse));
+}
+
+void kana_browse_language_changed(kana_browse* _browse) {
+    if(_browse->db == NULL) {
+        return;
+    }
+    kana_catalog_destroy(&_browse->catalog);
+    kana_catalog_init(&_browse->catalog, _browse->db);
+    _browse->dirty = true;
 }
 
 b8 kana_browse_available(const kana_browse* _browse) {
@@ -537,17 +547,17 @@ void kana_browse_render(kana_browse* _browse, rde_window* _window, rde_font* _fo
     c8 _status[160];
     const u32 _count = kana_browse_count(_browse);
     if(kana_browse_pad_used(_browse)) {
-        snprintf(_status, sizeof(_status), "Best matches for your drawing: %u", _count);
+        KANA_TEXTF(_status, KANA_TEXT_BROWSE_BEST, KANA_TN(_count));
     } else if(_browse->picking && _browse->picked_count > 0) {
-        snprintf(_status, sizeof(_status), "%u character%s with the %s", _count, _count == 1 ? "" : "s", _browse->picked_count == 1 ? "picked part" : "picked parts");
+        KANA_TEXTF(_status, _browse->picked_count == 1 ? KANA_TEXT_BROWSE_PARTS_ONE : KANA_TEXT_BROWSE_PARTS_MANY, KANA_TN(_count));
     } else if(_browse->picking) {
-        snprintf(_status, sizeof(_status), "Tap parts: only characters that have all of them stay (dimmed parts: none left has them)");
+        snprintf(_status, sizeof(_status), "%s", kana_text(KANA_TEXT_BROWSE_PARTS_HINT));
     } else if(_browse->drawing) {
-        snprintf(_status, sizeof(_status), "Write a character in the box with the pen: every stroke re-ranks the list");
+        snprintf(_status, sizeof(_status), "%s", kana_text(KANA_TEXT_BROWSE_DRAW_HINT));
     } else {
-        snprintf(_status, sizeof(_status), "%u character%s", _count, _count == 1 ? "" : "s");
+        KANA_TEXTF(_status, KANA_TEXT_CHARACTERS_N, KANA_TN(_count));
     }
-    kana_draw_text(_font, _font_px, _status, _left, _top - 24.0f, 17.0f, kana_theme_active()->text);
+    kana_draw_text(_font, _font_px, _status, _left, _top - 24.0f, 15.0f, kana_theme_active()->text);
 
     f32 _grid_top = _top - KANA_BROWSE_STATUS_H;
 

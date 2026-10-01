@@ -97,11 +97,44 @@ RDE_INTERNAL u32 kana_catalog_reading_key(rde_arr* _pool, const c8* _text, b8 _s
     return _at;
 }
 
+// Lower case with the accents off (Latin letters: á → a, ç → c, ß → ss, œ → oe),
+// so "arbol" finds árbol and "Été" été. Anything else is kept as it is.
+void kana_catalog_fold(const c8* _text, c8* _out, usize _size) {
+    usize _n = 0;
+    for(const c8* _p = _text; *_p != 0 && _n + 3u < _size;) {
+        const c8* _from = _p;
+        const u32 _cp   = kana_kanji_utf8_next(&_p);
+        if(_cp == 0) {
+            break;
+        }
+        const c8* _to = NULL;
+        if(_cp < 0x80u)                                              { _out[_n++] = (c8)tolower((int)_cp); continue; }
+        else if((_cp >= 0xC0u && _cp <= 0xC5u) || (_cp >= 0xE0u && _cp <= 0xE5u)) { _to = "a"; }
+        else if(_cp == 0xC7u || _cp == 0xE7u)                        { _to = "c"; }
+        else if((_cp >= 0xC8u && _cp <= 0xCBu) || (_cp >= 0xE8u && _cp <= 0xEBu)) { _to = "e"; }
+        else if((_cp >= 0xCCu && _cp <= 0xCFu) || (_cp >= 0xECu && _cp <= 0xEFu)) { _to = "i"; }
+        else if(_cp == 0xD1u || _cp == 0xF1u)                        { _to = "n"; }
+        else if((_cp >= 0xD2u && _cp <= 0xD6u) || _cp == 0xD8u || (_cp >= 0xF2u && _cp <= 0xF6u) || _cp == 0xF8u) { _to = "o"; }
+        else if((_cp >= 0xD9u && _cp <= 0xDCu) || (_cp >= 0xF9u && _cp <= 0xFCu)) { _to = "u"; }
+        else if(_cp == 0xDDu || _cp == 0xFDu || _cp == 0xFFu)        { _to = "y"; }
+        else if(_cp == 0xDFu)                                        { _to = "ss"; }
+        else if(_cp == 0xC6u || _cp == 0xE6u)                        { _to = "ae"; }
+        else if(_cp == 0x152u || _cp == 0x153u)                      { _to = "oe"; }
+        if(_to != NULL) {
+            for(; *_to != 0 && _n + 1u < _size; _to++) { _out[_n++] = *_to; }
+        } else {
+            for(; _from < _p && _n + 1u < _size; _from++) { _out[_n++] = *_from; }   // as it is
+        }
+    }
+    _out[_n] = 0;
+}
+
 RDE_INTERNAL u32 kana_catalog_meaning_key(rde_arr* _pool, const c8* _text) {
+    c8 _folded[2048];
+    kana_catalog_fold(_text, _folded, sizeof(_folded));
     const u32 _at = kana_catalog_begin_key(_pool);
-    for(; *_text != 0; _text++) {
-        c8 _c = (c8)tolower((unsigned char)*_text);
-        rde_arr_add(_pool, &_c);
+    for(const c8* _p = _folded; *_p != 0; _p++) {
+        rde_arr_add(_pool, _p);
     }
     kana_catalog_end_key(_pool);
     return _at;
@@ -167,7 +200,12 @@ void kana_catalog_init(kana_catalog* _catalog, const kana_kanji_db* _db) {
             _e.on       = kana_catalog_reading_key(&_catalog->keys, kana_kanji_on(_db, &_info), false);
             _e.kun      = kana_catalog_reading_key(&_catalog->keys, kana_kanji_kun(_db, &_info), false);
             _e.kun_stem = kana_catalog_reading_key(&_catalog->keys, kana_kanji_kun(_db, &_info), true);
-            _e.meaning  = kana_catalog_meaning_key(&_catalog->keys, kana_kanji_meanings(_db, &_info));
+            // In the language shown first (it sorts by it), then English: either finds it.
+            const c8* _shown   = kana_kanji_meanings(_db, &_info);
+            const c8* _english = kana_kanji_meanings_english(_db, &_info);
+            c8        _both[2048];
+            snprintf(_both, sizeof(_both), _shown != _english ? "%s, %s" : "%s", _shown, _english);
+            _e.meaning  = kana_catalog_meaning_key(&_catalog->keys, _both);
         } else {
             // A kana's reading is itself.
             c8 _self[5];
@@ -391,11 +429,14 @@ u32 kana_catalog_query(kana_catalog* _catalog, KANA_FILTER_ _filter, KANA_SORT_ 
     c8 _kana[256]    = "";
     if(_search != NULL) {
         while(*_search == ' ') { _search++; }
+        // Accents off first: "árbol" is a meaning, not kana.
+        c8 _folded[128];
+        kana_catalog_fold(_search, _folded, sizeof(_folded));
         usize _n = 0;
         b8    _ascii = true;
-        for(const c8* _p = _search; *_p != 0 && _n + 1 < sizeof(_english); _p++) {
+        for(const c8* _p = _folded; *_p != 0 && _n + 1 < sizeof(_english); _p++) {
             if((unsigned char)*_p >= 0x80u) { _ascii = false; }
-            _english[_n++] = (c8)tolower((unsigned char)*_p);
+            _english[_n++] = *_p;
         }
         while(_n > 0 && _english[_n - 1] == ' ') { _n--; }
         _english[_n] = 0;

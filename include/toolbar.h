@@ -241,6 +241,7 @@ struct kana_toolbar {
     b8             _history_shown;
     b8             _can_undo_shown;
     b8             _can_redo_shown;
+    u32            _text_revision;     // the language the widgets were built in (kana_text_revision)
 };
 
 void       kana_toolbar_init(kana_toolbar* _toolbar, rde_window* _window, kana_ink* _ink, kana_canvas* _view, kana_lasso* _lasso,
@@ -274,5 +275,10 @@ void       kana_toolbar_update(kana_toolbar* _toolbar);
 
 // The paper panel, open (as Paper does).
 void       kana_toolbar_open_paper(kana_toolbar* _toolbar);
+
+// Once a frame, outside the UI's own events (a language chosen in Settings
+// rebuilds the whole UI, the button that chose it included): every widget built
+// again when the language changed (text.h).
+void       kana_toolbar_follow_language(kana_toolbar* _toolbar);
 
 #endif

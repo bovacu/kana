@@ -1,4 +1,5 @@
 #include "notes.h"
+#include "text.h"
 #include "kfile.h"
 #include "save.h"
 
@@ -181,7 +182,7 @@ RDE_INTERNAL b8 kana_notes_read(kana_notes* _notes) {
             memcpy(_raw, &_c.data[_c.pos], _len);
             _raw[_len] = 0;
             _c.pos += _len;
-            kana_notes_clean_name(_raw, _n.name, _n.kind == KANA_NOTE_FOLDER ? "Folder" : "Canvas");
+            kana_notes_clean_name(_raw, _n.name, kana_text(_n.kind == KANA_NOTE_FOLDER ? KANA_TEXT_FOLDER : KANA_TEXT_CANVAS));
 
             if(_n.id != 0 && _n.kind <= KANA_NOTE_CANVAS) {
                 rde_arr_add(&_notes->notes, &_n);
@@ -246,7 +247,7 @@ void kana_notes_load(kana_notes* _notes) {
         c8 _old_bak[RDE_MAX_PATH];
         snprintf(_old_bak, sizeof(_old_bak), "%s.bak", _old);
         if(rde_file_exists(_old) || rde_file_exists(_old_bak)) {
-            const u32 _id = kana_notes_add(_notes, KANA_NOTE_CANVAS, 0, "Page");
+            const u32 _id = kana_notes_add(_notes, KANA_NOTE_CANVAS, 0, kana_text(KANA_TEXT_NOTE_PAGE));
             c8 _new[RDE_MAX_PATH];
             kana_notes_canvas_path(_id, _new, sizeof(_new));
             if(rde_file_exists(_old)) {
@@ -269,7 +270,7 @@ void kana_notes_load(kana_notes* _notes) {
 // --- changes ------------------------------------------------------------------------------
 
 void kana_notes_new_name(const kana_notes* _notes, KANA_NOTE_ _kind, c8* _out, usize _size) {
-    const c8* _word = _kind == KANA_NOTE_FOLDER ? "Folder" : "Canvas";
+    const c8* _word = kana_text(_kind == KANA_NOTE_FOLDER ? KANA_TEXT_FOLDER : KANA_TEXT_CANVAS);
     for(u32 _k = 1; _k < 100000u; _k++) {
         snprintf(_out, _size, "%s %u", _word, _k);
         b8 _taken = false;
@@ -295,7 +296,7 @@ u32 kana_notes_add(kana_notes* _notes, KANA_NOTE_ _kind, u32 _parent, const c8* 
     _n.kind     = (u8)_kind;
     _n.expanded = true;
     _n.created  = (u64)time(NULL);
-    kana_notes_clean_name(_name, _n.name, _kind == KANA_NOTE_FOLDER ? "Folder" : "Canvas");
+    kana_notes_clean_name(_name, _n.name, kana_text(_kind == KANA_NOTE_FOLDER ? KANA_TEXT_FOLDER : KANA_TEXT_CANVAS));
     rde_arr_add(&_notes->notes, &_n);
 
     // A canvas added to a folder shows: the folder opens.

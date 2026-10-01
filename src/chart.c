@@ -1,4 +1,5 @@
 #include "chart.h"
+#include "text.h"
 #include "marks.h"
 #include "draw.h"
 #include "theme.h"
@@ -316,9 +317,9 @@ void kana_chart_render(kana_chart* _chart, rde_window* _window, rde_font* _font,
     for(u32 _section = 0; _section < 2; _section++) {
         const f32 _at  = _section == KANA_CHART_KATAKANA ? _chart->katakana_at : 0.0f;
         const f32 _y   = _top - (_at - _scroll);
-        kana_draw_text(_font, _font_px, _section == KANA_CHART_KATAKANA ? "Katakana" : "Hiragana", _left, _y - 32.0f, 24.0f, kana_theme_active()->text);
+        kana_draw_text(_font, _font_px, kana_text(_section == KANA_CHART_KATAKANA ? KANA_TEXT_KATAKANA : KANA_TEXT_HIRAGANA), _left, _y - 32.0f, 24.0f, kana_theme_active()->text);
         const f32 _sub = _y - KANA_CHART_TITLE_H - (f32)KANA_CHART_ROWS * _cell - KANA_CHART_GAP * 0.5f;
-        kana_draw_text(_font, _font_px, "Voiced (dakuten, handakuten) and small kana", _left, _sub - 26.0f, 15.0f, kana_theme_active()->text_soft);
+        kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_CHART_VOICED), _left, _sub - 26.0f, 15.0f, kana_theme_active()->text_soft);
     }
 
     const kana_chart_cell* _cells  = (const kana_chart_cell*)_chart->cells.memory;

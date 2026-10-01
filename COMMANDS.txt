@@ -20,7 +20,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c -IC:/Users/borja/Programming/Projects/kana/include ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,7 +44,7 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c -Iinclude -Wall -Wextra ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c -Iinclude -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
@@ -71,7 +71,7 @@ paths are absolute on purpose.
     --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitMDD.framework \
     --ios_framework=Network \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/mlkit_ios.m \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/mlkit_ios.m \
     -I/Users/borjavazquez/kana/include -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
 
@@ -114,7 +114,7 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/ \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c \
     -I/Users/borjavazquez/kana/include -Wall -Wextra
 
   ./build/osx-silicon/debug/project/exe/runnable                  # the app
@@ -130,8 +130,10 @@ not in the repository (data/raw/ is ignored):
   mkdir -p data/raw && cd data/raw
   curl -L -o kanjivg.xml.gz https://github.com/KanjiVG/kanjivg/releases/download/r20250816/kanjivg-20250816.xml.gz
   curl -L -o kanjidic2.xml.gz http://www.edrdg.org/kanjidic/kanjidic2.xml.gz
+  curl -L -o JMdict.gz http://ftp.edrdg.org/pub/Nihongo/JMdict.gz
   curl -L -o JMdict_e.gz http://ftp.edrdg.org/pub/Nihongo/JMdict_e.gz
   gunzip -k kanjivg.xml.gz kanjidic2.xml.gz
+  gunzip -c JMdict.gz > JMdict.xml
   gunzip -c JMdict_e.gz > JMdict_e.xml
   mkdir -p jlpt
   for n in 1 2 3 4 5; do
@@ -140,10 +142,14 @@ not in the repository (data/raw/ is ignored):
   cd ../..
 
 (The JLPT files are Jonathan Waller's N5-N1 kanji lists as Mnemosyne decks,
-CC BY; the bake reads the kanji out of them. JMdict_e is EDRDG's Japanese-
-English dictionary, CC BY-SA 4.0 like KANJIDIC2; the bake keeps up to six
-common words a kanji as its examples, ~0.45 MB. JMdict is updated daily: a
-re-bake picks up whatever the download has.)
+CC BY; the bake reads the kanji out of them. JMdict is EDRDG's Japanese
+dictionary, CC BY-SA 4.0 like KANJIDIC2; the bake keeps up to twenty words a
+kanji (six of them its examples). The FULL JMdict (JMdict.xml) is what the bake
+reads when it is there: its English, and the Spanish and French glosses for
+the other languages (it has no Portuguese: those words stay English). Without
+it, JMdict_e (English only) — then the words have no other languages. Kanji
+meanings in Spanish, Portuguese and French come from KANJIDIC2. JMdict is
+updated daily: a re-bake picks up whatever the download has.)
 
 Then, with the Mac desktop build above, from the project root:
 

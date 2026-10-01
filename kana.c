@@ -44,6 +44,7 @@
 #include "ink.h"
 #include "canvas.h"
 #include "toolbar.h"
+#include "text.h"
 #include "lasso.h"
 #include "save.h"
 #include "bake.h"
@@ -101,6 +102,7 @@ RDE_INTERNAL u64           browse_finger  = 0;
 // Running as the offline data bake (--bake, desktop): nothing else is set up, so
 // every callback returns at once.
 RDE_INTERNAL b8 baking = false;
+RDE_INTERNAL u8 settings_language = 0;   // the saved language (RDE_LANGUAGE_; 0: never chosen, the device's)
 // --paper (desktop looks): the paper panel opened a few frames in.
 RDE_INTERNAL b8  look_paper  = false;
 RDE_INTERNAL u32 look_frames = 0;
@@ -225,6 +227,8 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.mlkit          = kana_mlkit_enabled();
     _s.toolbar_minimized = toolbar.minimized;
     _s.paper_size      = (u8)canvas.paper_size;
+    // The language, once one other than the device's is chosen (0 until then: the device's).
+    _s.language        = settings_language != 0 || kana_text_language() != kana_text_default_language() ? (u8)kana_text_language() : 0u;
     return _s;
 }
 
@@ -238,6 +242,10 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     kana_theme_set((KANA_THEME_)_s->theme);
     kana_mlkit_set_enabled(_s->mlkit);
     canvas.paper_size   = _s->paper_size < KANA_PAPER_SIZE_COUNT ? (KANA_PAPER_SIZE_)_s->paper_size : KANA_PAPER_MEDIUM;
+    settings_language   = _s->language;
+    if(_s->language != 0 && (RDE_LANGUAGE_)_s->language != kana_text_language()) {
+        kana_text_set_language((RDE_LANGUAGE_)_s->language);   // the UI follows next frame
+    }
     kana_toolbar_set_placement(&toolbar, _s->vertical, _s->toolbar_center, _s->toolbar_minimized);
     kana_toolbar_sync(&toolbar);   // also restyles it in the theme
 }
@@ -417,6 +425,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 
     window = _window;
     font   = rde_font_get_default_missing();
+    // The words first: the UI is built in them. The device's language when Kana
+    // speaks it; a saved choice replaces it (kana_apply_settings).
+    kana_text_set_language(kana_text_default_language());
     camera = rde_camera_create(_window, RDE_CAMERA_TYPE_ORTHOGRAPHIC);
 
     kana_ink_init(&ink);
@@ -968,10 +979,37 @@ RDE_INTERNAL void kana_mlkit_samples_update(void) {
     }
 }
 
+// The data's code for a language ("es"...; NULL: English — the rest have no meanings of their own).
+RDE_INTERNAL const c8* kana_data_language(RDE_LANGUAGE_ _language) {
+    switch(_language) {
+        case RDE_LANGUAGE_ES_ES: return "es";
+        case RDE_LANGUAGE_PT_BR: return "pt";
+        case RDE_LANGUAGE_FR_FR: return "fr";
+        default:                 return NULL;
+    }
+}
+
+// After a change of language (text.h): the UI built again in it, and the
+// meanings shown, searched and listed in it (English where it has none).
+RDE_INTERNAL void kana_follow_language(void) {
+    static u32 _seen = 0;
+    kana_toolbar_follow_language(&toolbar);
+    if(_seen == kana_text_revision()) {
+        return;
+    }
+    _seen = kana_text_revision();
+    if(kanji_db._file != NULL) {
+        kana_kanji_set_language(&kanji_db, kana_data_language(kana_text_language()));
+        kana_browse_language_changed(&browse);
+        viewer.rows_for = UINT32_MAX;   // its word rows keep copies
+    }
+}
+
 void on_update(f32 _dt) {
     if(baking) {
         return;
     }
+    kana_follow_language();   // a language chosen: the UI and the meanings in it
     // --paper: the paper panel, open once the bar has been laid out.
     if(look_paper && ++look_frames == 20u) {
         kana_toolbar_open_paper(&toolbar);

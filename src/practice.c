@@ -1,4 +1,5 @@
 #include "practice.h"
+#include "text.h"
 #include "draw.h"
 #include "theme.h"
 
@@ -291,7 +292,7 @@ void kana_practice_score(kana_practice* _practice) {
     _practice->scored = true;
 
     if(_scored == 0) {
-        snprintf(_practice->status, sizeof(_practice->status), "Nothing written yet: write in the squares with the pen");
+        snprintf(_practice->status, sizeof(_practice->status), "%s", kana_text(KANA_TEXT_PRACTICE_NOTHING));
         return;
     }
 
@@ -300,7 +301,7 @@ void kana_practice_score(kana_practice* _practice) {
         ((f32*)_practice->set_results.memory)[_practice->set_position] = _average;   // this run's, for the set's summary
     }
     if(!_practice->changed) {
-        snprintf(_practice->status, sizeof(_practice->status), "Average %.0f  (already saved)", (f64)_average);
+        KANA_TEXTF(_practice->status, KANA_TEXT_PRACTICE_ALREADY_SAVED, KANA_TN(lroundf(_average)));
         return;
     }
 
@@ -316,10 +317,12 @@ void kana_practice_score(kana_practice* _practice) {
     }
     if(_practice->guided) {
         snprintf(_practice->feedback, sizeof(_practice->feedback), "%s", _practice->scores[0].feedback);
-        snprintf(_practice->status, sizeof(_practice->status), "From memory: %.0f  -  %s", (f64)_average, _saved ? "saved" : "COULD NOT SAVE");
+        KANA_TEXTF(_practice->status, KANA_TEXT_PRACTICE_FROM_MEMORY, KANA_TN(lroundf(_average)), KANA_TS(kana_text(_saved ? KANA_TEXT_SAVED : KANA_TEXT_NOT_SAVED)));
     } else {
-        snprintf(_practice->status, sizeof(_practice->status), "Average %.0f over %u square%s  -  %s",
-                 (f64)_average, _scored, _scored == 1 ? "" : "s", _saved ? "saved" : "COULD NOT SAVE");
+        c8 _squares_n[48];
+        KANA_TEXTF(_squares_n, KANA_TEXT_SQUARES_N, KANA_TN(_scored));
+        KANA_TEXTF(_practice->status, KANA_TEXT_PRACTICE_AVERAGE, KANA_TN(lroundf(_average)), KANA_TS(_squares_n),
+                   KANA_TS(kana_text(_saved ? KANA_TEXT_SAVED : KANA_TEXT_NOT_SAVED)));
     }
 }
 
@@ -421,17 +424,17 @@ RDE_INTERNAL void kana_practice_render_summary(kana_practice* _practice, rde_fon
     const u32 _weak = kana_practice_weak_count(_practice);
 
     c8 _line[160];
-    kana_draw_text(_font, _font_px, "Set done", _left, _top - 32.0f, 24.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_SET_DONE), _left, _top - 32.0f, 24.0f, _theme->text);
     if(_done > 0) {
-        snprintf(_line, sizeof(_line), "%u of %u practised, average %.0f", _done, _count, (f64)(_sum / (f32)_done));
+        KANA_TEXTF(_line, KANA_TEXT_SET_SUMMARY, KANA_TN(_done), KANA_TN(_count), KANA_TN(lroundf(_sum / (f32)_done)));
     } else {
-        snprintf(_line, sizeof(_line), "Nothing was practised in this set");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_SET_NOTHING));
     }
     kana_draw_text(_font, _font_px, _line, _left, _top - 64.0f, 19.0f, _theme->text);
     if(_weak > 0) {
-        snprintf(_line, sizeof(_line), "%u under %.0f: \"Weakest again\" practises them, weakest first", _weak, (f64)KANA_THEME_GRADE_GOOD);
+        KANA_TEXTF(_line, KANA_TEXT_SET_WEAK, KANA_TN(_weak), KANA_TN(lroundf(KANA_THEME_GRADE_GOOD)));
     } else if(_done > 0) {
-        snprintf(_line, sizeof(_line), "All good this run");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_SET_ALL_GOOD));
     } else {
         _line[0] = 0;
     }
@@ -510,17 +513,17 @@ void kana_practice_render(kana_practice* _practice, rde_window* _window, rde_fon
     const f32 _tx = _left + _demo + 20.0f;
     f32       _ty = _top - 30.0f;
     c8        _line[160];
-    c8 _where[32] = "Practice";
-    if(_practice->guided) {
-        snprintf(_where, sizeof(_where), "Guided");
-    }
+    c8 _where[64];
+    snprintf(_where, sizeof(_where), "%s", kana_text(_practice->guided ? KANA_TEXT_GUIDED : KANA_TEXT_PRACTICE));
     if(kana_practice_in_set(_practice)) {
-        snprintf(_where, sizeof(_where), "%u of %u", _practice->set_position + 1u, (u32)rde_arr_length(&_practice->set));
+        KANA_TEXTF(_where, KANA_TEXT_OF_N, KANA_TN(_practice->set_position + 1u), KANA_TN(rde_arr_length(&_practice->set)));
     }
+    c8 _strokes[48];
+    KANA_TEXTF(_strokes, KANA_TEXT_STROKES_N, KANA_TN(_info->strokes));
     if(_info->jlpt_n != 0) {
-        snprintf(_line, sizeof(_line), "%s   %u stroke%s   JLPT N%u", _where, _info->strokes, _info->strokes == 1 ? "" : "s", _info->jlpt_n);
+        KANA_TEXTF(_line, KANA_TEXT_PRACTICE_HEADER_JLPT, KANA_TS(_where), KANA_TS(_strokes), KANA_TN(_info->jlpt_n));
     } else {
-        snprintf(_line, sizeof(_line), "%s   %u stroke%s", _where, _info->strokes, _info->strokes == 1 ? "" : "s");
+        KANA_TEXTF(_line, KANA_TEXT_PRACTICE_HEADER, KANA_TS(_where), KANA_TS(_strokes));
     }
     kana_draw_text(_font, _font_px, _line, _tx, _ty, 22.0f, kana_theme_active()->text);
 
@@ -534,17 +537,18 @@ void kana_practice_render(kana_practice* _practice, rde_window* _window, rde_fon
     }
     const c8* _meanings = kana_kanji_meanings(_practice->db, _info);
     if(_meanings[0] != 0) {
-        snprintf(_line, sizeof(_line), "%.60s", _meanings);
+        kana_draw_text_fit(_font, _font_px, _meanings, 17.0f, _right - _tx, _line, sizeof(_line));
         kana_draw_text(_font, _font_px, _line, _tx, _ty, 17.0f, kana_theme_active()->text_soft);
         _ty -= 30.0f;
     }
 
     if(_practice->has_summary) {
-        snprintf(_line, sizeof(_line), "%u session%s   best %.0f   last %.0f   first %.0f",
-                 _practice->summary.sessions, _practice->summary.sessions == 1 ? "" : "s",
-                 (f64)_practice->summary.best, (f64)_practice->summary.last, (f64)_practice->summary.first);
+        c8 _sessions_n[48];
+        KANA_TEXTF(_sessions_n, KANA_TEXT_SESSIONS_N, KANA_TN(_practice->summary.sessions));
+        KANA_TEXTF(_line, KANA_TEXT_PRACTICE_HISTORY, KANA_TS(_sessions_n), KANA_TN(lroundf(_practice->summary.best)), KANA_TN(lroundf(_practice->summary.last)),
+                   KANA_TN(lroundf(_practice->summary.first)));
     } else {
-        snprintf(_line, sizeof(_line), "Not practised yet");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_NOT_PRACTISED));
     }
     kana_draw_text(_font, _font_px, _line, _tx, _ty, 17.0f, kana_theme_active()->text);
     _ty -= 30.0f;
@@ -583,7 +587,7 @@ void kana_practice_render(kana_practice* _practice, rde_window* _window, rde_fon
         if(_practice->guide.message[0] != 0) {
             kana_draw_text(_font, _font_px, _practice->guide.message, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->score_poor);
         } else if(_shown) {
-            snprintf(_line, sizeof(_line), "%s  -  write again for another try", _practice->feedback);
+            KANA_TEXTF(_line, KANA_TEXT_WRITE_AGAIN, KANA_TS(_practice->feedback));
             kana_draw_text(_font, _font_px, _line, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->text_soft);
         }
         return;

@@ -1,4 +1,5 @@
 #include "album.h"
+#include "text.h"
 #include "draw.h"
 #include "theme.h"
 
@@ -247,11 +248,22 @@ void kana_album_update(kana_album* _album, f32 _dt) {
 
 // A time as local date (and clock time).
 RDE_INTERNAL void kana_album_date(u64 _time, b8 _with_clock, c8* _out, usize _size) {
+    c8 _date[64];
+    kana_text_date(_date, sizeof(_date), _time);
+    if(!_with_clock) {
+        snprintf(_out, _size, "%s", _date);
+        return;
+    }
+    // The weekday before it, the clock after.
     const time_t _t  = (time_t)_time;
     struct tm*   _tm = localtime(&_t);
-    if(_tm == NULL || strftime(_out, _size, _with_clock ? "%a %d %b %Y, %H:%M" : "%d %b %Y", _tm) == 0) {
-        snprintf(_out, _size, "?");
+    c8 _clock[16] = "";
+    if(_tm != NULL) {
+        snprintf(_clock, sizeof(_clock), "%02d:%02d", _tm->tm_hour, _tm->tm_min);
     }
+    c8 _day[80];
+    snprintf(_day, sizeof(_day), "%s %s", _tm != NULL ? kana_text((KANA_TEXT_)(KANA_TEXT_DAY_MON + (_tm->tm_wday + 6) % 7)) : "", _date);   // Monday first
+    kana_text_format(_out, _size, KANA_TEXT_DATE_TIME, (const kana_text_arg[]){ KANA_TS(_day), KANA_TS(_clock) }, 2u);
 }
 
 // One attempt as it was drawn, in the square at _tl (_size wide). _elapsed < 0
@@ -349,12 +361,15 @@ RDE_INTERNAL void kana_album_render_overview(kana_album* _album, rde_font* _font
     const u32         _count  = (u32)rde_arr_length(&_album->entries);
     #define KANA_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
-    kana_draw_text(_font, _font_px, "Album", _left, KANA_ALBUM_SY(0.0f) - 32.0f, 24.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_ALBUM), _left, KANA_ALBUM_SY(0.0f) - 32.0f, 24.0f, _theme->text);
     c8 _line[128];
     if(_count == 0) {
-        snprintf(_line, sizeof(_line), "Nothing practised yet: open a character (Kanji or Kana), then Practice, then Score.");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_ALBUM_EMPTY));
     } else {
-        snprintf(_line, sizeof(_line), "%u character%s practised, %u session%s", _count, _count == 1 ? "" : "s", _album->sessions, _album->sessions == 1 ? "" : "s");
+        c8 _chars[48], _sessions_n[48];
+        KANA_TEXTF(_chars, KANA_TEXT_CHARACTERS_N, KANA_TN(_count));
+        KANA_TEXTF(_sessions_n, KANA_TEXT_SESSIONS_N, KANA_TN(_album->sessions));
+        KANA_TEXTF(_line, KANA_TEXT_ALBUM_COUNTS, KANA_TS(_chars), KANA_TS(_sessions_n));
     }
     kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(0.0f) - 60.0f, 17.0f, _theme->text_soft);
 
@@ -414,13 +429,15 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
             _best = fmaxf(_best, _sessions[_i].average);
         }
         kana_album_date(_sessions[0].time, false, _date, sizeof(_date));
-        snprintf(_line, sizeof(_line), "%u session%s since %s", _count, _count == 1 ? "" : "s", _date);
+        c8 _sessions_n[48];
+        KANA_TEXTF(_sessions_n, KANA_TEXT_SESSIONS_N, KANA_TN(_count));
+        KANA_TEXTF(_line, KANA_TEXT_ALBUM_SINCE, KANA_TS(_sessions_n), KANA_TS(_date));
         kana_draw_text(_font, _font_px, _line, _tx, _head - 24.0f, 22.0f, _theme->text);
-        snprintf(_line, sizeof(_line), "First %.0f, best %.0f, last %.0f", (f64)_sessions[0].average, (f64)_best, (f64)_sessions[_count - 1].average);
+        KANA_TEXTF(_line, KANA_TEXT_ALBUM_FIRST_BEST_LAST, KANA_TN(lroundf(_sessions[0].average)), KANA_TN(lroundf(_best)), KANA_TN(lroundf(_sessions[_count - 1].average)));
         kana_draw_text(_font, _font_px, _line, _tx, _head - 52.0f, 17.0f, _theme->text_soft);
         kana_album_trend(_album, (rde_vec_2F){ _tx, _head - 70.0f }, fminf(KANA_ALBUM_TREND_W, _right - _tx), KANA_ALBUM_TREND_H);
     } else {
-        kana_draw_text(_font, _font_px, "No sessions", _tx, _head - 24.0f, 22.0f, _theme->text);
+        kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_ALBUM_NO_SESSIONS), _tx, _head - 24.0f, 22.0f, _theme->text);
     }
 
     // --- the sessions, newest first ----------------------------------------------------
@@ -480,7 +497,7 @@ RDE_INTERNAL void kana_album_render_page(kana_album* _album, rde_font* _font, f3
         // The replayed attempt, in words.
         if(_selected >= 0) {
             const kana_history_square* _square = &_squares[_album->selected];
-            snprintf(_line, sizeof(_line), "Attempt %d: %.0f. %s", _selected + 1, (f64)_square->score.score, _square->score.feedback);
+            KANA_TEXTF(_line, KANA_TEXT_ALBUM_ATTEMPT, KANA_TN(_selected + 1), KANA_TN(lroundf(_square->score.score)), KANA_TS(_square->score.feedback));
             kana_draw_text(_font, _font_px, _line, _left, KANA_ALBUM_SY(_y) - 18.0f, 16.0f, _theme->text);
             _y += KANA_ALBUM_DETAIL_H;
         }

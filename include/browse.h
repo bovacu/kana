@@ -102,6 +102,8 @@ RDE_STRUCT {
 void kana_browse_init(kana_browse* _browse, const kana_kanji_db* _db);
 void kana_browse_destroy(kana_browse* _browse);
 
+// The meanings are in another language now (kanji.h): searched and sorted in it.
+void kana_browse_language_changed(kana_browse* _browse);
 b8   kana_browse_available(const kana_browse* _browse);
 void kana_browse_open(kana_browse* _browse);
 void kana_browse_close(kana_browse* _browse);

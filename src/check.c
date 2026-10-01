@@ -1,4 +1,5 @@
 #include "check.h"
+#include "text.h"
 #include "draw.h"
 #include "theme.h"
 
@@ -517,20 +518,19 @@ void kana_check_render(kana_check* _check, rde_window* _window, rde_font* _font,
     const u32         _n      = kana_check_count(_check);
     c8                _line[200];
 
-    kana_draw_text(_font, _font_px, "Check", _left, _top - 30.0f, 24.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_CHECK_TITLE), _left, _top - 30.0f, 24.0f, _theme->text);
 
     if(_check->pending) {
-        kana_draw_text(_font, _font_px, "Reading…", _left, _top - 60.0f, 17.0f, _theme->text_soft);
+        kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_CHECK_READING), _left, _top - 60.0f, 15.0f, _theme->text_soft);
         return;
     }
 
     const kana_check_char* _only = _n == 1 ? kana_check_at(_check, 0) : NULL;
     if(_n == 0) {
-        snprintf(_line, sizeof(_line), "Nothing to read here.");
+        snprintf(_line, sizeof(_line), "%s", kana_text(KANA_TEXT_CHECK_NOTHING));
     } else if(_only != NULL) {
-        snprintf(_line, sizeof(_line), "%s", _check->meant_count > 0 && !_check->meant_failed ? "Checked as what you meant."
-                                           : _only->candidate_count > 0 ? "What the selection looks like, best first. Tap the one you meant."
-                                           : "Nothing looks like this (it is compared with characters of about as many strokes).");
+        snprintf(_line, sizeof(_line), "%s", kana_text(_check->meant_count > 0 && !_check->meant_failed ? KANA_TEXT_CHECK_MEANT_OK
+                                                      : _only->candidate_count > 0 ? KANA_TEXT_CHECK_CANDIDATES : KANA_TEXT_CHECK_NO_MATCH));
     } else {
         f32 _sum    = 0.0f;
         u32 _scored = 0;
@@ -542,19 +542,14 @@ void kana_check_render(kana_check* _check, rde_window* _window, rde_font* _font,
             }
         }
         const f32 _mean = _scored > 0 ? _sum / (f32)_scored : 0.0f;
-        if(_check->by_mlkit) {
-            snprintf(_line, sizeof(_line), "Read by ML Kit: %u characters, %.0f on average. Tap one to look closer.", _n, (f64)_mean);
-        } else if(_check->meant_count > 0 && !_check->meant_failed) {
-            snprintf(_line, sizeof(_line), "Checked as what you meant: %u characters, %.0f on average. Tap one to look closer.", _n, (f64)_mean);
-        } else {
-            snprintf(_line, sizeof(_line), "Read as %u characters, %.0f on average. Tap one to look closer.", _n, (f64)_mean);
-        }
+        const KANA_TEXT_ _which = _check->by_mlkit ? KANA_TEXT_CHECK_MLKIT_N : _check->meant_count > 0 && !_check->meant_failed ? KANA_TEXT_CHECK_MEANT_N
+                                                                                                                                  : KANA_TEXT_CHECK_READ_N;
+        KANA_TEXTF(_line, _which, KANA_TN(_n), KANA_TN(lroundf(_mean)));
     }
     if(_check->meant_failed) {
-        snprintf(_line, sizeof(_line), _check->mlkit_text[0] != 0 ? "ML Kit read more characters than there are strokes: read by Kana instead."
-                                                                  : "Fewer strokes than the characters meant: read freely instead.");
+        snprintf(_line, sizeof(_line), "%s", kana_text(_check->mlkit_text[0] != 0 ? KANA_TEXT_CHECK_MLKIT_TOO_MANY : KANA_TEXT_CHECK_TOO_FEW));
     }
-    kana_draw_text(_font, _font_px, _line, _left, _top - 60.0f, 17.0f, _theme->text_soft);
+    kana_draw_text(_font, _font_px, _line, _left, _top - 60.0f, 15.0f, _theme->text_soft);
 
     f32 _y = _top - 86.0f;
     if(_n > 1) {

@@ -77,6 +77,9 @@ RDE_STRUCT {
 } kana_catalog;
 
 void kana_catalog_init(kana_catalog* _catalog, const kana_kanji_db* _db);
+// _text lower case with the Latin accents off (á → a, ç → c) into _out: how
+// meanings are kept, and a search compared with them.
+void kana_catalog_fold(const c8* _text, c8* _out, usize _size);
 void kana_catalog_destroy(kana_catalog* _catalog);
 
 // Filters, then either searches (_search non-empty: best match first) or sorts.

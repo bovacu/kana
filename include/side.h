@@ -4,6 +4,7 @@
 #include "rde.h"
 #include "canvas.h"
 #include "theme.h"
+#include "text.h"
 
 // ===========================================================================
 // The side panel and Settings — the app's navigation, off the floating toolbar.
@@ -19,7 +20,7 @@
 //             folder it will go into; near the list's ends it scrolls.
 //   ...and at the bottom the version on the left, Settings on the right.
 // Settings is a card over everything: the theme (each shown in its own colours),
-// the diagnostics HUD, pen width, and About — the version and the credits the
+// the language (a flag and its name each), the diagnostics HUD, pen width, and About — the version and the credits the
 // character data's licences require.
 //
 // Built on the toolbar's UI canvas and font (toolbar_kit.h); the toolbar owns it
@@ -75,6 +76,10 @@ RDE_STRUCT {
     rde_ui_label*   theme_label;
     rde_ui_button*  themes[KANA_THEME_COUNT];
     kana_side_theme_ref theme_refs[KANA_THEME_COUNT];
+    // The language: a flag and its name each (text.h's list; the refs' theme: the index).
+    rde_ui_label*   language_label;
+    rde_ui_button*  languages[KANA_TEXT_LANGUAGES];
+    kana_side_theme_ref language_refs[KANA_TEXT_LANGUAGES];
     rde_ui_label*   notes_label;
     rde_ui_button*  new_folder;
     rde_ui_button*  new_canvas;
@@ -184,5 +189,7 @@ void kana_side_close(struct kana_toolbar* _toolbar);
 // Opens Settings — and over it Licences on document _licences, if that is not
 // negative (developer launch options, kana.c).
 void kana_side_open_settings(struct kana_toolbar* _toolbar, i32 _licences);
+// Frees what the panel holds besides its widgets (before the UI is built again).
+void kana_side_forget(struct kana_toolbar* _toolbar);
 
 #endif

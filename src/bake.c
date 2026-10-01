@@ -32,6 +32,16 @@
 #define KANA_BAKE_ENTRY_SENSES  4u
 #define KANA_BAKE_ENTRY_RESTR   4u
 
+// Meanings in other languages: KANJIDIC2's m_lang and full JMdict's xml:lang
+// (JMdict_e has English only; JMdict has them all). No JMdict gloss is in
+// Portuguese: its words show in English (kanji.h's fallback).
+#define KANA_BAKE_LANGS 3u
+static const struct { const c8* code; const c8* kanjidic; const c8* jmdict; } KANA_BAKE_LANG_LIST[KANA_BAKE_LANGS] = {
+    { "es", "es", "spa" },
+    { "pt", "pt", NULL  },
+    { "fr", "fr", "fre" },
+};
+
 typedef struct {
     u32 codepoint;
     u32 geometry;      // offset into the GEOM bytes
@@ -44,6 +54,7 @@ typedef struct {
     u8  jlpt_n;
     u32 parts;         // offset into the PART lists, or UINT32_MAX
     u32 words;         // offset into the WORD lists, or UINT32_MAX
+    u32 meaning_in[KANA_BAKE_LANGS];   // its meanings in another language: offset into that one's text, or UINT32_MAX
 } kana_bake_char;
 
 // A common JMdict word that can be an example: its three strings.
@@ -51,6 +62,7 @@ typedef struct {
     c8  written[4u * KANA_BAKE_WORD_CHARS + 1u];
     c8  reading[64];
     c8  meaning[128];
+    c8  meaning_in[KANA_BAKE_LANGS][128];   // in the other languages ("": none)
     u32 index;         // in the file, UINT32_MAX until a kanji keeps it
     u8  chars;
     b8  common;        // on a common list: can be an example
@@ -73,6 +85,12 @@ typedef struct {
     kana_bytes                   word_lists;
     u32                          word_count;   // words kept (numbered in the file)
     kana_bytes                   word_text;
+    // The other languages (KANA_BAKE_LANG_LIST): each one's texts, and its words'
+    // (word number, text offset) pairs, in number order.
+    kana_bytes                   lang_text[KANA_BAKE_LANGS];
+    kana_bytes                   lang_words[KANA_BAKE_LANGS];
+    u32                          lang_word_count[KANA_BAKE_LANGS];
+    u32                          lang_kanji_count[KANA_BAKE_LANGS];
 
     // Report.
     u32 strokes;
@@ -395,7 +413,8 @@ RDE_INTERNAL b8 kana_bake_kanjivg(kana_bake* _bake, const c8* _path) {
             continue;
         }
 
-        kana_bake_char _char = { .codepoint = _cp, .geometry = kana_bytes_size(&_bake->geometry), .text = UINT32_MAX, .strokes = (u8)_count, .parts = UINT32_MAX, .words = UINT32_MAX };
+        kana_bake_char _char = { .codepoint = _cp, .geometry = kana_bytes_size(&_bake->geometry), .text = UINT32_MAX, .strokes = (u8)_count, .parts = UINT32_MAX, .words = UINT32_MAX,
+                                 .meaning_in = { UINT32_MAX, UINT32_MAX, UINT32_MAX } };
 
         u32 _parts[KANA_KANJI_MAX_PARTS];
         u32 _part_count = 0;
@@ -501,6 +520,8 @@ RDE_INTERNAL b8 kana_bake_kanjidic(kana_bake* _bake, const c8* _path) {
         u32 _cp = 0;
         u32 _strokes = 0, _grade = 0, _jlpt = 0, _freq = 0, _radical = 0;
         c8  _on[512] = "", _kun[512] = "", _meanings[1024] = "";
+        c8  _meanings_in[KANA_BAKE_LANGS][1024];
+        memset(_meanings_in, 0, sizeof(_meanings_in));
 
         for(const rde_xml_entry* _f = _c->child; _f != NULL; _f = _f->next) {
             if(kana_xml_is(_f, "literal")) {
@@ -532,6 +553,13 @@ RDE_INTERNAL b8 kana_bake_kanjidic(kana_bake* _bake, const c8* _path) {
                             if(_type != NULL && strcmp(_type, "ja_kun") == 0) { kana_bake_join(_kun, sizeof(_kun), "、", kana_xml_text(_x)); }
                         } else if(kana_xml_is(_x, "meaning") && kana_xml_attr(_x, "m_lang") == NULL) {   // no m_lang: English
                             kana_bake_join(_meanings, sizeof(_meanings), ", ", kana_xml_text(_x));
+                        } else if(kana_xml_is(_x, "meaning")) {
+                            const c8* _lang = kana_xml_attr(_x, "m_lang");
+                            for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+                                if(strcmp(_lang, KANA_BAKE_LANG_LIST[_l].kanjidic) == 0) {
+                                    kana_bake_join(_meanings_in[_l], sizeof(_meanings_in[_l]), ", ", kana_xml_text(_x));
+                                }
+                            }
                         }
                     }
                 }
@@ -551,6 +579,13 @@ RDE_INTERNAL b8 kana_bake_kanjidic(kana_bake* _bake, const c8* _path) {
         kana_put_data(&_bake->text, _on,       (u32)strlen(_on) + 1u);
         kana_put_data(&_bake->text, _kun,      (u32)strlen(_kun) + 1u);
         kana_put_data(&_bake->text, _meanings, (u32)strlen(_meanings) + 1u);
+        for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+            if(_meanings_in[_l][0] != 0) {
+                _char->meaning_in[_l] = kana_bytes_size(&_bake->lang_text[_l]);
+                kana_put_data(&_bake->lang_text[_l], _meanings_in[_l], (u32)strlen(_meanings_in[_l]) + 1u);
+                _bake->lang_kanji_count[_l]++;
+            }
+        }
 
         _bake->with_info++;
         if(_strokes != 0 && _strokes != _char->strokes) {
@@ -666,6 +701,12 @@ typedef struct {
 
     u32 element;       // what is open: 0 none, 1 k_ele, 2 r_ele, 3 sense
     b8  sense_full;    // the open sense's glosses are all in
+    // Full JMdict: a sense in another language (its glosses xml:lang) is not an
+    // English one; the entry's first sense in each language is its meaning there.
+    b8  sense_foreign;
+    i32 sense_lang;    // KANA_BAKE_LANG_LIST index, -1 another language
+    c8  foreign[KANA_BAKE_LANGS][128];
+    b8  foreign_full[KANA_BAKE_LANGS];   // that language's first sense is in
 } kana_bake_entry;
 
 // The text of "<tag ...>text</tag>" on _line, into _out (entities decoded). False
@@ -906,6 +947,9 @@ RDE_INTERNAL void kana_bake_entry_done(kana_bake* _bake, const kana_bake_entry* 
         snprintf(_word.written, sizeof(_word.written), "%s", _e->keb[_k]);
         snprintf(_word.reading, sizeof(_word.reading), "%s", _e->reb[_reading]);
         snprintf(_word.meaning, sizeof(_word.meaning), "%s", _e->sense[_sense]);
+        for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+            snprintf(_word.meaning_in[_l], sizeof(_word.meaning_in[_l]), "%s", _e->foreign[_l]);
+        }
         const u32 _index = (u32)rde_arr_length(&_bake->words);
         rde_arr_add(&_bake->words, &_word);
 
@@ -1032,6 +1076,14 @@ RDE_INTERNAL void kana_bake_choose_words(kana_bake* _bake) {
                     kana_put_data(&_bake->word_text, _w->written, (u32)strlen(_w->written) + 1u);
                     kana_put_data(&_bake->word_text, _w->reading, (u32)strlen(_w->reading) + 1u);
                     kana_put_data(&_bake->word_text, _w->meaning, (u32)strlen(_w->meaning) + 1u);
+                    for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+                        if(_w->meaning_in[_l][0] != 0) {
+                            kana_put_u32(&_bake->lang_words[_l], _w->index);
+                            kana_put_u32(&_bake->lang_words[_l], kana_bytes_size(&_bake->lang_text[_l]));
+                            kana_put_data(&_bake->lang_text[_l], _w->meaning_in[_l], (u32)strlen(_w->meaning_in[_l]) + 1u);
+                            _bake->lang_word_count[_l]++;
+                        }
+                    }
                 }
                 kana_put_u32(&_bake->word_lists, _w->index);
             }
@@ -1078,8 +1130,10 @@ RDE_INTERNAL b8 kana_bake_jmdict(kana_bake* _bake, const c8* _path) {
         } else if(strcmp(_line, "<r_ele>") == 0) {
             _e.element = _e.rebs < KANA_BAKE_ENTRY_REBS ? 2u : 0u;
         } else if(strcmp(_line, "<sense>") == 0) {
-            _e.element    = _e.senses < KANA_BAKE_ENTRY_SENSES ? 3u : 0u;
-            _e.sense_full = false;
+            _e.element       = 3u;   // an English sense past the kept ones is read for nothing: another language may follow
+            _e.sense_full    = false;
+            _e.sense_foreign = false;
+            _e.sense_lang    = -1;
         } else if(strcmp(_line, "</k_ele>") == 0) {
             _e.kebs += _e.element == 1u ? 1u : 0u;
             _e.element = 0;
@@ -1087,7 +1141,18 @@ RDE_INTERNAL b8 kana_bake_jmdict(kana_bake* _bake, const c8* _path) {
             _e.rebs += _e.element == 2u ? 1u : 0u;
             _e.element = 0;
         } else if(strcmp(_line, "</sense>") == 0) {
-            _e.senses += _e.element == 3u ? 1u : 0u;
+            if(_e.element == 3u && _e.sense_foreign) {
+                if(_e.sense_lang >= 0 && _e.foreign[_e.sense_lang][0] != 0) {
+                    _e.foreign_full[_e.sense_lang] = true;
+                }
+                if(_e.senses < KANA_BAKE_ENTRY_SENSES) {   // not an English one: its slot free again
+                    _e.sense[_e.senses][0]     = 0;
+                    _e.sense_kana[_e.senses]   = false;
+                    _e.sense_stagks[_e.senses] = 0;
+                }
+            } else if(_e.element == 3u && _e.senses < KANA_BAKE_ENTRY_SENSES) {
+                _e.senses++;
+            }
             _e.element = 0;
         } else if(_e.element == 1u) {
             const u32 _k = _e.kebs;
@@ -1121,7 +1186,25 @@ RDE_INTERNAL b8 kana_bake_jmdict(kana_bake* _bake, const c8* _path) {
                     snprintf(_e.reb_restr[_r][_e.reb_restrs[_r]++], sizeof(_e.reb_restr[_r][0]), "%s", _text);
                 }
             }
-        } else if(_e.element == 3u) {
+        } else if(_e.element == 3u && strncmp(_line, "<gloss xml:lang=\"", 17) == 0 && strncmp(_line + 17, "eng", 3) != 0) {
+            // Another language's gloss: this sense is that language's.
+            _e.sense_foreign = true;
+            _e.sense_lang    = -1;
+            for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+                if(KANA_BAKE_LANG_LIST[_l].jmdict != NULL && strncmp(_line + 17, KANA_BAKE_LANG_LIST[_l].jmdict, 3) == 0) {
+                    _e.sense_lang = (i32)_l;
+                }
+            }
+            if(_e.sense_lang >= 0 && !_e.foreign_full[_e.sense_lang] && kana_bake_element(_line, "gloss", _text, sizeof(_text))) {
+                c8*         _to   = _e.foreign[_e.sense_lang];
+                const usize _have = strlen(_to);
+                if(_have == 0) {
+                    snprintf(_to, sizeof(_e.foreign[0]), "%s", _text);
+                } else if(_have + 2u + strlen(_text) <= KANA_BAKE_WORD_MEANING) {
+                    kana_bake_join(_to, sizeof(_e.foreign[0]), "; ", _text);
+                }
+            }
+        } else if(_e.element == 3u && _e.senses < KANA_BAKE_ENTRY_SENSES) {
             const u32 _n = _e.senses;
             if(kana_bake_element(_line, "gloss", _text, sizeof(_text))) {
                 // The first gloss always; more while the meaning stays short.
@@ -1174,7 +1257,8 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
     const c8* _kanjivg  = kana_bake_arg(_argc, _argv, "--kanjivg=",  "data/raw/kanjivg.xml");
     const c8* _kanjidic = kana_bake_arg(_argc, _argv, "--kanjidic=", "data/raw/kanjidic2.xml");
     const c8* _jlpt     = kana_bake_arg(_argc, _argv, "--jlpt=",     "data/raw/jlpt");
-    const c8* _jmdict   = kana_bake_arg(_argc, _argv, "--jmdict=",   "data/raw/JMdict_e.xml");
+    // The full JMdict when it is there (English and the other languages), else JMdict_e (English).
+    const c8* _jmdict   = kana_bake_arg(_argc, _argv, "--jmdict=",   rde_file_exists("data/raw/JMdict.xml") ? "data/raw/JMdict.xml" : "data/raw/JMdict_e.xml");
     const c8* _out      = kana_bake_arg(_argc, _argv, "--out=",      KANA_KANJI_FILE);
 
     for(u32 _i = 0; _i < 2; _i++) {
@@ -1198,6 +1282,10 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
         .min_coord = 1e9f,
         .max_coord = -1e9f,
     };
+    for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+        _bake.lang_text[_l]  = kana_bytes_new(512u * 1024u);
+        _bake.lang_words[_l] = kana_bytes_new(128u * 1024u);
+    }
 
     const f64 _t0 = rde_engine_get_time_now();
     i32       _rc = 0;
@@ -1277,6 +1365,29 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
             kana_chunk_end(&_file, _chunk);
         }
 
+        // The other languages: a chunk each (see kanji.h's 'LNxx').
+        for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+            if(_bake.lang_kanji_count[_l] == 0 && _bake.lang_word_count[_l] == 0) {
+                continue;
+            }
+            const c8* _code = KANA_BAKE_LANG_LIST[_l].code;
+            _chunk = kana_chunk_begin(&_file, KANA_TAG('L', 'N', _code[0], _code[1]));
+            kana_put_u32(&_file, _bake.lang_kanji_count[_l]);
+            for(u32 _i = 0; _i < _count; _i++) {
+                if(_chars[_i].meaning_in[_l] != UINT32_MAX) {
+                    kana_put_u32(&_file, _chars[_i].codepoint);
+                    kana_put_u32(&_file, _chars[_i].meaning_in[_l]);
+                }
+            }
+            kana_put_u32(&_file, _bake.lang_word_count[_l]);
+            kana_put_data(&_file, _bake.lang_words[_l].memory, kana_bytes_size(&_bake.lang_words[_l]));
+            kana_put_u32(&_file, kana_bytes_size(&_bake.lang_text[_l]));
+            kana_put_data(&_file, _bake.lang_text[_l].memory, kana_bytes_size(&_bake.lang_text[_l]));
+            kana_chunk_end(&_file, _chunk);
+            rde_log_color(RDE_LOG_COLOR_GREEN, "  %s: %u kanji meanings, %u word meanings, %.2f MB", _code, _bake.lang_kanji_count[_l], _bake.lang_word_count[_l],
+                          (f64)(kana_bytes_size(&_bake.lang_text[_l]) + kana_bytes_size(&_bake.lang_words[_l])) / (1024.0 * 1024.0));
+        }
+
         const u32 _geometry_bytes = kana_bytes_size(&_bake.geometry);
         const u32 _text_bytes     = kana_bytes_size(&_bake.text);
         rde_file_create_missing_dirs(_out);
@@ -1319,6 +1430,10 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
     rde_arr_free(&_bake.word_refs);
     rde_arr_free(&_bake.word_lists);
     rde_arr_free(&_bake.word_text);
+    for(u32 _l = 0; _l < KANA_BAKE_LANGS; _l++) {
+        rde_arr_free(&_bake.lang_text[_l]);
+        rde_arr_free(&_bake.lang_words[_l]);
+    }
     return _rc;
 }
 

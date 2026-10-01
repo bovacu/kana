@@ -1,4 +1,5 @@
 #include "score.h"
+#include "text.h"
 #include "match.h"
 
 #include <math.h>
@@ -162,22 +163,26 @@ RDE_INTERNAL f32 kana_score_fitted_distance(const kana_match_stroke* _user, cons
 
 void kana_score_describe(kana_score* _s) {
     // One line: the most important thing first.
+    // In the learner's language (text.h), as it was when scored: history keeps the words.
+    c8 _strokes[48];
     if(_s->empty) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "Empty");
+        snprintf(_s->feedback, sizeof(_s->feedback), "%s", kana_text(KANA_TEXT_SCORE_EMPTY));
     } else if(_s->expected == 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "No reference for this character");
+        snprintf(_s->feedback, sizeof(_s->feedback), "%s", kana_text(KANA_TEXT_SCORE_NO_REFERENCE));
     } else if(_s->drawn != _s->expected) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "%u stroke%s, should be %u", _s->drawn, _s->drawn == 1 ? "" : "s", _s->expected);
+        KANA_TEXTF(_strokes, KANA_TEXT_STROKES_N, KANA_TN(_s->drawn));
+        KANA_TEXTF(_s->feedback, KANA_TEXT_SCORE_COUNT, KANA_TS(_strokes), KANA_TN(_s->expected));
     } else if(_s->misplaced > 0 && _s->swap_a != 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "Order: stroke %u before %u", _s->swap_a, _s->swap_b);
+        KANA_TEXTF(_s->feedback, KANA_TEXT_SCORE_ORDER_SWAP, KANA_TN(_s->swap_a), KANA_TN(_s->swap_b));
     } else if(_s->misplaced > 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "Order: %u stroke%s out of place", _s->misplaced, _s->misplaced == 1 ? "" : "s");
+        KANA_TEXTF(_strokes, KANA_TEXT_STROKES_N, KANA_TN(_s->misplaced));
+        KANA_TEXTF(_s->feedback, KANA_TEXT_SCORE_ORDER_MISPLACED, KANA_TS(_strokes));
     } else if(_s->reversed > 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "Stroke %u drawn backwards%s", _s->first_reversed, _s->reversed > 1 ? " (and more)" : "");
+        KANA_TEXTF(_s->feedback, _s->reversed > 1 ? KANA_TEXT_SCORE_BACKWARDS_MORE : KANA_TEXT_SCORE_BACKWARDS, KANA_TN(_s->first_reversed));
     } else if(_s->shape < 70.0f && _s->worst != 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "Stroke %u's shape is off", _s->worst);
+        KANA_TEXTF(_s->feedback, KANA_TEXT_SCORE_SHAPE, KANA_TN(_s->worst));
     } else {
-        snprintf(_s->feedback, sizeof(_s->feedback), "%s", _s->score >= 90.0f ? "Excellent" : _s->score >= 75.0f ? "Good" : "OK, keep practising");
+        snprintf(_s->feedback, sizeof(_s->feedback), "%s", kana_text(_s->score >= 90.0f ? KANA_TEXT_SCORE_EXCELLENT : _s->score >= 75.0f ? KANA_TEXT_SCORE_GOOD : KANA_TEXT_SCORE_OK));
     }
 }
 
@@ -198,11 +203,11 @@ kana_score kana_score_drawing(const kana_kanji_db* _db, const kana_kanji_info* _
 
     if(_n == 0) {
         _s.empty = true;
-        snprintf(_s.feedback, sizeof(_s.feedback), "Empty");
+        snprintf(_s.feedback, sizeof(_s.feedback), "%s", kana_text(KANA_TEXT_SCORE_EMPTY));
         return _s;
     }
     if(_m == 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "No reference for this character");
+        snprintf(_s.feedback, sizeof(_s.feedback), "%s", kana_text(KANA_TEXT_SCORE_NO_REFERENCE));
         return _s;
     }
 

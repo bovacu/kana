@@ -1,4 +1,5 @@
 #include "stats.h"
+#include "text.h"
 #include "chart.h"
 #include "draw.h"
 #include "exam.h"
@@ -284,11 +285,20 @@ typedef enum {
     KANA_STATS_CARD_COUNT
 } KANA_STATS_CARD_;
 
-static const c8* const KANA_STATS_CARD_TITLES[KANA_STATS_CARD_COUNT] = {
-    "Overview", "Activity", "Practice scores", "Exams", "Levels", "Mistakes", "Characters", "When you practise"
+static const KANA_TEXT_ KANA_STATS_CARD_TITLES[KANA_STATS_CARD_COUNT] = {
+    KANA_TEXT_STATS_OVERVIEW, KANA_TEXT_STATS_ACTIVITY, KANA_TEXT_STATS_SCORES, KANA_TEXT_EXAMS, KANA_TEXT_STATS_LEVELS, KANA_TEXT_STATS_MISTAKES,
+    KANA_TEXT_STATS_CHARACTERS, KANA_TEXT_STATS_WHEN
 };
-static const c8* const KANA_STATS_GROUP_NAMES[KANA_STATS_GROUP_COUNT]     = { "Hiragana", "Katakana", "N5", "N4", "N3", "N2", "N1" };
-static const c8* const KANA_STATS_MISTAKE_NAMES[KANA_STATS_MISTAKE_COUNT] = { "Stroke order", "Direction", "Missing strokes", "Extra strokes", "Shape" };
+static const c8* const KANA_STATS_GROUP_NAMES[KANA_STATS_GROUP_COUNT]      = { NULL, NULL, "N5", "N4", "N3", "N2", "N1" };   // NULL: the kana (text.h)
+static const KANA_TEXT_ KANA_STATS_MISTAKE_NAMES[KANA_STATS_MISTAKE_COUNT] = { KANA_TEXT_MISTAKE_ORDER, KANA_TEXT_MISTAKE_DIRECTION, KANA_TEXT_MISTAKE_MISSING,
+                                                                               KANA_TEXT_MISTAKE_EXTRA, KANA_TEXT_MISTAKE_SHAPE };
+
+RDE_INTERNAL const c8* kana_stats_group_name(u32 _group) {
+    if(KANA_STATS_GROUP_NAMES[_group] != NULL) {
+        return KANA_STATS_GROUP_NAMES[_group];
+    }
+    return kana_text(_group == KANA_STATS_GROUP_HIRAGANA ? KANA_TEXT_HIRAGANA : KANA_TEXT_KATAKANA);
+}
 
 void kana_stats_init(kana_stats* _stats, const kana_kanji_db* _db, const kana_catalog* _catalog) {
     memset(_stats, 0, sizeof(*_stats));
@@ -405,17 +415,26 @@ RDE_INTERNAL void kana_stats_text_right(const kana_stats_box* _b, const c8* _tex
 
 RDE_INTERNAL void kana_stats_duration(f32 _seconds, c8* _out, usize _size) {
     const u32 _minutes = (u32)(_seconds / 60.0f + 0.5f);
-    if(_minutes >= 60u) { snprintf(_out, _size, "%u h %02u min", _minutes / 60u, _minutes % 60u); }
-    else if(_minutes > 0u) { snprintf(_out, _size, "%u min", _minutes); }
-    else { snprintf(_out, _size, "%.0f s", (f64)_seconds); }
+    if(_minutes >= 60u) {
+        c8 _mm[8];
+        snprintf(_mm, sizeof(_mm), "%02u", _minutes % 60u);
+        kana_text_format(_out, _size, KANA_TEXT_DURATION_HM, (const kana_text_arg[]){ KANA_TN(_minutes / 60u), KANA_TS(_mm) }, 2u);
+    } else if(_minutes > 0u) {
+        kana_text_format(_out, _size, KANA_TEXT_DURATION_M, (const kana_text_arg[]){ KANA_TN(_minutes) }, 1u);
+    } else {
+        kana_text_format(_out, _size, KANA_TEXT_DURATION_S, (const kana_text_arg[]){ KANA_TN(lroundf(_seconds)) }, 1u);
+    }
 }
 
 RDE_INTERNAL void kana_stats_draw_overview(const kana_stats_box* _b) {
     const kana_stats_data* _d     = &_b->stats->data;
     const kana_theme*      _theme = kana_theme_active();
     c8 _values[13][32];
-    const c8* _labels[13] = { "practice sessions", "characters practised", "squares written", "writing time", "days active", "day streak",
-                              "best streak", "exams taken", "exams passed", "exam accuracy", "studying", "known", "words added" };
+    const c8* _labels[13] = { kana_text(KANA_TEXT_TILE_SESSIONS), kana_text(KANA_TEXT_TILE_CHARACTERS), kana_text(KANA_TEXT_TILE_SQUARES),
+                              kana_text(KANA_TEXT_TILE_TIME), kana_text(KANA_TEXT_TILE_DAYS), kana_text(KANA_TEXT_TILE_STREAK),
+                              kana_text(KANA_TEXT_TILE_BEST_STREAK), kana_text(KANA_TEXT_TILE_EXAMS), kana_text(KANA_TEXT_TILE_PASSED),
+                              kana_text(KANA_TEXT_TILE_ACCURACY), kana_text(KANA_TEXT_TILE_STUDYING), kana_text(KANA_TEXT_TILE_KNOWN),
+                              kana_text(KANA_TEXT_TILE_WORDS) };
     snprintf(_values[0], 32, "%u", _d->sessions);
     snprintf(_values[1], 32, "%u", _d->characters);
     snprintf(_values[2], 32, "%u", _d->squares);
@@ -449,7 +468,8 @@ RDE_INTERNAL void kana_stats_draw_activity(const kana_stats_box* _b) {
     const kana_theme*      _theme = kana_theme_active();
     const f32 _cell = fminf(20.0f, (_b->width - 34.0f) / (f32)KANA_STATS_WEEKS);
     const f32 _dot  = _cell - 3.0f;
-    const c8* _days[7] = { "M", "", "W", "", "F", "", "S" };
+    const c8* _days[7] = { kana_text(KANA_TEXT_DAY_INITIAL_MON), "", kana_text(KANA_TEXT_DAY_INITIAL_WED), "", kana_text(KANA_TEXT_DAY_INITIAL_FRI), "",
+                           kana_text(KANA_TEXT_DAY_INITIAL_SUN) };
     for(u32 _r = 0; _r < 7u; _r++) {
         kana_draw_text(_b->font, _b->font_px, _days[_r], _b->left, _b->top - (f32)_r * _cell - _cell * 0.75f, 12.0f, _theme->text_soft);
     }
@@ -468,7 +488,7 @@ RDE_INTERNAL void kana_stats_draw_activity(const kana_stats_box* _b) {
         rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _dot * 0.5f, _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, 0.4f, 3, _c, NULL);
     }
     c8 _line[96];
-    snprintf(_line, sizeof(_line), "The last %u weeks: squares practised and exam answers, a day each", KANA_STATS_WEEKS);
+    KANA_TEXTF(_line, KANA_TEXT_STATS_ACTIVITY_CAPTION, KANA_TN(KANA_STATS_WEEKS));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 7.0f * _cell - 22.0f, 14.0f, _theme->text_soft);
 }
 
@@ -490,18 +510,20 @@ RDE_INTERNAL void kana_stats_draw_scores(const kana_stats_box* _b) {
     const kana_theme*      _theme = kana_theme_active();
     c8 _line[160];
     if(_d->squares == 0) {
-        kana_draw_text(_b->font, _b->font_px, "No practice yet: scores show here week by week.", _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_SCORES), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
         return;
     }
     // The last 30 days against the 30 before, and all of it.
     if(_d->average_recent >= 0.0f && _d->average_before >= 0.0f) {
         const f32 _delta = _d->average_recent - _d->average_before;
-        snprintf(_line, sizeof(_line), "Last %d days %.0f (%s%.0f on the %d before)  -  all time %.0f", KANA_STATS_RECENT, (f64)_d->average_recent,
-                 _delta >= 0.0f ? "+" : "", (f64)_delta, KANA_STATS_RECENT, (f64)_d->average);
+        c8 _signed[16];
+        snprintf(_signed, sizeof(_signed), "%s%ld", _delta >= 0.0f ? "+" : "", lroundf(_delta));
+        KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_TREND, KANA_TN(KANA_STATS_RECENT), KANA_TN(lroundf(_d->average_recent)), KANA_TS(_signed),
+                   KANA_TN(KANA_STATS_RECENT), KANA_TN(lroundf(_d->average)));
     } else if(_d->average_recent >= 0.0f) {
-        snprintf(_line, sizeof(_line), "Last %d days %.0f  -  all time %.0f", KANA_STATS_RECENT, (f64)_d->average_recent, (f64)_d->average);
+        KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_RECENT, KANA_TN(KANA_STATS_RECENT), KANA_TN(lroundf(_d->average_recent)), KANA_TN(lroundf(_d->average)));
     } else {
-        snprintf(_line, sizeof(_line), "All time %.0f", (f64)_d->average);
+        KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_ALL, KANA_TN(lroundf(_d->average)));
     }
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, 16.0f, _theme->text);
 
@@ -522,7 +544,7 @@ RDE_INTERNAL void kana_stats_draw_scores(const kana_stats_box* _b) {
         _prev = _p;
         _have = true;
     }
-    snprintf(_line, sizeof(_line), "Average score each week, the last %u weeks", KANA_STATS_WEEKS);
+    KANA_TEXTF(_line, KANA_TEXT_STATS_SCORES_CAPTION, KANA_TN(KANA_STATS_WEEKS));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 36.0f, 13.0f, _theme->text_soft);
 }
 
@@ -531,11 +553,11 @@ RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
     const kana_theme*      _theme = kana_theme_active();
     c8 _line[160];
     if(_d->exams == 0) {
-        kana_draw_text(_b->font, _b->font_px, "No exams yet: Exams, in the side panel.", _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_EXAMS), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
         return;
     }
-    snprintf(_line, sizeof(_line), "%u taken, %u passed  -  %u of %u answers right  -  %.0f points", _d->exams, _d->exams_passed, _d->exam_right,
-             _d->exam_items, (f64)_d->exam_points);
+    KANA_TEXTF(_line, KANA_TEXT_STATS_EXAMS_LINE, KANA_TN(_d->exams), KANA_TN(_d->exams_passed), KANA_TN(_d->exam_right), KANA_TN(_d->exam_items),
+               KANA_TN(lroundf(_d->exam_points)));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, 16.0f, _theme->text);
 
     // The last exams: how many right (the bar), how many points (the dot).
@@ -552,11 +574,18 @@ RDE_INTERNAL void kana_stats_draw_exams(const kana_stats_box* _b) {
         }
         rde_rendering_2d_draw_circle((rde_vec_2F){ _cx, _y - _h + _h * _d->recent_points[_i] / 100.0f }, 3.5f, 16, _theme->text, NULL);
         const c8* _name = kana_exam_source_name((KANA_EXAM_SOURCE_)_d->recent_source[_i]);
-        c8 _short[4] = { _name[0], _name[1], 0, 0 };
+        // Its first two characters (whole ones: a name may be Japanese).
+        c8        _short[16] = "";
+        const c8* _p         = _name;
+        for(u32 _k = 0; _k < 2u; _k++) {
+            const c8* _from = _p;
+            if(kana_kanji_utf8_next(&_p) == 0) { break; }
+            strncat(_short, _from, (usize)(_p - _from));
+        }
         kana_draw_text(_b->font, _b->font_px, _short, _cx - kana_draw_text_width(_b->font, _b->font_px, _short, 11.0f) * 0.5f, _y - _h - 20.0f, 11.0f,
                        _theme->text_soft);
     }
-    snprintf(_line, sizeof(_line), "The last %u: bars, the share right (passed at %.0f%%); dots, the points", KANA_STATS_EXAMS, (f64)(100.0f * KANA_EXAM_PASS));
+    KANA_TEXTF(_line, KANA_TEXT_STATS_EXAMS_CAPTION, KANA_TN(KANA_STATS_EXAMS), KANA_TN(lroundf(100.0f * KANA_EXAM_PASS)));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, 13.0f, _theme->text_soft);
 }
 
@@ -569,8 +598,8 @@ RDE_INTERNAL void kana_stats_draw_coverage(const kana_stats_box* _b) {
     f32 _count = 0.0f;
     for(u32 _g = 0; _g < KANA_STATS_GROUP_COUNT; _g++) {
         const kana_stats_coverage* _c = &_d->coverage[_g];
-        snprintf(_line, sizeof(_line), "%u known, %u practised / %u", _c->known, _c->practised, _c->total);
-        _label = fmaxf(_label, kana_draw_text_width(_b->font, _b->font_px, KANA_STATS_GROUP_NAMES[_g], 16.0f));
+        KANA_TEXTF(_line, KANA_TEXT_STATS_LEVEL_LINE, KANA_TN(_c->known), KANA_TN(_c->practised), KANA_TN(_c->total));
+        _label = fmaxf(_label, kana_draw_text_width(_b->font, _b->font_px, kana_stats_group_name(_g), 16.0f));
         _count = fmaxf(_count, kana_draw_text_width(_b->font, _b->font_px, _line, 13.0f));
     }
     _label += 14.0f;
@@ -579,7 +608,7 @@ RDE_INTERNAL void kana_stats_draw_coverage(const kana_stats_box* _b) {
     for(u32 _g = 0; _g < KANA_STATS_GROUP_COUNT; _g++) {
         const kana_stats_coverage* _c = &_d->coverage[_g];
         const f32 _y = _b->top - (f32)_g * KANA_STATS_ROW;
-        kana_draw_text(_b->font, _b->font_px, KANA_STATS_GROUP_NAMES[_g], _b->left, _y - 22.0f, 16.0f, _theme->text);
+        kana_draw_text(_b->font, _b->font_px, kana_stats_group_name(_g), _b->left, _y - 22.0f, 16.0f, _theme->text);
         const f32 _x = _b->left + _label;
         // The whole level, then practised, studying and known over it.
         rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _bar * 0.5f, _y - 16.0f }, (rde_vec_2F){ _bar, 14.0f }, _theme->line);
@@ -589,29 +618,35 @@ RDE_INTERNAL void kana_stats_draw_coverage(const kana_stats_box* _b) {
             kana_stats_bar(_x, _y - 9.0f, _bar, 14.0f, (f32)(_c->known + _c->studying) / _t, kana_stats_alpha(_theme->button_selected, 0.8f));
             kana_stats_bar(_x, _y - 9.0f, _bar, 14.0f, (f32)_c->known / _t, _theme->score_good);
         }
-        snprintf(_line, sizeof(_line), "%u known, %u practised / %u", _c->known, _c->practised, _c->total);
+        KANA_TEXTF(_line, KANA_TEXT_STATS_LEVEL_LINE, KANA_TN(_c->known), KANA_TN(_c->practised), KANA_TN(_c->total));
         kana_stats_text_right(_b, _line, _b->left + _b->width, _y - 22.0f, 13.0f, _theme->text_soft);
     }
     const f32 _ly = _b->top - (f32)KANA_STATS_GROUP_COUNT * KANA_STATS_ROW - 14.0f;
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ _b->left + 6.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _theme->score_good);
-    kana_draw_text(_b->font, _b->font_px, "known", _b->left + 16.0f, _ly, 13.0f, _theme->text_soft);
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ _b->left + 76.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, kana_stats_alpha(_theme->button_selected, 0.8f));
-    kana_draw_text(_b->font, _b->font_px, "studying", _b->left + 86.0f, _ly, 13.0f, _theme->text_soft);
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ _b->left + 162.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, kana_stats_alpha(_theme->button_selected, 0.35f));
-    kana_draw_text(_b->font, _b->font_px, "practised", _b->left + 172.0f, _ly, 13.0f, _theme->text_soft);
+    // The legend: a swatch and its word, each after the last.
+    const struct { KANA_TEXT_ text; rde_color color; } _legend[3] = {
+        { KANA_TEXT_STATS_LEGEND_KNOWN, _theme->score_good },
+        { KANA_TEXT_STATS_LEGEND_STUDYING, kana_stats_alpha(_theme->button_selected, 0.8f) },
+        { KANA_TEXT_STATS_LEGEND_PRACTISED, kana_stats_alpha(_theme->button_selected, 0.35f) },
+    };
+    f32 _lx = _b->left;
+    for(u32 _k = 0; _k < 3u; _k++) {
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _lx + 6.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
+        kana_draw_text(_b->font, _b->font_px, kana_text(_legend[_k].text), _lx + 16.0f, _ly, 13.0f, _theme->text_soft);
+        _lx += 16.0f + kana_draw_text_width(_b->font, _b->font_px, kana_text(_legend[_k].text), 13.0f) + 18.0f;
+    }
 }
 
 RDE_INTERNAL void kana_stats_draw_mistakes(const kana_stats_box* _b) {
     const kana_stats_data* _d     = &_b->stats->data;
     const kana_theme*      _theme = kana_theme_active();
     if(_d->squares == 0) {
-        kana_draw_text(_b->font, _b->font_px, "No practice yet.", _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
         return;
     }
     c8  _line[80];
     f32 _label = 0.0f;
     for(u32 _m = 0; _m < KANA_STATS_MISTAKE_COUNT; _m++) {
-        _label = fmaxf(_label, kana_draw_text_width(_b->font, _b->font_px, KANA_STATS_MISTAKE_NAMES[_m], 15.0f));
+        _label = fmaxf(_label, kana_draw_text_width(_b->font, _b->font_px, kana_text(KANA_STATS_MISTAKE_NAMES[_m]), 15.0f));
     }
     _label += 14.0f;
     const f32 _count = kana_draw_text_width(_b->font, _b->font_px, "100%", 14.0f) + 14.0f;
@@ -619,7 +654,7 @@ RDE_INTERNAL void kana_stats_draw_mistakes(const kana_stats_box* _b) {
     for(u32 _m = 0; _m < KANA_STATS_MISTAKE_COUNT; _m++) {
         const f32 _y   = _b->top - (f32)_m * KANA_STATS_ROW;
         const f32 _all = (f32)_d->mistakes[_m] / (f32)_d->squares;
-        kana_draw_text(_b->font, _b->font_px, KANA_STATS_MISTAKE_NAMES[_m], _b->left, _y - 22.0f, 15.0f, _theme->text);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_STATS_MISTAKE_NAMES[_m]), _b->left, _y - 22.0f, 15.0f, _theme->text);
         const f32 _x = _b->left + _label;
         kana_stats_bar(_x, _y - 6.0f, _bar, 9.0f, _all, kana_stats_alpha(_theme->score_poor, 0.45f));
         if(_d->squares_recent > 0) {
@@ -628,7 +663,7 @@ RDE_INTERNAL void kana_stats_draw_mistakes(const kana_stats_box* _b) {
         snprintf(_line, sizeof(_line), "%.0f%%", (f64)(100.0f * _all));
         kana_stats_text_right(_b, _line, _b->left + _b->width, _y - 22.0f, 14.0f, _theme->text_soft);
     }
-    snprintf(_line, sizeof(_line), "Squares with each: all time (light), the last %d days (strong)", KANA_STATS_RECENT);
+    KANA_TEXTF(_line, KANA_TEXT_STATS_MISTAKES_CAPTION, KANA_TN(KANA_STATS_RECENT));
     kana_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - (f32)KANA_STATS_MISTAKE_COUNT * KANA_STATS_ROW - 14.0f, 13.0f, _theme->text_soft);
 }
 
@@ -637,7 +672,7 @@ RDE_INTERNAL void kana_stats_draw_characters(const kana_stats_box* _b) {
     const kana_stats_data* _d     = &_stats->data;
     const kana_theme*      _theme = kana_theme_active();
     if(_d->weakest_count == 0) {
-        kana_draw_text(_b->font, _b->font_px, "No practice yet.", _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
         return;
     }
     c8 _line[16];
@@ -645,10 +680,10 @@ RDE_INTERNAL void kana_stats_draw_characters(const kana_stats_box* _b) {
         const f32  _y      = _b->top - (f32)_list * (26.0f + KANA_STATS_GLYPH + 26.0f);
         const u32  _count  = _list == 0 ? _d->weakest_count : _d->improved_count;
         const u32* _recs   = _list == 0 ? _d->weakest : _d->improved;
-        kana_draw_text(_b->font, _b->font_px, _list == 0 ? "Weakest (their latest session)" : "Most improved (first session to latest)",
+        kana_draw_text(_b->font, _b->font_px, kana_text(_list == 0 ? KANA_TEXT_STATS_WEAKEST : KANA_TEXT_STATS_IMPROVED),
                        _b->left, _y - 16.0f, 15.0f, _theme->text_soft);
         if(_count == 0) {
-            kana_draw_text(_b->font, _b->font_px, "Practise a character twice to see it here.", _b->left, _y - 44.0f, 14.0f, _theme->text_soft);
+            kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_TWICE), _b->left, _y - 44.0f, 14.0f, _theme->text_soft);
             continue;
         }
         const f32 _step = KANA_STATS_GLYPH + 12.0f;
@@ -675,7 +710,7 @@ RDE_INTERNAL void kana_stats_draw_when(const kana_stats_box* _b) {
     const kana_stats_data* _d     = &_b->stats->data;
     const kana_theme*      _theme = kana_theme_active();
     if(_d->squares == 0) {
-        kana_draw_text(_b->font, _b->font_px, "No practice yet.", _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(KANA_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
         return;
     }
     for(u32 _part = 0; _part < 2u; _part++) {
@@ -688,7 +723,7 @@ RDE_INTERNAL void kana_stats_draw_when(const kana_stats_box* _b) {
         const f32 _y    = _b->top - (f32)_part * 130.0f;
         const f32 _h    = 80.0f;
         const f32 _slot = _b->width / (f32)_n;
-        kana_draw_text(_b->font, _b->font_px, _part == 0 ? "By hour of the day" : "By day of the week", _b->left, _y - 14.0f, 14.0f, _theme->text_soft);
+        kana_draw_text(_b->font, _b->font_px, kana_text(_part == 0 ? KANA_TEXT_STATS_BY_HOUR : KANA_TEXT_STATS_BY_DAY), _b->left, _y - 14.0f, 14.0f, _theme->text_soft);
         const f32 _base = _y - 24.0f - _h;
         for(u32 _i = 0; _i < _n; _i++) {
             const f32 _bh = _h * (f32)_values[_i] / (f32)_max;
@@ -696,15 +731,15 @@ RDE_INTERNAL void kana_stats_draw_when(const kana_stats_box* _b) {
             if(_bh > 0.5f) {
                 rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _base + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.6f, _bh }, kana_stats_alpha(_theme->button_selected, 0.75f));
             }
-            c8 _label[4];
+            c8 _label[16];
             if(_part == 0) {
                 if(_i % 6u != 0u) { continue; }
                 snprintf(_label, sizeof(_label), "%u", _i);
             } else {
-                const c8* _days[7] = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" };
-                snprintf(_label, sizeof(_label), "%s", _days[_i]);
+                snprintf(_label, sizeof(_label), "%s", kana_text((KANA_TEXT_)(KANA_TEXT_DAY_MON + _i)));   // Monday first
             }
-            kana_draw_text(_b->font, _b->font_px, _label, _cx - 7.0f, _base - 16.0f, 12.0f, _theme->text_soft);
+            kana_draw_text(_b->font, _b->font_px, _label, _cx - kana_draw_text_width(_b->font, _b->font_px, _label, 12.0f) * 0.5f, _base - 16.0f, 12.0f,
+                           _theme->text_soft);
         }
     }
 }
@@ -722,13 +757,14 @@ void kana_stats_render(kana_stats* _stats, rde_window* _window, rde_font* _font,
 
     // The header: since when.
     c8 _line[160];
-    kana_draw_text(_font, _font_px, "Statistics", _left, _top - 30.0f, 24.0f, _theme->text);
+    kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_STATISTICS), _left, _top - 30.0f, 24.0f, _theme->text);
     if(_d->first_time != 0) {
         const time_t _first = (time_t)_d->first_time;
         c8 _date[40];
-        strftime(_date, sizeof(_date), "%d %b %Y", localtime(&_first));
-        snprintf(_line, sizeof(_line), "since %s", _date);
-        kana_draw_text(_font, _font_px, _line, _left + kana_draw_text_width(_font, _font_px, "Statistics", 24.0f) + 16.0f, _top - 30.0f, 14.0f, _theme->text_soft);
+        kana_text_date(_date, sizeof(_date), (u64)_first);
+        KANA_TEXTF(_line, KANA_TEXT_STATS_SINCE, KANA_TS(_date));
+        kana_draw_text(_font, _font_px, _line, _left + kana_draw_text_width(_font, _font_px, kana_text(KANA_TEXT_STATISTICS), 24.0f) + 16.0f, _top - 30.0f, 14.0f,
+                       _theme->text_soft);
     }
     const f32 _view_top = _top - 50.0f;
     _stats->view_top    = _view_top;
@@ -755,7 +791,7 @@ void kana_stats_render(kana_stats* _stats, rde_window* _window, rde_font* _font,
             continue;
         }
         kana_draw_card((rde_vec_2F){ _x, _y - _h }, (rde_vec_2F){ _x + _cw, _y }, 16.0f, _theme->surface, _theme->outline);
-        kana_draw_text(_font, _font_px, KANA_STATS_CARD_TITLES[_c], _x + KANA_STATS_PAD, _y - KANA_STATS_PAD - 18.0f, 16.0f, _theme->text);
+        kana_draw_text(_font, _font_px, kana_text(KANA_STATS_CARD_TITLES[_c]), _x + KANA_STATS_PAD, _y - KANA_STATS_PAD - 18.0f, 16.0f, _theme->text);
         const kana_stats_box _box = {
             .stats = _stats, .font = _font, .font_px = _font_px, .left = _x + KANA_STATS_PAD, .width = _cw - 2.0f * KANA_STATS_PAD,
             .top = _y - KANA_STATS_PAD - KANA_STATS_TITLE, .content_y = _cy + KANA_STATS_PAD + KANA_STATS_TITLE
