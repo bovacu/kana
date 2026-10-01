@@ -114,6 +114,7 @@ RDE_INTERNAL u32       look_shot_frames = 0;
 RDE_INTERNAL b8        look_stats       = false;
 RDE_INTERNAL i64       look_kept_exam   = -1;
 RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open screen scrolled down (Statistics, the album)
+RDE_INTERNAL i32       look_theme       = -1;     // --theme=N: shown, not saved
 
 // --perf=N: frame times over N seconds (after a second to settle), appended to
 // <save dir>/perf.txt with the flags it ran with — to measure a build on the
@@ -369,9 +370,16 @@ RDE_INTERNAL void kana_load_saves(void) {
     snprintf(_path, sizeof(_path), "%swords.kana", _dir);
     kana_userwords_open(_path);
 
-    kana_settings _settings = kana_gather_settings();
-    if(kana_load_settings(settings_path, &_settings) == KANA_LOAD_OK) {
+    kana_settings    _settings = kana_gather_settings();
+    const KANA_LOAD_ _loaded   = kana_load_settings(settings_path, &_settings);
+    if(_loaded == KANA_LOAD_OK) {
         kana_apply_settings(&_settings);
+    } else if(_loaded == KANA_LOAD_MISSING) {
+        // The very first time: the theme the device is in — Night when it is
+        // dark, Paper otherwise, as the launch screen was — and the settings
+        // saved at once (below), so from now on the theme is the learner's.
+        kana_theme_set(rde_engine_get_system_theme() == RDE_SYSTEM_THEME_DARK ? KANA_THEME_NIGHT : KANA_THEME_PAPER);
+        kana_toolbar_sync(&toolbar);
     }
 
     const KANA_LOAD_ _doc = kana_load_document(document_path, &ink, &canvas.view, &canvas.page);
@@ -392,6 +400,9 @@ RDE_INTERNAL void kana_load_saves(void) {
     saved_page       = seen_page      = canvas.page;
     saved_settings   = seen_settings  = kana_gather_settings();
     last_change_time = rde_engine_get_time_now();
+    if(_loaded == KANA_LOAD_MISSING && !kana_save_settings(settings_path, &saved_settings)) {
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "kana: could not write the first settings (%s)", settings_path);
+    }
 }
 
 // The canvas opened in the side panel (notes.open changed): the page leaving is
@@ -557,8 +568,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             }
         }
         if(_argv[_i] != NULL && strncmp(_argv[_i], "--theme=", 8) == 0) {
-            kana_theme_set((KANA_THEME_)strtol(_argv[_i] + 8, NULL, 10));
-            kana_toolbar_sync(&toolbar);
+            look_theme = (i32)strtol(_argv[_i] + 8, NULL, 10);
         }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--side") == 0) {
             toolbar.side.open = true;
@@ -595,6 +605,11 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     kana_load_saves();
+    if(look_theme >= 0) {
+        kana_theme_set((KANA_THEME_)look_theme);
+        kana_toolbar_sync(&toolbar);
+        saved_settings = seen_settings = kana_gather_settings();   // a look, not a change to save
+    }
     if(look_stats) {
         kana_stats_open(&stats);
     }

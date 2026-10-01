@@ -80,8 +80,10 @@ paths are absolute on purpose.
 
 platform/ios/ holds what the app is on iOS besides its code: the asset catalog
 (Assets.xcassets: the icon, AppIcon-1024.png, drawn from AppIcon.svg — 日本語 in
-KanjiVG's strokes before a red sun, over an open book; LaunchBackground, the
-launch screen's colour), the launch screen (LaunchScreen.storyboard) and Kana's
+KanjiVG's strokes before a red sun, over an open book; LaunchIcon, the icon
+rounded as iOS rounds it, for the launch screen; LaunchBackground, the launch
+screen's colour: Paper's page, Night's in dark mode), the launch screen (LaunchScreen.storyboard:
+the icon centred, 160 points) and Kana's
 own Info.plist keys (Info.plist: iPad only, every orientation, full screen, no
 non-exempt encryption), merged over the engine template's. --ios_assets,
 --ios_launch_storyboard and --ios_plist are builder options added for them

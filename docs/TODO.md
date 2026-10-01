@@ -412,9 +412,15 @@ See `docs/app_store.md` for privacy, licences and permissions.
 - [ ] **The app icon**, and a launch screen. Done, to see on the iPad: Borja's
       sketch made into the "Hinomaru" icon (platform/ios/AppIcon.svg: 日本語 in
       KanjiVG's strokes, white, before a red sun on indigo, over an open book);
-      the launch screen the page's colour (dark in dark mode); Info.plist: iPad
+      the launch screen the icon, centred, on Paper's page colour, Night's in
+      dark mode (Borja: it should follow the system); an old launch screen stays
+      cached until the iPad restarts; Info.plist: iPad
       only, every orientation, full screen, ITSAppUsesNonExemptEncryption false.
       The builder's new --ios_assets / --ios_launch_storyboard / --ios_plist.
+- [x] The first theme follows the device (2026-10-01, Borja): with no settings
+      saved yet, Kana starts in Night when the device is in dark mode and Paper
+      otherwise — as the launch screen does — and saves the settings at once;
+      from then on the theme is the learner's (Settings › Theme).
 - [x] Check what ships in the bundle (2026-10-01): no `.bak`/`.tmp`; the builder
       no longer copies Finder's `.DS_Store` into the iOS assets, nor the
       template's Icon.png / Default.png when the project brings its own icon
@@ -427,17 +433,20 @@ See `docs/app_store.md` for privacy, licences and permissions.
 
 ## 12. Engine: window screenshots fail on the Mac (last)
 
-- [ ] `rde_window_take_screenshot` and `rde_window_take_screenshot_bytes` die on
-      macOS (Metal, single-threaded rendering) with FATAL ASSERT "Couldn't
-      re-acquire the GPU swapchain texture after a screenshot ... 'Parameter
-      'command_buffer' is invalid'" (`rde_window.c`, the re-acquire after the
-      readback). Called from `on_update` and from `on_render`, same result: the
-      readback seems to leave the frame's command buffer submitted, so
-      re-acquiring on it is invalid. An ENGINE fix: other projects use the
-      engine, so check them (and Windows, Android) after. When it works, a
-      desktop `--shot=FILE` launch option lets screens be checked without the
-      device (Kana has the other look options already: `--size=744x1133`,
-      `--theme=`, `--side`, `--paper`, `--stats`, `--exam`, `--exam-start`).
+- [x] Fixed 2026-10-01 (RDE: rde_rendering.c, rde_window.c, rde.c). Two faults:
+      the deferred screenshot ran AFTER the frame's submit and then re-acquired
+      the swapchain on the submitted (NULLed) command buffer — the FATAL
+      "'command_buffer' is invalid"; and it read the swapchain, which SDL GPU
+      documents as write-only (Metal refuses: "Copy From Texture Validation").
+      Now the frame a screenshot is asked for is drawn into a readable texture
+      (as debug resolution does), downloaded, blitted to the swapchain so it
+      still shows, submitted with a fence and handed over — single-threaded and
+      threaded rendering both. A shot asked for mid-frame waits for the next
+      frame. Debug resolution on keeps the old read-after path. Checked on macOS
+      under Metal validation, both modes, from on_update, on_render and the
+      bytes callback; to check on Windows and Android (other projects use it).
+- [x] Kana's desktop `--shot=FILE` is back, with `--scroll=PX`, `--album-exams`,
+      `--album-page=HEX` and `--kept-exam=N`: Claude now checks screens itself.
 
 ---
 
