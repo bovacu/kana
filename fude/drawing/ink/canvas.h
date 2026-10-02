@@ -95,9 +95,34 @@ typedef enum {
 // A size in canvas units: 110, 160, 240.
 f32 fude_canvas_paper_units(FUDE_PAPER_SIZE_ _size);
 
+// A document's reading frame (doc.h): while a canvas over one is open, the view
+// is a reader's — the pages' width fits the screen at 100% (the least zoom),
+// they move across only when zoomed in, never past their first and last page,
+// and a flick carries on, slowing down. The zoom shown is the fitted one's
+// (fude_canvas_zoom_shown).
+#define FUDE_CANVAS_READER_GUTTER 12.0f    // screen units each side of the pages at 100%
+#define FUDE_CANVAS_READER_TOP    76.0f    // the first page's top, under the menu button (and the safe area)
+#define FUDE_CANVAS_READER_BOTTOM 96.0f    // room under the last page
+#define FUDE_CANVAS_FRICTION      3.5f     // a flick's slowing, per second
+#define FUDE_CANVAS_COAST_MIN     20.0f    // screen units a second: slower stops
+
+RDE_STRUCT {
+    b8         on;
+    f32        width;     // the pages' width, canvas units (centred on x = 0)
+    f32        bottom;    // canvas y of the last page's bottom (the first's top is 0)
+    f32        fit;       // the zoom of 100%
+    rde_vec_2I window;    // the screen it was fitted to
+    rde_vec_4I safe;      // ...and its safe area (left, top, right, bottom)
+} fude_canvas_reader;
+
 RDE_STRUCT {
     fude_view          view;
     fude_page          page;
+    fude_canvas_reader reader;
+    rde_vec_2F         velocity;      // the page's, screen units a second: a pan's, then its coast
+    b8                 coasting;
+    f64                moved_at;      // the last pan's move
+    f64                ticked_at;     // the last fude_canvas_update
     FUDE_PAPER_SIZE_   paper_size;    // lines' and squares' size (a setting, not the page's)
     fude_canvas_finger fingers[FUDE_CANVAS_MAX_FINGERS];
 
@@ -110,8 +135,19 @@ RDE_STRUCT {
 } fude_canvas;
 
 void       fude_canvas_init(fude_canvas* _canvas);
-// Back to zoom 1, page origin at the screen centre.
+// Back to zoom 1, page origin at the screen centre (reading: the first page at 100%).
 void       fude_canvas_reset_view(fude_canvas* _canvas);
+
+// Reading a document (the reader's frame, above): on, its pages' width and its
+// last page's bottom; off. Every frame the page has one, from doc.c.
+void       fude_canvas_set_reader(fude_canvas* _canvas, b8 _on, f32 _width, f32 _bottom);
+// The zoom of 100% reading pages _width wide on a _window with _safe insets.
+f32        fude_canvas_reader_fit(f32 _width, rde_vec_2I _window, rde_vec_4I _safe);
+// Once a frame: a flick's coast; reading, the view kept on the pages (fitted
+// again when the screen turns, the same part of them in view).
+void       fude_canvas_update(fude_canvas* _canvas, rde_vec_2I _window, rde_vec_4I _safe);
+// The zoom as shown (the zoom pill): reading, against 100%; else the zoom.
+f32        fude_canvas_zoom_shown(const fude_canvas* _canvas);
 
 rde_vec_2F fude_canvas_from_screen(const fude_canvas* _canvas, rde_vec_2F _screen);
 rde_vec_2F fude_canvas_to_screen(const fude_canvas* _canvas, rde_vec_2F _canvas_pos);

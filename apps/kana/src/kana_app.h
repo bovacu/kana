@@ -1,10 +1,11 @@
-#ifndef KANA_APP
-#define KANA_APP
+#ifndef KANA_APP_H
+#define KANA_APP_H
 
 #include "rde.h"
 #include "study/app/study.h"
 #include "lang/ja/chart.h"
 #include "welcome.h"
+#include "drawing/doc/library.h"
 
 // ===========================================================================
 // Kana's own part of the app: what it is (KANA_INFO), and what it adds to the
@@ -26,6 +27,7 @@ typedef enum {
     KANA_SCREEN_TRANSLATOR,    // over the Vocabulary (Translate with Google: into Japanese)
     KANA_SCREEN_VOCAB,
     KANA_SCREEN_CHECK,
+    KANA_SCREEN_LIBRARY,       // the lectures and the learner's documents (doc/library.h)
     KANA_SCREEN_ALBUM,
     KANA_SCREEN_CHART,
     KANA_SCREEN_BROWSE,
@@ -38,6 +40,7 @@ typedef struct kana_app {
     fude_study    study;
     fude_chart*   chart;
     kana_welcome* welcome;
+    fude_library* library;
 } kana_app;
 
 #define KANA_APP(_app) ((kana_app*)(_app))

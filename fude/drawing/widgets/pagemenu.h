@@ -28,6 +28,7 @@ struct fude_app;
 typedef struct fude_pagemenu {
     struct fude_app*    app;
     fude_row            selection;        // over the lasso's selection
+    fude_row            text;             // over an area of a PDF's text the lasso took (the app's text row)
     fude_row            context;          // the page's, at a long press
     fude_row_face       context_faces[FUDE_ROW_BUTTONS];   // as it opened (what can be pasted then)
     rde_vec_2F          context_canvas;   // where it was opened, on the page: where Paste lands

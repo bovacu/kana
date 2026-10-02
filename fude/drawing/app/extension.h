@@ -80,6 +80,10 @@ typedef struct fude_extension {
     // the context row's faces (the core's own are set first).
     const fude_row_def* selection_row;
     const fude_row_def* context_row;
+    // Over an area of a PDF's text the lasso took (no ink: lasso.h) — the app's
+    // text buttons (Kana: Copy as text, Translate, Save word). None: the lasso
+    // takes ink only.
+    const fude_row_def* text_row;
     void (*menu_update)(struct fude_app* _app);
     void (*selection_faces)(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
     void (*context_faces)(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
@@ -113,6 +117,11 @@ typedef struct fude_extension {
     void (*settings_gather)(const struct fude_app* _app, fude_settings* _settings);
     void (*settings_apply)(struct fude_app* _app, const fude_settings* _settings);
     void (*first_launch)(struct fude_app* _app);
+
+    // Its library (doc.h): books in its assets, to read and write on — the
+    // Library screen lists them (Kana: its lectures). None: no books there.
+    const struct fude_doc_book* library;
+    u32                         library_count;
 } fude_extension;
 
 #endif

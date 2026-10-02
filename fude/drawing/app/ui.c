@@ -92,6 +92,7 @@ void fude_ui_update(fude_ui* _ui) {
 
     fude_toolbar_update(&_ui->bar, _full);
     fude_pagemenu_update(&_ui->page, _full);
+    fude_docbar_update(&_ui->docbar, _full || _ui->side.open);
 
     // Each screen's rows, bar and field: the top one's shown, the others hidden.
     // A screen just opened starts with its field empty.
@@ -182,7 +183,8 @@ b8 fude_ui_hit(const fude_ui* _ui, rde_vec_2F _screen) {
         return true;
     }
     const fude_extension* _ext = fude_app_ext(_ui->app);
-    if((_ext->ui_hit != NULL && _ext->ui_hit(_ui, _screen, _p)) || fude_pagemenu_hit(&_ui->page, _p) || fude_toolbar_hit(&_ui->bar, _p)) {
+    if((_ext->ui_hit != NULL && _ext->ui_hit(_ui, _screen, _p)) || fude_pagemenu_hit(&_ui->page, _p) || fude_toolbar_hit(&_ui->bar, _p) ||
+       fude_docbar_hit(&_ui->docbar, _p)) {
         return true;
     }
     for(u32 _s = 0; _s < _ui->app->screen_count; _s++) {
@@ -226,6 +228,7 @@ void fude_ui_apply_theme(fude_ui* _ui) {
     }
     fude_toolbar_restyle(&_ui->bar);
     fude_pagemenu_restyle(&_ui->page);
+    fude_docbar_restyle(&_ui->docbar);
     for(u32 _r = 0; _r < FUDE_UI_ROWS; _r++) {
         if(_ui->rows[_r].panel != NULL) {
             fude_row_restyle(&_ui->rows[_r]);
@@ -267,6 +270,7 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     // app's own over everything (Kana's word card: it opens from any screen).
     fude_toolbar_create(&_ui->bar, _root, _app);
     fude_pagemenu_build(&_ui->page, _root);
+    fude_docbar_create(&_ui->docbar, _root, _app);
     u32 _rows = 0;
     for(u32 _s = 0; _s < _ui->app->screen_count; _s++) {
         const fude_screen_slot* _slot = &_app->screens[_s];

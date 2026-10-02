@@ -1,3 +1,3 @@
-/* The camera prompt (Text from a photo), in ja. UTF-8. */
-"NSCameraUsageDescription" = "カメラに写った日本語の文字を読み取り、ページに書けるようにします。";
+/* The camera prompt (Text from a photo, Scan pages), in ja. UTF-8. */
+"NSCameraUsageDescription" = "カメラに写った日本語の文字を読み取ってページに書けるようにし、ページをスキャンして読んだり書き込んだりできるようにします。";
 "CFBundleDisplayName" = "Kana";

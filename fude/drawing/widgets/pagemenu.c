@@ -66,14 +66,20 @@ RDE_INTERNAL void fude_pagemenu_place_selection(fude_pagemenu* _menu, b8 _hidden
     fude_app*  _app = _menu->app;
     rde_vec_2F _min, _max;
     fude_lasso_sync(_app->lasso, _app->ink);
-    const b8   _show   = !_hidden && !fude_lasso_busy(_app->lasso) && fude_lasso_bounds(_app->lasso, _app->ink, &_min, &_max);
-    rde_vec_2F _center = _menu->selection.center;
+    // Ink's row over ink; the text row over an area of a PDF's text.
+    const b8   _text   = _menu->text.panel != NULL && fude_lasso_area(_app->lasso, &_min, &_max);
+    fude_row*  _row    = _text ? &_menu->text : &_menu->selection;
+    const b8   _show   = !_hidden && !fude_lasso_busy(_app->lasso) && fude_lasso_box(_app->lasso, _app->ink, &_min, &_max);
+    if(_menu->text.panel != NULL) {
+        fude_row_show(_text ? &_menu->selection : &_menu->text, _app->window, false, _menu->selection.center);
+    }
+    rde_vec_2F _center = _row->center;
     if(_show) {
         // Page → the app's screen (centre origin) → UI canvas (bottom-left origin).
         const fude_view* _view   = &_app->canvas->view;
         const rde_vec_2F _screen = fude_kit_screen_size(_app->window);
         const rde_vec_4I _insets = rde_window_get_safe_area_insets(_app->window);   // left, top, right, bottom
-        const rde_vec_2F _size   = _menu->selection.size;
+        const rde_vec_2F _size   = _row->size;
         const f32        _x      = (_min.x + _max.x) * 0.5f * _view->zoom + _view->offset.x + _screen.x * 0.5f;
         const f32        _top    = _max.y * _view->zoom + _view->offset.y + _screen.y * 0.5f + FUDE_LASSO_BOX_PAD;
         const f32        _bottom = _min.y * _view->zoom + _view->offset.y + _screen.y * 0.5f - FUDE_LASSO_BOX_PAD;
@@ -82,7 +88,7 @@ RDE_INTERNAL void fude_pagemenu_place_selection(fude_pagemenu* _menu, b8 _hidden
             _center.y = _bottom - FUDE_PAGEMENU_GAP - _size.y * 0.5f;
         }
     }
-    fude_row_show(&_menu->selection, _app->window, _show, _center);
+    fude_row_show(_row, _app->window, _show, _center);
 }
 
 // --- the context menu ----------------------------------------------------------------
@@ -156,10 +162,16 @@ void fude_pagemenu_build(fude_pagemenu* _menu, rde_ui_node* _root) {
     const fude_extension* _ext = fude_app_ext(_menu->app);
     fude_row_create(&_menu->selection, _root, _ext->selection_row != NULL ? _ext->selection_row : &FUDE_PAGEMENU_SELECTION_ROW, _menu->app, _menu, fude_ui_after_press);
     fude_row_create(&_menu->context, _root, _ext->context_row != NULL ? _ext->context_row : &FUDE_PAGEMENU_CONTEXT_ROW, _menu->app, _menu, fude_ui_after_press);
+    if(_ext->text_row != NULL) {
+        fude_row_create(&_menu->text, _root, _ext->text_row, _menu->app, _menu, fude_ui_after_press);
+    }
 }
 
 void fude_pagemenu_restyle(fude_pagemenu* _menu) {
     fude_row_restyle(&_menu->selection);
+    if(_menu->text.panel != NULL) {
+        fude_row_restyle(&_menu->text);
+    }
     fude_row_restyle(&_menu->context);
 }
 
@@ -175,8 +187,16 @@ void fude_pagemenu_update(fude_pagemenu* _menu, b8 _hidden) {
     fude_row_face _faces[FUDE_ROW_BUTTONS];
     fude_pagemenu_selection_faces(_menu, _faces);
     fude_row_apply(&_menu->selection, _faces);
+    if(_menu->text.panel != NULL) {
+        memset(_faces, 0, sizeof(_faces));
+        const fude_extension* _ext = fude_app_ext(_menu->app);
+        if(_ext->selection_faces != NULL) {
+            _ext->selection_faces(_menu->app, _menu->text.def, _faces);   // the app's ("Reading…")
+        }
+        fude_row_apply(&_menu->text, _faces);
+    }
 }
 
 b8 fude_pagemenu_hit(const fude_pagemenu* _menu, rde_vec_2F _ui) {
-    return fude_row_hit(&_menu->selection, _ui) || fude_row_hit(&_menu->context, _ui);
+    return fude_row_hit(&_menu->selection, _ui) || fude_row_hit(&_menu->context, _ui) || (_menu->text.panel != NULL && fude_row_hit(&_menu->text, _ui));
 }

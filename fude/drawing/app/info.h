@@ -11,7 +11,7 @@
 // tool reads the name too, for the texts that say it ({APP}: tools/strings/build.py).
 // ===========================================================================
 
-#define FUDE_APP_LICENCES 4u   // Settings › Licences: its documents, at most
+#define FUDE_APP_LICENCES 6u   // Settings › Licences: its documents, at most
 
 // A document of Licences: its name, and the files it is made of (one after the other).
 typedef struct {

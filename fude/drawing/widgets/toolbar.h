@@ -7,7 +7,7 @@
 
 // ===========================================================================
 // The floating toolbar: a movable bar of the page's tools that can sit anywhere
-// on screen, vertical or horizontal — Undo, Redo, the hand, Draw, Erase, Lasso,
+// on screen, vertical or horizontal — Undo, Redo, the hand, Draw, Mark, Erase, Lasso,
 // Clear, the brush's size, Color, Page/Screen, Paper, the app's own tools
 // (extension.h; Kana's camera), Rotate, Reset —
 // with its two panels beside it: the colour palette and the paper. Shown over
@@ -29,7 +29,8 @@ struct fude_app;
 typedef enum {
     FUDE_TOOL_DRAW = 0,
     FUDE_TOOL_ERASE,
-    FUDE_TOOL_LASSO
+    FUDE_TOOL_LASSO,
+    FUDE_TOOL_MARK     // the marker: see-through, thick, over what it marks (ink.h); its own colours and width
 } FUDE_TOOL_;
 
 #define FUDE_TOOLBAR_PALETTE_COUNT 8
@@ -68,6 +69,7 @@ typedef struct fude_toolbar {
     rde_ui_button* redo;
     rde_ui_button* finger;          // the hand: one finger writes, or (off) only the pen — a tablet's
     rde_ui_button* draw;
+    rde_ui_button* mark;            // the marker
     rde_ui_button* erase;
     rde_ui_button* lasso_tool;
     rde_ui_button* clear;

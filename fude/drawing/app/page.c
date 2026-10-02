@@ -1,6 +1,7 @@
 #include "drawing/app/page.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
+#include "drawing/doc/import.h"
 #include "drawing/base/theme.h"
 #include "drawing/widgets/draw.h"
 
@@ -22,6 +23,18 @@ typedef enum { FUDE_PAGE_FINGER_NONE = 0, FUDE_PAGE_FINGER_PENDING, FUDE_PAGE_FI
 
 // Where a point of the screen is on the PAGE. Also hands the ink the current
 // zoom, which it needs to store widths in page units.
+// A loop that took no ink, round a document's text: that area selected
+// (lasso.h), for the app's text row. Only where the app has one.
+void fude_page_lasso_text(fude_page_input* _page) {
+    fude_app*  _app = _page->app;
+    rde_vec_2F _min, _max;
+    c8         _some[8];   // whether there is any: a little is enough
+    if(fude_app_ext(_app)->text_row != NULL && fude_lasso_looped(_app->lasso, &_min, &_max) &&
+       fude_doc_text_in(&_page->doc, _min, _max, _some, sizeof(_some)) > 0u) {
+        fude_lasso_select_area(_app->lasso, _min, _max);
+    }
+}
+
 RDE_INTERNAL rde_vec_2F fude_page_at(fude_page_input* _page, rde_vec_2F _screen) {
     _page->app->ink->zoom = _page->app->canvas->view.zoom;
     return fude_canvas_from_screen(_page->app->canvas, _screen);
@@ -47,6 +60,7 @@ RDE_INTERNAL void fude_page_write_down(fude_page_input* _page, rde_vec_2F _scree
         fude_lasso_pen_down(_app->lasso, _app->ink, fude_page_at(_page, _screen), _app->canvas->view.zoom);
         return;
     }
+    _app->ink->marking = _app->ui->bar.tool == FUDE_TOOL_MARK;   // the marker's stroke, or the pen's
     fude_ink_begin(_app->ink, fude_page_at(_page, _screen), _from_pen, false);
 }
 
@@ -67,6 +81,7 @@ RDE_INTERNAL void fude_page_write_up(fude_page_input* _page) {
     fude_ink_erase_end(_app->ink);   // the whole swipe is one undo
     fude_ink_end(_app->ink);
     fude_lasso_pen_up(_app->lasso, _app->ink, _app->canvas->view.zoom);
+    fude_page_lasso_text(_page);
 }
 
 // The pending finger writes: from where it landed, through where it has been.
@@ -209,6 +224,7 @@ void fude_page_let_go(fude_page_input* _page) {
     fude_app* _app = _page->app;
     fude_page_finger_forget(_page);
     fude_lasso_pen_up(_app->lasso, _app->ink, _app->canvas->view.zoom);
+    fude_page_lasso_text(_page);
     fude_ink_erase_end(_app->ink);
     fude_ink_end(_app->ink);
     _page->pen_on_ui = false;
@@ -390,6 +406,9 @@ void fude_page_event(fude_page_input* _page, rde_event* _event) {
 void fude_page_update(fude_page_input* _page) {
     fude_app*    _app    = _page->app;
     rde_window*  _window = _app->window;
+    fude_import_update(_app);   // a document brought in: a canvas of its own, opened
+    fude_doc_update(&_page->doc, _app);
+    fude_canvas_update(_app->canvas, rde_window_get_size(_window), rde_window_get_safe_area_insets(_window));   // a flick's coast; a document's bounds
     if(rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_C)) {
         fude_ink_clear(_app->ink);
     }
@@ -450,7 +469,7 @@ void fude_page_zoom_seen(fude_page_input* _page) {
 // and for a moment after.
 RDE_INTERNAL void fude_page_render_zoom(fude_page_input* _page, rde_window* _window) {
     fude_app* _app = _page->app;
-    const f32 _zoom = _app->canvas->view.zoom;
+    const f32 _zoom = fude_canvas_zoom_shown(_app->canvas);   // reading a document: against 100%, its width across the screen
     const f64 _now  = rde_engine_get_time_now();
     if(_page->zoom_seen < 0.0f) {
         _page->zoom_seen = _zoom;
@@ -498,10 +517,12 @@ void fude_page_render(fude_page_input* _page, rde_window* _window) {
     const fude_view  _view = _app->canvas->view;
     const rde_vec_2I _size = rde_window_get_size(_window);
     fude_canvas_draw_grid(_app->canvas, _size);
+    fude_doc_render(&_page->doc, _app->canvas, _window);
     fude_lasso_render_under(_app->lasso, _app->ink, _view.offset, _view.zoom);
     fude_ink_render(_app->ink, _view.offset, _view.zoom, (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, rde_engine_get_time_now(), _page->show_samples);
     fude_lasso_render_over(_app->lasso, _app->ink, _view.offset, _view.zoom);
     fude_page_render_zoom(_page, _window);
+    fude_doc_render_pill(&_page->doc, _app, _window);
     if(fude_app_ext(_app)->page_render != NULL) {
         fude_app_ext(_app)->page_render(_app, _window);   // what the app draws over the page (Kana: Translate with Google's card)
     }
@@ -512,4 +533,5 @@ void fude_page_init(fude_page_input* _page, fude_app* _app) {
     _page->app           = _app;
     _page->zoom_seen     = -1.0f;
     _page->zoom_shown_at = -100.0;
+    fude_doc_init(&_page->doc);
 }

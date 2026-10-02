@@ -34,6 +34,8 @@ void fude_ink_init(fude_ink* _ink) {
     _ink->brush_scale     = FUDE_INK_BRUSH_SCALE_PAGE;
     _ink->color           = FUDE_THEME_INK;
     _ink->constant_radius = FUDE_INK_RADIUS_DEFAULT;
+    _ink->marker_color    = (rde_color){ 255, 214, 0, FUDE_INK_MARKER_ALPHA };   // the classic yellow
+    _ink->marker_radius   = FUDE_INK_MARKER_RADIUS;
     _ink->zoom            = 1.0f;
 
     // The page has no natural size limit, so its arrays live on the standard heap:
@@ -79,6 +81,10 @@ RDE_INTERNAL void fude_ink_recompute_bounds(const fude_ink* _ink, fude_ink_strok
 }
 
 void fude_ink_add_loaded_stroke(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen) {
+    fude_ink_add_loaded_stroke_2(_ink, _points, _count, _color, _from_pen, false);
+}
+
+void fude_ink_add_loaded_stroke_2(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen, b8 _marker) {
     if(_count == 0 || _ink->drawing || fude_ink_len(&_ink->actions) > 0) {
         return;
     }
@@ -89,6 +95,7 @@ void fude_ink_add_loaded_stroke(fude_ink* _ink, const fude_ink_point* _points, u
         .color       = _color,
         .from_pen    = _from_pen,
         .alive       = true,
+        .marker      = _marker,
     };
     rde_arr_add(&_ink->strokes, &_stroke);
     memcpy(rde_arr_add_n(&_ink->points, _count), _points, (usize)_count * sizeof(fude_ink_point));
@@ -302,6 +309,7 @@ u32 fude_ink_add_strokes(fude_ink* _ink, const fude_ink_stroke* _strokes, u32 _c
             .from_pen    = _src->from_pen,
             .eraser      = _src->eraser,
             .alive       = true,
+            .marker      = _src->marker,
         };
 
         fude_ink_point* _dst = rde_arr_add_n(&_ink->points, _src->point_count);
@@ -524,7 +532,7 @@ RDE_INTERNAL void fude_ink_push_point(fude_ink* _ink, rde_vec_2F _position) {
 
     f32 _radius = _ink->constant_radius;
 
-    if(_ink->width_mode == FUDE_INK_WIDTH_MODE_PRESSURE) {
+    if(_ink->width_mode == FUDE_INK_WIDTH_MODE_PRESSURE && !_stroke->marker) {
         // A pen without real pressure takes its width from speed. Mouse and touch
         // strokes keep the pressure begin() gave them (zero: the base width).
         const f32 _width_pressure = (_stroke->from_pen && !_ink->pressure_live)
@@ -545,7 +553,7 @@ RDE_INTERNAL void fude_ink_push_point(fude_ink* _ink, rde_vec_2F _position) {
     _stroke->point_count++;
     _point->position = _position;
     _point->pressure = _ink->pressure;
-    _point->radius   = fude_ink_width_to_canvas(_ink, _radius);
+    _point->radius   = _stroke->marker ? _ink->marker_radius : fude_ink_width_to_canvas(_ink, _radius);   // the marker: one width on the page
     _point->time     = (f32)(_t - _ink->_stroke_t0);
 
     {
@@ -589,10 +597,11 @@ void fude_ink_begin(fude_ink* _ink, rde_vec_2F _position, b8 _from_pen, b8 _eras
     fude_ink_stroke _stroke = {
         .first_point = fude_ink_len(&_ink->points),
         .point_count = 0,
-        .color       = _ink->color,
+        .color       = _ink->marking && !_eraser ? _ink->marker_color : _ink->color,
         .from_pen    = _from_pen,
         .eraser      = _eraser,
         .alive       = true,
+        .marker      = _ink->marking && !_eraser,
     };
     rde_arr_add(&_ink->strokes, &_stroke);
     const u32 _index = fude_ink_len(&_ink->strokes) - 1;
@@ -787,17 +796,52 @@ RDE_INTERNAL const rde_vec_2F* fude_ink_emit_stroke(fude_ink* _ink, const fude_i
     f32*        _radii     = rde_arr_add_n(&_ink->_scratch_radii,     _stroke->point_count);
 
     const fude_ink_point* _points = fude_ink_stroke_points(_ink, _stroke);
+    u32                   _n      = 0;
+    rde_vec_2F            _sum    = { 0.0f, 0.0f };   // the marker: the samples since the point drawn last...
+    u32                   _summed = 0;               // ...how many
 
     for(u32 _p = 0; _p < _stroke->point_count; _p++) {
         const fude_ink_point* _point = &_points[_p];
 
         // Canvas → screen: points and widths scale with the zoom, like ink on
         // a page under a magnifier.
-        _positions[_p] = (rde_vec_2F){ _point->position.x * _zoom + _offset.x, _point->position.y * _zoom + _offset.y };
-        _radii[_p]     = rde_math_clamp_f32(fude_ink_width_at(_point) * _zoom, FUDE_INK_MIN_SCREEN_RADIUS, 1e6f) + _extra_px;
+        const rde_vec_2F _at = { _point->position.x * _zoom + _offset.x, _point->position.y * _zoom + _offset.y };
+        const f32        _r  = rde_math_clamp_f32(fude_ink_width_at(_point) * _zoom, FUDE_INK_MIN_SCREEN_RADIUS, 1e6f) + _extra_px;
+
+        // The marker is see-through: where its outline folds over itself it
+        // shows twice as dark — and a slow hand's samples, close together and
+        // jittering, fold it at every one. So only points at least a good part
+        // of its width apart are drawn, each the middle of the samples since the
+        // one before (the hand's tremor evened out); the last as it is: the
+        // stroke ends where the pen lifted.
+        rde_vec_2F _draw = _at;
+        if(_stroke->marker && _n > 0u) {
+            const b8  _end  = _p + 1u == _stroke->point_count;
+            const f32 _dx   = _at.x - _positions[_n - 1u].x;
+            const f32 _dy   = _at.y - _positions[_n - 1u].y;
+            const f32 _step = _r * FUDE_INK_MARKER_STEP;
+            _sum.x += _at.x;
+            _sum.y += _at.y;
+            _summed++;
+            if(_dx * _dx + _dy * _dy < _step * _step) {
+                if(_end && _n > 1u) {
+                    _positions[_n - 1u] = _at;   // the end, in place of the point just before it
+                    _radii[_n - 1u]     = _r;
+                }
+                continue;
+            }
+            if(!_end) {
+                _draw = (rde_vec_2F){ _sum.x / (f32)_summed, _sum.y / (f32)_summed };
+            }
+            _sum    = (rde_vec_2F){ 0.0f, 0.0f };
+            _summed = 0;
+        }
+        _positions[_n] = _draw;
+        _radii[_n]     = _r;
+        _n++;
     }
 
-    rde_rendering_2d_draw_stroke(_positions, _radii, _stroke->point_count, _color);
+    rde_rendering_2d_draw_stroke(_positions, _radii, _n, _color);
     return _positions;
 }
 
@@ -821,10 +865,12 @@ void fude_ink_render(fude_ink* _ink, rde_vec_2F _offset, f32 _zoom, rde_vec_2F _
 
     const fude_ink_stroke* _strokes = fude_ink_strokes(_ink);
 
+    // The marker's strokes first, under the rest (a pen's ink stays crisp over them).
+    for(u32 _pass = 0; _pass < 2u; _pass++)
     for(u32 _s = 0; _s < fude_ink_len(&_ink->strokes); _s++) {
         const fude_ink_stroke* _stroke = &_strokes[_s];
 
-        if(!_stroke->alive || _stroke->point_count == 0 ||
+        if(_stroke->marker != (_pass == 0u) || !_stroke->alive || _stroke->point_count == 0 ||
            _stroke->bounds_max.x < _vis_min.x || _stroke->bounds_min.x > _vis_max.x ||
            _stroke->bounds_max.y < _vis_min.y || _stroke->bounds_min.y > _vis_max.y) {
             continue;

@@ -21,6 +21,7 @@ t('TOOL_FINGER', 'Finger', 'Dedo', 'Dedo', '指', 'Doigt')
 t('FINGER_ON', 'Your finger writes: two fingers move the page', 'Tu dedo escribe: dos dedos mueven la página', 'Seu dedo escreve: dois dedos movem a página', '指で書けます。ページは2本指で動かします', 'Votre doigt écrit : deux doigts déplacent la page')
 t('FINGER_OFF', 'The Apple Pencil writes: your fingers move the page', 'Escribe el Apple Pencil: tus dedos mueven la página', 'O Apple Pencil escreve: seus dedos movem a página', 'Apple Pencilで書きます。ページは指で動かします', 'L’Apple Pencil écrit : vos doigts déplacent la page')
 t('TOOL_DRAW', 'Draw', 'Dibujar', 'Desenhar', '書く', 'Dessiner')
+t('TOOL_MARK', 'Marker', 'Marcador', 'Marca-texto', 'マーカー', 'Surligneur')
 t('TOOL_ERASE', 'Erase', 'Borrar', 'Apagar', '消しゴム', 'Gomme')
 t('TOOL_LASSO', 'Lasso', 'Lazo', 'Laço', '投げ縄', 'Lasso')
 t('TOOL_CLEAR', 'Clear the page', 'Borrar la página', 'Limpar a página', 'ページを消去', 'Effacer la page')
@@ -99,6 +100,38 @@ t('NOTE_DELETE_FOLDER', 'The ' + P('# canvas', '# canvases') + ' in it (and any 
   P('La toile qu’il contient', 'Les # toiles qu’il contient') + ' (et ses dossiers) seront aussi supprimées. Action irréversible.')
 t('NOTE_UNDONE', 'This cannot be undone.', 'No se puede deshacer.', 'Não é possível desfazer.', '元に戻せません。', 'Action irréversible.')
 t('NOTE_PAGE', 'Page', 'Página', 'Página', 'ページ', 'Page')
+
+# --- documents: the Library, a canvas's PDF (doc/) ------------------------------------------------
+t('BACK', 'Back', 'Atrás', 'Voltar', '戻る', 'Retour')
+t('LIBRARY_TITLE', 'Lectures', 'Lecciones', 'Lições', '教材', 'Leçons')
+t('LIBRARY_CAPTION', 'Read them, zoom in, write on them: your notes stay on the page.', 'Léelas, amplía y escribe encima: tus notas se quedan en la página.',
+  'Leia, amplie e escreva por cima: suas anotações ficam na página.', '読んで、拡大して、書き込めます。メモはページに残ります。', 'Lisez-les, zoomez, écrivez dessus : vos notes restent sur la page.')
+t('LIBRARY_BOOKS', 'Free lessons', 'Lecciones gratuitas', 'Lições gratuitas', '無料の教材', 'Leçons gratuites')
+t('LIBRARY_YOURS', 'Your documents', 'Tus documentos', 'Seus documentos', 'あなたの資料', 'Vos documents')
+t('LIBRARY_YOURS_EMPTY', 'PDFs and pictures you bring in, and pages you scan, show here and in your notes, to read and write on.',
+  'Los PDF e imágenes que traigas y las páginas que escanees aparecen aquí y en tus notas, para leer y escribir encima.',
+  'Os PDFs e imagens que você trouxer e as páginas que escanear aparecem aqui e nas suas notas, para ler e escrever por cima.',
+  '取り込んだPDFや画像、スキャンしたページは、こことノートに表示され、読んだり書き込んだりできます。',
+  'Les PDF et images que vous importez, et les pages que vous numérisez, apparaissent ici et dans vos notes, pour les lire et écrire dessus.')
+t('LIBRARY_FILES', 'From Files', 'De Archivos', 'De Arquivos', 'ファイルから', 'Depuis Fichiers')
+t('LIBRARY_PHOTOS', 'From Photos', 'De Fotos', 'De Fotos', '写真から', 'Depuis Photos')
+t('LIBRARY_SCAN', 'Scan pages', 'Escanear páginas', 'Escanear páginas', 'ページをスキャン', 'Numériser des pages')
+t('LIBRARY_FOLDER', 'Lectures', 'Lecciones', 'Lições', '教材', 'Leçons')
+t('DOC_CANT_PICK', 'The files could not be shown.', 'No se pudieron mostrar los archivos.', 'Não foi possível mostrar os arquivos.', 'ファイルを表示できませんでした。', 'Impossible d’afficher les fichiers.')
+t('DOC_CANT_OPEN', 'That could not be opened as a PDF or a picture.', 'No se pudo abrir como PDF ni como imagen.', 'Não foi possível abrir como PDF nem como imagem.',
+  'PDFや画像として開けませんでした。', 'Impossible de l’ouvrir comme PDF ou image.')
+t('DOC_NOT_HERE', 'PDFs open on iPad and Mac for now.', 'Por ahora, los PDF se abren en iPad y Mac.', 'Por enquanto, os PDFs abrem no iPad e no Mac.',
+  'PDFは今のところiPadとMacで開けます。', 'Pour l’instant, les PDF s’ouvrent sur iPad et Mac.')
+t('DOC_IMPORTED', '“{0}” is in your notes', '«{0}» está en tus notas', '“{0}” está nas suas notas', '「{0}」をノートに追加しました', '« {0} » est dans vos notes')
+t('DOC_SCAN_NAME', 'Scan {0}', 'Escaneo {0}', 'Digitalização {0}', 'スキャン {0}', 'Numérisation {0}')
+t('DOC_PHOTOS_NAME', 'Photos {0}', 'Fotos {0}', 'Fotos {0}', '写真 {0}', 'Photos {0}')
+t('DOC_SEARCH', 'Search', 'Buscar', 'Buscar', '検索', 'Rechercher')
+t('DOC_SEARCH_HINT', 'Words to find', 'Palabras a buscar', 'Palavras a buscar', '探す言葉', 'Mots à chercher')
+t('DOC_SEARCHING', 'Searching…', 'Buscando…', 'Buscando…', '検索中…', 'Recherche…')
+t('DOC_NO_MATCHES', 'Not found', 'Sin resultados', 'Nada encontrado', '見つかりません', 'Introuvable')
+t('DOC_BEFORE', 'Previous', 'Anterior', 'Anterior', '前へ', 'Précédent')
+t('DOC_NEXT', 'Next', 'Siguiente', 'Próximo', '次へ', 'Suivant')
+t('DOC_PAGE', 'Page', 'Página', 'Página', 'ページ', 'Page')
 
 # --- days of the week (a date's; Statistics' too) ------------------------------------------------
 t('DAY_MON', 'Mo', 'Lu', 'Seg', '月', 'Lu')

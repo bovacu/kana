@@ -44,16 +44,22 @@ int main(void) {
 
     fude_notes_open(&n, c2); fude_notes_set_expanded(&n, f1, false);
     for(u32 id = c1; id <= c3; id++) { fude_notes_canvas_path(id, path, sizeof path); touch(path); }
+    // What is under a canvas's ink: its own PDF (c1), a book of the app's (c3); a folder has none.
+    fude_notes_set_document(&n, c1, FUDE_NOTE_DOCUMENT_OWN); fude_notes_set_document(&n, c3, 7u); fude_notes_set_document(&n, f1, 3u);
+    fude_notes_document_path(c1, path, sizeof path); touch(path);
+    CHECK(fude_notes_find(&n, c1)->document == FUDE_NOTE_DOCUMENT_OWN && fude_notes_find(&n, f1)->document == 0u && fude_notes_find(&n, c2)->document == 0u);
 
     // Round trip.
     fude_notes m; fude_notes_init(&m); fude_notes_load(&m);
     CHECK(m.notes.count == n.notes.count && m.open == c2 && m.next_id == n.next_id);
     CHECK(!fude_notes_find(&m, f1)->expanded && !strcmp(fude_notes_find(&m, c1)->name, nm) && fude_notes_find(&m, c1)->parent == f1);
+    CHECK(fude_notes_find(&m, c1)->document == FUDE_NOTE_DOCUMENT_OWN && fude_notes_find(&m, c3)->document == 7u && fude_notes_find(&m, c2)->document == 0u);
 
     // Removing the folder takes its canvases (and their files); the open one (c2) goes: another opens.
     fude_notes_remove(&m, f1);
     CHECK(!fude_notes_find(&m, f1) && !fude_notes_find(&m, c1) && !fude_notes_find(&m, c2));
     fude_notes_canvas_path(c1, path, sizeof path); CHECK(!exists(path));
+    fude_notes_document_path(c1, path, sizeof path); CHECK(!exists(path));   // its own PDF went with it
     fude_notes_canvas_path(c3, path, sizeof path); CHECK(exists(path));
     CHECK(m.open != c2 && fude_notes_find(&m, m.open) && fude_notes_find(&m, m.open)->kind == FUDE_NOTE_CANVAS);
     printf("after removing the folder, open: '%s'\n", fude_notes_find(&m, m.open)->name);

@@ -23,6 +23,7 @@
 #define FUDE_POINT_RECORD_SIZE  20u
 
 #define FUDE_STROKE_FLAG_FROM_PEN 0x01u
+#define FUDE_STROKE_FLAG_MARKER   0x02u   // the marker's (an older build draws it as ink of its colour)
 
 // Before themes, the default ink was saved as this colour; it now means "the
 // theme's ink" (FUDE_THEME_INK), so old pages and settings follow the theme too.
@@ -122,7 +123,7 @@ b8 fude_save_document(const c8* _path, const fude_ink* _ink, fude_view _view, fu
         }
         fude_put_u32(&_b, _stroke->point_count);
         fude_put_color(&_b, _stroke->color);
-        fude_put_u8(&_b, _stroke->from_pen ? FUDE_STROKE_FLAG_FROM_PEN : 0u);
+        fude_put_u8(&_b, (u8)((_stroke->from_pen ? FUDE_STROKE_FLAG_FROM_PEN : 0u) | (_stroke->marker ? FUDE_STROKE_FLAG_MARKER : 0u)));
         fude_put_u8(&_b, 0u);
         fude_put_u8(&_b, 0u);
         fude_put_u8(&_b, 0u);
@@ -159,6 +160,7 @@ typedef struct {
     u32       point_count;
     rde_color color;
     b8        from_pen;
+    b8        marker;
 } fude_loaded_stroke;
 
 // Parses the whole document before touching _ink, so a damaged file changes nothing.
@@ -217,7 +219,9 @@ RDE_INTERNAL b8 fude_parse_document(const u8* _data, u32 _size, fude_ink* _ink, 
                 const u32 _start = _c.pos;
                 _strokes[_i].point_count = fude_get_u32(&_c);
                 _strokes[_i].color       = fude_saved_color(fude_get_color(&_c));
-                _strokes[_i].from_pen    = (fude_get_u8(&_c) & FUDE_STROKE_FLAG_FROM_PEN) != 0;
+                const u8 _flags          = fude_get_u8(&_c);
+                _strokes[_i].from_pen    = (_flags & FUDE_STROKE_FLAG_FROM_PEN) != 0;
+                _strokes[_i].marker      = (_flags & FUDE_STROKE_FLAG_MARKER) != 0;
                 _c.pos = _start + _record;   // skip fields a newer build added
                 if(_strokes[_i].point_count == 0) {
                     _ok = false;
@@ -270,7 +274,7 @@ RDE_INTERNAL b8 fude_parse_document(const u8* _data, u32 _size, fude_ink* _ink, 
     if(_ok) {
         u32 _first = 0;
         for(u32 _i = 0; _i < _stroke_count; _i++) {
-            fude_ink_add_loaded_stroke(_ink, &_points[_first], _strokes[_i].point_count, _strokes[_i].color, _strokes[_i].from_pen);
+            fude_ink_add_loaded_stroke_2(_ink, &_points[_first], _strokes[_i].point_count, _strokes[_i].color, _strokes[_i].from_pen, _strokes[_i].marker);
             _first += _strokes[_i].point_count;
         }
         *_view = _v;
@@ -343,6 +347,8 @@ b8 fude_save_settings(const c8* _path, const fude_settings* _settings) {
     fude_put_u8(&_b, _settings->language);
     fude_put_u8(&_b, _settings->finger_writes ? 1u : 0u);
     fude_put_u8(&_b, _settings->pen_ever ? 1u : 0u);
+    fude_put_color(&_b, _settings->marker_color);
+    fude_put_f32(&_b, _settings->marker_radius);
     fude_chunk_end(&_b, _chunk);
 
     return fude_bytes_write_and_free(&_b, _path, NULL);
@@ -389,7 +395,7 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         // Field by field, in order: a file from an older build simply ends early,
         // and each field it has is taken only if it is in range.
         const u8 _tool = fude_get_u8(&_c);
-        if(_c.ok && _tool <= 2u) { _s.tool = _tool; }
+        if(_c.ok && _tool <= 3u) { _s.tool = _tool; }   // FUDE_TOOL_: draw, erase, lasso, mark
         const u8 _vertical = fude_get_u8(&_c);
         if(_c.ok) { _s.vertical = _vertical != 0; }
         const u8 _hud = fude_get_u8(&_c);
@@ -422,6 +428,10 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         if(_c.ok && _finger <= 1u) { _s.finger_writes = _finger != 0; }
         const u8 _pen = fude_get_u8(&_c);
         if(_c.ok && _pen <= 1u) { _s.pen_ever = _pen != 0; }
+        const rde_color _marker = fude_get_color(&_c);
+        if(_c.ok && _marker.a > 0u) { _s.marker_color = _marker; }
+        const f32 _marker_radius = fude_get_f32(&_c);
+        if(_c.ok && fude_finite(_marker_radius) && _marker_radius > 0.0f) { _s.marker_radius = _marker_radius; }
     }
 
     fude_file_free(_data);
@@ -437,7 +447,8 @@ b8 fude_settings_equal(const fude_settings* _a, const fude_settings* _b) {
     return _a->tool == _b->tool && _a->vertical == _b->vertical && _a->show_hud == _b->show_hud &&
            _a->brush_scale == _b->brush_scale && _a->width_mode == _b->width_mode &&
            _a->color.r == _b->color.r && _a->color.g == _b->color.g && _a->color.b == _b->color.b && _a->color.a == _b->color.a &&
-           fude_same_f32(_a->radius, _b->radius) &&
+           fude_same_f32(_a->radius, _b->radius) && memcmp(&_a->marker_color, &_b->marker_color, sizeof(rde_color)) == 0 &&
+           fude_same_f32(_a->marker_radius, _b->marker_radius) &&
            fude_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && fude_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
            _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
            _a->paper_size == _b->paper_size && _a->language == _b->language && _a->finger_writes == _b->finger_writes &&

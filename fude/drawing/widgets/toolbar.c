@@ -48,6 +48,27 @@ RDE_INTERNAL const rde_color FUDE_TOOLBAR_PALETTE[FUDE_TOOLBAR_PALETTE_COUNT] = 
     { 170, 110, 220, 255 },
 };
 
+// The marker's palette (Mark chosen): see-through, its alpha FUDE_INK_MARKER_ALPHA.
+RDE_INTERNAL const rde_color FUDE_TOOLBAR_MARKERS[FUDE_TOOLBAR_PALETTE_COUNT] = {
+    { 255, 214,   0, FUDE_INK_MARKER_ALPHA },   // the classic yellow
+    { 120, 220,  60, FUDE_INK_MARKER_ALPHA },
+    { 255, 120, 180, FUDE_INK_MARKER_ALPHA },
+    {  70, 190, 255, FUDE_INK_MARKER_ALPHA },
+    { 255, 150,  40, FUDE_INK_MARKER_ALPHA },
+    { 170, 120, 255, FUDE_INK_MARKER_ALPHA },
+    { 255,  70,  70, FUDE_INK_MARKER_ALPHA },
+    { 150, 150, 160, FUDE_INK_MARKER_ALPHA },
+};
+
+// A colour as a swatch or the dot shows it: whole (a marker's alpha would only wash it out).
+RDE_INTERNAL rde_color fude_toolbar_solid(rde_color _c) {
+    if(_c.r == 0 && _c.g == 0 && _c.b == 0 && _c.a == 0) {
+        return fude_theme_resolve(_c);   // the theme's ink
+    }
+    _c.a = 255;
+    return _c;
+}
+
 RDE_INTERNAL b8 fude_toolbar_contains(rde_vec_2F _center, rde_vec_2F _size, rde_vec_2F _p) {
     return _p.x >= _center.x - _size.x * 0.5f && _p.x <= _center.x + _size.x * 0.5f &&
            _p.y >= _center.y - _size.y * 0.5f && _p.y <= _center.y + _size.y * 0.5f;
@@ -65,6 +86,7 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
     fude_app* _app = _toolbar->app;
     const struct { rde_ui_button* button; FUDE_TOOL_ tool; } _tools[] = {
         { _toolbar->draw,       FUDE_TOOL_DRAW  },
+        { _toolbar->mark,       FUDE_TOOL_MARK  },
         { _toolbar->erase,      FUDE_TOOL_ERASE },
         { _toolbar->lasso_tool, FUDE_TOOL_LASSO },
     };
@@ -76,9 +98,12 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
     if(_app->finger_writes) { fude_kit_button_selected(_toolbar->finger); }
     else                    { fude_kit_button_quiet(_toolbar->finger); }
 
-    // Color's dot IS the current colour (the theme's ink, when that is it),
-    // ringed so white or the page's own colour still shows.
-    rde_ui_style _dot = fude_kit_style(fude_theme_resolve(_app->ink->color), FUDE_TOOLBAR_DOT * 0.5f);
+    // Color's dot IS the current colour (the theme's ink, when that is it; the
+    // marker's, marking), ringed so white or the page's own colour still shows.
+    // The palette the same: the marker's colours while it is in hand.
+    const b8 _marking = _toolbar->tool == FUDE_TOOL_MARK;
+    _app->ink->marking = _marking;
+    rde_ui_style _dot = fude_kit_style(fude_toolbar_solid(_marking ? _app->ink->marker_color : _app->ink->color), FUDE_TOOLBAR_DOT * 0.5f);
     _dot.border_width = 2.0f;
     _dot.border_color = fude_theme_active()->outline;
     rde_ui_image_set_style(_toolbar->color_dot, RDE_UI_STATE_NORMAL, _dot);
@@ -103,7 +128,19 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
     else                     { fude_kit_button_quiet(_toolbar->paper); }
     _toolbar->_paper_shown = _now;
 
-    rde_ui_slider_set_value(_toolbar->size, _app->ink->constant_radius);
+    for(u32 _i = 0; _i < FUDE_TOOLBAR_PALETTE_COUNT; _i++) {
+        fude_kit_button_colors(_toolbar->swatches[_i], fude_toolbar_solid(_marking ? FUDE_TOOLBAR_MARKERS[_i] : FUDE_TOOLBAR_PALETTE[_i]), 2.0f, fude_theme_active()->outline);
+        fude_kit_button_round(_toolbar->swatches[_i], FUDE_TOOLBAR_SWATCH * 0.5f);
+    }
+
+    // The width: the brush's, or the marker's (canvas units, its own range).
+    if(_marking) {
+        rde_ui_slider_set_range(_toolbar->size, FUDE_INK_MARKER_MIN, FUDE_INK_MARKER_MAX);
+        rde_ui_slider_set_value(_toolbar->size, _app->ink->marker_radius);
+    } else {
+        rde_ui_slider_set_range(_toolbar->size, FUDE_TOOLBAR_SIZE_MIN, FUDE_TOOLBAR_SIZE_MAX);
+        rde_ui_slider_set_value(_toolbar->size, _app->ink->constant_radius);
+    }
 }
 
 void fude_toolbar_update(fude_toolbar* _toolbar, b8 _hidden) {
@@ -221,6 +258,7 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
         { rde_ui_image_as_node(_toolbar->separators[0]), _sep },
         { rde_ui_button_as_node(_toolbar->finger),       _tool },
         { rde_ui_button_as_node(_toolbar->draw),         _tool },
+        { rde_ui_button_as_node(_toolbar->mark),         _tool },
         { rde_ui_button_as_node(_toolbar->erase),        _tool },
         { rde_ui_button_as_node(_toolbar->lasso_tool),   _tool },
         { rde_ui_button_as_node(_toolbar->clear),        _tool },
@@ -450,6 +488,7 @@ FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_undo)  { FUDE_TOOLBAR_SELF; fude_ink_undo(
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_redo)  { FUDE_TOOLBAR_SELF; fude_ink_redo(_app->ink); fude_ui_update(_app->ui); return RDE_UI_EVENT_RESULT_DEFAULT; }
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_clear) { FUDE_TOOLBAR_SELF; fude_ink_clear(_app->ink); fude_ui_update(_app->ui); return RDE_UI_EVENT_RESULT_DEFAULT; }   // undoable: one Undo brings the page back
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_draw)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_DRAW); return RDE_UI_EVENT_RESULT_DEFAULT; }
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_mark)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_MARK); return RDE_UI_EVENT_RESULT_DEFAULT; }
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_erase) { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_ERASE); return RDE_UI_EVENT_RESULT_DEFAULT; }
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_lasso) { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_LASSO); return RDE_UI_EVENT_RESULT_DEFAULT; }
 // The hand: one finger writes, or (off) only the pen.
@@ -483,10 +522,16 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_toolbar_on_tool(rde_ui_node* _node, const
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_swatch) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const fude_toolbar_ref* _ref = (const fude_toolbar_ref*)_user_data;
-    _ref->toolbar->app->ink->color = FUDE_TOOLBAR_PALETTE[_ref->index];
-    // Picking a colour means wanting to write with it.
+    // Picking a colour means wanting to write with it: the marker's while it is
+    // in hand, else the pen's.
+    const b8 _marking = _ref->toolbar->tool == FUDE_TOOL_MARK;
+    if(_marking) {
+        _ref->toolbar->app->ink->marker_color = FUDE_TOOLBAR_MARKERS[_ref->index];
+    } else {
+        _ref->toolbar->app->ink->color = FUDE_TOOLBAR_PALETTE[_ref->index];
+    }
     fude_toolbar_set_palette_open(_ref->toolbar, false);
-    fude_toolbar_set_tool(_ref->toolbar, FUDE_TOOL_DRAW);
+    fude_toolbar_set_tool(_ref->toolbar, _marking ? FUDE_TOOL_MARK : FUDE_TOOL_DRAW);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
@@ -503,7 +548,11 @@ FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_paper_choice) {
 RDE_INTERNAL void fude_toolbar_on_size(rde_ui_node* _node, any _user_data) {
     RDE_UNUSED(_node);
     fude_toolbar* _toolbar = (fude_toolbar*)_user_data;
-    _toolbar->app->ink->constant_radius = rde_ui_slider_get_value(_toolbar->size);
+    if(_toolbar->tool == FUDE_TOOL_MARK) {
+        _toolbar->app->ink->marker_radius = rde_ui_slider_get_value(_toolbar->size);
+    } else {
+        _toolbar->app->ink->constant_radius = rde_ui_slider_get_value(_toolbar->size);
+    }
 }
 
 // Grip drag. Position = where the bar was + how far the pointer has gone since the
@@ -568,7 +617,7 @@ void fude_toolbar_restyle(fude_toolbar* _toolbar) {
 
     // The tools are quiet; the ones that show a state are set after (refresh).
     rde_ui_button* const _tools[] = {
-        _toolbar->undo, _toolbar->redo, _toolbar->finger, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
+        _toolbar->undo, _toolbar->redo, _toolbar->finger, _toolbar->draw, _toolbar->mark, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
         _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view,
         _toolbar->paper_choices[0], _toolbar->paper_choices[1], _toolbar->paper_choices[2], _toolbar->paper_choices[3],
     };
@@ -586,12 +635,7 @@ void fude_toolbar_restyle(fude_toolbar* _toolbar) {
     rde_ui_scroll_area_set_track_color(_toolbar->strip, (rde_color){ 0, 0, 0, 0 });
     rde_ui_scroll_area_set_thumb_colors(_toolbar->strip, _t->grip, fude_kit_shade(_t->grip, 20), fude_kit_shade(_t->grip, 40));
 
-    // The swatches: round, ringed.
-    for(u32 _i = 0; _i < FUDE_TOOLBAR_PALETTE_COUNT; _i++) {
-        fude_kit_button_colors(_toolbar->swatches[_i], fude_theme_resolve(FUDE_TOOLBAR_PALETTE[_i]), 2.0f, _t->outline);
-        fude_kit_button_round(_toolbar->swatches[_i], FUDE_TOOLBAR_SWATCH * 0.5f);
-    }
-    fude_toolbar_refresh(_toolbar);
+    fude_toolbar_refresh(_toolbar);   // the swatches too: round, ringed, the pen's or the marker's
 }
 
 // --- lifetime ------------------------------------------------------------------------
@@ -641,6 +685,7 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
         { &_toolbar->redo,        FUDE_TEXT_REDO,        FUDE_ICON_REDO,        fude_toolbar_on_redo },
         { &_toolbar->finger,      FUDE_TEXT_TOOL_FINGER, FUDE_ICON_FINGER,      fude_toolbar_on_finger },
         { &_toolbar->draw,        FUDE_TEXT_TOOL_DRAW,   FUDE_ICON_DRAW,        fude_toolbar_on_draw },
+        { &_toolbar->mark,        FUDE_TEXT_TOOL_MARK,   FUDE_ICON_MARKER,      fude_toolbar_on_mark },
         { &_toolbar->erase,       FUDE_TEXT_TOOL_ERASE,  FUDE_ICON_ERASE,       fude_toolbar_on_erase },
         { &_toolbar->lasso_tool,  FUDE_TEXT_TOOL_LASSO,  FUDE_ICON_LASSO,       fude_toolbar_on_lasso },
         { &_toolbar->clear,       FUDE_TEXT_TOOL_CLEAR,  FUDE_ICON_TRASH,       fude_toolbar_on_clear },

@@ -8,12 +8,14 @@
 #include "drawing/widgets/pagemenu.h"
 #include "drawing/widgets/filterbar.h"
 #include "drawing/widgets/side.h"
+#include "drawing/widgets/docbar.h"
 
 // ===========================================================================
 // The retained UI: one RDE UI canvas over everything, and every widget on it —
 //
 //   the floating toolbar and its panels (toolbar.h), over the page;
-//   the page's menus and the translation card (pagemenu.h);
+//   the page's menus and the translation card (pagemenu.h); the document bar
+//   over a canvas with a PDF (docbar.h);
 //   each screen's rows of buttons (row.h) and, where a screen declares them, its
 //   filter bar (filterbar.h) and its field at the top right — shown while that
 //   screen is on top (app.h);
@@ -46,6 +48,7 @@ typedef struct fude_ui {
 
     fude_toolbar        bar;
     fude_pagemenu       page;
+    fude_docbar         docbar;          // over a document's canvas: Search, the page (docbar.h)
     fude_row            rows[FUDE_UI_ROWS];
     u32                 row_first[FUDE_APP_SCREENS];   // each screen's first row in rows[]
     fude_filterbar      bars[FUDE_APP_SCREENS];        // a screen's bar, where it declares one

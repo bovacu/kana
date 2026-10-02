@@ -72,7 +72,7 @@ b8 fude_check_open(fude_check* _check, const fude_ink* _ink, const u32* _ids, u3
             continue;
         }
         const fude_ink_stroke* _stroke = fude_ink_stroke_at(_ink, _order[_i]);
-        if(!_stroke->alive || _stroke->point_count == 0) {
+        if(!_stroke->alive || _stroke->point_count == 0 || _stroke->marker) {   // the marker's: not writing
             continue;
         }
         fude_ink_add_loaded_stroke(&_check->drawing, fude_ink_stroke_points(_ink, _stroke), _stroke->point_count, _stroke->color, _stroke->from_pen);

@@ -18,6 +18,12 @@
 // drops strokes that are no longer alive (an undo, an erase, Clear), and the box
 // is read from the strokes' own bounds — so undoing a move carries the box back.
 //
+// A loop that takes no ink can still take the page's own TEXT — a PDF's, under
+// a document canvas (doc.h): the page asks whether there is some in the loop's
+// box (fude_lasso_looped) and, if so, selects that AREA (fude_lasso_select_area).
+// It shows like a selection (its box, the menus: the app's text row), but holds
+// no strokes, so nothing moves or is deleted.
+//
 // CLIPBOARD: copied strokes are held here (in the app, not the system
 // pasteboard), positions relative to their centre, so a paste can drop them
 // centred anywhere. Pasting and duplicating are the ink's add_strokes — one
@@ -53,6 +59,10 @@ RDE_STRUCT {
     rde_arr TYPE(rde_vec_2F) loop;       // canvas units, while looping
     rde_arr TYPE(u32)        selected;   // stroke indices
     rde_vec_2F               grab;       // canvas point the move is measured from
+    b8                       looped;     // the last loop took no ink: its box (for the page's text)
+    rde_vec_2F               loop_min, loop_max;
+    b8                       area_on;    // an area of the page's text is selected (no strokes)
+    rde_vec_2F               area_min, area_max;
 
     fude_clip                clipboard;
     fude_clip                _duplicate; // scratch: Duplicate must not touch the clipboard
@@ -79,6 +89,13 @@ void fude_lasso_sync(fude_lasso* _lasso, const fude_ink* _ink);
 u32  fude_lasso_count(const fude_lasso* _lasso);
 // The selected ink's box, canvas units. False when nothing is selected.
 b8   fude_lasso_bounds(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F* _min, rde_vec_2F* _max);
+// What is selected, as a box: the ink's, else the text area's. False: nothing.
+b8   fude_lasso_box(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F* _min, rde_vec_2F* _max);
+// The last loop's box, when it took no ink (and was a loop, not a tap).
+b8   fude_lasso_looped(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max);
+// An area of the page's text selected (see the top); the selected area, when one is.
+void fude_lasso_select_area(fude_lasso* _lasso, rde_vec_2F _min, rde_vec_2F _max);
+b8   fude_lasso_area(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max);
 // Erases the selection (one undoable edit) and deselects.
 void fude_lasso_delete(fude_lasso* _lasso, fude_ink* _ink);
 

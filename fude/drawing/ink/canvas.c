@@ -9,6 +9,8 @@
 // See canvas.h.
 // ===========================================================================
 
+RDE_INTERNAL u32 fude_canvas_active_fingers(const fude_canvas* _canvas);
+
 f32 fude_canvas_paper_units(FUDE_PAPER_SIZE_ _size) {
     return _size == FUDE_PAPER_SMALL ? 110.0f : _size == FUDE_PAPER_LARGE ? 240.0f : 160.0f;
 }
@@ -19,9 +21,102 @@ void fude_canvas_init(fude_canvas* _canvas) {
     fude_canvas_reset_view(_canvas);
 }
 
+// The bounds of a reader's view: where its pages may be (screen units: the
+// first page's top, the last's bottom, the pages' edges).
+RDE_INTERNAL void fude_canvas_reader_clamp(fude_canvas* _canvas) {
+    const fude_canvas_reader* _r = &_canvas->reader;
+    fude_view*                _v = &_canvas->view;
+    if(!_r->on || _r->fit <= 0.0f) {
+        return;
+    }
+    _v->zoom = rde_math_clamp_f32(_v->zoom, _r->fit, fmaxf(_r->fit, FUDE_CANVAS_ZOOM_MAX));
+    // Across: centred at 100%; zoomed in, the pages' edges no further in than the gutters.
+    const f32 _centre = (f32)(_r->safe.x - _r->safe.z) * 0.5f;
+    const f32 _half   = (f32)(_r->window.x - _r->safe.x - _r->safe.z) * 0.5f - FUDE_CANVAS_READER_GUTTER;
+    const f32 _pages  = _r->width * _v->zoom * 0.5f;
+    if(_pages <= _half + 0.5f) {
+        _v->offset.x = _centre;
+        _canvas->velocity.x = 0.0f;
+    } else {
+        const f32 _x = rde_math_clamp_f32(_v->offset.x, _centre + _half - _pages, _centre - _half + _pages);
+        _canvas->velocity.x = _x != _v->offset.x ? 0.0f : _canvas->velocity.x;
+        _v->offset.x        = _x;
+    }
+    // Down: the first page's top no lower than under the menu; the last page's bottom no higher than its room.
+    const f32 _lowest  = (f32)_r->window.y * 0.5f - (f32)_r->safe.y - FUDE_CANVAS_READER_TOP;
+    const f32 _highest = -(f32)_r->window.y * 0.5f + (f32)_r->safe.w + FUDE_CANVAS_READER_BOTTOM - _r->bottom * _v->zoom;
+    const f32 _y       = _highest < _lowest ? _lowest : rde_math_clamp_f32(_v->offset.y, _lowest, _highest);
+    _canvas->velocity.y = _y != _v->offset.y ? 0.0f : _canvas->velocity.y;
+    _v->offset.y        = _y;
+}
+
 void fude_canvas_reset_view(fude_canvas* _canvas) {
     _canvas->view.offset = (rde_vec_2F){ 0.0f, 0.0f };
     _canvas->view.zoom   = 1.0f;
+    _canvas->coasting    = false;
+    _canvas->velocity    = (rde_vec_2F){ 0.0f, 0.0f };
+    if(_canvas->reader.on && _canvas->reader.fit > 0.0f) {
+        // Reading: the first page's top, at 100%.
+        _canvas->view.zoom     = _canvas->reader.fit;
+        _canvas->view.offset.x = (f32)(_canvas->reader.safe.x - _canvas->reader.safe.z) * 0.5f;
+        _canvas->view.offset.y = (f32)_canvas->reader.window.y * 0.5f - (f32)_canvas->reader.safe.y - FUDE_CANVAS_READER_TOP;
+    }
+}
+
+f32 fude_canvas_reader_fit(f32 _width, rde_vec_2I _window, rde_vec_4I _safe) {
+    const f32 _room = (f32)(_window.x - _safe.x - _safe.z) - 2.0f * FUDE_CANVAS_READER_GUTTER;
+    return rde_math_clamp_f32(_room / fmaxf(_width, 1.0f), FUDE_CANVAS_ZOOM_MIN, FUDE_CANVAS_ZOOM_MAX);
+}
+
+void fude_canvas_set_reader(fude_canvas* _canvas, b8 _on, f32 _width, f32 _bottom) {
+    if(!_on) {
+        _canvas->reader.on = false;
+        return;
+    }
+    if(!_canvas->reader.on) {
+        _canvas->reader.window = (rde_vec_2I){ 0, 0 };   // fitted on the next update
+    }
+    _canvas->reader.on     = true;
+    _canvas->reader.width  = _width;
+    _canvas->reader.bottom = _bottom;
+}
+
+void fude_canvas_update(fude_canvas* _canvas, rde_vec_2I _window, rde_vec_4I _safe) {
+    const f64 _now = rde_engine_get_time_now();
+    const f32 _dt  = _canvas->ticked_at > 0.0 ? (f32)fmin(0.1, _now - _canvas->ticked_at) : 0.0f;
+    _canvas->ticked_at = _now;
+    fude_canvas_reader* _r = &_canvas->reader;
+    fude_view*          _v = &_canvas->view;
+    if(_r->on && (_window.x != _r->window.x || _window.y != _r->window.y || memcmp(&_safe, &_r->safe, sizeof(_safe)) != 0)) {
+        // Fitted (again): the same zoom against 100%, the same point at the top middle.
+        const f32  _fit = fude_canvas_reader_fit(_r->width, _window, _safe);
+        if(_r->window.x > 0 && _r->fit > 0.0f) {
+            const rde_vec_2F _top = { ((f32)(_r->safe.x - _r->safe.z) * 0.5f - _v->offset.x) / _v->zoom,
+                                      ((f32)_r->window.y * 0.5f - (f32)_r->safe.y - _v->offset.y) / _v->zoom };
+            _v->zoom     = _v->zoom / _r->fit * _fit;
+            _v->offset.x = (f32)(_safe.x - _safe.z) * 0.5f - _top.x * _v->zoom;
+            _v->offset.y = (f32)_window.y * 0.5f - (f32)_safe.y - _top.y * _v->zoom;
+        }
+        _r->fit    = _fit;
+        _r->window = _window;
+        _r->safe   = _safe;
+    }
+    // A flick, carrying on.
+    if(_canvas->coasting && fude_canvas_active_fingers(_canvas) == 0) {
+        _v->offset.x += _canvas->velocity.x * _dt;
+        _v->offset.y += _canvas->velocity.y * _dt;
+        const f32 _keep = expf(-FUDE_CANVAS_FRICTION * _dt);
+        _canvas->velocity.x *= _keep;
+        _canvas->velocity.y *= _keep;
+        if(fabsf(_canvas->velocity.x) < FUDE_CANVAS_COAST_MIN && fabsf(_canvas->velocity.y) < FUDE_CANVAS_COAST_MIN) {
+            _canvas->coasting = false;
+        }
+    }
+    fude_canvas_reader_clamp(_canvas);
+}
+
+f32 fude_canvas_zoom_shown(const fude_canvas* _canvas) {
+    return _canvas->reader.on && _canvas->reader.fit > 0.0f ? _canvas->view.zoom / _canvas->reader.fit : _canvas->view.zoom;
 }
 
 rde_vec_2F fude_canvas_from_screen(const fude_canvas* _canvas, rde_vec_2F _screen) {
@@ -80,8 +175,10 @@ void fude_canvas_finger_down(fude_canvas* _canvas, u64 _finger_id, rde_vec_2F _s
         return;
     }
 
+    _canvas->coasting = false;   // a finger stops a flick
     // The first finger starts a gesture that might turn out to be a tap.
     if(fude_canvas_active_fingers(_canvas) == 0) {
+        _canvas->velocity = (rde_vec_2F){ 0.0f, 0.0f };
         _canvas->tap_start    = rde_engine_get_time_now();
         _canvas->tap_fingers  = 0;
         _canvas->tap_spoiled  = false;
@@ -123,6 +220,8 @@ void fude_canvas_finger_moved(fude_canvas* _canvas, u64 _finger_id, rde_vec_2F _
         return;
     }
 
+    const fude_view _before = *_view;
+    rde_vec_2F      _moved  = { _screen.x - _old.x, _screen.y - _old.y };   // how far the page went (two fingers: their middle)
     if(_other == NULL) {
         // One finger: the page follows it.
         _view->offset.x += _screen.x - _old.x;
@@ -132,6 +231,7 @@ void fude_canvas_finger_moved(fude_canvas* _canvas, u64 _finger_id, rde_vec_2F _
         // scaled by how much the fingers spread — pinch and pan in one move.
         const rde_vec_2F _old_mid = { (_old.x + _other->position.x) * 0.5f, (_old.y + _other->position.y) * 0.5f };
         const rde_vec_2F _new_mid = { (_screen.x + _other->position.x) * 0.5f, (_screen.y + _other->position.y) * 0.5f };
+        _moved = (rde_vec_2F){ _new_mid.x - _old_mid.x, _new_mid.y - _old_mid.y };
 
         const f32 _old_dx   = _old.x - _other->position.x;
         const f32 _old_dy   = _old.y - _other->position.y;
@@ -151,6 +251,19 @@ void fude_canvas_finger_moved(fude_canvas* _canvas, u64 _finger_id, rde_vec_2F _
         _view->offset.x = _new_mid.x - _anchor.x * _new_zoom;
         _view->offset.y = _new_mid.y - _anchor.y * _new_zoom;
     }
+    fude_canvas_reader_clamp(_canvas);
+
+    // How fast it moves (one finger's pan, or two fingers' middle), for a flick
+    // to carry on: what the reader's frame let through.
+    const f64 _now = rde_engine_get_time_now();
+    const f32 _dt  = (f32)(_now - _canvas->moved_at);
+    if(_dt > 0.0005f && _dt < 0.2f) {
+        const b8         _across = _view->offset.x != _before.offset.x || _view->zoom != _before.zoom;
+        const rde_vec_2F _speed  = { _across ? _moved.x / _dt : 0.0f, _moved.y / _dt };
+        _canvas->velocity.x      = _canvas->velocity.x * 0.3f + _speed.x * 0.7f;
+        _canvas->velocity.y      = _canvas->velocity.y * 0.3f + _speed.y * 0.7f;
+    }
+    _canvas->moved_at = _now;
 
     _finger->position = _screen;
 }
@@ -163,6 +276,13 @@ FUDE_CANVAS_TAP_ fude_canvas_finger_up(fude_canvas* _canvas, u64 _finger_id) {
     }
 
     _finger->active = false;
+
+    // Reading, the last finger lifting from a moving page: it carries on.
+    if(fude_canvas_active_fingers(_canvas) == 0 && _canvas->reader.on && _canvas->tap_spoiled && !_canvas->long_pressed &&
+       rde_engine_get_time_now() - _canvas->moved_at < 0.08 &&
+       (fabsf(_canvas->velocity.x) > FUDE_CANVAS_COAST_MIN * 4.0f || fabsf(_canvas->velocity.y) > FUDE_CANVAS_COAST_MIN * 4.0f)) {
+        _canvas->coasting = true;
+    }
 
     // Not over until the LAST finger lifts: fingers of one tap never lift at
     // exactly the same moment.

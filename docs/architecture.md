@@ -15,8 +15,12 @@ fude/drawing/            the drawing core: every app has it
   app/                   app (the screens' table, the pointer) · ui (the retained UI) ·
                          page (writing on the page) · session (saves, Your data) ·
                          look (a developer's flags) · screen.h · info.h · extension.h
-  widgets/               kit row filterbar notice toolbar pagemenu side draw scroll · icons.h
+  widgets/               kit row filterbar notice toolbar pagemenu docbar side draw scroll · icons.h
   ink/                   the page's strokes, the lasso, the view, the canvases
+  doc/                   documents under a canvas's ink: pdf (Core Graphics; stand-ins
+                         elsewhere; its text: pdf_kit.m, PDFKit) · doc (pages, textures, its
+                         worker, search) · import (Files, Photos, the document camera:
+                         import_ios.m) · library (the screen)
   base/                  files, words, colours: kfile save backup text theme utf8
   strings.py             its UI strings
 fude/study/              a study app's: what is learned, and the screens to learn it
@@ -107,6 +111,8 @@ all out.
 | `ui_build/forget/update/restyle/hit` | its own widgets on the UI's canvas | the word card |
 | `page_render`, `page_press` | over the page's ink | Translate's card by the selection, its speaker, its words |
 | `session_open`, `settings_gather/apply`, `first_launch` | the session | the study files; ML Kit on or off; the welcome |
+| `text_row` | the page's menu over a PDF's text the lasso took (no ink) | Copy as text, Translate, Save word |
+| `library`, `library_count` | the Library screen's books (`doc.h`'s `fude_doc_book`: a PDF and its cover in the assets, its title, what it is, its credit) | the lectures: First Year Japanese I (CC BY 4.0, Kana's edition) |
 
 The study fills most of it: a study app's extension starts with
 `FUDE_STUDY_EXTENSION` and adds its own.
@@ -181,6 +187,38 @@ mouse), in `fude_app_screen_event`.
 - Presses on the UI (`fude_ui_hit`) are the UI's.
 - The page has its own input, with the finger-writing state machine
   (`page.c`).
+
+## Documents
+
+A canvas can have a PDF under its ink (`fude/drawing/doc/`). Its note says which
+(`fude_note.document`, a byte in the index's record that older builds skip):
+`FUDE_NOTE_DOCUMENT_OWN`, the canvas's own `notes/<id>.pdf` (imported from
+Files, or pictures and scans made into one); 2 and up, a book of the app's
+library, by its id (never reused), read from the assets in place. Removing the
+canvas removes its own PDF.
+
+The page holds the open canvas's document (`fude_page_input.doc`): it follows
+`notes.open`, lays the pages out down the canvas from its origin (each 1000
+units wide, room around them for notes), and draws them under the ink from
+textures — each page whole, then, once the view rests, what is on screen again at
+the screen's pixels. One piece is drawn at a time, on a detached RDE thread; a
+document let go mid-piece leaves the job to the worker to free. A dark theme
+draws the pages in its own colours, so ink in the theme's colour shows on them.
+
+While one is open the canvas reads like a PDF viewer (`canvas.h`'s reader
+frame): the pages' width fits the screen at 100%, the least zoom; they move
+across only when zoomed in, never past the first and last page, and a flick
+carries on, slowing. The document bar (`docbar.c`) searches the PDF's own text
+(PDFKit, a few milliseconds a frame) and goes to a page; the lasso, taking no
+ink, takes the text in its loop's box (`lasso.h`: an area) for the app's text
+row. The marker (`ink.h`: a stroke flag) is see-through and drawn under the
+other ink; it is never read as writing.
+
+PDFs are drawn by Core Graphics (`pdf.c`, plain C: iOS and macOS); the Mac links
+it with the builder's `--osx_framework`. Android (PdfRenderer) and Windows have
+stand-ins for now. The Library (`library.c`) is a core screen: an app that has
+books gives them in its extension and puts the screen in its table (Kana:
+`KANA_SCREEN_LIBRARY`, the side panel's Lectures).
 
 ## The UI, and rebuilding it
 

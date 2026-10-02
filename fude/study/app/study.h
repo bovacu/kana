@@ -165,7 +165,7 @@ extern const fude_extension_tool FUDE_STUDY_CAMERA;
 //   const fude_extension KANA_EXTENSION = { FUDE_STUDY_EXTENSION, .nav = &KANA_NAV, ... };
 #define FUDE_STUDY_EXTENSION                                                                                                      \
     .tools = &FUDE_STUDY_CAMERA, .tool_count = 1u,                                                                                \
-    .selection_row = &FUDE_PAGETEXT_SELECTION_ROW, .context_row = &FUDE_PAGETEXT_CONTEXT_ROW,                                     \
+    .selection_row = &FUDE_PAGETEXT_SELECTION_ROW, .context_row = &FUDE_PAGETEXT_CONTEXT_ROW, .text_row = &FUDE_PAGETEXT_TEXT_ROW, \
     .menu_update = fude_study_menu_update, .selection_faces = fude_study_selection_faces, .context_faces = fude_study_context_faces, \
     .sections = &FUDE_STUDY_HANDWRITING, .section_count = 1u,                                                                     \
     .ui_build = fude_study_ui_build, .ui_update = fude_study_ui_update, .ui_restyle = fude_study_ui_restyle,                       \

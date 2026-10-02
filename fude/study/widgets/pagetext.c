@@ -1,4 +1,5 @@
 #include "study/widgets/pagetext.h"
+#include "drawing/app/page.h"
 #include "study/app/study.h"
 #include "drawing/base/utf8.h"
 #include "drawing/app/app.h"
@@ -50,6 +51,14 @@ RDE_INTERNAL u32 fude_pagetext_selection_key(const fude_pagetext* _text) {
     const fude_lasso* _lasso = _text->app->lasso;
     const u32         _n     = fude_lasso_count(_lasso);
     const u32*        _ids   = (const u32*)_lasso->selected.memory;
+    rde_vec_2F        _min, _max;
+    if(_n == 0u && fude_lasso_area(_lasso, &_min, &_max)) {
+        // An area of a PDF's text: its box, as one number.
+        const f32 _box[4] = { _min.x, _min.y, _max.x, _max.y };
+        u32       _bits[4];
+        memcpy(_bits, _box, sizeof(_bits));
+        return ((((2166136261u ^ _bits[0]) * 16777619u ^ _bits[1]) * 16777619u ^ _bits[2]) * 16777619u ^ _bits[3]) | 1u;
+    }
     u32               _key   = 2166136261u ^ _n;
     for(u32 _i = 0; _i < _n; _i++) {
         _key = (_key ^ _ids[_i]) * 16777619u;
@@ -62,7 +71,15 @@ RDE_INTERNAL u32 fude_pagetext_selection_key(const fude_pagetext* _text) {
 RDE_INTERNAL b8 fude_pagetext_read(fude_pagetext* _text, FUDE_PAGETEXT_READ_ _what) {
     fude_app* _app = _text->app;
     if(fude_lasso_count(_app->lasso) == 0) {
-        return false;
+        // An area of a PDF's text: read from the PDF, no handwriting to recognise.
+        rde_vec_2F _min, _max;
+        if(!fude_lasso_area(_app->lasso, &_min, &_max) || _text->reading != FUDE_PAGETEXT_READ_NONE) {
+            return false;
+        }
+        fude_doc_text_in(&_app->page->doc, _min, _max, _text->area_text, sizeof(_text->area_text));
+        _text->area_ready = true;
+        _text->reading    = (u8)_what;
+        return true;
     }
     if(!_text->_reader_ready) {
         fude_textink_reader_init(&_text->reader, FUDE_STUDY(_app)->db, FUDE_STUDY(_app)->catalog);
@@ -80,7 +97,8 @@ void fude_pagetext_save_word(fude_pagetext* _text) {
 }
 
 void fude_pagetext_translate(fude_pagetext* _text) {
-    if(fude_lasso_count(_text->app->lasso) == 0 || !fude_translate_available()) {
+    rde_vec_2F _min, _max;
+    if((fude_lasso_count(_text->app->lasso) == 0 && !fude_lasso_area(_text->app->lasso, &_min, &_max)) || !fude_translate_available()) {
         return;
     }
     if(!fude_mlkit_enabled()) {
@@ -130,10 +148,16 @@ RDE_INTERNAL void fude_pagetext_notice_copied(const c8* _copied) {
 // Once a frame: a reading done goes where it was for.
 RDE_INTERNAL void fude_pagetext_update_reading(fude_pagetext* _text) {
     fude_study* _study = FUDE_STUDY(_text->app);
-    if(!_text->_reader_ready || !fude_textink_update(&_text->reader)) {
-        return;
+    const c8*   _read  = NULL;
+    if(_text->area_ready) {
+        _text->area_ready = false;
+        _read             = _text->area_text;   // a PDF's text: read already
+    } else {
+        if(!_text->_reader_ready || !fude_textink_update(&_text->reader)) {
+            return;
+        }
+        _read = _text->reader.text;
     }
-    const c8* _read = _text->reader.text;
     const u8  _what = _text->reading;
     _text->reading  = FUDE_PAGETEXT_READ_NONE;
     if(_what == FUDE_PAGETEXT_READ_TRANSLATE && _text->card != FUDE_PAGETEXT_CARD_READING) {
@@ -263,6 +287,14 @@ static const fude_row_button FUDE_PAGETEXT_CONTEXT[] = {
 };
 const fude_row_def FUDE_PAGETEXT_CONTEXT_ROW = FUDE_ROW_DEF(FUDE_PAGETEXT_CONTEXT);
 
+// Over a PDF's text (no ink to cut, move or check): its text's buttons.
+static const fude_row_button FUDE_PAGETEXT_TEXT[] = {
+    { FUDE_TEXT_SEL_COPY_TEXT,  FUDE_ICON_TEXT_COPY, fude_pagetext_on_copy_text, 0, FUDE_ROW_QUIET, false, NULL },
+    { FUDE_TEXT_SCAN_TRANSLATE, FUDE_ICON_TRANSLATE, fude_pagetext_on_translate, 0, FUDE_ROW_QUIET, false, fude_translate_available },
+    { FUDE_TEXT_SEL_SAVE_WORD,  FUDE_ICON_BOOKMARK,  fude_pagetext_on_save_word, 0, FUDE_ROW_QUIET, false, NULL },
+};
+const fude_row_def FUDE_PAGETEXT_TEXT_ROW = FUDE_ROW_DEF(FUDE_PAGETEXT_TEXT);
+
 // Copy as text and Save word say "Reading…" while the selection is read for them.
 void fude_pagetext_selection_faces(const fude_pagetext* _text, const fude_row_def* _row, fude_row_face* _faces) {
     const u32 _for = _text->reading == FUDE_PAGETEXT_READ_COPY  ? fude_row_def_find(_row, fude_pagetext_on_copy_text) :
@@ -308,7 +340,7 @@ void fude_pagetext_write(fude_pagetext* _text, const c8* _utf8, rde_vec_2F _canv
 void fude_pagetext_render(fude_pagetext* _text, rde_window* _window) {
     fude_app*  _app = _text->app;
     rde_vec_2F _min, _max;
-    if(_text->card == FUDE_PAGETEXT_CARD_NONE || _app->font == NULL || !fude_lasso_bounds(_app->lasso, _app->ink, &_min, &_max)) {
+    if(_text->card == FUDE_PAGETEXT_CARD_NONE || _app->font == NULL || !fude_lasso_box(_app->lasso, _app->ink, &_min, &_max)) {
         _text->card_min = _text->card_max = (rde_vec_2F){ 0.0f, 0.0f };
         return;
     }

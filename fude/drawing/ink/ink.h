@@ -86,6 +86,14 @@ typedef enum {
 // the width eases instead of twitching with every sample's speed.
 #define FUDE_INK_SIM_SMOOTH          0.2f
 
+// The marker's: half-width on the page (canvas units: a line of text's height
+// at 100%), its range, and how see-through its colours are.
+#define FUDE_INK_MARKER_RADIUS 10.0f
+#define FUDE_INK_MARKER_MIN    3.0f
+#define FUDE_INK_MARKER_MAX    32.0f
+#define FUDE_INK_MARKER_ALPHA  110u
+#define FUDE_INK_MARKER_STEP   0.75f   // its points drawn at least this many half-widths apart (see fude_ink_render)
+
 // @struct fude_ink_point
 // @desc One sample. `time` is seconds since the stroke's FIRST sample — the
 // rhythm of the stroke, which is what survives a save and what scoring can use.
@@ -115,6 +123,7 @@ RDE_STRUCT {
     b8             from_pen;
     b8             eraser;
     b8             alive;
+    b8             marker;      // the marker's: see-through, one width, under the other ink (never read as writing)
 } fude_ink_stroke;
 
 // One undoable edit.
@@ -184,6 +193,12 @@ RDE_STRUCT {
     FUDE_INK_BRUSH_SCALE_ brush_scale;
     rde_color             color;             // brush colour for NEW strokes (FUDE_THEME_INK by default)
     f32                   constant_radius;   // for FUDE_INK_WIDTH_MODE_CONSTANT; units per brush_scale
+    // The marker (the toolbar's): new strokes are its while marking — its colour
+    // (see-through: its alpha is kept), its half-width in canvas units (it marks
+    // the page, so it zooms with it), pressure and speed not coming into it.
+    b8                    marking;
+    rde_color             marker_color;
+    f32                   marker_radius;
     // The canvas zoom at the moment of capture, set by the caller like
     // sample_time. Turns screen units into the canvas units points are stored in:
     // always for the min step (a sampling density), and for the width in SCREEN
@@ -235,6 +250,8 @@ void fude_ink_destroy(fude_ink* _ink);
 // @desc Appends a stroke read from a save: alive, and NOT in the undo history
 // (a loaded page is where history starts). Only before any editing.
 void fude_ink_add_loaded_stroke(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen);
+// The same, a marker's stroke (_marker) or not.
+void fude_ink_add_loaded_stroke_2(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen, b8 _marker);
 
 // @func fude_ink_stroke_count / stroke_at
 // @desc Every stroke written, in order, erased ones included (check .alive).

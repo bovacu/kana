@@ -14,7 +14,7 @@
 
 #define FUDE_NOTES_KIND        FUDE_TAG('N', 'O', 'T', 'E')
 #define FUDE_NOTES_CHUNK_INDEX FUDE_TAG('N', 'I', 'D', 'X')
-#define FUDE_NOTES_RECORD_SIZE 20u    // id, parent, kind, expanded, 2 reserved, created lo/hi
+#define FUDE_NOTES_RECORD_SIZE 20u    // id, parent, kind, expanded, document, 1 reserved, created lo/hi
 #define FUDE_NOTES_MAX         4096u  // more is a damaged file, not a notebook
 
 // Under the save folder — found again should that change (the app's own is set
@@ -38,6 +38,10 @@ RDE_INTERNAL void fude_notes_index_path(c8* _out, usize _size) {
 
 void fude_notes_canvas_path(u32 _id, c8* _out, usize _size) {
     snprintf(_out, _size, "%s%u.kana", fude_notes_dir(), _id);
+}
+
+void fude_notes_document_path(u32 _id, c8* _out, usize _size) {
+    snprintf(_out, _size, "%s%u.pdf", fude_notes_dir(), _id);
 }
 
 void fude_notes_init(fude_notes* _notes) {
@@ -111,7 +115,7 @@ b8 fude_notes_save(fude_notes* _notes) {
         fude_put_u32(&_b, _n->parent);
         fude_put_u8(&_b, _n->kind);
         fude_put_u8(&_b, _n->expanded ? 1u : 0u);
-        fude_put_u8(&_b, 0u);
+        fude_put_u8(&_b, _n->kind == FUDE_NOTE_CANVAS ? _n->document : 0u);
         fude_put_u8(&_b, 0u);
         fude_put_u32(&_b, (u32)(_n->created & 0xFFFFFFFFu));
         fude_put_u32(&_b, (u32)(_n->created >> 32));
@@ -168,7 +172,7 @@ RDE_INTERNAL b8 fude_notes_read(fude_notes* _notes) {
             _n.parent   = fude_get_u32(&_c);
             _n.kind     = fude_get_u8(&_c);
             _n.expanded = fude_get_u8(&_c) != 0;
-            fude_get_u8(&_c);
+            _n.document = fude_get_u8(&_c);   // 0 in a file from before documents
             fude_get_u8(&_c);
             const u64 _lo = fude_get_u32(&_c);
             const u64 _hi = fude_get_u32(&_c);
@@ -425,6 +429,21 @@ RDE_INTERNAL void fude_notes_delete_files(u32 _id) {
         snprintf(_file, sizeof(_file), "%s%s", _path, _suffixes[_i]);
         if(rde_file_exists(_file)) {
             rde_file_delete(_file);
+        }
+    }
+    fude_notes_document_path(_id, _path, sizeof(_path));   // its own document, if it had one
+    if(rde_file_exists(_path)) {
+        rde_file_delete(_path);
+    }
+}
+
+void fude_notes_set_document(fude_notes* _notes, u32 _id, u8 _document) {
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes); _i++) {
+        fude_note* _n = fude_notes_at(_notes, _i);
+        if(_n->id == _id && _n->kind == FUDE_NOTE_CANVAS && _n->document != _document) {
+            _n->document = _document;
+            _notes->revision++;
+            fude_notes_save(_notes);
         }
     }
 }

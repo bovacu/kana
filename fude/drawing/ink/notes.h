@@ -11,11 +11,14 @@
 // FILES, under <save dir>/notes/:
 //   index.kana   the list (the KANA format, kfile.h; kind 'NOTE'):
 //     'NIDX'  u32 next id, u32 open canvas, u32 count, u32 record size, then per
-//             note: u32 id, u32 parent, u8 kind, u8 expanded, 2 reserved,
+//             note: u32 id, u32 parent, u8 kind, u8 expanded, u8 document (what
+//             is under a canvas's ink: see fude_note), 1 reserved,
 //             u32 created lo, hi (Unix seconds), then u8 name length and the
 //             name (UTF-8) — the name outside the fixed record, so a newer
 //             build's longer record is skipped whole.
 //   <id>.kana    each canvas's page (save.h's DOCUMENT format).
+//   <id>.pdf     a canvas's own document (FUDE_NOTE_DOCUMENT_OWN): the PDF under
+//                its ink, imported or made from pictures (doc.h).
 // A canvas is found by its id, so a name is anything and renaming touches no
 // file.
 //
@@ -34,11 +37,15 @@ typedef enum {
     FUDE_NOTE_CANVAS
 } FUDE_NOTE_;
 
+#define FUDE_NOTE_DOCUMENT_OWN 1u   // fude_note.document: the canvas's own PDF; 2 and up, the library's books
+
 RDE_STRUCT {
     u32 id;                    // > 0
     u32 parent;                // its folder, 0: the top level
     u8  kind;                  // FUDE_NOTE_
     b8  expanded;              // a folder shows its canvases
+    u8  document;              // a canvas's: what is under its ink — 0 nothing, FUDE_NOTE_DOCUMENT_OWN its
+                               // <id>.pdf, else a book of the app's library (its id: doc.h's fude_doc_book)
     u64 created;               // Unix seconds
     c8  name[FUDE_NOTE_NAME];
 } fude_note;
@@ -57,6 +64,10 @@ void fude_notes_destroy(fude_notes* _notes);
 void fude_notes_load(fude_notes* _notes);
 b8   fude_notes_save(fude_notes* _notes);
 
+// Where a canvas's own document is (FUDE_NOTE_DOCUMENT_OWN).
+void fude_notes_document_path(u32 _id, c8* _out, usize _size);
+// What is under a canvas's ink (fude_note.document).
+void fude_notes_set_document(fude_notes* _notes, u32 _id, u8 _document);
 // Where a canvas's page is saved.
 void fude_notes_canvas_path(u32 _id, c8* _out, usize _size);
 

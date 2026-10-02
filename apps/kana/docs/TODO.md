@@ -784,6 +784,46 @@ docs/architecture.md has how it fits together and how to start a new app.
       Into Japanese no longer risks one taking the other's.
 - [ ] On the iPad: check Translate with Google in the word card (Borja).
 
+## 10j. Lectures and documents (Borja, 2026-10-02: "official public commercially compatible ones as default, and the chance to import PDFs or even scan images with the camera ... they will render as PDF and we can draw on them, zoom in/out")
+
+- [x] A canvas over a PDF (fude/drawing/doc/): its pages down the canvas, written
+      on, panned and zoomed like any canvas; sharp at any zoom (whole pages, then the
+      part on screen at the screen's pixels, drawn on a worker thread); dark themes
+      draw the pages in their colours; "3 / 24" while moving. Core Graphics on iOS
+      and macOS (the Mac links it with the builder's new --osx_framework).
+- [x] Lectures (side panel › Study): the free lessons and your documents; From
+      Files (a PDF or pictures), From Photos (many), Scan pages (the document
+      camera) — pictures and scans become a PDF, a page each. A lecture opens on a
+      canvas of its own in a Lectures folder, the same one each time.
+- [x] The first lecture: First Year Japanese I (CC BY 4.0), Kana's edition — the
+      licence research found no government or Japan Foundation course that may be
+      sold inside an app (their terms, or third-party pictures): see the reply of
+      2026-10-02. Candidates for more: Wikivoyage's Japanese phrasebook (CC BY-SA
+      4.0, en es fr pt — a PDF to build from it), Wikibooks' kana lessons;
+      permission asked of MEXT or 兵庫県国際交流協会 (en/es/pt versions).
+- [x] On the iPad: "working super good" (Borja, 2026-10-02).
+- [x] Then (Borja: "Marker as a new brush ... PDF size should adapt to screen size
+      to fit, and that is consider the 100% zoom. Scroll ... with inertia ... Lasso
+      for texts in the PDF ... Search words, Jump to page"):
+      the marker (the toolbar, under Draw: its own colours, see-through, its own
+      width, under the other ink, never read as writing); the reader (100% = the
+      width fitted, no moving across at 100%, kept on the pages, a flick's
+      inertia); the lasso round a PDF's text (Copy as text, Translate, Save word);
+      the document bar: Search (all matches marked, before and next) and the page
+      ("3 / 74": a tap, a number, Return).
+- [x] On the iPad: search, the text lasso, scrolling, Go to page working (Borja,
+      2026-10-02). The marker went patchy marked slowly (its see-through outline
+      folding over itself at every close, jittery sample): it is drawn from points
+      at least 0.75 of its half-width apart, each the middle of the samples
+      between (ink.c, fude_ink_emit_stroke) — even, slow or fast; what is saved
+      is unchanged, so strokes already made are fixed too.
+- [x] On the iPad: the marker marked slowly — "working perfectly now" (Borja, 2026-10-02).
+- [ ] A scan's text (no text in the PDF): ML Kit's text recognition on the lasso's
+      box, for the text row and Search.
+- [ ] Android: PdfRenderer behind pdf.h; Windows: a renderer to choose (PDFium?).
+- [ ] Next: export a document with its ink as a PDF (to share); the page's text
+      (lasso a PDF's words to look them up).
+
 ## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.

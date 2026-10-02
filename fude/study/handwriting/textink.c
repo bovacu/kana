@@ -162,7 +162,7 @@ b8 fude_textink_read(fude_textink_reader* _reader, const fude_ink* _ink, const u
             continue;
         }
         const fude_ink_stroke* _stroke = fude_ink_stroke_at(_ink, _order[_i]);
-        if(_stroke->alive && _stroke->point_count > 0) {
+        if(_stroke->alive && _stroke->point_count > 0 && !_stroke->marker) {   // the marker's: not writing
             fude_ink_add_loaded_stroke(&_reader->drawing, fude_ink_stroke_points(_ink, _stroke), _stroke->point_count, _stroke->color, _stroke->from_pen);
         }
     }

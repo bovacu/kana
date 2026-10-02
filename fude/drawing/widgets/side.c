@@ -948,7 +948,7 @@ RDE_INTERNAL void fude_side_build_notes(fude_ui* _ui) {
         rde_ui_button*   _button   = fude_kit_button(_list, _label, fude_side_on_note, _ui);
         rde_ui_button_set_on_click(_button, fude_side_on_note, _ref);
         fude_kit_place(rde_ui_button_as_node(_button), (rde_vec_2F){ _x0 + _row_size.x * 0.5f, _y }, _row_size);
-        fude_kit_icon(_button, _folder ? (_row->expanded ? FUDE_ICON_FOLDER_OPEN : FUDE_ICON_FOLDER) : FUDE_ICON_NOTE, FUDE_KIT_ICON_LEFT, 15.0f);
+        fude_kit_icon(_button, _folder ? (_row->expanded ? FUDE_ICON_FOLDER_OPEN : FUDE_ICON_FOLDER) : _n->document != 0u ? FUDE_ICON_BOOK : FUDE_ICON_NOTE, FUDE_KIT_ICON_LEFT, 15.0f);   // a canvas over a document: the open book
         if(!_folder && _row->id == _notes->open) {
             fude_kit_button_selected(_button);   // the canvas on the page
         } else {

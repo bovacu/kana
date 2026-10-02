@@ -48,11 +48,24 @@ Translate with Google say they need it.
 
 ## Permissions
 
-- **Camera** (`NSCameraUsageDescription`): Text from a photo, live. Asked the
+- **Camera** (`NSCameraUsageDescription`): Text from a photo, live; and
+  Lectures › Scan pages (the system's document camera, VisionKit). Asked the
   first time it is used; the reason in each of Kana's five languages
   (`platform/ios/localized/*.lproj/InfoPlist.strings`).
 - **Photos: none.** The system's photo picker (PHPicker) hands over only the
-  photo chosen; no library access, no prompt.
+  photos chosen (Text from a photo: one; Lectures › From Photos: any number);
+  no library access, no prompt.
+
+## Bundled content
+
+- **Lectures:** First Year Japanese I – Supplemental material and worksheets
+  (Yoko Sato, Mt Hood Community College, CC BY 4.0), Kana's edition: the stock
+  pictures not under its licence left out (pages 1, 2, 21), a title page with
+  the credit and the changes. CC BY 4.0 allows selling it inside the app; it
+  forbids locking it (no DRM, no terms that restrict it). The credit is on its
+  card and its first page, and in Settings › Licences › Lectures
+  (`assets/lectures/LICENSE-lectures.txt`). How it was made:
+  `tools/lectures/make_jpn101.py`.
 - No microphone, location, contacts or tracking (`NSPrivacyTracking` is false
   everywhere, so no App Tracking Transparency prompt).
 

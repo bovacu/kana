@@ -56,6 +56,8 @@ void fude_lasso_clear(fude_lasso* _lasso, fude_ink* _ink) {
     _lasso->state = FUDE_LASSO_IDLE;
     rde_arr_clear(&_lasso->loop);
     rde_arr_clear(&_lasso->selected);
+    _lasso->looped  = false;
+    _lasso->area_on = false;
 }
 
 RDE_INTERNAL b8 fude_lasso_selectable(const fude_ink* _ink, u32 _id) {
@@ -98,6 +100,35 @@ b8 fude_lasso_bounds(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F*
     }
 
     return _found;
+}
+
+b8 fude_lasso_box(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F* _min, rde_vec_2F* _max) {
+    return fude_lasso_bounds(_lasso, _ink, _min, _max) || fude_lasso_area(_lasso, _min, _max);
+}
+
+b8 fude_lasso_looped(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max) {
+    if(!_lasso->looped || fude_lasso_count(_lasso) > 0) {
+        return false;
+    }
+    *_min = _lasso->loop_min;
+    *_max = _lasso->loop_max;
+    return true;
+}
+
+void fude_lasso_select_area(fude_lasso* _lasso, rde_vec_2F _min, rde_vec_2F _max) {
+    rde_arr_clear(&_lasso->selected);
+    _lasso->area_on  = true;
+    _lasso->area_min = _min;
+    _lasso->area_max = _max;
+}
+
+b8 fude_lasso_area(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max) {
+    if(!_lasso->area_on || fude_lasso_count(_lasso) > 0 || _lasso->state != FUDE_LASSO_IDLE) {
+        return false;
+    }
+    *_min = _lasso->area_min;
+    *_max = _lasso->area_max;
+    return true;
 }
 
 void fude_lasso_delete(fude_lasso* _lasso, fude_ink* _ink) {
@@ -246,6 +277,11 @@ RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _in
         return;
     }
 
+    // No ink taken: its box is kept, for the page's own text (see the header).
+    _lasso->looped   = true;
+    _lasso->loop_min = _min;
+    _lasso->loop_max = _max;
+
     for(u32 _s = 0; _s < fude_ink_stroke_count(_ink); _s++) {
         const fude_ink_stroke* _stroke = fude_ink_stroke_at(_ink, _s);
 
@@ -292,9 +328,11 @@ void fude_lasso_pen_down(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas,
         return;
     }
 
-    // Anywhere else: a new loop, and the old selection goes.
+    // Anywhere else: a new loop, and the old selection goes (an area of text too).
     rde_arr_clear(&_lasso->selected);
     rde_arr_clear(&_lasso->loop);
+    _lasso->looped  = false;
+    _lasso->area_on = false;
     rde_arr_add(&_lasso->loop, &_canvas);
     _lasso->state = FUDE_LASSO_LOOPING;
 }
@@ -371,7 +409,7 @@ void fude_lasso_render_over(fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F
 
     rde_vec_2F _min;
     rde_vec_2F _max;
-    if(!fude_lasso_bounds(_lasso, _ink, &_min, &_max)) {
+    if(!fude_lasso_box(_lasso, _ink, &_min, &_max)) {
         return;
     }
 

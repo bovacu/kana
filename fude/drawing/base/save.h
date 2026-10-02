@@ -32,7 +32,8 @@
 //   'PAGE'  u8 paper (FUDE_PAPER_: 0 dots, 1 squares, 2 lines, 3 none)
 //           (optional: a file from before it has none — dots)
 //   'STRK'  u32 count, u32 record size, then per stroke:
-//           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen), 3 reserved
+//           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen; bit 1: the
+//           marker's, see-through under the other ink), 3 reserved
 //           (r g b a all 0: the theme's ink; 30 30 36 255, from before themes,
 //           is read as that too)
 //   'PNTS'  u32 count, u32 record size, then every point of those strokes in
@@ -48,7 +49,8 @@
 //           u8 paper_size (lines' and squares' size: FUDE_PAPER_SIZE_),
 //           u8 language (RDE_LANGUAGE_: RDE's enum only grows; 0: never chosen),
 //           u8 finger_writes (1: one finger writes on a tablet — the toolbar's
-//           hand; 0: only the pen), u8 pen_ever (1: a pen has written here)
+//           hand; 0: only the pen), u8 pen_ever (1: a pen has written here),
+//           u8 r g b a (the marker's colour), f32 the marker's half-width
 //           (new fields go at the END: an older file just ends sooner; one from
 //           before the hand is a pen user's: the pen writes)
 // ===========================================================================
@@ -80,6 +82,8 @@ RDE_STRUCT {
     u8         language;          // RDE_LANGUAGE_ (0: never chosen — the device's)
     b8         finger_writes;     // one finger writes (a tablet; the toolbar's hand)
     b8         pen_ever;          // a pen has been used here (then the hand is the learner's to turn on)
+    rde_color  marker_color;      // the marker's (ink.h), see-through
+    f32        marker_radius;
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

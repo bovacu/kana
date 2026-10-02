@@ -22,8 +22,19 @@ const fude_app_info KANA_INFO = {
         { FUDE_TEXT_LICENCE_FONTS,     { "assets/fonts/LICENSE-Roboto.txt", "assets/fonts/LICENSE-NotoSansJP.txt", "assets/fonts/LICENSE-Phosphor.txt" } },
         { FUDE_TEXT_LICENCE_LIBRARIES, { "assets/licenses/libraries.txt", NULL, NULL } },
         { FUDE_TEXT_LICENCE_MLKIT,     { "assets/licenses/ml-kit-notices.txt", NULL, NULL } },
+        { FUDE_TEXT_LICENCE_LECTURES,  { "assets/lectures/LICENSE-lectures.txt", NULL, NULL } },
     },
-    .licence_count = 4u,
+    .licence_count = 5u,
+};
+
+// --- the lectures (the Library's books: doc.h) ------------------------------------------------
+// Free to share and change, also in an app that is sold: each one's licence and
+// what Kana changed are in assets/lectures/LICENSE-lectures.txt (Settings ›
+// Licences › Lectures), and how it was made in tools/lectures/. Ids are never
+// reused: a canvas keeps its book's.
+static const fude_doc_book KANA_LIBRARY[] = {
+    { 2u, "assets/lectures/jpn101.pdf", FUDE_TEXT_LECTURE_JPN101, FUDE_TEXT_LECTURE_JPN101_ABOUT,
+      "Yoko Sato, Mt Hood Community College \xC2\xB7 CC BY 4.0 \xC2\xB7 Kana edition: pages 1, 2 and 21 left out", "assets/lectures/jpn101.png" },
 };
 
 void kana_app_open(fude_app* _app, KANA_SCREEN_ _screen) {
@@ -36,6 +47,7 @@ void kana_app_open(fude_app* _app, KANA_SCREEN_ _screen) {
         case KANA_SCREEN_VOCAB:  fude_vocabview_open(_kana->study.vocab); break;
         case KANA_SCREEN_STATS:  fude_stats_open(_kana->study.stats);     break;
         case KANA_SCREEN_ALBUM:  fude_album_open(_kana->study.album);     break;
+        case KANA_SCREEN_LIBRARY: fude_library_open(_kana->library);      break;
         default: break;
     }
 }
@@ -65,6 +77,7 @@ static const fude_extension_nav_entry KANA_NAV_ENTRIES[] = {
     { FUDE_TEXT_ALBUM,      FUDE_ICON_BOOKS,      16.0f, kana_nav_open,   KANA_SCREEN_ALBUM,  kana_nav_has_album, NULL, 0 },
     { FUDE_TEXT_REVIEWS,    "\xE5\xBE\xA9",       15.0f, kana_nav_review, 0,                  kana_nav_has_data,  fude_study_reviews_count, FUDE_TEXT_REVIEWS_N },   // 復
     { FUDE_TEXT_VOCAB,      "\xE8\xAA\x9E",       15.0f, kana_nav_open,   KANA_SCREEN_VOCAB,  NULL,               NULL, 0 },                        // 語
+    { FUDE_TEXT_LIBRARY_TITLE, FUDE_ICON_BOOK,    16.0f, kana_nav_open,   KANA_SCREEN_LIBRARY, NULL,              NULL, 0 },                        // the lectures
     { FUDE_TEXT_EXAMS,      "\xE8\xA9\xA6",       15.0f, kana_nav_open,   KANA_SCREEN_EXAM,   kana_nav_has_data,  NULL, 0 },                        // 試
     { FUDE_TEXT_STATISTICS, FUDE_ICON_CHART_LINE, 16.0f, kana_nav_open,   KANA_SCREEN_STATS,  NULL,               NULL, 0 },
 };
@@ -107,6 +120,7 @@ void kana_look_start(fude_app* _app) {
     fude_study_look_start(_app);
     for(i32 _i = 1; _i < kana_look.argc; _i++) {
         if(fude_look_is(kana_look.argv[_i], "--kana")) { fude_chart_open(KANA_APP(_app)->chart); }
+        if(fude_look_is(kana_look.argv[_i], "--library")) { fude_library_open(KANA_APP(_app)->library); }
     }
 }
 
@@ -131,4 +145,5 @@ void kana_look_frame(fude_app* _app) {
 const fude_extension KANA_EXTENSION = {
     FUDE_STUDY_EXTENSION,
     .nav = &KANA_NAV, .tutorial = kana_tutorial, .first_launch = kana_first_launch,
+    .library = KANA_LIBRARY, .library_count = (u32)(sizeof(KANA_LIBRARY) / sizeof(KANA_LIBRARY[0])),
 };

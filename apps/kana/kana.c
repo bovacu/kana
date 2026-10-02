@@ -73,6 +73,7 @@ RDE_INTERNAL fude_vocabview vocabview;
 RDE_INTERNAL fude_wordexam  wordexam;
 RDE_INTERNAL fude_translator translator;
 RDE_INTERNAL kana_welcome   welcome;
+RDE_INTERNAL fude_library   library;
 RDE_INTERNAL fude_page_input page;
 RDE_INTERNAL fude_ui        ui;
 RDE_INTERNAL kana_app       kana;    // the app: the drawing core's, the study layer's, Kana's own (kana_app.h)
@@ -144,6 +145,7 @@ RDE_INTERNAL void fude_screens_place(void) {
         { KANA_SCREEN_TRANSLATOR, &FUDE_TRANSLATOR_SCREEN, &translator },
         { KANA_SCREEN_VOCAB,    &FUDE_VOCAB_SCREEN,    &vocabview },
         { KANA_SCREEN_CHECK,    &FUDE_CHECK_SCREEN,    &check },
+        { KANA_SCREEN_LIBRARY,  &FUDE_LIBRARY_SCREEN,  &library },
         { KANA_SCREEN_ALBUM,    &FUDE_ALBUM_SCREEN,    &album },
         { KANA_SCREEN_CHART,    &FUDE_CHART_SCREEN,    &chart },
         { KANA_SCREEN_BROWSE,   &FUDE_BROWSE_SCREEN,   &browse },
@@ -213,8 +215,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             .viewer = &viewer, .browse = &browse, .practice = &practice, .album = &album, .check = &check, .exam = &exam,
             .stats = &stats, .scan = &scan, .vocab = &vocabview, .wordexam = &wordexam, .translator = &translator, .selection = &selection,
         },
-        .chart = &chart, .welcome = &welcome,
+        .chart = &chart, .welcome = &welcome, .library = &library,
     };
+    fude_library_init(&library, app);
     fude_app_start(app);         // its save folder, its window's title: before anything reads a save
 #if defined(RDE_PLATFORM_MOBILE)
     app->finger_writes = true;   // a tablet starts with the hand on, until its settings (or a pen) say otherwise
@@ -374,6 +377,7 @@ void end_func(void) {
     fude_wordexam_destroy(&wordexam);
     fude_vocabview_destroy(&vocabview);
     fude_translator_destroy(&translator);
+    fude_library_destroy(&library);
     fude_stats_destroy(&stats);
     fude_scan_destroy(&scan);
     fude_marks_close();

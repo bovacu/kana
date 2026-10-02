@@ -68,6 +68,8 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
     _s.width_mode        = (u8)_app->ink->width_mode;
     _s.color             = _app->ink->color;
     _s.radius            = _app->ink->constant_radius;
+    _s.marker_color      = _app->ink->marker_color;
+    _s.marker_radius     = _app->ink->marker_radius;
     _s.toolbar_center    = _bar->center;
     _s.theme             = (u8)fude_theme_index();
     _s.toolbar_minimized = _bar->minimized;
@@ -84,11 +86,15 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
 
 RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
     fude_toolbar* _bar = &_app->ui->bar;
-    _bar->tool                   = _s->tool == FUDE_TOOL_ERASE ? FUDE_TOOL_ERASE : _s->tool == FUDE_TOOL_LASSO ? FUDE_TOOL_LASSO : FUDE_TOOL_DRAW;
+    _bar->tool                   = _s->tool == FUDE_TOOL_ERASE ? FUDE_TOOL_ERASE : _s->tool == FUDE_TOOL_LASSO ? FUDE_TOOL_LASSO : _s->tool == FUDE_TOOL_MARK ? FUDE_TOOL_MARK : FUDE_TOOL_DRAW;
     _app->ink->brush_scale       = _s->brush_scale == FUDE_INK_BRUSH_SCALE_SCREEN ? FUDE_INK_BRUSH_SCALE_SCREEN : FUDE_INK_BRUSH_SCALE_PAGE;
     _app->ink->width_mode        = _s->width_mode == FUDE_INK_WIDTH_MODE_PRESSURE ? FUDE_INK_WIDTH_MODE_PRESSURE : FUDE_INK_WIDTH_MODE_CONSTANT;
     _app->ink->color             = _s->color;
     _app->ink->constant_radius   = rde_math_clamp_f32(_s->radius, FUDE_TOOLBAR_SIZE_MIN, FUDE_TOOLBAR_SIZE_MAX);
+    if(_s->marker_color.a > 0u) {   // a file from before the marker keeps the ink's defaults
+        _app->ink->marker_color  = _s->marker_color;
+        _app->ink->marker_radius = rde_math_clamp_f32(_s->marker_radius, FUDE_INK_MARKER_MIN, FUDE_INK_MARKER_MAX);
+    }
     fude_theme_set((FUDE_THEME_)_s->theme);
     if(fude_app_ext(_app)->settings_apply != NULL) {
         fude_app_ext(_app)->settings_apply(_app, _s);

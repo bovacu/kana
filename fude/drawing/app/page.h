@@ -2,6 +2,7 @@
 #define FUDE_PAGE
 
 #include "rde.h"
+#include "drawing/doc/doc.h"
 
 // ===========================================================================
 // The page, under every screen: writing on it and moving it.
@@ -50,6 +51,9 @@ typedef struct fude_page_input {
     // The zoom, shown a moment at the bottom right whenever it changes.
     f32        zoom_seen;      // < 0: not seen yet (no toast for the loaded zoom)
     f64        zoom_shown_at;
+
+    // The open canvas's document, under its ink (doc.h).
+    fude_doc   doc;
 } fude_page_input;
 
 void fude_page_init(fude_page_input* _page, struct fude_app* _app);
@@ -67,5 +71,8 @@ void fude_page_let_go(fude_page_input* _page);
 void fude_page_pen_came(fude_page_input* _page);
 // The zoom shown is the zoom now (another canvas loaded: no toast for it).
 void fude_page_zoom_seen(fude_page_input* _page);
+// After a lasso loop: one that took no ink, round a document's text, selects
+// that area (lasso.h) for the app's text row.
+void fude_page_lasso_text(fude_page_input* _page);
 
 #endif

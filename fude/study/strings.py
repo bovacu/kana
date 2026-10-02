@@ -5,7 +5,6 @@
 #   t('ID', English, Spanish, Portuguese (Brazil), Japanese, French)
 
 # --- common words ---------------------------------------------------------------
-t('BACK', 'Back', 'Atrás', 'Voltar', '戻る', 'Retour')
 t('PREV', 'Prev', 'Anterior', 'Anterior', '前へ', 'Précédent')
 t('NEXT', 'Next', 'Siguiente', 'Próximo', '次へ', 'Suivant')
 t('NEXT_N', 'Next {0}', 'Siguiente {0}', 'Próximo {0}', '次へ {0}', 'Suivant {0}')

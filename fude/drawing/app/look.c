@@ -1,10 +1,12 @@
 #include "drawing/app/look.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
+#include "drawing/app/page.h"
 #include "drawing/app/session.h"
 #include "drawing/base/save.h"
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
+#include "drawing/doc/doc.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -29,13 +31,20 @@ RDE_INTERNAL struct {
     const c8* press;      // --press=I,J,...: the top screen's row's buttons pressed in turn, from frame 30
     f32       swipe;      // --swipe=DX: a finger dragged DX across the screen on top (from its middle), frames 30-36
     i32       language;   // --language=N: the app's Nth language (text.h), chosen at frame 12
+    const c8* doc;        // --doc=PDF: a new canvas over a copy of it, opened as the saves load
+    i32       book;       // --book=N: the app's Nth book (its library), opened as the saves load (-1: no)
+    const c8* doc_view;   // --doc-view=ZOOM,X,Y: the view at frame 20 (canvas units at the middle of the screen)
+    const c8* mark;       // --mark=X0,Y0,X1,Y1[;...]: marker strokes (canvas units) at frame 24, in the marker's colour
+    const c8* lasso_area; // --lasso-area=X0,Y0,X1,Y1: the lasso's loop round that box at frame 22 (a PDF's text: its area)
+    const c8* doc_search; // --doc-search=WORDS: the document bar's Search for them, frame 26
+    i32       doc_page;   // --doc-page=N: the document bar's page N gone to, frame 26 (0: no)
     // --perf: frame times over this many seconds (0: off).
     f64       perf_seconds, perf_start;
     u32       perf_frames, perf_settle, perf_slow;
     f64       perf_dt_sum, perf_dt_max, perf_update_sum, perf_update_max, perf_render_sum, perf_render_max;
     c8        perf_label[160];
     void    (*perf_note)(struct fude_app* _app, c8* _out, usize _size);
-} fude_look = { .theme = -1, .language = -1 };
+} fude_look = { .theme = -1, .language = -1, .book = -1 };
 
 const c8* fude_look_value(const c8* _arg, const c8* _flag) {
     const usize _n = strlen(_flag);
@@ -73,6 +82,13 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--press")) != NULL)          { fude_look.press = _v; }
         if((_v = fude_look_value(_a, "--swipe")) != NULL)          { fude_look.swipe = strtof(_v, NULL); }
         if((_v = fude_look_value(_a, "--language")) != NULL)       { fude_look.language = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--doc")) != NULL)            { fude_look.doc = _v; }
+        if((_v = fude_look_value(_a, "--doc-view")) != NULL)       { fude_look.doc_view = _v; }
+        if((_v = fude_look_value(_a, "--book")) != NULL)           { fude_look.book = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--mark")) != NULL)           { fude_look.mark = _v; }
+        if((_v = fude_look_value(_a, "--lasso-area")) != NULL)     { fude_look.lasso_area = _v; }
+        if((_v = fude_look_value(_a, "--doc-search")) != NULL)     { fude_look.doc_search = _v; }
+        if((_v = fude_look_value(_a, "--doc-page")) != NULL)       { fude_look.doc_page = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--perf")) != NULL) {
             fude_look.perf_seconds = strtod(_v, NULL);
             for(i32 _k = 1; _k < _argc; _k++) {
@@ -104,6 +120,12 @@ void fude_look_start(fude_app* _app) {
 }
 
 void fude_look_loaded(fude_app* _app) {
+    if(fude_look.doc != NULL && fude_doc_new_canvas(_app, FUDE_NOTE_DOCUMENT_OWN, fude_look.doc, "Document", 0u) == 0u) {
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "look: --doc %s: no canvas made", fude_look.doc);
+    }
+    if(fude_look.book >= 0 && (u32)fude_look.book < fude_app_ext(_app)->library_count) {
+        fude_doc_open_book(_app, &fude_app_ext(_app)->library[fude_look.book], fude_text(FUDE_TEXT_LIBRARY_FOLDER));
+    }
     if(fude_look.theme >= 0) {
         fude_theme_set((FUDE_THEME_)fude_look.theme);
         fude_ui_apply_theme(_app->ui);
@@ -111,8 +133,15 @@ void fude_look_loaded(fude_app* _app) {
     }
 }
 
-// The frame the shot is taken at: 45, or after the last press has settled.
+// The frame the shot is taken at: 45, or after the last press has settled (a
+// document: 100, its pages drawn by then).
 RDE_INTERNAL u32 fude_look_shot_at(void) {
+    if(fude_look.doc != NULL || fude_look.book >= 0) {
+        return 100u;
+    }
+    if(fude_look.mark != NULL) {
+        return 60u;
+    }
     u32 _presses = 0;
     for(const c8* _p = fude_look.press; _p != NULL && *_p != 0; _p = strchr(_p, ',') != NULL ? strchr(_p, ',') + 1 : NULL) {
         _presses++;
@@ -164,6 +193,52 @@ void fude_look_frame(fude_app* _app) {
     }
     if(_frame == 22u && fude_look.data_import != NULL) {
         fude_session_import_pick(_app, fude_look.data_import);
+    }
+    if(_frame == 20u && fude_look.doc_view != NULL) {
+        f32 _z = 1.0f, _x = 0.0f, _y = 0.0f;
+        if(sscanf(fude_look.doc_view, "%f,%f,%f", &_z, &_x, &_y) >= 1 && _z > 0.0f) {
+            _app->canvas->view.zoom   = _z;
+            _app->canvas->view.offset = (rde_vec_2F){ -_x * _z, -_y * _z };
+        }
+    }
+    if(_frame == 24u && fude_look.mark != NULL) {
+        // Each along a line of text, as a slow hand marks it: many samples close
+        // together, a little unsteady.
+        for(const c8* _m = fude_look.mark; _m != NULL && *_m != 0; _m = strchr(_m, ';') != NULL ? strchr(_m, ';') + 1 : NULL) {
+            f32 _x0, _y0, _x1, _y1;
+            if(sscanf(_m, "%f,%f,%f,%f", &_x0, &_y0, &_x1, &_y1) != 4) {
+                continue;
+            }
+            _app->ink->marking = true;
+            for(u32 _k = 0; _k <= 120u; _k++) {
+                const f32        _t = (f32)_k / 120.0f;
+                const f32        _w = 1.2f * sinf((f32)_k * 2.3f) + 0.8f * sinf((f32)_k * 5.1f);   // the hand's tremor
+                const rde_vec_2F _p = { _x0 + (_x1 - _x0) * _t + 0.6f * _w, _y0 + (_y1 - _y0) * _t + _w };
+                if(_k == 0u) { fude_ink_begin(_app->ink, _p, true, false); }
+                else         { fude_ink_extend(_app->ink, _p); }
+            }
+            fude_ink_end(_app->ink);
+            _app->ink->marking = false;
+        }
+    }
+    if(_frame == 22u && fude_look.lasso_area != NULL) {
+        f32 _x0, _y0, _x1, _y1;
+        if(sscanf(fude_look.lasso_area, "%f,%f,%f,%f", &_x0, &_y0, &_x1, &_y1) == 4) {
+            fude_toolbar_set_tool(&_app->ui->bar, FUDE_TOOL_LASSO);
+            const rde_vec_2F _round[5] = { { _x0, _y0 }, { _x1, _y0 }, { _x1, _y1 }, { _x0, _y1 }, { _x0, _y0 } };
+            fude_lasso_pen_down(_app->lasso, _app->ink, _round[0], _app->canvas->view.zoom);
+            for(u32 _k = 1; _k < 5u; _k++) {
+                fude_lasso_pen_moved(_app->lasso, _app->ink, _round[_k], _app->canvas->view.zoom);
+            }
+            fude_lasso_pen_up(_app->lasso, _app->ink, _app->canvas->view.zoom);
+            fude_page_lasso_text(_app->page);
+        }
+    }
+    if(_frame == 26u && fude_look.doc_search != NULL) {
+        fude_docbar_search(&_app->ui->docbar, fude_look.doc_search);
+    }
+    if(_frame == 26u && fude_look.doc_page > 0) {
+        fude_doc_go_to_page(&_app->page->doc, _app->canvas, (u32)(fude_look.doc_page - 1));
     }
     if(_frame == 25u && fude_look.deselect) {
         fude_lasso_clear(_app->lasso, _app->ink);

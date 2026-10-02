@@ -474,10 +474,10 @@ void fude_scan_pointer_up(fude_scan* _scan, f64 _time) {
        _at.x >= _scan->panel_left && _at.x <= _scan->panel_right) {
         // A word: the word card (wordcard.h), to save it or see it saved.
         for(u32 _h = 0; _h < _scan->word_hit_count; _h++) {
-            const fude_scan_word_hit* _hit = &_scan->word_hits[_h];
+            const fude_scan_word_hit* _word = &_scan->word_hits[_h];
             fude_kanji_word           _w;
-            if(_at.y <= _hit->top && _at.y > _hit->bottom && _scan->db != NULL && fude_kanji_word_at(_scan->db, _hit->word, &_w)) {
-                const fude_scan_line* _in = _hit->line < (u32)rde_arr_length(&_scan->lines) ? &_lines[_hit->line] : NULL;
+            if(_at.y <= _word->top && _at.y > _word->bottom && _scan->db != NULL && fude_kanji_word_at(_scan->db, _word->word, &_w)) {
+                const fude_scan_line* _in = _word->line < (u32)rde_arr_length(&_scan->lines) ? &_lines[_word->line] : NULL;
                 fude_wordcard_ask_in(_w.written, _w.reading, _w.meaning, _in != NULL ? _in->text : "",
                                      _in != NULL && _in->translated == FUDE_SCAN_TRANSLATION_DONE ? _in->translation : "");
                 return;

@@ -1,5 +1,5 @@
-#ifndef FUDE_PAGETEXT
-#define FUDE_PAGETEXT
+#ifndef FUDE_PAGETEXT_H
+#define FUDE_PAGETEXT_H
 
 #include "rde.h"
 #include "drawing/widgets/row.h"
@@ -50,6 +50,10 @@ typedef struct {
     fude_textink_reader reader;           // the selection being read (textink.h)
     b8                  _reader_ready;
     u8                  reading;          // FUDE_PAGETEXT_READ_: what for (NONE: no reading under way)
+    // An area of a PDF's text the lasso took (lasso.h): its text, read from the
+    // PDF at once, handed on as a reading is on the next update.
+    c8                  area_text[FUDE_TEXTINK_TEXT];
+    b8                  area_ready;
     fude_clip           _text_clip;       // Paste text: the text written as strokes
 
     // The card: what was read, into the translator (translate.h), shown by the
@@ -76,6 +80,7 @@ typedef struct {
 // and these, in their places.
 extern const fude_row_def FUDE_PAGETEXT_SELECTION_ROW;   // Cut, Copy, Copy as text, Translate, Save word, Duplicate, Check, Delete
 extern const fude_row_def FUDE_PAGETEXT_CONTEXT_ROW;     // Paste, Paste text, Text from a photo, Select all
+extern const fude_row_def FUDE_PAGETEXT_TEXT_ROW;        // over a PDF's text: Copy as text, Translate, Save word
 
 void fude_pagetext_init(fude_pagetext* _text, struct fude_app* _app);
 void fude_pagetext_destroy(fude_pagetext* _text);

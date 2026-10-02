@@ -1,3 +1,3 @@
-/* The camera prompt (Text from a photo), in fr. UTF-8. */
-"NSCameraUsageDescription" = "Kana lit le texte japonais que voit l’appareil photo, pour que vous puissiez l’écrire sur la page.";
+/* The camera prompt (Text from a photo, Scan pages), in fr. UTF-8. */
+"NSCameraUsageDescription" = "Kana lit le texte japonais que voit l’appareil photo, pour que vous puissiez l’écrire sur la page, et numérise des pages à lire et sur lesquelles écrire.";
 "CFBundleDisplayName" = "Kana";
