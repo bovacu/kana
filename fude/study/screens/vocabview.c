@@ -416,6 +416,12 @@ RDE_INTERNAL void fude_vocabview_row_word(fude_app* _app, void* _self, u32 _arg)
     fude_wordcard_ask_typed(0u);
 }
 
+// Translate with Google: into Japanese (translator.h), from the reader's language.
+RDE_INTERNAL void fude_vocabview_row_translate(fude_app* _app, void* _self, u32 _arg) {
+    RDE_UNUSED(_self); RDE_UNUSED(_arg);
+    fude_translator_open(FUDE_STUDY(_app)->translator);
+}
+
 // Review: the words due today, as a word exam.
 RDE_INTERNAL void fude_vocabview_row_review(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_arg);
@@ -451,10 +457,11 @@ RDE_INTERNAL void fude_vocabview_row_practice(fude_app* _app, void* _self, u32 _
     fude_study_practice_set(_app, _records, _n);
 }
 
-enum { FUDE_VOCAB_ROW_BACK = 0, FUDE_VOCAB_ROW_WORD, FUDE_VOCAB_ROW_REVIEW, FUDE_VOCAB_ROW_EXAM, FUDE_VOCAB_ROW_SHEET, FUDE_VOCAB_ROW_PRACTICE };
+enum { FUDE_VOCAB_ROW_BACK = 0, FUDE_VOCAB_ROW_WORD, FUDE_VOCAB_ROW_TRANSLATE, FUDE_VOCAB_ROW_REVIEW, FUDE_VOCAB_ROW_EXAM, FUDE_VOCAB_ROW_SHEET, FUDE_VOCAB_ROW_PRACTICE };
 static const fude_row_button FUDE_VOCAB_BUTTONS[] = {
     { FUDE_TEXT_BACK,           FUDE_ICON_BACK,  fude_vocabview_row_back,     0, FUDE_ROW_QUIET,   false, NULL },
     { FUDE_TEXT_VOCAB_ADD_WORD, FUDE_ICON_PLUS,  fude_vocabview_row_word,     0, FUDE_ROW_QUIET,   false, NULL },
+    { FUDE_TEXT_SCAN_TRANSLATE, FUDE_ICON_TRANSLATE, fude_vocabview_row_translate, 0, FUDE_ROW_QUIET, false, fude_translate_available },
     { FUDE_TEXT_VOCAB_REVIEW_N, FUDE_ICON_RETRY, fude_vocabview_row_review,   0, FUDE_ROW_PRIMARY, true,  NULL },
     { FUDE_TEXT_EXAM,           FUDE_ICON_EXAM,  fude_vocabview_row_exam,     0, FUDE_ROW_QUIET,   false, NULL },
     { FUDE_TEXT_SHEET,          FUDE_ICON_PRINT, fude_vocabview_row_sheet,    0, FUDE_ROW_QUIET,   false, NULL },

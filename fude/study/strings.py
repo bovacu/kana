@@ -71,6 +71,17 @@ t('SCAN_TRANSLATING', 'Translating…', 'Traduciendo…', 'Traduzindo…', '翻�
 t('SCAN_TRANSLATION_NONE', 'This line could not be translated.', 'No se pudo traducir esta línea.', 'Não foi possível traduzir esta linha.', 'この行は翻訳できませんでした。', 'Cette ligne n’a pas pu être traduite.')
 t('SEL_TRANSLATION_NONE', 'It could not be translated.', 'No se pudo traducir.', 'Não foi possível traduzir.', '翻訳できませんでした。', 'La traduction a échoué.')
 t('SEL_TRANSLATE_MLKIT_OFF', 'Translating uses Google ML Kit: turn it on in Settings.', 'La traducción usa Google ML Kit: actívalo en Ajustes.', 'A tradução usa o Google ML Kit: ative-o em Ajustes.', '翻訳はGoogle ML Kitを使います。設定でオンにしてください。', 'La traduction utilise Google ML Kit : activez-le dans les Réglages.')
+
+# Into Japanese (translator.h): the Vocabulary's Translate with Google, from the reader's language.
+t('TRANSLATOR_TITLE', 'Into Japanese', 'Al japonés', 'Para o japonês', '日本語に翻訳', 'Vers le japonais')
+t('TRANSLATOR_HINT', 'A word or a sentence', 'Una palabra o una frase', 'Uma palavra ou uma frase', '単語や文', 'Un mot ou une phrase')
+t('TRANSLATOR_EMPTY', 'Type a word or a sentence in your language in the field at the top right, then Return: Google translates it into Japanese, with the words in it — tap one to save it. Then save the whole of it, write it on the page or practise its characters.',
+  'Escribe una palabra o una frase en tu idioma en el campo de arriba a la derecha y pulsa Intro: Google la traduce al japonés, con las palabras que contiene; toca una para guardarla. Después guárdala entera, escríbela en la página o practica sus caracteres.',
+  'Digite uma palavra ou uma frase no seu idioma no campo no canto superior direito e toque em Retorno: o Google a traduz para o japonês, com as palavras que ela contém — toque em uma para salvá-la. Depois salve-a inteira, escreva-a na página ou pratique seus caracteres.',
+  '右上の欄に単語や文を入力して改行すると、Googleが日本語に翻訳し、含まれる単語も表示します（タップで保存）。そのまま保存したり、ページに書いたり、字を練習したりできます。',
+  'Écrivez un mot ou une phrase dans votre langue dans le champ en haut à droite, puis Entrée : Google le traduit en japonais, avec les mots qu’il contient — touchez-en un pour l’enregistrer. Ensuite, enregistrez-le en entier, écrivez-le sur la page ou entraînez-vous à ses caractères.')
+t('TRANSLATOR_NONE', 'It could not be translated.', 'No se pudo traducir.', 'Não foi possível traduzir.', '翻訳できませんでした。', 'La traduction n’a pas pu se faire.')
+t('TRANSLATOR_NOTHING', 'Nothing in it to practise', 'No hay nada que practicar', 'Não há nada para praticar', '練習できる字がありません', 'Rien à pratiquer')
 t('SEL_COPY_TEXT', 'Copy as text', 'Copiar como texto', 'Copiar como texto', 'テキストでコピー', 'Copier en texte')
 t('SEL_READING', 'Reading…', 'Leyendo…', 'Lendo…', '読み取り中…', 'Lecture…')
 t('NOTICE_COPIED_TEXT', 'Copied: {0}', 'Copiado: {0}', 'Copiado: {0}', 'コピーしました：{0}', 'Copié : {0}')

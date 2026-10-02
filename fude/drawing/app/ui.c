@@ -129,11 +129,14 @@ void fude_ui_update(fude_ui* _ui) {
             if(_open && !_ui->_open_seen[_s]) {
                 fude_ui_field_clear(_field);
             }
+            // Placed as it shows, and again when the screen turns (built, it is the
+            // whole window: shown unplaced, it would cover everything).
+            const b8 _shows = _up && !_ui->_field_shown[_s];
             if(_up != _ui->_field_shown[_s]) {
                 _ui->_field_shown[_s] = _up;
                 rde_ui_node_set_active(fude_kit_field_node(_field), _up);
             }
-            if(_up && _replace) {
+            if(_up && (_replace || _shows)) {
                 fude_kit_place(fude_kit_field_node(_field), _field_c, _field_s);
             }
         }
@@ -297,9 +300,6 @@ void fude_ui_init(fude_ui* _ui, fude_app* _app) {
     _ui->app      = _app;
     _ui->window   = _app->window;
     _app->ui      = _ui;
-    if(_app->info != NULL && _app->info->name != NULL) {
-        rde_window_set_title(_app->window, _app->info->name);   // a computer's window: the app's name
-    }
     _ui->bar.tool        = FUDE_TOOL_DRAW;
     _ui->bar.tool_before = FUDE_TOOL_DRAW;
     _ui->bar.vertical    = true;

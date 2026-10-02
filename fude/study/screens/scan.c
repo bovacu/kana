@@ -325,11 +325,11 @@ RDE_INTERNAL void fude_scan_update_translations(fude_scan* _scan) {
         }
         _scan->translate_prepared = false;
     }
-    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_to);
+    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state("ja", _to);
     if(_state == FUDE_TRANSLATE_MISSING || _state == FUDE_TRANSLATE_FAILED) {
         if(!_scan->translate_prepared) {
             _scan->translate_prepared = true;
-            fude_translate_prepare(_to);
+            fude_translate_prepare("ja", _to);
         }
         return;
     }
@@ -340,7 +340,7 @@ RDE_INTERNAL void fude_scan_update_translations(fude_scan* _scan) {
         if(_lines[_i].translated != FUDE_SCAN_TRANSLATION_NONE) {
             continue;
         }
-        const u32 _t = fude_translate_text(_lines[_i].text, _to);
+        const u32 _t = fude_translate_text(_lines[_i].text, "ja", _to);
         if(_t == 0u) {
             break;
         }
@@ -643,7 +643,7 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
     }
     // Translating: its models on their way, or not to be had, say so instead.
     const b8                    _panel = fude_scan_panel_shown(_scan);
-    const FUDE_TRANSLATE_STATE_ _tstate = _panel ? fude_translate_state(fude_translate_target()) : FUDE_TRANSLATE_READY;
+    const FUDE_TRANSLATE_STATE_ _tstate = _panel ? fude_translate_state("ja", fude_translate_target()) : FUDE_TRANSLATE_READY;
     b8                          _bad    = _scan->message != 0;
     if(_scan->message == 0 && _tstate == FUDE_TRANSLATE_DOWNLOADING) {
         snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_SCAN_TRANSLATE_GETTING));

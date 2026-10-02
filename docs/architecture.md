@@ -20,8 +20,8 @@ fude/drawing/            the drawing core: every app has it
   base/                  files, words, colours: kfile save backup text theme utf8
   strings.py             its UI strings
 fude/study/              a study app's: what is learned, and the screens to learn it
-  app/                   study (fude_study, its hooks) · verbs · files · look
-  screens/               viewer browse practice album check exam stats scan vocabview wordexam
+  app/                   study (fude_study, its hooks) · verbs · files · look · demo (a learner's six weeks)
+  screens/               viewer browse practice album check exam stats scan vocabview wordexam translator
   widgets/               header wordcard pagetext
   models/                vocab review marks examlog history charnote select sheet
   handwriting/           match score segment recognize guide textink
@@ -268,7 +268,7 @@ places below. A Mandarin or Korean app keeps the layers and replaces these.
 | Script tables | `lang/ja/romaji.c` (gojūon, romaji ↔ hiragana), `lang/ja/chart.c` (the kana chart screen) | kana | none (pinyin input instead) | jamo and syllable composition: a jamo chart screen |
 | Levels and groups | `study/screens/browse.c` (filter chips), `study/screens/exam.c` (sources), `study/screens/stats.c` (groups) | JLPT N5–N1, hiragana, katakana, kanji | HSK 1–6, simplified / traditional | TOPIK, jamo, syllables |
 | Words in text | `lang/ja/wordsplit.c` (longest match + conjugation), `study/models/vocab.c` (a character's first reading) | Japanese conjugation | longest match, no conjugation | particles and conjugation (different rules) |
-| On the device | `study/services/`: `mlkit_ios.m` (ink `ja`), `textscan_ios.m` (Japanese text model), `translate` (from `ja`), `speech_ios.m` (ja-JP voice) | `ja` | `zh-Hani-CN` / `zh-Hani-TW`, the Chinese text model, zh-CN | `ko`, the Korean text model, ko-KR |
+| On the device | `study/services/`: `mlkit_ios.m` (ink `ja`), `textscan_ios.m` (Japanese text model), `translate` (`ja` and the reader's, either way: the page and photos into theirs, Into Japanese into Japanese), `speech_ios.m` (ja-JP voice) | `ja` | `zh-Hani-CN` / `zh-Hani-TW`, the Chinese text model, zh-CN | `ko`, the Korean text model, ko-KR |
 | The script's font | the app's info (`script_font`) | Noto Sans JP | Noto Sans SC / TC | Noto Sans KR |
 | Words in the UI | `fude/study/strings.py` (some name Japanese or Kana: ML Kit's states, Paste text's notice), the badges in `study/widgets/header.c`'s callers (試 語 音 訓 部 似 記) | | | |
 

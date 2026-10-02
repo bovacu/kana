@@ -152,12 +152,12 @@ RDE_INTERNAL u32 fude_reviews_days(i32 _y, u32 _m, u32 _d) {
     return (u32)(_era * 146097 + (i32)_doe - 719468);
 }
 
-#if defined(FUDE_TESTS)
-u32 fude_reviews_fake_today = 0;   // tests only: the day it is (0: the real one)
+#if defined(FUDE_TESTS) || defined(RDE_DEBUG)
+u32 fude_reviews_fake_today = 0;   // tests' and the demo's (review.h): the day it is (0: the real one)
 #endif
 
 u32 fude_reviews_today(void) {
-#if defined(FUDE_TESTS)
+#if defined(FUDE_TESTS) || defined(RDE_DEBUG)
     if(fude_reviews_fake_today != 0) {
         return fude_reviews_fake_today;
     }

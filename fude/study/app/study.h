@@ -19,6 +19,7 @@
 #include "study/screens/scan.h"
 #include "study/screens/vocabview.h"
 #include "study/screens/wordexam.h"
+#include "study/screens/translator.h"
 
 // ===========================================================================
 // The study layer's part of the app: what a study app (Kana; a Mandarin or a
@@ -52,6 +53,7 @@ typedef struct fude_study {
     fude_scan*       scan;
     fude_vocabview*  vocab;
     fude_wordexam*   wordexam;
+    fude_translator* translator;     // Into Japanese (the Vocabulary's Translate with Google)
     fude_selection*  selection;
 
     fude_pagetext  text;             // the page read as text (pagetext.h)
@@ -148,6 +150,9 @@ void fude_study_look_args(i32 _argc, c8** _argv);
 void fude_study_look_start(struct fude_app* _app);
 void fude_study_look_loaded(struct fude_app* _app);
 void fude_study_look_frame(struct fude_app* _app);
+// --demo[=LANG]: six weeks of a learner's work written into the study files, for
+// the store's screenshots (demo.c; a developer's build: nothing elsewhere).
+void fude_study_demo(struct fude_app* _app, const c8* _lang);
 
 // Settings' Handwriting (extension.h: a section).
 extern const fude_extension_section FUDE_STUDY_HANDWRITING;

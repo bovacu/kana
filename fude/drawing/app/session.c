@@ -186,7 +186,7 @@ RDE_INTERNAL void fude_session_on_screen_is_saved(fude_app* _app) {
 // --- loading ---------------------------------------------------------------------------------
 
 void fude_session_load(fude_app* _app) {
-    fude_save_set_folder(fude_app_id(_app));   // a device's: the app's own folder (info.h)
+    fude_save_set_folder(fude_app_id(_app));   // a device's: the app's own folder (fude_app_start has set it already)
     const c8* _dir = fude_save_dir();
     snprintf(fude_session_settings_path, sizeof(fude_session_settings_path), "%s%s", _dir, FUDE_SAVE_SETTINGS_FILE);
 

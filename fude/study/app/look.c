@@ -27,6 +27,9 @@
 //   --paste-text=TEXT [--save-selection] [--translate-selection]
 //   --scan-demo=PNG [--scan-demo-turn=DEG] [--scan-demo-top-first] [--scan-demo-translate] --scan-live
 //   --mlkit-samples=0-27,28-58  --translate-probe=xx
+//   --demo[=LANG]   six weeks of a learner's work, for the store's screenshots (demo.c)
+//   --translator=TEXT[|TEXT...]   Into Japanese over the Vocabulary, each TEXT asked (translations made up)
+//   --translate-demo   Translate with Google pretends, nothing opened (its buttons show, as on a device)
 // ===========================================================================
 
 #define FUDE_STUDY_LOOK_SAMPLES 32
@@ -44,6 +47,8 @@ RDE_INTERNAL struct {
     const c8* scan_demo;
     const c8* sheet;
     const c8* translate_probe;
+    const c8* demo;         // --demo[=LANG] ("": the app's language)
+    const c8* translator;   // --translator=TEXT[|TEXT...]
     // --mlkit-samples: ranges of the page's strokes, each read by ML Kit in turn.
     u32       sample_first[FUDE_STUDY_LOOK_SAMPLES];
     u32       sample_last[FUDE_STUDY_LOOK_SAMPLES];
@@ -71,12 +76,16 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--scan-demo-translate")) { fude_translate_demo(true); fude_study_look.scan_translate = true; }
         if(fude_look_is(_a, "--translate-selection")) { fude_translate_demo(true); fude_study_look.translate_sel = true; }
         if(fude_look_is(_a, "--save-selection"))      { fude_study_look.save_sel = true; }
+        if(fude_look_is(_a, "--translate-demo"))      { fude_translate_demo(true); }
         if(fude_look_is(_a, "--scan-demo-top-first")) { fude_study_look.scan_rows = true; }
         if(fude_look_is(_a, "--scan-live"))           { fude_study_look.scan_live = true; }
         if(fude_look_is(_a, "--stats"))               { fude_study_look.stats = true; }
         if(fude_look_is(_a, "--vocab-sample"))        { fude_study_look.vocab_sample = true; }
         if(fude_look_is(_a, "--vocab"))               { fude_study_look.vocab = 0; }
         if(fude_look_is(_a, "--word-exam"))           { fude_study_look.word_exam = 0; }
+        if(fude_look_is(_a, "--demo"))                { fude_study_look.demo = ""; }
+        if((_v = fude_look_value(_a, "--demo")) != NULL)           { fude_study_look.demo = _v; }
+        if((_v = fude_look_value(_a, "--translator")) != NULL)     { fude_study_look.translator = _v; fude_translate_demo(true); }
         if((_v = fude_look_value(_a, "--vocab")) != NULL)          { fude_study_look.vocab = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--word-exam")) != NULL)      { fude_study_look.word_exam = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--kept-exam")) != NULL)      { fude_study_look.kept_exam = (i64)strtoul(_v, NULL, 10); }
@@ -190,6 +199,9 @@ RDE_INTERNAL void fude_study_look_scan_demo(fude_app* _app) {
 }
 
 void fude_study_look_loaded(fude_app* _app) {
+    if(fude_study_look.demo != NULL) {
+        fude_study_demo(_app, fude_study_look.demo);   // first: what the flags below open shows it
+    }
     fude_study* _study = FUDE_STUDY(_app);
     if(fude_study_look.stats) {
         fude_stats_open(_study->stats);
@@ -227,6 +239,15 @@ void fude_study_look_loaded(fude_app* _app) {
         }
         for(u32 _i = 0; fude_study_look.word_exam == 3 && _i < FUDE_WORDEXAM_MAX && _study->wordexam->stage == FUDE_WORDEXAM_WRITING; _i++) {
             fude_wordexam_next(_study->wordexam);   // nothing written: the results, every word wrong
+        }
+    }
+    if(fude_study_look.translator != NULL) {
+        fude_vocabview_open(FUDE_STUDY(_app)->vocab);
+        fude_translator_open(FUDE_STUDY(_app)->translator);
+        c8 _texts[512];
+        snprintf(_texts, sizeof(_texts), "%s", fude_study_look.translator);
+        for(c8* _t = strtok(_texts, "|"); _t != NULL; _t = strtok(NULL, "|")) {
+            fude_translator_ask(FUDE_STUDY(_app)->translator, _t);
         }
     }
     if(fude_study_look.vocab >= 0) {
@@ -304,14 +325,14 @@ RDE_INTERNAL void fude_study_look_translate_probe(void) {
     const f64  _now = rde_engine_get_time_now();
     if(_start == 0.0) {
         _start = _now;
-        fude_translate_prepare(_to);
+        fude_translate_prepare("ja", _to);
     }
-    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_to);
+    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state("ja", _to);
     if(_state == FUDE_TRANSLATE_READY && !_sent) {
         _sent     = true;
         _ready_at = _sent_at = _now;
         for(u32 _i = 0; _i < 4u; _i++) {
-            _tickets[_i] = fude_translate_text(_sentences[_i], _to);
+            _tickets[_i] = fude_translate_text(_sentences[_i], "ja", _to);
         }
     }
     u32 _ticket;

@@ -17,7 +17,7 @@ RDE_INTERNAL b8  fude_translate_demo_on = false;
 RDE_INTERNAL u32 fude_translate_demo_next = 1u;
 RDE_INTERNAL u32 fude_translate_demo_head = 0u;
 RDE_INTERNAL u32 fude_translate_demo_count = 0u;
-RDE_INTERNAL struct { u32 ticket; c8 text[256]; } fude_translate_demo_queue[FUDE_TRANSLATE_DEMO_QUEUE];
+RDE_INTERNAL struct { u32 ticket; b8 into_japanese; c8 text[256]; } fude_translate_demo_queue[FUDE_TRANSLATE_DEMO_QUEUE];
 #endif
 
 void fude_translate_demo(b8 _on) {
@@ -66,24 +66,24 @@ const c8* fude_translate_target(void) {
     }
 }
 
-FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _target) {
+FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to) {
     if(fude_translate_demoing()) {
         return FUDE_TRANSLATE_READY;
     }
-    if(!fude_mlkit_enabled() || _target == NULL) {
+    if(!fude_mlkit_enabled() || _from == NULL || _to == NULL) {
         return FUDE_TRANSLATE_UNAVAILABLE;
     }
-    return fude_translate_platform_state(_target);
+    return fude_translate_platform_state(_from, _to);
 }
 
-void fude_translate_prepare(const c8* _target) {
-    if(!fude_translate_demoing() && fude_mlkit_enabled() && _target != NULL) {
-        fude_translate_platform_prepare(_target);
+void fude_translate_prepare(const c8* _from, const c8* _to) {
+    if(!fude_translate_demoing() && fude_mlkit_enabled() && _from != NULL && _to != NULL) {
+        fude_translate_platform_prepare(_from, _to);
     }
 }
 
-u32 fude_translate_text(const c8* _text, const c8* _target) {
-    if(_text == NULL || _target == NULL) {
+u32 fude_translate_text(const c8* _text, const c8* _from, const c8* _to) {
+    if(_text == NULL || _from == NULL || _to == NULL) {
         return 0u;
     }
 #if defined(RDE_DEBUG)
@@ -92,15 +92,16 @@ u32 fude_translate_text(const c8* _text, const c8* _target) {
             return 0u;
         }
         const u32 _at = (fude_translate_demo_head + fude_translate_demo_count++) % FUDE_TRANSLATE_DEMO_QUEUE;
-        fude_translate_demo_queue[_at].ticket = fude_translate_demo_next++;
+        fude_translate_demo_queue[_at].ticket        = fude_translate_demo_next++;
+        fude_translate_demo_queue[_at].into_japanese = strcmp(_to, "ja") == 0;
         snprintf(fude_translate_demo_queue[_at].text, sizeof(fude_translate_demo_queue[_at].text), "%s", _text);
         return fude_translate_demo_queue[_at].ticket;
     }
 #endif
-    if(fude_translate_state(_target) != FUDE_TRANSLATE_READY) {
+    if(fude_translate_state(_from, _to) != FUDE_TRANSLATE_READY) {
         return 0u;
     }
-    return fude_translate_platform_text(_text, _target);
+    return fude_translate_platform_text(_text, _from, _to);
 }
 
 b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
@@ -117,6 +118,8 @@ b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
         // line that could not be translated).
         if(*_ticket % 5u == 0u) {
             _out[0] = 0;
+        } else if(fude_translate_demo_queue[_at].into_japanese) {
+            snprintf(_out, _size, "\xE3\x80\x8C%s\xE3\x80\x8D\xE3\x81\xAE\xE8\xA8\xB3\xE3\x81\xA7\xE3\x81\x99\xE3\x80\x82", fude_translate_demo_queue[_at].text);   // 「…」の訳です。
         } else {
             snprintf(_out, _size, "A stand-in translation of %s (%zu bytes of Japanese), long enough to need a second line.",
                      fude_translate_demo_queue[_at].text, strlen(fude_translate_demo_queue[_at].text));
@@ -136,18 +139,21 @@ b8 fude_translate_platform_available(void) {
     return false;
 }
 
-FUDE_TRANSLATE_STATE_ fude_translate_platform_state(const c8* _target) {
-    RDE_UNUSED(_target);
+FUDE_TRANSLATE_STATE_ fude_translate_platform_state(const c8* _from, const c8* _to) {
+    RDE_UNUSED(_from);
+    RDE_UNUSED(_to);
     return FUDE_TRANSLATE_UNAVAILABLE;
 }
 
-void fude_translate_platform_prepare(const c8* _target) {
-    RDE_UNUSED(_target);
+void fude_translate_platform_prepare(const c8* _from, const c8* _to) {
+    RDE_UNUSED(_from);
+    RDE_UNUSED(_to);
 }
 
-u32 fude_translate_platform_text(const c8* _text, const c8* _target) {
+u32 fude_translate_platform_text(const c8* _text, const c8* _from, const c8* _to) {
     RDE_UNUSED(_text);
-    RDE_UNUSED(_target);
+    RDE_UNUSED(_from);
+    RDE_UNUSED(_to);
     return 0u;
 }
 

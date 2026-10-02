@@ -17,10 +17,14 @@
 #define FUDE_NOTES_RECORD_SIZE 20u    // id, parent, kind, expanded, 2 reserved, created lo/hi
 #define FUDE_NOTES_MAX         4096u  // more is a damaged file, not a notebook
 
+// Under the save folder — found again should that change (the app's own is set
+// before the saves are read: fude_app_start).
 RDE_INTERNAL const c8* fude_notes_dir(void) {
     static c8 _dir[RDE_MAX_PATH] = { 0 };
-    if(_dir[0] == 0) {
-        snprintf(_dir, sizeof(_dir), "%snotes/", fude_save_dir());
+    static c8 _in[RDE_MAX_PATH]  = { 0 };
+    if(_dir[0] == 0 || strcmp(_in, fude_save_dir()) != 0) {
+        snprintf(_in, sizeof(_in), "%s", fude_save_dir());
+        snprintf(_dir, sizeof(_dir), "%snotes/", _in);
         c8 _probe[RDE_MAX_PATH];
         snprintf(_probe, sizeof(_probe), "%sx.kana", _dir);
         rde_file_create_missing_dirs(_probe);

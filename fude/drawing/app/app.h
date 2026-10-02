@@ -67,6 +67,10 @@ typedef struct fude_app {
     const fude_screen_slot* top_seen;   // the screen on top last frame (to tell one coming back to the top)
 } fude_app;
 
+// The app's info given to what needs it before anything else runs — its save
+// folder on a device (its id), the window's title. The shell calls it as soon as
+// the app's fields are filled.
+void                  fude_app_start(fude_app* _app);
 // What the app adds (extension.h): its own, or nothing.
 const fude_extension* fude_app_ext(const fude_app* _app);
 // Its id (info.h): its own, or its name in lowercase (letters and digits).

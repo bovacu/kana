@@ -33,6 +33,11 @@ void fude_reviews_close(void);
 
 // The local day today, as a day number (days since 1970-01-01).
 u32  fude_reviews_today(void);
+#if defined(FUDE_TESTS) || defined(RDE_DEBUG)
+// Tests' and a developer's (the demo's, study/app/demo.c): the day it is, as
+// fude_reviews_today counts them (0: the real one).
+extern u32 fude_reviews_fake_today;
+#endif
 
 // Of _candidates (code points: the Studying and Known ones), what is due
 // today, into _out, at most _max: the due first, the longest waiting first,

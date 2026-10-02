@@ -71,6 +71,7 @@ RDE_INTERNAL fude_stats     stats;
 RDE_INTERNAL fude_scan      scan;
 RDE_INTERNAL fude_vocabview vocabview;
 RDE_INTERNAL fude_wordexam  wordexam;
+RDE_INTERNAL fude_translator translator;
 RDE_INTERNAL kana_welcome   welcome;
 RDE_INTERNAL fude_page_input page;
 RDE_INTERNAL fude_ui        ui;
@@ -140,6 +141,7 @@ RDE_INTERNAL void fude_screens_place(void) {
         { KANA_SCREEN_WORDEXAM, &FUDE_WORDEXAM_SCREEN, &wordexam },
         { KANA_SCREEN_EXAM,     &FUDE_EXAM_SCREEN,     &exam },
         { KANA_SCREEN_STATS,    &FUDE_STATS_SCREEN,    &stats },
+        { KANA_SCREEN_TRANSLATOR, &FUDE_TRANSLATOR_SCREEN, &translator },
         { KANA_SCREEN_VOCAB,    &FUDE_VOCAB_SCREEN,    &vocabview },
         { KANA_SCREEN_CHECK,    &FUDE_CHECK_SCREEN,    &check },
         { KANA_SCREEN_ALBUM,    &FUDE_ALBUM_SCREEN,    &album },
@@ -186,6 +188,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_selection_init(&selection, _have ? kanji_db.count : 0u);
     fude_exam_init(&exam, _db, &browse.catalog);
     fude_vocabview_init(&vocabview, _db);
+    fude_translator_init(&translator, _db);
     fude_wordexam_init(&wordexam, _db, &browse.catalog);
     fude_stats_init(&stats, _db, &browse.catalog);
     fude_scan_init(&scan);
@@ -208,10 +211,11 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             },
             .db = _have ? &kanji_db : NULL, .catalog = &browse.catalog,
             .viewer = &viewer, .browse = &browse, .practice = &practice, .album = &album, .check = &check, .exam = &exam,
-            .stats = &stats, .scan = &scan, .vocab = &vocabview, .wordexam = &wordexam, .selection = &selection,
+            .stats = &stats, .scan = &scan, .vocab = &vocabview, .wordexam = &wordexam, .translator = &translator, .selection = &selection,
         },
         .chart = &chart, .welcome = &welcome,
     };
+    fude_app_start(app);         // its save folder, its window's title: before anything reads a save
 #if defined(RDE_PLATFORM_MOBILE)
     app->finger_writes = true;   // a tablet starts with the hand on, until its settings (or a pen) say otherwise
 #endif
@@ -369,6 +373,7 @@ void end_func(void) {
     fude_exam_destroy(&exam);
     fude_wordexam_destroy(&wordexam);
     fude_vocabview_destroy(&vocabview);
+    fude_translator_destroy(&translator);
     fude_stats_destroy(&stats);
     fude_scan_destroy(&scan);
     fude_marks_close();

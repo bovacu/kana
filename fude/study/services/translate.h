@@ -4,11 +4,13 @@
 #include "rde.h"
 
 // ===========================================================================
-// Translation — the platform's side: Japanese text into the reader's language,
-// by Google ML Kit's on-device translator. Its models are not in the app: ML
-// Kit downloads Japanese's and the target's (about 30 MB each) the first time
-// they are asked for; from then on it works offline, and the text never leaves
-// the device. scan.h shows what it translates (Text from a photo).
+// Translation — the platform's side: Japanese text into the reader's language
+// (Text from a photo, the page's Translate), and the reader's language into
+// Japanese (the Vocabulary's Into Japanese: translator.h), by Google ML Kit's
+// on-device translator. Its models are not in the app: ML Kit downloads each
+// language's (about 30 MB) the first time a pair needs it; from then on it works
+// offline, and the text never leaves the device. A pair is two language codes:
+// "ja" and the reader's ("en" "es" "pt" "fr"), either way round.
 //
 // Google's terms for showing its translations (ML Kit's translation terms point
 // to Cloud Translation's attribution rules): the button that asks for one reads
@@ -50,17 +52,17 @@ void                  fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark);
 
 // Can this platform translate at all (ML Kit's translator is in it)?
 b8                    fude_translate_available(void);
-// The language translations go into: the app's ("en", "es", "pt", "fr") —
-// English when the app is in Japanese.
+// The reader's language: the app's ("en", "es", "pt", "fr") — English when the
+// app is in Japanese.
 const c8*             fude_translate_target(void);
-// Japanese into _target: the state of its models.
-FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _target);
-// Gets Japanese into _target ready: downloads what is missing (asynchronous;
+// _from into _to: the state of its models.
+FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to);
+// Gets _from into _to ready: downloads what is missing (asynchronous;
 // fude_translate_state follows it).
-void                  fude_translate_prepare(const c8* _target);
-// Starts translating _text (Japanese, UTF-8) into _target: a ticket for its
+void                  fude_translate_prepare(const c8* _from, const c8* _to);
+// Starts translating _text (UTF-8) from _from into _to: a ticket for its
 // answer, 0 when it cannot now (not READY).
-u32                   fude_translate_text(const c8* _text, const c8* _target);
+u32                   fude_translate_text(const c8* _text, const c8* _from, const c8* _to);
 // True once an answer is in — one per call: its ticket, and the translation
 // into _out (UTF-8), empty when it failed.
 b8                    fude_translate_poll(u32* _ticket, c8* _out, usize _size);
@@ -73,9 +75,9 @@ void                  fude_translate_demo(b8 _on);
 // demo around it): src/translate_ios.m on iOS, translate.c's own "not here"
 // elsewhere. The same meanings as the calls above.
 b8                    fude_translate_platform_available(void);
-FUDE_TRANSLATE_STATE_ fude_translate_platform_state(const c8* _target);
-void                  fude_translate_platform_prepare(const c8* _target);
-u32                   fude_translate_platform_text(const c8* _text, const c8* _target);
+FUDE_TRANSLATE_STATE_ fude_translate_platform_state(const c8* _from, const c8* _to);
+void                  fude_translate_platform_prepare(const c8* _from, const c8* _to);
+u32                   fude_translate_platform_text(const c8* _text, const c8* _from, const c8* _to);
 b8                    fude_translate_platform_poll(u32* _ticket, c8* _out, usize _size);
 
 #endif

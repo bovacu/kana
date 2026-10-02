@@ -175,14 +175,14 @@ RDE_INTERNAL void fude_pagetext_update_card(fude_pagetext* _text) {
     }
     const c8* _to = fude_translate_target();
     if(_text->card == FUDE_PAGETEXT_CARD_GETTING) {
-        const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_to);
+        const FUDE_TRANSLATE_STATE_ _state = fude_translate_state("ja", _to);
         if(_state == FUDE_TRANSLATE_READY) {
-            _text->card_ticket = fude_translate_text(_text->card_from, _to);
+            _text->card_ticket = fude_translate_text(_text->card_from, "ja", _to);
             _text->card        = _text->card_ticket != 0u ? FUDE_PAGETEXT_CARD_ASKED : FUDE_PAGETEXT_CARD_DONE;
         } else if(_state == FUDE_TRANSLATE_MISSING || (_state == FUDE_TRANSLATE_FAILED && !_text->card_prepared)) {
             if(!_text->card_prepared) {
                 _text->card_prepared = true;
-                fude_translate_prepare(_to);
+                fude_translate_prepare("ja", _to);
             }
         } else if(_state == FUDE_TRANSLATE_FAILED || _state == FUDE_TRANSLATE_UNAVAILABLE) {
             _text->card = FUDE_PAGETEXT_CARD_FAILED;
@@ -335,7 +335,7 @@ void fude_pagetext_render(fude_pagetext* _text, rde_window* _window) {
     rde_color _to_c = _t->text_soft;
     switch(_text->card) {
         case FUDE_PAGETEXT_CARD_GETTING:
-            _to = fude_text(fude_translate_state(fude_translate_target()) == FUDE_TRANSLATE_DOWNLOADING ? FUDE_TEXT_SCAN_TRANSLATE_GETTING : FUDE_TEXT_SCAN_TRANSLATING);
+            _to = fude_text(fude_translate_state("ja", fude_translate_target()) == FUDE_TRANSLATE_DOWNLOADING ? FUDE_TEXT_SCAN_TRANSLATE_GETTING : FUDE_TEXT_SCAN_TRANSLATING);
             break;
         case FUDE_PAGETEXT_CARD_ASKED:  _to = fude_text(FUDE_TEXT_SCAN_TRANSLATING); break;
         case FUDE_PAGETEXT_CARD_FAILED: _to = fude_text(FUDE_TEXT_SCAN_TRANSLATE_FAILED); _to_c = _t->score_poor; break;

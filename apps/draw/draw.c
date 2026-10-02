@@ -75,6 +75,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         .info = &DRAW_INFO, .ext = NULL, .window = _window, .font = rde_font_get_default_missing(), .font_px = 14.0f,
         .ink = &ink, .canvas = &canvas, .lasso = &lasso, .notes = &notes, .page = &page,
     };
+    fude_app_start(&app);       // its save folder, its window's title: before anything reads a save
 #if defined(RDE_PLATFORM_MOBILE)
     app.finger_writes = true;   // a tablet starts with the hand on, until its settings (or a pen) say otherwise
 #endif

@@ -23,6 +23,7 @@ typedef enum {
     KANA_SCREEN_WORDEXAM,      // over the Vocabulary
     KANA_SCREEN_EXAM,          // over the album (a kept exam)
     KANA_SCREEN_STATS,
+    KANA_SCREEN_TRANSLATOR,    // over the Vocabulary (Translate with Google: into Japanese)
     KANA_SCREEN_VOCAB,
     KANA_SCREEN_CHECK,
     KANA_SCREEN_ALBUM,

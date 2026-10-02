@@ -22,9 +22,11 @@ RDE_INTERNAL u32 fude_history_saves = 0;   // see fude_history_revision
 
 const c8* fude_history_dir(void) {
     static c8 _dir[RDE_MAX_PATH] = { 0 };
+    static c8 _in[RDE_MAX_PATH]  = { 0 };   // the save folder it is under (found again should that change)
 
-    if(_dir[0] == 0) {
-        snprintf(_dir, sizeof(_dir), "%spractice/", fude_save_dir());
+    if(_dir[0] == 0 || strcmp(_in, fude_save_dir()) != 0) {
+        snprintf(_in, sizeof(_in), "%s", fude_save_dir());
+        snprintf(_dir, sizeof(_dir), "%spractice/", _in);
         c8 _probe[RDE_MAX_PATH];
         snprintf(_probe, sizeof(_probe), "%sx.kana", _dir);
         rde_file_create_missing_dirs(_probe);

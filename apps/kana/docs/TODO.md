@@ -747,8 +747,32 @@ docs/architecture.md has how it fits together and how to start a new app.
       stand-ins in the Simulator); RDE's SDL3 lets the Simulator's GPU through its
       Metal check. Kana runs on the iPad Pro 12.9-inch Simulator at 2048 x 2732, and
       --stay runs a look without quitting, for its screenshots (COMMANDS.txt).
-- [ ] The store's screenshots from the Simulator: data to show (the test saves are
-      thin), and the shots that need a hand or ML Kit (2, 3, 6: listing.md).
+- [x] The store's screenshots from the Simulator, on the demo (fude/study/app/demo.c,
+      --demo[=LANG]: six weeks of a learner's work — written by a hand that steadies,
+      scored by the app's own scorer — practice, exams, marks, reviews, a vocabulary in
+      four lists, notes): 1, 4, 5, 7, 8 and more, in the five languages, 2048 x 2732, in
+      build/store-shots/<lang>/.
+- [ ] The shots that need a hand or ML Kit: 2 (Practice, written), 3 (a sentence
+      written and Checked), 6 (Text from a photo and its translation) — Borja's.
+- [x] The app's start (fude_app_start): its save folder and window title set before
+      anything reads a save (an --album launch had looked in the wrong folder); the
+      practice and canvas folders follow the save folder.
+
+## 10i. Into Japanese (Borja, 2026-10-02: "an option to translate from your selected language to japanese, for either vocabulary or sentences ... lets unleash its full potential")
+
+- [x] translate.h takes a pair (from, to): Japanese into the reader's language (the
+      page, photos) and the reader's into Japanese.
+- [x] Vocabulary › Translate with Google opens Into Japanese (study/screens/translator.c):
+      a word or a sentence typed (the field at the top right), its Japanese on a card,
+      a speaker, the dictionary's words in it (a tap: the word card, to save it); the
+      card chosen: Save (the whole of it, its meaning what was typed), Write (on the
+      page, in the characters' own strokes), Practice (its characters as a set). Google's
+      badge by them; the models the first time (about 30 MB a language).
+- [x] On the iPad: working (Borja, 2026-10-02). Fixed on the way: a screen's field
+      was placed only when the screen turned, so one opened later (Into Japanese,
+      Check's "I meant…") covered the whole window; it is placed as it shows now.
+- [ ] Next: the word card's meaning into Japanese (type the meaning, get the word);
+      a translation kept with the word (its sentence).
 
 ## 11. Release polish
 

@@ -88,7 +88,8 @@ RDE_INTERNAL struct {
     i32  argc;
     c8** argv;
     i32  welcome;   // --welcome[=PAGE]: the welcome at frame 10, on that page (-1: no)
-} kana_look = { 0, NULL, -1 };
+    b8   demo;      // --demo: the welcome closed (the demo's saves are a learner's, not a first launch)
+} kana_look = { 0, NULL, -1, false };
 
 void kana_look_args(i32 _argc, c8** _argv) {
     fude_study_look_args(_argc, _argv);
@@ -97,6 +98,7 @@ void kana_look_args(i32 _argc, c8** _argv) {
     for(i32 _i = 1; _i < _argc; _i++) {
         const c8* _v;
         if(fude_look_is(_argv[_i], "--welcome"))                    { kana_look.welcome = 0; }
+        if(fude_look_is(_argv[_i], "--demo") || fude_look_value(_argv[_i], "--demo") != NULL) { kana_look.demo = true; }
         if((_v = fude_look_value(_argv[_i], "--welcome")) != NULL) { kana_look.welcome = (i32)strtol(_v, NULL, 10) - 1; }
     }
 }
@@ -110,6 +112,9 @@ void kana_look_start(fude_app* _app) {
 
 void kana_look_loaded(fude_app* _app) {
     fude_study_look_loaded(_app);
+    if(kana_look.demo) {
+        KANA_APP(_app)->welcome->open = false;
+    }
 }
 
 void kana_look_frame(fude_app* _app) {
