@@ -3,3 +3,4 @@ build/
 saves/
 .DS_Store
 third_party/mlkit/
+tests/build/

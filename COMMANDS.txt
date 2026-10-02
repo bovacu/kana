@@ -1,6 +1,25 @@
 kana — build commands
 =====================
 
+THE SOURCES are in layer folders under src/ (docs/architecture.md says what each
+is for): app/ screens/ widgets/ ink/ handwriting/ study/ chars/ base/ services/
+lang/ja/; kana.c, the shell, at the root. Each header is beside its source and
+is included by its folder ("widgets/row.h"), with -I<project>/src the only
+include path. A source added goes into the four lists below (Windows, Android,
+iOS, macOS) in its folder's place.
+
+ONCE, after the move into folders (2026-10-02): delete build/ before building —
+the builder links every object it finds in its obj/ folder, and the old flat
+names (src.toolbar.c.o) would be linked beside the new (src.app.ui.c.o...).
+
+THE TESTS: tests/run.sh (macOS or Linux; RDE beside the project, or RDE=...)
+builds every suite with AddressSanitizer and UBSan and runs it; tests/README.md
+has what each covers.
+
+THE STRINGS: every text the app shows, in its five languages, is in
+tools/text/strings.py; after changing one, python3 tools/text/strings.py writes
+assets/text/strings.rdel and src/base/text_ids.h (don't edit those by hand).
+
 The engine is built separately from the app, and it is built PER PLATFORM. A
 Windows engine build followed by an Android app build (or the reverse) does not
 work: rde_config.h and shaders.h are regenerated per platform. Build the engine
@@ -20,7 +39,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c -IC:/Users/borja/Programming/Projects/kana/src ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,7 +63,7 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -Iinclude -Wall -Wextra ^
+    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c -Isrc -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
@@ -82,8 +101,8 @@ paths are absolute on purpose.
     --ios_assets=/Users/borjavazquez/kana/platform/ios/Assets.xcassets \
     --ios_launch_storyboard=/Users/borjavazquez/kana/platform/ios/LaunchScreen.storyboard \
     --ios_plist=/Users/borjavazquez/kana/platform/ios/Info.plist \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c src/mlkit_ios.m src/textscan_ios.m src/translate_ios.m src/speech_ios.m \
-    -I/Users/borjavazquez/kana/include -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c src/services/mlkit_ios.m src/services/textscan_ios.m src/services/translate_ios.m src/services/speech_ios.m \
+    -I/Users/borjavazquez/kana/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
 
 platform/ios/ holds what the app is on iOS besides its code: the asset catalog
@@ -160,8 +179,8 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/ \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c \
-    -I/Users/borjavazquez/kana/include -Wall -Wextra
+    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c \
+    -I/Users/borjavazquez/kana/src -Wall -Wextra
 
   ./build/osx-silicon/debug/project/exe/runnable                  # the app
   ./build/osx-silicon/debug/project/exe/runnable --viewer=6728    # straight into the viewer on 木 (hex code point)
@@ -186,7 +205,11 @@ lasso read it, --save-selection Save word on the selection (after --paste-text);
 camera, for measuring on the device), --trim-fonts (the fonts trimmed as on going to the background, just
 before the shot: every glyph drawn again from nothing), its size and theme (--size=744x1133 is an iPad
 mini's points, --theme=N), how far down (--scroll=PX), and --shot=FILE: a PNG
-of the window once it has settled, then the app quits.
+of the window once it has settled, then the app quits. --press=I,J,... presses
+the buttons of the row of the screen on top in turn, as taps would (from frame
+30, one every four frames; the shot waits for the last), and --language=N
+switches to Kana's Nth language at frame 12 — to check what the buttons DO
+without a device (src/app/look.c has every flag).
 
 On the device (a build that takes arguments, as for --perf):
 --translate-probe=xx tries ML Kit's translator — Japanese into xx (en, es, pt,
@@ -204,7 +227,7 @@ THE CHARACTER DATA BAKE
 -----------------------
 assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2, with the JLPT
 lists, JMdict's example words and Tatoeba's example sentences (format in
-include/kanji.h). Re-bake only when the sources are updated. The sources are
+src/chars/kanji.h). Re-bake only when the sources are updated. The sources are
 not in the repository (data/raw/ is ignored):
 
   mkdir -p data/raw && cd data/raw
@@ -270,23 +293,24 @@ repository, Regular only (~4.5 MB); Slug loads its glyphs as they are used:
 The icons are Phosphor (MIT, https://phosphoricons.com): only its Regular and
 Fill fonts ship (assets/fonts/Phosphor-*.ttf, and LICENSE-Phosphor.txt). The
 whole package (SVGs, PNGs, the other weights, and the stylesheets that give
-each icon's code point — include/icons.h is made from Fonts/regular/style.css)
+each icon's code point — src/widgets/icons.h is made from Fonts/regular/style.css)
 is kept in data/raw/phosphor-icons/, not in the repository nor the app.
 
-The two shipped fonts are cut down to the icons Kana uses (include/icons.h:
-82, ~20 KB each instead of ~470 KB; the outlines and metrics are unchanged,
-so KANA_TOOLBAR_ICON_BEARINGS still holds). A NEW ICON means cutting them
+The two shipped fonts are cut down to the icons Kana uses (src/widgets/icons.h:
+97, ~20 KB each instead of ~470 KB; the outlines and metrics are unchanged,
+so KANA_KIT_ICON_BEARINGS still holds). A NEW ICON means cutting them
 again from the whole fonts, with fontTools' pyftsubset (pip install fonttools;
 a one-off tool, nothing in the app needs it). From the project root:
 
-  U=$(python3 -c "import re;s=open('include/icons.h').read();print(','.join(sorted({'%04X'%ord(c) for m in re.findall(r'#define\s+KANA_ICON_\w+\s+\"([^\"]+)\"',s) for c in bytes(int(h,16) for h in re.findall(r'\\\\x([0-9A-Fa-f]{2})',m)).decode()})))")
+  U=$(python3 -c "import re;s=open('src/widgets/icons.h').read();print(','.join(sorted({'%04X'%ord(c) for m in re.findall(r'#define\s+KANA_ICON_\w+\s+\"([^\"]+)\"',s) for c in bytes(int(h,16) for h in re.findall(r'\\\\x([0-9A-Fa-f]{2})',m)).decode()})))")
   for f in regular/Phosphor:Regular fill/Phosphor-Fill:Fill; do
     pyftsubset data/raw/phosphor-icons/Fonts/${f%%:*}.ttf --unicodes="$U" \
       --output-file=assets/fonts/Phosphor-${f##*:}.ttf --no-hinting --layout-features='' \
       --name-IDs='*' --name-languages='*' --name-legacy --notdef-outline
   done
 
-(and its bearing into KANA_TOOLBAR_ICON_BEARINGS, src/toolbar.c).
+then the icons' bearings, measured from the new font (KANA_KIT_ICON_BEARINGS
+in src/widgets/kit.c is rewritten): python3 tools/icons/bearings.py
   curl -L -o assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
 
 

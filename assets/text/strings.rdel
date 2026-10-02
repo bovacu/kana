@@ -1,8 +1,9 @@
 // Kana's words, one block per language (RDE's localization format: a
 // LANGUAGE: line, then ID=text lines). Every block has every id of
-// include/text_ids.h. {0}, {1}... are placeholders, {0,plural, one{...}
-// other{...}} counts (# the number); an ASCII apostrophe quotes the next
-// character, so write the typographic one (U+2019).
+// src/base/text_ids.h; both are made by tools/text/strings.py: edit it, not
+// them. {0}, {1}... are placeholders, {0,plural, one{...} other{...}} counts
+// (# the number); an ASCII apostrophe quotes the next character, so write the
+// typographic one (U+2019).
 
 // English
 EN-US:

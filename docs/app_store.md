@@ -145,7 +145,7 @@ ship with the app.
 - [x] CONTACT set (rde.apps.support@gmail.com). [ ] **The pages hosted** on GitHub
       Pages, both URLs in App Store Connect.
 - [ ] **The App Store Connect record**: its Apple ID goes in `KANA_APP_STORE_ID`
-      (include/version.h) so Rate opens the write-review page; then the texts
+      (src/app/version.h) so Rate opens the write-review page; then the texts
       (`docs/store/listing.md`), the screenshots (iPad 13-inch:
       `tools/store/screenshots.py`), the age rating, the price.
 - [x] Export compliance: `ITSAppUsesNonExemptEncryption` false (HTTPS through

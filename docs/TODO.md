@@ -381,7 +381,7 @@ by the Words title.
         new set_text_color / set_caret_color); icons centred for their
         bearings (a label is off by a glyph's whole left bearing).
       - The string table: done, seen working 2026-10-01. Every UI string is an
-        id (include/text_ids.h, KANA_TEXT_*) in assets/text/strings.rdel (RDE's
+        id (src/base/text_ids.h, KANA_TEXT_*; made by tools/text/strings.py) in assets/text/strings.rdel (RDE's
         localization: one block per language, {0} and plural placeholders);
         text.h caches them and renders templates through RDE.
 
@@ -665,6 +665,42 @@ a server): export / import instead. Built in this order:
 - [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID. Age
       13+ (Apple's nearest to the 12+ chosen); price suggested USD 9.99 once,
       with the Small Business Program.
+
+## 10g. The architecture (Borja, 2026-10-02: "this will help on future Chinese + Korean versions")
+
+The layers, the screen interface, the widgets, the language layer: docs/architecture.md.
+
+- [x] Screens behind one interface (screen.h) in one order (app.h): kana.c's three
+      if-chains (input, update, render) became one table. Each screen declares its
+      rows of buttons as data (row.h) with faces for what they show now; toolbar.c's
+      ~90 callbacks and ten "what is shown" caches went into the screens or the row.
+- [x] Widgets out of toolbar.c (3,725 lines → 697, the floating bar alone): kit.c,
+      row.c, pagemenu.c, filterbar.c (generic: Browse declares its chips), ui.c
+      (the canvas, the fonts, rebuilding); header.c and kit's modal from code that
+      was repeated across screens.
+- [x] kana.c (2,566 lines → 384) split into app.c, page.c (writing, the hand),
+      session.c (saves, files out), look.c (launch flags, --perf, probes).
+- [x] Pure logic out of screens: the kana tables and romaji (romaji.c, from the
+      chart and the catalog), a vocabulary list from characters (vocab.c, from the
+      toolbar), the reviews due (app.c, from the side panel).
+- [x] Fixed on the way: after a language change the Vocabulary screen and word
+      exams had no row of buttons (the rebuild forgot them); a notice raised on a
+      screen was never shown there; with the welcome over Practice, the pointer
+      went to Practice; Translate with Google's chosen icon stayed Regular.
+- [x] Checked: 39 screens shot before and after: of the 30 that don't animate
+      or pick at random, 29 identical, 1 changed on purpose (Translate's icon); 13 pressed sequences (--press); 24 test suites; iOS release builds.
+- [x] Folders by layer (Borja: "the correct hierarchy of directories"): src/app,
+      screens, widgets, ink, handwriting, study, chars, base, services, lang/ja;
+      each header beside its source, included by folder ("widgets/row.h"), one
+      include path (-I<project>/src). The four build lists in COMMANDS.txt follow.
+- [x] The tests in the repository: tests/run.sh, the 24 suites, one set of engine
+      stand-ins (tests/support/; 17 copies before). The UI strings' source
+      (tools/text/strings.py) and the icons' bearings (tools/icons/bearings.py)
+      too — both lived only in a scratch folder.
+- [ ] Windows and Android built from the new lists (delete build/ first, once:
+      the builder links every object left in obj/).
+- [ ] On the iPad: every screen's row, the side panel, a language change.
+- [ ] When the second app starts: the language layer (lang.h) — docs/architecture.md.
 
 ## 11. Release polish
 
