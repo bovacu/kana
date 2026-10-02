@@ -8,7 +8,7 @@
 // The words in a line of Japanese, from Kana's own dictionary (kanji.h 'WORD':
 // JMdict's common words with kanji, each with its reading and meaning) — for
 // Text from a photo and Translate with Google, where each word of a line can be
-// added to the learner's words (userwords.h). No ML, no network.
+// added to the learner's vocabulary (vocab.h). No ML, no network.
 //
 // Longest match first, from the left: at each character the longest stretch the
 // dictionary has as a word (written form) — or as a verb's or an adjective's

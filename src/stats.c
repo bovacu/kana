@@ -7,7 +7,7 @@
 #include "history.h"
 #include "marks.h"
 #include "theme.h"
-#include "userwords.h"
+#include "vocab.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -266,7 +266,7 @@ void kana_stats_compute(kana_stats_data* _d, const kana_kanji_db* _db, const kan
         }
         rde_arr_free(&_state);
     }
-    _d->words_added = kana_userwords_total();
+    _d->words_added = kana_vocab_count();
     for(u32 _r = 0; _db != NULL && _catalog != NULL && _r < _db->count; _r++) {
         kana_kanji_info _info;
         if(!kana_catalog_passes(_catalog, _r, KANA_FILTER_ALL) || !kana_kanji_at(_db, _r, &_info)) {

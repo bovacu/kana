@@ -70,6 +70,11 @@
 //           the Japanese, then English, Spanish, French, Portuguese ("" where it
 //           has none); then u32 the word count and a u32 per word: its sentence
 //           (UINT32_MAX: none) — one with the word in it, a comfortable length.
+//   'LOOK'  (optional) look-alikes: u32 count (the CHRS count), then per
+//           character KANA_KANJI_LOOKALIKES u32 code points (0: none), closest
+//           first — the common characters whose strokes the matcher (match.h)
+//           finds closest to its own (未 末, 土 士, シ ツ). Baked after the rest
+//           (the matcher reads the file).
 // ===========================================================================
 
 #define KANA_KANJI_VERSION      1u
@@ -87,6 +92,8 @@
 #define KANA_KANJI_CHUNK_WORDS  KANA_TAG('W', 'O', 'R', 'D')
 #define KANA_KANJI_CHUNK_WORD_FREQ KANA_TAG('W', 'F', 'R', 'Q')
 #define KANA_KANJI_CHUNK_SENTENCES KANA_TAG('S', 'E', 'N', 'T')
+#define KANA_KANJI_CHUNK_LOOK      KANA_TAG('L', 'O', 'O', 'K')
+#define KANA_KANJI_LOOKALIKES      4u    // look-alikes kept per character
 #define KANA_KANJI_MAX_PARTS    32u
 #define KANA_KANJI_MAX_WORDS    20u    // words a character can list (examples, then more)
 #define KANA_KANJI_LANGUAGES    8u     // other languages' meanings read ('LNxx')
@@ -148,6 +155,7 @@ RDE_STRUCT {
     const c8** _sentences;     // 'SENT': each sentence's Japanese (its translations follow), or NULL
     u32        sentence_count;
     const u8*  _sentence_of;   // a u32 per word: its sentence, or NULL
+    const u8*  _look;          // 'LOOK': KANA_KANJI_LOOKALIKES u32 per character, or NULL
     kana_kanji_language _languages[KANA_KANJI_LANGUAGES];
     u32                 _language_count;
     i32                 _language;   // the meanings shown: one of _languages, -1 English
@@ -213,6 +221,10 @@ RDE_STRUCT {
 
 // Word _word's example sentence. False when it has none.
 b8        kana_kanji_word_sentence(const kana_kanji_db* _db, u32 _word, kana_kanji_sentence* _out);
+
+// The characters that look like record _index's ('LOOK'): code points, closest
+// first, at most _max into _out. How many (0: none, or the file has none).
+u32       kana_kanji_lookalikes(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max);
 
 // How common word _word is: lower the commoner ('WFRQ'); 0xFFFF when unknown.
 u16       kana_kanji_word_freq(const kana_kanji_db* _db, u32 _word);

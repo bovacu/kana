@@ -1,5 +1,9 @@
 #include "viewer.h"
 #include "speech.h"
+#include "wordcard.h"
+#include "wordsplit.h"
+#include "examlog.h"
+#include "charnote.h"
 #include "draw.h"
 #include "icons.h"
 #include "select.h"
@@ -19,6 +23,7 @@
 #define KANA_VIEWER_KANA_SIZE  30.0f     // a stroke-drawn kana in a reading
 #define KANA_VIEWER_GUTTER     40.0f     // wide: between the character and its details
 #define KANA_VIEWER_MIN_CHAR   300.0f    // stacked: words go (down to 3; 2 for a sentence) before the character gets smaller than this
+#define KANA_VIEWER_MIN_CHAR_SENT 260.0f // ...or than this, to keep the example sentence
 #define KANA_VIEWER_TITLE      48.0f     // the "Words" line: its title and Add
 #define KANA_VIEWER_ROW        44.0f     // an example word's row (a finger's height)
 #define KANA_VIEWER_WORD_PX    19.0f     // its written form
@@ -33,6 +38,8 @@
 #define KANA_VIEWER_SENT_TITLE 36.0f     // the sentence card's title line
 #define KANA_VIEWER_SENT_GAP   10.0f     // between the words' card and the sentence's
 #define KANA_VIEWER_SPEAKER_W  28.0f     // the speaker before the sentence
+#define KANA_VIEWER_CHIP_H     28.0f     // a sentence's word
+#define KANA_VIEWER_CHIP_GAP   5.0f
 
 void kana_viewer_init(kana_viewer* _viewer, const kana_kanji_db* _db) {
     memset(_viewer, 0, sizeof(*_viewer));
@@ -41,6 +48,8 @@ void kana_viewer_init(kana_viewer* _viewer, const kana_kanji_db* _db) {
     _viewer->pressed  = -1;
     _viewer->rows_for = UINT32_MAX;
     _viewer->sentences_for = UINT32_MAX;
+    _viewer->similar_for   = UINT32_MAX;
+    _viewer->similar_pressed = -1;
     kana_glyph_init(&_viewer->glyph, _db);
 }
 
@@ -87,12 +96,12 @@ RDE_INTERNAL void kana_viewer_row_set(kana_viewer_row* _row, u8 _kind, b8 _ticke
 // examples; in Add, the ones typed in, then the character's further words.
 RDE_INTERNAL void kana_viewer_list_rows(kana_viewer* _viewer, u32 _record, u32 _codepoint) {
     const b8 _moved = _viewer->rows_for != _record || _viewer->rows_adding != _viewer->adding;
-    if(!_moved && _viewer->rows_words == kana_userwords_revision()) {
+    if(!_moved && _viewer->rows_words == kana_vocab_revision()) {
         return;
     }
     _viewer->rows_for    = _record;
     _viewer->rows_adding = _viewer->adding;
-    _viewer->rows_words  = kana_userwords_revision();
+    _viewer->rows_words  = kana_vocab_revision();
     _viewer->row_count   = 0;
     if(_moved) {
         kana_scroller_stop(&_viewer->scroll);
@@ -105,10 +114,10 @@ RDE_INTERNAL void kana_viewer_list_rows(kana_viewer* _viewer, u32 _record, u32 _
     u32       _words[KANA_KANJI_MAX_WORDS];
     u32       _examples = 0;
     const u32 _n        = kana_kanji_words(_viewer->db, _record, _words, KANA_KANJI_MAX_WORDS, &_examples);
-    const u32 _yours    = kana_userwords_count(_codepoint);
+    const u32 _yours    = kana_vocab_kanji_count(_codepoint);
     kana_kanji_word _w;
     for(u32 _i = 0; _i < _yours && _viewer->row_count < KANA_VIEWER_ROWS; _i++) {
-        if(!kana_userwords_at(_codepoint, _i, &_w)) {
+        if(!kana_vocab_kanji_at(_codepoint, _i, &_w)) {
             continue;
         }
         if(_viewer->adding) {
@@ -129,7 +138,7 @@ RDE_INTERNAL void kana_viewer_list_rows(kana_viewer* _viewer, u32 _record, u32 _
     for(u32 _k = _from; _k < _to && _viewer->row_count < KANA_VIEWER_ROWS; _k++) {
         if(kana_kanji_word_at(_viewer->db, _words[_k], &_w)) {
             kana_viewer_row_set(&_viewer->rows[_viewer->row_count++], _viewer->adding ? KANA_VIEWER_ROW_TO_ADD : KANA_VIEWER_ROW_EXAMPLE,
-                                _viewer->adding && kana_userwords_has(_codepoint, _w.written, _w.reading), &_w);
+                                _viewer->adding && (kana_vocab_find(_w.written, _w.reading) != 0u), &_w);
         }
     }
 }
@@ -138,12 +147,15 @@ RDE_INTERNAL void kana_viewer_list_rows(kana_viewer* _viewer, u32 _record, u32 _
 // examples, then the rest; each sentence once.
 RDE_INTERNAL void kana_viewer_list_sentences(kana_viewer* _viewer, u32 _record, u32 _codepoint) {
     const b8 _moved = _viewer->sentences_for != _record;
-    if(!_moved && _viewer->sentences_words == kana_userwords_revision()) {
+    if(!_moved && _viewer->sentences_words == kana_vocab_revision()) {
         return;
     }
     const u32 _shown = _viewer->sentence_at < _viewer->sentence_count ? _viewer->sentences[_viewer->sentence_at] : UINT32_MAX;
     _viewer->sentences_for   = _record;
-    _viewer->sentences_words = kana_userwords_revision();
+    _viewer->sentences_words = kana_vocab_revision();
+    if(_moved) {
+        _viewer->sentence_room = 0.0f;
+    }
     _viewer->sentence_count  = 0;
     _viewer->sentence_at     = 0;
     if(!kana_viewer_is_kanji(_codepoint)) {
@@ -156,7 +168,7 @@ RDE_INTERNAL void kana_viewer_list_sentences(kana_viewer* _viewer, u32 _record, 
         for(u32 _k = 0; _k < _n && _viewer->sentence_count < KANA_VIEWER_SENTENCES; _k++) {
             kana_kanji_word     _w;
             kana_kanji_sentence _s;
-            if(!kana_kanji_word_at(_viewer->db, _words[_k], &_w) || (kana_userwords_has(_codepoint, _w.written, _w.reading) != (_pass == 0u)) ||
+            if(!kana_kanji_word_at(_viewer->db, _words[_k], &_w) || ((kana_vocab_find(_w.written, _w.reading) != 0u) != (_pass == 0u)) ||
                !kana_kanji_word_sentence(_viewer->db, _words[_k], &_s)) {
                 continue;
             }
@@ -165,8 +177,10 @@ RDE_INTERNAL void kana_viewer_list_sentences(kana_viewer* _viewer, u32 _record, 
                 _again = _seen[_i] == _s.japanese;
             }
             if(!_again) {
-                _seen[_viewer->sentence_count]                = _s.japanese;
-                _viewer->sentences[_viewer->sentence_count++] = _words[_k];
+                const u32 _at = _viewer->sentence_count++;
+                _seen[_at]               = _s.japanese;
+                _viewer->sentences[_at]  = _words[_k];
+                _viewer->sentence_word_n[_at] = (u8)kana_wordsplit(_viewer->db, _s.japanese, _viewer->sentence_words[_at], KANA_VIEWER_SENTENCE_WORDS);
             }
         }
     }
@@ -175,6 +189,48 @@ RDE_INTERNAL void kana_viewer_list_sentences(kana_viewer* _viewer, u32 _record, 
             _viewer->sentence_at = _i;   // the learner's words changed: still that one
         }
     }
+}
+
+// What the character is mixed up with: the learner's exams first (read as
+// another, or another read as it — the latest first), then its look-alikes.
+RDE_INTERNAL void kana_viewer_list_similar(kana_viewer* _viewer, u32 _record, u32 _codepoint) {
+    if(_viewer->similar_for == _record && _viewer->similar_log == kana_examlog_revision()) {
+        return;
+    }
+    _viewer->similar_for   = _record;
+    _viewer->similar_log   = kana_examlog_revision();
+    _viewer->similar_count = 0;
+    _viewer->similar_mine  = 0;
+    #define KANA_VIEWER_ADD_SIMILAR(_cp) do { \
+        b8 _seen = (_cp) == 0u || (_cp) == _codepoint; \
+        for(u32 _k = 0; _k < _viewer->similar_count && !_seen; _k++) { _seen = _viewer->similar[_k] == (_cp); } \
+        u32 _index; \
+        if(!_seen && _viewer->similar_count < KANA_VIEWER_SIMILAR && kana_kanji_find_index(_viewer->db, (_cp), &_index)) { \
+            _viewer->similar[_viewer->similar_count++] = (_cp); \
+        } \
+    } while(0)
+    const kana_examlog_exam* _exams = kana_examlog_exams();
+    const kana_examlog_item* _items = kana_examlog_items();
+    for(u32 _e = kana_examlog_count(); _e-- > 0 && _viewer->similar_count < 3u;) {
+        for(u32 _i = _exams[_e].item_count; _i-- > 0 && _viewer->similar_count < 3u;) {
+            const kana_examlog_item* _it = &_items[_exams[_e].first_item + _i];
+            if(_it->correct || _it->read_as == 0u) {
+                continue;
+            }
+            if(_it->codepoint == _codepoint) {
+                KANA_VIEWER_ADD_SIMILAR(_it->read_as);
+            } else if(_it->read_as == _codepoint) {
+                KANA_VIEWER_ADD_SIMILAR(_it->codepoint);
+            }
+        }
+    }
+    _viewer->similar_mine = _viewer->similar_count;
+    u32       _look[KANA_KANJI_LOOKALIKES];
+    const u32 _n = kana_kanji_lookalikes(_viewer->db, _record, _look, KANA_KANJI_LOOKALIKES);
+    for(u32 _i = 0; _i < _n; _i++) {
+        KANA_VIEWER_ADD_SIMILAR(_look[_i]);
+    }
+    #undef KANA_VIEWER_ADD_SIMILAR
 }
 
 RDE_INTERNAL b8 kana_viewer_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F _max) {
@@ -221,9 +277,22 @@ RDE_INTERNAL void kana_viewer_speak_readings(kana_viewer* _viewer) {
 }
 
 void kana_viewer_pointer_down(kana_viewer* _viewer, rde_vec_2F _screen, f64 _time) {
+    _viewer->note_pressed = kana_viewer_inside(_screen, _viewer->note_min, _viewer->note_max) ||
+                            kana_viewer_inside(_screen, _viewer->note_line_min, _viewer->note_line_max);
+    _viewer->similar_pressed = -1;
+    for(u32 _k = 0; _k < _viewer->similar_shown; _k++) {
+        if(kana_viewer_inside(_screen, _viewer->similar_min[_k], _viewer->similar_max[_k])) {
+            _viewer->similar_pressed = (i32)_k;
+        }
+    }
     _viewer->readings_pressed = kana_speech_available() && kana_viewer_inside(_screen, _viewer->readings_min, _viewer->readings_max);
     _viewer->sentence_pressed = kana_viewer_inside(_screen, _viewer->next_min, _viewer->next_max) ? 2u
                               : kana_speech_available() && kana_viewer_inside(_screen, _viewer->sentence_min, _viewer->sentence_max) ? 1u : 0u;
+    for(u32 _k = 0; _k < _viewer->word_shown; _k++) {
+        if(kana_viewer_inside(_screen, _viewer->word_min[_k], _viewer->word_max[_k])) {
+            _viewer->sentence_pressed = (u8)(3u + _k);
+        }
+    }
     _viewer->add_pressed = kana_viewer_inside(_screen, _viewer->add_min, _viewer->add_max);
     _viewer->in_list     = !_viewer->add_pressed && kana_viewer_inside(_screen, _viewer->list_min, _viewer->list_max);
     if(_viewer->in_list) {
@@ -244,8 +313,18 @@ void kana_viewer_pointer_moved(kana_viewer* _viewer, rde_vec_2F _screen, f64 _ti
     if(_viewer->readings_pressed && !kana_viewer_inside(_screen, _viewer->readings_min, _viewer->readings_max)) {
         _viewer->readings_pressed = false;
     }
+    if(_viewer->note_pressed && !kana_viewer_inside(_screen, _viewer->note_min, _viewer->note_max) &&
+       !kana_viewer_inside(_screen, _viewer->note_line_min, _viewer->note_line_max)) {
+        _viewer->note_pressed = false;
+    }
+    if(_viewer->similar_pressed >= 0 &&
+       !kana_viewer_inside(_screen, _viewer->similar_min[_viewer->similar_pressed], _viewer->similar_max[_viewer->similar_pressed])) {
+        _viewer->similar_pressed = -1;   // slid off it
+    }
+    const u32 _word = _viewer->sentence_pressed >= 3u ? _viewer->sentence_pressed - 3u : UINT32_MAX;
     if((_viewer->sentence_pressed == 1u && !kana_viewer_inside(_screen, _viewer->sentence_min, _viewer->sentence_max)) ||
-       (_viewer->sentence_pressed == 2u && !kana_viewer_inside(_screen, _viewer->next_min, _viewer->next_max))) {
+       (_viewer->sentence_pressed == 2u && !kana_viewer_inside(_screen, _viewer->next_min, _viewer->next_max)) ||
+       (_word < _viewer->word_shown && !kana_viewer_inside(_screen, _viewer->word_min[_word], _viewer->word_max[_word]))) {
         _viewer->sentence_pressed = 0u;   // slid off it
     }
 }
@@ -267,8 +346,27 @@ void kana_viewer_pointer_up(kana_viewer* _viewer, f64 _time) {
         if(kana_kanji_word_sentence(_viewer->db, _viewer->sentences[_viewer->sentence_at], &_s)) {
             kana_speak(_s.japanese);
         }
+    } else if(_viewer->sentence_pressed >= 3u && _viewer->sentence_at < _viewer->sentence_count) {
+        const u32       _k = _viewer->sentence_pressed - 3u;
+        kana_kanji_word _w;
+        if(_k < _viewer->sentence_word_n[_viewer->sentence_at] && kana_kanji_word_at(_viewer->db, _viewer->sentence_words[_viewer->sentence_at][_k], &_w)) {
+            kana_wordcard_ask(_w.written, _w.reading, _w.meaning, 0u);   // into the vocabulary, or the saved one
+        }
     }
     _viewer->sentence_pressed = 0u;
+    if(_viewer->similar_pressed >= 0 && (u32)_viewer->similar_pressed < _viewer->similar_count) {
+        u32 _record;
+        if(kana_kanji_find_index(_viewer->db, _viewer->similar[_viewer->similar_pressed], &_record)) {
+            kana_viewer_visit(_viewer, _record);   // a look-alike: there, and Prev back
+        }
+        _viewer->readings_pressed = false;
+    }
+    if(_viewer->note_pressed) {
+        kana_wordcard_ask_note(kana_viewer_codepoint(_viewer));   // its note, to write
+        _viewer->readings_pressed = false;
+    }
+    _viewer->note_pressed     = false;
+    _viewer->similar_pressed  = -1;
     _viewer->readings_pressed = false;
     _viewer->in_list     = false;
     _viewer->add_pressed = false;
@@ -294,6 +392,10 @@ void kana_viewer_update(kana_viewer* _viewer, f32 _dt) {
         return;
     }
     const kana_viewer_row* _r = &_viewer->rows[_row];
+    if(!_viewer->adding && _at.x >= _viewer->save_x0 && _at.x < _viewer->save_x0 + 40.0f) {
+        kana_wordcard_ask(_r->written, _r->reading, _r->meaning, kana_viewer_codepoint(_viewer));   // into the vocabulary, or the saved one
+        return;
+    }
     if(!_viewer->adding && kana_speech_available() && _at.x >= _viewer->reading_x0 && _at.x < _viewer->reading_x1) {
         kana_speak(_r->reading);   // its reading: aloud
         return;
@@ -305,9 +407,9 @@ void kana_viewer_update(kana_viewer* _viewer, f32 _dt) {
     // In Add: on or off the learner's words.
     const u32 _cp = kana_viewer_codepoint(_viewer);
     if(_r->ticked) {
-        kana_userwords_remove(_cp, _r->written, _r->reading);
+        kana_vocab_remove(kana_vocab_find(_r->written, _r->reading));
     } else {
-        kana_userwords_add(_cp, _r->written, _r->reading, _r->meaning);
+        kana_vocab_add(_r->written, _r->reading, _r->meaning, _cp);
     }
 }
 
@@ -346,6 +448,20 @@ void kana_viewer_show(kana_viewer* _viewer, const u32* _records, u32 _count, u32
     _viewer->pressed  = -1;
     _viewer->adding   = false;
     _viewer->rows_for = UINT32_MAX;   // listed again
+    kana_viewer_replay(_viewer);
+}
+
+void kana_viewer_visit(kana_viewer* _viewer, u32 _record) {
+    const u32 _n = (u32)rde_arr_length(&_viewer->list);
+    if(!_viewer->open || _n == 0u) {
+        return;
+    }
+    u32* _list = (u32*)_viewer->list.memory;
+    if(_viewer->position + 1u >= _n || _list[_viewer->position + 1u] != _record) {
+        rde_arr_insert(&_viewer->list, _viewer->position + 1u, (any)&_record);
+    }
+    _viewer->position++;
+    _viewer->adding = false;
     kana_viewer_replay(_viewer);
 }
 
@@ -419,6 +535,11 @@ RDE_INTERNAL void kana_viewer_draw_rows(kana_viewer* _viewer, rde_window* _windo
     const f32 _meaning_x = _reading_x + _reading_w + 16.0f;
     _viewer->reading_x0 = _speak ? _reading_x - 26.0f : 0.0f;
     _viewer->reading_x1 = _speak ? _meaning_x - 8.0f : 0.0f;
+    // Out of Add, a bookmark before the › (filled: in the vocabulary): a tap there
+    // opens the word card.
+    const b8  _save      = !_viewer->adding;
+    const f32 _end       = _save ? _right - 68.0f : _right - 40.0f;   // the meaning's end
+    _viewer->save_x0     = _save ? _right - 64.0f : _right + 1.0f;
 
     const f32 _bottom = _top - (f32)_visible * _h;
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_x0 + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
@@ -444,7 +565,7 @@ RDE_INTERNAL void kana_viewer_draw_rows(kana_viewer* _viewer, rde_window* _windo
         }
         kana_draw_text_fit(_font, _font_px, _r->reading, KANA_VIEWER_SMALL_PX, _reading_w, _line, sizeof(_line));
         kana_draw_text(_font, _font_px, _line, _reading_x, _baseline, KANA_VIEWER_SMALL_PX, _theme->text_soft);
-        kana_draw_text_fit(_font, _font_px, _r->meaning, KANA_VIEWER_SMALL_PX, _right - 40.0f - _meaning_x, _line, sizeof(_line));
+        kana_draw_text_fit(_font, _font_px, _r->meaning, KANA_VIEWER_SMALL_PX, _end - _meaning_x, _line, sizeof(_line));
         kana_draw_text(_font, _font_px, _line, _meaning_x, _baseline, KANA_VIEWER_SMALL_PX, _theme->text);
         if(_r->kind == KANA_VIEWER_ROW_TO_ADD || _r->kind == KANA_VIEWER_ROW_TYPED) {
             // A tick: on, the learner's; off, one to add.
@@ -458,6 +579,11 @@ RDE_INTERNAL void kana_viewer_draw_rows(kana_viewer* _viewer, rde_window* _windo
             }
         } else {
             kana_draw_icon(_font, _font_px, KANA_ICON_NEXT, (rde_vec_2F){ _right - 12.0f, _mid }, 16.0f, _theme->text_soft);   // it opens
+            if(kana_vocab_find(_r->written, _r->reading) != 0u) {
+                kana_draw_icon_fill(KANA_ICON_BOOKMARK, (rde_vec_2F){ _right - 44.0f, _mid }, 17.0f, _theme->accent);
+            } else {
+                kana_draw_icon(_font, _font_px, KANA_ICON_BOOKMARK, (rde_vec_2F){ _right - 44.0f, _mid }, 17.0f, _theme->text_soft);
+            }
         }
         if(_i + 1u < _viewer->row_count) {
             kana_draw_line((rde_vec_2F){ _x0, _row_top - _h }, (rde_vec_2F){ _right, _row_top - _h }, 0.5f, _theme->outline);
@@ -472,17 +598,59 @@ RDE_INTERNAL f32 kana_viewer_sentence_text_w(f32 _width) {
     return _width - 2.0f * KANA_VIEWER_CARD_PAD - (kana_speech_available() ? KANA_VIEWER_SPEAKER_W : 0.0f);
 }
 
+// Sentence _i's words as chips — written, then the reading — in rows from _top
+// between _x0 and _x1; drawn (and kept for the pointer) when _draw. How tall.
+RDE_INTERNAL f32 kana_viewer_word_chips(kana_viewer* _viewer, rde_font* _font, f32 _font_px, u32 _i, f32 _x0, f32 _x1, f32 _top, b8 _draw) {
+    const kana_theme* _theme = kana_theme_active();
+    f32               _x     = _x0;
+    u32               _rows  = 0;
+    if(_draw) {
+        _viewer->word_shown = 0;
+    }
+    for(u32 _k = 0; _k < _viewer->sentence_word_n[_i]; _k++) {
+        kana_kanji_word _w;
+        if(!kana_kanji_word_at(_viewer->db, _viewer->sentence_words[_i][_k], &_w)) {
+            continue;
+        }
+        const f32 _ww = kana_draw_text_width(_font, _font_px, _w.written, 14.0f);
+        const f32 _rw = kana_draw_text_width(_font, _font_px, _w.reading, 11.0f);
+        const f32 _cw = fminf(_x1 - _x0, _ww + _rw + 34.0f);
+        if(_rows == 0u || (_x > _x0 && _x + _cw > _x1)) {
+            _x = _x0;
+            _rows++;
+        }
+        if(_draw) {
+            const f32  _cy    = _top - (f32)(_rows - 1u) * (KANA_VIEWER_CHIP_H + KANA_VIEWER_CHIP_GAP) - KANA_VIEWER_CHIP_H * 0.5f;
+            const b8   _saved = kana_vocab_find(_w.written, _w.reading) != 0u;
+            const b8   _down  = _viewer->sentence_pressed == 3u + _viewer->word_shown;
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _cw * 0.5f, _cy }, (rde_vec_2F){ _cw, KANA_VIEWER_CHIP_H }, 1.0f, 8,
+                                                    _down ? _theme->select_fill : _saved ? _theme->tint : _theme->surface_2, NULL);
+            if(_saved) {
+                kana_draw_icon_fill(KANA_ICON_BOOKMARK, (rde_vec_2F){ _x + 11.0f, _cy }, 11.0f, _theme->accent);
+            }
+            kana_draw_text(_font, _font_px, _w.written, _x + 18.0f, _cy - 14.0f * 0.38f, 14.0f, _saved ? _theme->accent : _theme->ink);
+            kana_draw_text(_font, _font_px, _w.reading, _x + 22.0f + _ww, _cy - 11.0f * 0.38f, 11.0f, _theme->text_soft);
+            _viewer->word_min[_viewer->word_shown] = (rde_vec_2F){ _x, _cy - KANA_VIEWER_CHIP_H * 0.5f };
+            _viewer->word_max[_viewer->word_shown] = (rde_vec_2F){ _x + _cw, _cy + KANA_VIEWER_CHIP_H * 0.5f };
+            _viewer->word_shown++;
+        }
+        _x += _cw + KANA_VIEWER_CHIP_GAP;
+    }
+    return _rows > 0u ? 6.0f + (f32)_rows * KANA_VIEWER_CHIP_H + (f32)(_rows - 1u) * KANA_VIEWER_CHIP_GAP : 0.0f;
+}
+
 // How tall the sentence card is, _width wide, with the gap above it: the one
 // shown, or (_tallest) the tallest of the character's — the room kept, so ›
 // does not move the page. 0: none.
-RDE_INTERNAL f32 kana_viewer_sentence_height(const kana_viewer* _viewer, rde_font* _font, f32 _font_px, f32 _width, b8 _tallest) {
+RDE_INTERNAL f32 kana_viewer_sentence_height(kana_viewer* _viewer, rde_font* _font, f32 _font_px, f32 _width, b8 _tallest) {
     const f32 _text_w = kana_viewer_sentence_text_w(_width);
     f32       _body   = 0.0f;
     for(u32 _i = 0; _i < _viewer->sentence_count && _text_w > 40.0f; _i++) {
         kana_kanji_sentence _s;
         if((_tallest || _i == _viewer->sentence_at) && kana_kanji_word_sentence(_viewer->db, _viewer->sentences[_i], &_s)) {
             _body = fmaxf(_body, (f32)kana_draw_text_wrap_lines(_font, _font_px, _s.japanese, KANA_VIEWER_SENT_PX, _text_w) * KANA_VIEWER_SENT_LINE +
-                                 (f32)kana_draw_text_wrap_lines(_font, _font_px, _s.translation, KANA_VIEWER_TRANS_PX, _text_w) * KANA_VIEWER_TRANS_LINE);
+                                 (f32)kana_draw_text_wrap_lines(_font, _font_px, _s.translation, KANA_VIEWER_TRANS_PX, _text_w) * KANA_VIEWER_TRANS_LINE +
+                                 kana_viewer_word_chips(_viewer, _font, _font_px, _i, 0.0f, _width - 2.0f * KANA_VIEWER_CARD_PAD, 0.0f, false));
         }
     }
     return _body > 0.0f ? KANA_VIEWER_SENT_GAP + KANA_VIEWER_SENT_TITLE + 4.0f + _body + KANA_VIEWER_CARD_PAD : 0.0f;
@@ -531,11 +699,13 @@ RDE_INTERNAL void kana_viewer_draw_sentence(kana_viewer* _viewer, rde_font* _fon
     const f32 _tx     = _x0 + _inner + (_speak ? KANA_VIEWER_SPEAKER_W : 0.0f);
     const f32 _text_w = kana_viewer_sentence_text_w(_right - _x0);
     const f32 _body   = _top - KANA_VIEWER_SENT_TITLE - 4.0f;   // the first line's top
+    const f32 _lines_h = (f32)kana_draw_text_wrap_lines(_font, _font_px, _s.japanese, KANA_VIEWER_SENT_PX, _text_w) * KANA_VIEWER_SENT_LINE +
+                         (f32)kana_draw_text_wrap_lines(_font, _font_px, _s.translation, KANA_VIEWER_TRANS_PX, _text_w) * KANA_VIEWER_TRANS_LINE;
     if(_speak) {
-        _viewer->sentence_min = (rde_vec_2F){ _x0, _bottom };
+        _viewer->sentence_min = (rde_vec_2F){ _x0, _body - _lines_h - 2.0f };
         _viewer->sentence_max = (rde_vec_2F){ _right, _top - KANA_VIEWER_SENT_TITLE };
         if(_viewer->sentence_pressed == 1u) {
-            kana_draw_card((rde_vec_2F){ _x0 + 4.0f, _bottom + 4.0f }, (rde_vec_2F){ _right - 4.0f, _viewer->sentence_max.y - 2.0f }, 10.0f, _theme->select_fill,
+            kana_draw_card((rde_vec_2F){ _x0 + 4.0f, _viewer->sentence_min.y }, (rde_vec_2F){ _right - 4.0f, _viewer->sentence_max.y - 2.0f }, 10.0f, _theme->select_fill,
                            _theme->select_fill);
         }
         kana_draw_icon(_font, _font_px, KANA_ICON_SPEAK, (rde_vec_2F){ _x0 + _inner + 10.0f, _body - KANA_VIEWER_SENT_LINE * 0.5f }, 16.0f, _theme->accent);
@@ -545,6 +715,8 @@ RDE_INTERNAL void kana_viewer_draw_sentence(kana_viewer* _viewer, rde_font* _fon
     const f32 _ty    = _body - (f32)_lines * KANA_VIEWER_SENT_LINE;
     kana_draw_text_wrap(_font, _font_px, _s.translation, _tx, _ty - KANA_VIEWER_TRANS_LINE * 0.5f - KANA_VIEWER_TRANS_PX * 0.38f, KANA_VIEWER_TRANS_PX, _text_w,
                         KANA_VIEWER_TRANS_LINE, _theme->text_soft);
+    // Its words, each with its reading: a tap, the word card.
+    kana_viewer_word_chips(_viewer, _font, _font_px, _viewer->sentence_at, _x0 + _inner, _right - _inner, _body - _lines_h - 6.0f, true);
 }
 
 // Add: the character small, what to do, and every word to pick from.
@@ -559,7 +731,7 @@ RDE_INTERNAL void kana_viewer_render_adding(kana_viewer* _viewer, rde_window* _w
     const f32 _tx = _left + _size + 24.0f;
     kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_WORDS), _tx, _tl.y - 30.0f, 20.0f, _theme->text);
     c8 _line[160];
-    KANA_TEXTF(_line, KANA_TEXT_VIEWER_YOURS_N, KANA_TN(kana_userwords_count(_info->codepoint)));
+    KANA_TEXTF(_line, KANA_TEXT_VIEWER_YOURS_N, KANA_TN(kana_vocab_kanji_count(_info->codepoint)));
     kana_draw_text(_font, _font_px, _line, _tx, _tl.y - 62.0f, 17.0f, _theme->text_soft);
     kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_HELP), _tx, _tl.y - 96.0f, 13.0f, _theme->text_soft);
     kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_VIEWER_ADD_OTHER), _tx, _tl.y - 122.0f, 13.0f, _theme->text_soft);
@@ -574,6 +746,9 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     _viewer->list_min = _viewer->list_max = (rde_vec_2F){ 0.0f, 0.0f };
     _viewer->add_min  = _viewer->add_max  = (rde_vec_2F){ 0.0f, 0.0f };
     _viewer->sentence_min = _viewer->sentence_max = (rde_vec_2F){ 0.0f, 0.0f };
+    _viewer->word_shown   = 0;
+    _viewer->note_min      = _viewer->note_max      = (rde_vec_2F){ 0.0f, 0.0f };
+    _viewer->note_line_min = _viewer->note_line_max = (rde_vec_2F){ 0.0f, 0.0f };
     _viewer->next_min     = _viewer->next_max     = (rde_vec_2F){ 0.0f, 0.0f };
     if(!_viewer->open || rde_arr_length(&_viewer->list) == 0) {
         return;
@@ -586,6 +761,8 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     }
     kana_viewer_list_rows(_viewer, _record, _info.codepoint);
     kana_viewer_list_sentences(_viewer, _record, _info.codepoint);
+    kana_viewer_list_similar(_viewer, _record, _info.codepoint);
+    _viewer->similar_shown = 0;
 
     const rde_vec_2I _size_px = rde_window_get_size(_window);
     const rde_vec_4I _insets  = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
@@ -620,7 +797,21 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
             kana_draw_chip(_font, _font_px, _grade, _x, _mid, KANA_VIEWER_CHIP_PX, _theme->surface_2, _theme->text);
         }
         snprintf(_line, sizeof(_line), "%u / %u", _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
-        kana_draw_text(_font, _font_px, _line, _right - kana_draw_text_width(_font, _font_px, _line, 14.0f), _mid - 14.0f * 0.42f, 14.0f, _theme->text_soft);
+        const f32 _pos_w = kana_draw_text_width(_font, _font_px, _line, 14.0f);
+        kana_draw_text(_font, _font_px, _line, _right - _pos_w, _mid - 14.0f * 0.42f, 14.0f, _theme->text_soft);
+        // Note: the learner's own, written in the word card.
+        if(!_viewer->adding) {
+            c8 _note[64];
+            snprintf(_note, sizeof(_note), KANA_ICON_NOTE_EDIT " %s", kana_text(KANA_TEXT_NOTE));
+            const f32 _nw = kana_draw_text_width(_font, _font_px, _note, 12.0f) + 24.0f;
+            const f32 _nx = _right - _pos_w - 16.0f - _nw;
+            const b8  _has = kana_charnote_get(_info.codepoint)[0] != 0;
+            _viewer->note_min = (rde_vec_2F){ _nx, _mid - 14.0f };
+            _viewer->note_max = (rde_vec_2F){ _nx + _nw, _mid + 14.0f };
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _nx + _nw * 0.5f, _mid }, (rde_vec_2F){ _nw, 28.0f }, 1.0f, 8,
+                                                    _viewer->note_pressed ? _theme->accent : _has ? _theme->tint : _theme->surface_2, NULL);
+            kana_draw_text(_font, _font_px, _note, _nx + 12.0f, _mid - 12.0f * 0.42f, 12.0f, _viewer->note_pressed ? _theme->on_accent : _theme->accent);
+        }
     }
 
     if(_viewer->adding && !_kana) {
@@ -646,8 +837,18 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     // The words show as many rows as fit (they scroll); at least one, for "none yet".
     const u32 _rows    = _viewer->row_count > 0u ? _viewer->row_count : 1u;
     u32       _visible = _kana ? 0u : (_rows < 6u ? _rows : 6u);
-    const f32 _details = _kana ? 0.0f : (_part_count > 0 ? 4.0f : 3.0f) * KANA_VIEWER_LINE;   // On, Kun, meaning, parts
+    const b8  _similar = _viewer->similar_count > 0u;
+    const c8* _note    = kana_charnote_get(_info.codepoint);
+    const b8  _noted   = !_kana && _note[0] != 0;
     const b8  _wide    = !_kana && (_right - _left) > (_top - _bottom) * 1.25f;
+    // 部 and 似 share a line when the column (beside the character: under 55%
+    // of the width) has room for both.
+    const f32 _parts_w = _part_count > 0 ? 46.0f + (f32)_part_count * KANA_VIEWER_KANA_SIZE * 1.3f : 0.0f;
+    const f32 _sim_w   = 46.0f + (f32)_viewer->similar_count * KANA_VIEWER_KANA_SIZE * 1.6f;
+    const f32 _column  = _wide ? (_right - _left) * 0.55f - KANA_VIEWER_GUTTER : _right - _left;
+    const b8  _shared  = !_kana && _similar && _part_count > 0 && _parts_w + 24.0f + _sim_w <= _column;
+    const f32 _details = (_kana ? 0.0f : (_part_count > 0 ? 4.0f : 3.0f) * KANA_VIEWER_LINE) + (_similar && !_shared ? KANA_VIEWER_LINE : 0.0f) +
+                         (_noted ? KANA_VIEWER_LINE : 0.0f);   // meaning, On, Kun, parts; 似 (beside the parts, or its own); 記
     f32        _size;
     rde_vec_2F _tl;
     f32        _x0;   // the details' left
@@ -660,24 +861,29 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
         _tl   = (rde_vec_2F){ _left, _top - 48.0f };
         _x0   = _left + _size + KANA_VIEWER_GUTTER;
         _y0   = _tl.y - 8.0f;
-        _sent_h = _kana ? 0.0f : kana_viewer_sentence_height(_viewer, _font, _font_px, _right - _x0, true);
+        // The sentence shown's height (beside the character, › changes only how
+        // many words show); the words down to two rows for it.
+        _sent_h = _kana ? 0.0f : kana_viewer_sentence_height(_viewer, _font, _font_px, _right - _x0, false);
         f32 _fit = floorf((_y0 - _details - 8.0f - KANA_VIEWER_TITLE - KANA_VIEWER_CARD_PAD - _sent_h - _bottom) / KANA_VIEWER_ROW);
-        if(_sent_h > 0.0f && _fit < fminf(3.0f, (f32)_rows)) {
+        if(_sent_h > 0.0f && _fit < fminf(2.0f, (f32)_rows)) {
             _sent_h = 0.0f;   // a short column: the words before the sentence
             _fit    = floorf((_y0 - _details - 8.0f - KANA_VIEWER_TITLE - KANA_VIEWER_CARD_PAD - _bottom) / KANA_VIEWER_ROW);
         }
         _visible = _kana || _fit < 1.0f ? 0u : (u32)fminf((f32)_rows, _fit);
     } else {
         // Under it: rows go, down to three (two, to make room for a sentence),
-        // before the character gets small; then the sentence goes.
+        // before the character gets small; then the sentence goes. The room kept
+        // for the sentence is the tallest shown for this character so far: ›
+        // moves the character once at most, never back and forth.
         const f32 _room = (_top - 48.0f) - (_bottom + _details);
         #define KANA_VIEWER_WORDS_H(n) ((n) > 0u ? 8.0f + KANA_VIEWER_TITLE + (f32)(n) * KANA_VIEWER_ROW + KANA_VIEWER_CARD_PAD : 0.0f)
-        _sent_h = _kana ? 0.0f : kana_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, true);
+        _viewer->sentence_room = _kana ? 0.0f : fmaxf(_viewer->sentence_room, kana_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, false));
+        _sent_h = _viewer->sentence_room;
         u32 _fits = _visible;
         while(_fits > 2u && _room - _sent_h - KANA_VIEWER_WORDS_H(_fits) < KANA_VIEWER_MIN_CHAR) {
             _fits--;
         }
-        if(_sent_h > 0.0f && _room - _sent_h - KANA_VIEWER_WORDS_H(_fits) < KANA_VIEWER_MIN_CHAR) {
+        if(_sent_h > 0.0f && _room - _sent_h - KANA_VIEWER_WORDS_H(_fits) < KANA_VIEWER_MIN_CHAR_SENT) {
             _sent_h = 0.0f;
             _fits   = _visible;
             while(_fits > 3u && _room - KANA_VIEWER_WORDS_H(_fits) < KANA_VIEWER_MIN_CHAR) {
@@ -699,6 +905,53 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     kana_glyph_box(_tl, _size);
     kana_glyph_writing(&_viewer->glyph, &_info, _tl, _size, rde_engine_get_time_now() - _viewer->started, _font, _font_px, 18.0f);
     kana_selection_draw_mark(kana_marks_get(_info.codepoint), _tl, _size, false);
+    // 似: the look-alikes (a kana's under it alone; a kanji's after its parts, below).
+    const u32 _similar_line = _kana ? 0u : _shared ? 3u : (_part_count > 0 ? 4u : 3u);
+    if(_similar) {
+        const f32 _ly  = _y0 - (f32)_similar_line * KANA_VIEWER_LINE;   // the line's top
+        const f32 _mid = _ly - KANA_VIEWER_LINE * 0.5f;
+        const f32 _box = 32.0f;
+        const f32 _lx  = _shared ? _x0 + _parts_w + 24.0f : _x0;   // beside the parts, or at the start of its own line
+        kana_draw_card((rde_vec_2F){ _lx, _mid - _box * 0.5f }, (rde_vec_2F){ _lx + _box, _mid + _box * 0.5f }, 8.0f, _theme->tint, _theme->tint);
+        kana_glyph_character(&_viewer->glyph, 0x4F3Cu, (rde_vec_2F){ _lx + 4.0f, _mid + _box * 0.5f - 4.0f }, _box - 8.0f, _theme->accent);   // 似
+        f32 _x = _lx + _box + 14.0f;
+        for(u32 _i = 0; _i < _viewer->similar_count && _x + KANA_VIEWER_KANA_SIZE <= _right; _i++) {
+            const f32 _s = KANA_VIEWER_KANA_SIZE;
+            if(_viewer->similar_pressed == (i32)_i) {
+                rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _s * 0.5f, _mid }, (rde_vec_2F){ _s + 12.0f, _s + 10.0f }, 1.0f, 8, _theme->select_fill, NULL);
+            }
+            kana_glyph_character(&_viewer->glyph, _viewer->similar[_i], (rde_vec_2F){ _x, _mid + _s * 0.5f }, _s, _i < _viewer->similar_mine ? _theme->score_poor : _theme->ink);
+            _viewer->similar_min[_viewer->similar_shown] = (rde_vec_2F){ _x - 8.0f, _mid - _s * 0.5f - 6.0f };
+            _viewer->similar_max[_viewer->similar_shown] = (rde_vec_2F){ _x + _s + 8.0f, _mid + _s * 0.5f + 6.0f };
+            _viewer->similar_shown++;
+            _x += _s * 1.6f;
+        }
+    }
+    // 記: the learner's note (a kanji's), under 似.
+    if(_noted) {
+        const f32 _ly  = _y0 - (f32)((_part_count > 0 ? 4u : 3u) + (_similar && !_shared ? 1u : 0u)) * KANA_VIEWER_LINE;
+        const f32 _mid = _ly - KANA_VIEWER_LINE * 0.5f;
+        const f32 _box = 32.0f;
+        kana_draw_card((rde_vec_2F){ _x0, _mid - _box * 0.5f }, (rde_vec_2F){ _x0 + _box, _mid + _box * 0.5f }, 8.0f, _theme->tint, _theme->tint);
+        kana_glyph_character(&_viewer->glyph, 0x8A18u, (rde_vec_2F){ _x0 + 4.0f, _mid + _box * 0.5f - 4.0f }, _box - 8.0f, _theme->accent);   // 記
+        // Two lines at most: smaller when it needs more.
+        const f32 _tx = _x0 + _box + 14.0f;
+        const f32 _tw = _right - _tx;
+        f32       _px = 14.0f;
+        while(_px > 10.0f && kana_draw_text_wrap_lines(_font, _font_px, _note, _px, _tw) > 2u) {
+            _px -= 1.0f;
+        }
+        const u32 _lines = kana_draw_text_wrap_lines(_font, _font_px, _note, _px, _tw);
+        const f32 _lh    = _px * 1.3f;
+        if(_viewer->note_pressed) {
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_tx + _right) * 0.5f, _mid }, (rde_vec_2F){ _tw + 8.0f, KANA_VIEWER_LINE - 4.0f }, 1.0f, 8, _theme->select_fill, NULL);
+        }
+        rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_tx + _right) * 0.5f), (i32)_mid }, (rde_vec_2UI){ (u32)_tw + 4u, (u32)KANA_VIEWER_LINE });
+        kana_draw_text_wrap(_font, _font_px, _note, _tx, _mid + (f32)((_lines < 2u ? _lines : 2u) - 1u) * _lh * 0.5f - _px * 0.38f, _px, _tw, _lh, _theme->text);
+        rde_rendering_end_clipping_rect();
+        _viewer->note_line_min = (rde_vec_2F){ _x0, _ly - KANA_VIEWER_LINE };
+        _viewer->note_line_max = (rde_vec_2F){ _right, _ly };
+    }
     if(_kana) {
         return;
     }
@@ -750,7 +1003,7 @@ void kana_viewer_render(kana_viewer* _viewer, rde_window* _window, rde_font* _fo
     const f32 _tmid = _wy - KANA_VIEWER_TITLE * 0.5f;
     kana_draw_text(_font, _font_px, kana_text(KANA_TEXT_WORDS), _x0 + _inner, _tmid - 16.0f * 0.42f, 16.0f, _theme->text);
     {
-        const u32 _yours = kana_userwords_count(_info.codepoint);
+        const u32 _yours = kana_vocab_kanji_count(_info.codepoint);
         const u32 _all   = _viewer->row_count >= _yours ? _viewer->row_count - _yours : 0u;
         KANA_TEXTF(_line, KANA_TEXT_WORDS_EXAMPLES, KANA_TN(_all));
         if(_yours > 0) {

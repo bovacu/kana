@@ -11,6 +11,8 @@
 #include "kfile.h"
 #include "kanji.h"
 #include "chart.h"
+#include "catalog.h"
+#include "match.h"
 
 // ===========================================================================
 // See bake.h. Parse both sources into memory (RDE's XML parser, on the standard
@@ -1782,6 +1784,104 @@ RDE_INTERNAL const c8* kana_bake_arg(i32 _argc, c8** _argv, const c8* _prefix, c
     return _default;
 }
 
+// --- look-alikes ----------------------------------------------------------------------------
+// Each common character's closest by the matcher (match.h: its reference strokes
+// ranked against the rest), appended to the file just written as 'LOOK' — the
+// matcher reads the file, so it comes last. Common: a school grade, the rest of
+// the Jouyou, or a JLPT level; and every kana. Kept: up to KANA_KANJI_LOOKALIKES
+// common ones of the same script, of nearly as many strokes, close enough.
+
+#define KANA_BAKE_LOOK_COST      11.0f   // the matcher's cost (a 100-unit box): 未 末 4, 土 士 7, 待 持 10; 人 大 13 is too far
+#define KANA_BAKE_LOOK_COST_KANA 21.0f   // kana, simpler, cost more apart: わ れ 8, ツ ソ 15, シ ン 18
+#define KANA_BAKE_LOOK_STROKES   3u      // strokes apart, at most
+
+RDE_INTERNAL b8 kana_bake_look_kana(u32 _cp) {
+    return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu);
+}
+
+// A plain kana (no small one, no dakuten): シ and ジ, ツ and ッ are the same
+// character to a learner, not a mix-up.
+RDE_INTERNAL b8 kana_bake_look_plain(u32 _cp) {
+    static const c8 _plain[] = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん"
+                               "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン";
+    for(const c8* _p = _plain; *_p != 0;) {
+        if(kana_kanji_utf8_next(&_p) == _cp) {
+            return true;
+        }
+    }
+    return false;
+}
+
+RDE_INTERNAL b8 kana_bake_look_common(const kana_kanji_info* _info) {
+    return kana_bake_look_kana(_info->codepoint) ? kana_bake_look_plain(_info->codepoint) : (_info->grade >= 1u && _info->grade <= 8u) || _info->jlpt_n != 0u;
+}
+
+RDE_INTERNAL b8 kana_bake_lookalikes(const c8* _path) {
+    const f64     _t0 = rde_engine_get_time_now();
+    kana_kanji_db _db;
+    if(!kana_kanji_load(&_db, _path)) {
+        return false;
+    }
+    kana_catalog _catalog;
+    kana_catalog_init(&_catalog, &_db);
+    kana_bytes _chunk = kana_bytes_new(_db.count * KANA_KANJI_LOOKALIKES * 4u + 16u);
+    const u32  _at    = kana_chunk_begin(&_chunk, KANA_KANJI_CHUNK_LOOK);
+    kana_put_u32(&_chunk, _db.count);
+    u32 _with = 0;
+    for(u32 _r = 0; _r < _db.count; _r++) {
+        kana_kanji_info _info;
+        u32             _kept[KANA_KANJI_LOOKALIKES] = { 0 };
+        u32             _n = 0;
+        if(kana_kanji_at(&_db, _r, &_info) && _info.strokes > 0u && kana_bake_look_common(&_info)) {
+            const b8          _kana = kana_bake_look_kana(_info.codepoint);
+            kana_match_stroke _strokes[64];
+            const u32         _count = kana_match_reference(&_db, &_info, _strokes, 64u);
+            kana_match_result _ranked[16];
+            const u32         _m = kana_match_rank_strokes(&_db, &_catalog, _kana ? KANA_FILTER_ALL : KANA_FILTER_KANJI, _strokes, _count, _ranked, 16u);
+            for(u32 _i = 0; _i < _m && _n < KANA_KANJI_LOOKALIKES && _ranked[_i].cost <= (_kana ? KANA_BAKE_LOOK_COST_KANA : KANA_BAKE_LOOK_COST); _i++) {
+                kana_kanji_info _other;
+                if(_ranked[_i].record == _r || !kana_kanji_at(&_db, _ranked[_i].record, &_other) || !kana_bake_look_common(&_other) ||
+                   kana_bake_look_kana(_other.codepoint) != _kana ||
+                   (_other.strokes > _info.strokes ? _other.strokes - _info.strokes : _info.strokes - _other.strokes) > KANA_BAKE_LOOK_STROKES) {
+                    continue;
+                }
+                _kept[_n++] = _other.codepoint;
+            }
+        }
+        for(u32 _k = 0; _k < KANA_KANJI_LOOKALIKES; _k++) {
+            kana_put_u32(&_chunk, _kept[_k]);
+        }
+        _with += _n > 0u ? 1u : 0u;
+    }
+    kana_chunk_end(&_chunk, _at);
+    kana_match_release();
+    kana_catalog_destroy(&_catalog);
+    kana_kanji_unload(&_db);
+
+    // The file again, the chunk at its end.
+    u32 _size = 0;
+    u8* _data = kana_file_read(_path, &_size);
+    if(_data == NULL) {
+        rde_arr_free(&_chunk);
+        return false;
+    }
+    kana_bytes _file = kana_bytes_new(_size + kana_bytes_size(&_chunk));
+    kana_put_data(&_file, _data, _size);
+    kana_put_data(&_file, _chunk.memory, kana_bytes_size(&_chunk));
+    kana_file_free(_data);
+    rde_arr_free(&_chunk);
+    u32 _bytes = 0;
+    if(!kana_bytes_write_and_free(&_file, _path, &_bytes)) {
+        return false;
+    }
+    c8 _bak[RDE_MAX_PATH];
+    snprintf(_bak, sizeof(_bak), "%s.bak", _path);
+    remove(_bak);
+    rde_log_color(RDE_LOG_COLOR_GREEN, "bake: look-alikes for %u characters (%.2f s); %s now %.2f MB", _with, rde_engine_get_time_now() - _t0, _path,
+                  (f64)_bytes / (1024.0 * 1024.0));
+    return true;
+}
+
 b8 kana_bake_requested(i32 _argc, c8** _argv) {
     for(i32 _i = 1; _i < _argc; _i++) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--bake") == 0) {
@@ -1983,6 +2083,10 @@ i32 kana_bake_run(i32 _argc, c8** _argv) {
                           (f64)_geometry_bytes / (1024.0 * 1024.0), (f64)_text_bytes / (1024.0 * 1024.0),
                           (f64)_bake.min_coord, (f64)_bake.max_coord);
         rde_log_color(RDE_LOG_COLOR_GREEN, "  of the words, %u common ones on no kanji's list (kept for reading text: wordsplit.h)", _bake.words_unlisted);
+            if(!kana_bake_lookalikes(_out)) {
+                rde_log_level(RDE_LOG_LEVEL_ERROR, "bake: the look-alikes could not be added to %s", _out);
+                _rc = 1;
+            }
         }
     }
 

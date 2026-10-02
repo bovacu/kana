@@ -8,7 +8,7 @@
 #include "score.h"
 #include "select.h"
 #include "theme.h"
-#include "userwords.h"
+#include "vocab.h"
 #include "text.h"
 
 #include <math.h>
@@ -492,7 +492,7 @@ RDE_INTERNAL void kana_exam_keep(kana_exam* _exam) {
     kana_marks_set_many(_studying, _ns, KANA_MARK_STUDYING);
     // Every answer written from memory is a review (review.h): the schedules move.
     for(u32 _i = 0; _i < _exam->asked; _i++) {
-        kana_reviews_answer(_log[_i].codepoint, _log[_i].correct, _log[_i].quality);
+        kana_reviews_answer(_log[_i].codepoint, _log[_i].correct, _log[_i].quality / 100.0f);   // quality is points (0..100); reviews take 0..1
     }
     _exam->saved = true;
 }
@@ -786,14 +786,14 @@ RDE_INTERNAL void kana_exam_render_preview(kana_exam* _exam, rde_window* _window
 }
 
 // A word with the kanji in it, the kanji blanked (□): the learner's own first
-// (userwords.h), then the character's — of two characters or more (the kanji
+// (vocab.h), then the character's — of two characters or more (the kanji
 // alone leaves nothing to show). False when there is none.
 RDE_INTERNAL b8 kana_exam_blanked_word(kana_exam* _exam, const kana_kanji_info* _info, u32 _record, c8* _blanked, usize _size, kana_kanji_word* _out) {
     u32       _words[KANA_KANJI_MAX_WORDS];
-    const u32 _yours = kana_userwords_count(_info->codepoint);
+    const u32 _yours = kana_vocab_kanji_count(_info->codepoint);
     const u32 _nw    = kana_kanji_words(_exam->db, _record, _words, KANA_KANJI_MAX_WORDS, NULL);
     for(u32 _w = 0; _w < _yours + _nw; _w++) {
-        if(_w < _yours ? !kana_userwords_at(_info->codepoint, _w, _out) : !kana_kanji_word_at(_exam->db, _words[_w - _yours], _out)) {
+        if(_w < _yours ? !kana_vocab_kanji_at(_info->codepoint, _w, _out) : !kana_kanji_word_at(_exam->db, _words[_w - _yours], _out)) {
             continue;
         }
         usize     _len   = 0;

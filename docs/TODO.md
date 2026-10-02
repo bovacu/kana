@@ -610,6 +610,40 @@ a server): export / import instead. Built in this order:
       --sheet=FILE for looks. Tested (sheettest: 1, 3, 7, 200+ characters, en/ja/fr,
       every cross-reference and stream length checked; rendered with sips).
 
+## 10e. Vocabulary (Borja, 2026-10-01: "target that feature development in that direction")
+
+- [x] **The vocabulary** (vocab.h, replaces "My words", words.kana read over):
+      words with reading and meaning, the learner's named LISTS (a word in any,
+      or none). A kanji's own words are the vocabulary's with it in. vocabtest.
+- [x] **The word card** (wordcard.h): the one place a word is saved, changed,
+      filed in lists or removed — from the viewer's rows (a bookmark), a
+      sentence's words, a photo's and a translation's words, the lasso (Save
+      word: what was written or pasted read; one dictionary word fills the card,
+      as the dictionary writes it — 食べました is 食べる; more, its words offered),
+      or typed in. A new word comes with the last word's lists ticked. Its list
+      form names, renames and deletes lists; its note form, character notes.
+- [x] **Readings for the example sentence**: its words as chips with their
+      readings (wordsplit.h, now with なさい), a tap: the word card.
+- [x] **The Vocabulary screen** (vocabview.h, the side panel's 語 Vocabulary):
+      lists as chips, words newest first with their review state; Back, + Word,
+      Review n, Exam, Sheet, Practice (the words' characters).
+- [x] **Saved lists of characters**: Select mode's Save list makes a list,
+      each character a word (its first reading, its meanings).
+- [x] **Word exams** (wordexam.h): a word written whole, a box a character (a
+      letter, ー, 々 given); by meaning and reading, or by ear; Retry the wrong.
+      Every answer moves the word's review (keys above the code points, review.h;
+      words have their own 10-new-a-day). wordexamtest.
+- [x] **Look-alikes** (kanji.h 'LOOK', baked with the matcher: 未 末, 土 士, 間 問,
+      シ ン, わ れ; 1,371 characters), 似 in the viewer, the learner's exam mix-ups
+      first in red; a tap visits one (Prev comes back). Beside 部 when it fits.
+- [x] **Character notes** (charnote.h): Note in the viewer's header, the note
+      under the details (記).
+- [x] Fixed on the way: Reviews opened an empty exam (its list never read);
+      exams gave reviews their quality as 0..100 instead of 0..1 (every right
+      answer made the ease grow).
+- [ ] On the iPad: the word card (typing, lists), Save word on handwriting,
+      word exams by ear, the screens' layouts.
+
 ## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.

@@ -19,6 +19,7 @@
 #define KANA_REVIEWS_EASE        250u   // a new character's ease, in hundredths (2.5)
 #define KANA_REVIEWS_EASE_MIN    130u
 #define KANA_REVIEWS_EASE_MAX    300u
+#define KANA_REVIEW_KIND(_key)   ((_key) > 0x10FFFFu ? 1u : 0u)   // 0 a character (a code point), 1 a word (vocab.h's keys)
 
 typedef struct {
     u32 codepoint;
@@ -189,13 +190,17 @@ RDE_INTERNAL int kana_reviews_by_due(const void* _a, const void* _b) {
 u32 kana_reviews_due(const u32* _candidates, u32 _count, u32* _out, u32 _max) {
     kana_reviews_ensure();
     const u32 _today = kana_reviews_today();
-    // New ones today has room for: the allowance less those first reviewed today.
-    u32 _new_today = 0;
+    // New ones today has room for: the allowance less those first reviewed today
+    // — the characters' and the words' each their own.
+    u32 _new_today[2] = { 0u, 0u };
     const kana_review* _all = (const kana_review*)kana_reviews_all.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&kana_reviews_all); _i++) {
-        _new_today += _all[_i].first == _today ? 1u : 0u;
+        _new_today[KANA_REVIEW_KIND(_all[_i].codepoint)] += _all[_i].first == _today ? 1u : 0u;
     }
-    u32 _room = _new_today < KANA_REVIEW_NEW_PER_DAY ? KANA_REVIEW_NEW_PER_DAY - _new_today : 0u;
+    u32 _room[2];
+    for(u32 _k = 0; _k < 2u; _k++) {
+        _room[_k] = _new_today[_k] < KANA_REVIEW_NEW_PER_DAY ? KANA_REVIEW_NEW_PER_DAY - _new_today[_k] : 0u;
+    }
 
     // The due, the longest waiting first.
     typedef struct { u32 codepoint; u32 due; } kana_review_due;
@@ -217,12 +222,13 @@ u32 kana_reviews_due(const u32* _candidates, u32 _count, u32* _out, u32 _max) {
     }
     free(_due);
     // Then the new ones, in the order given.
-    for(u32 _i = 0; _i < _count && _room > 0 && _n < _max && _n < KANA_REVIEW_SESSION; _i++) {
-        b8 _found;
+    for(u32 _i = 0; _i < _count && _n < _max && _n < KANA_REVIEW_SESSION; _i++) {
+        b8        _found;
+        const u32 _kind = KANA_REVIEW_KIND(_candidates[_i]);
         kana_reviews_find(_candidates[_i], &_found);
-        if(!_found) {
+        if(!_found && _room[_kind] > 0u) {
             _out[_n++] = _candidates[_i];
-            _room--;
+            _room[_kind]--;
         }
     }
     return _n;

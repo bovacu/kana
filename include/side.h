@@ -81,6 +81,7 @@ RDE_STRUCT {
     rde_ui_button*  album;
     rde_ui_button*  exams;
     rde_ui_button*  reviews;              // Reviews · n: what review.h has due today
+    rde_ui_button*  vocabulary;           // the Vocabulary screen (vocabview.h)
     u32             _reviews_shown;       // the count it shows (UINT32_MAX: not yet)
     u32             _reviews_for;         // ...for this marks + reviews revision and day
     rde_ui_button*  statistics;

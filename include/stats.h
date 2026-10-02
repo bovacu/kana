@@ -105,7 +105,7 @@ RDE_STRUCT {
     u32                 week_studying[KANA_STATS_WEEKS];
     u32                 known_before;
     u32                 mark_changes;    // changes kept (0: nothing to show)
-    u32                 words_added;     // the learner's own words (userwords.h)
+    u32                 words_added;     // the learner's vocabulary (vocab.h)
     kana_stats_coverage coverage[KANA_STATS_GROUP_COUNT];
 
     // Characters (records): the weakest by their latest session, and the most

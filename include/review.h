@@ -19,6 +19,10 @@
 // new ones — characters marked but never reviewed — at most
 // KANA_REVIEW_NEW_PER_DAY a day, so marking fifty at once does not make fifty
 // due tomorrow. Kept in reviews.kana; days are the device's local days.
+//
+// WORDS (vocab.h) have schedules too, keyed above every code point
+// (KANA_VOCAB_KEY): written in word exams, reviewed from the Vocabulary screen;
+// their new ones have an allowance of their own.
 // ===========================================================================
 
 #define KANA_REVIEW_NEW_PER_DAY 10u

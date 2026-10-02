@@ -20,7 +20,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -IC:/Users/borja/Programming/Projects/kana/include ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -IC:/Users/borja/Programming/Projects/kana/include ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -44,7 +44,7 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -Iinclude -Wall -Wextra ^
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c -Iinclude -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\
 
 No --android_internet: the spike talks to nothing. Add it only when something
@@ -81,7 +81,7 @@ paths are absolute on purpose.
     --ios_assets=/Users/borjavazquez/kana/platform/ios/Assets.xcassets \
     --ios_launch_storyboard=/Users/borjavazquez/kana/platform/ios/LaunchScreen.storyboard \
     --ios_plist=/Users/borjavazquez/kana/platform/ios/Info.plist \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c src/mlkit_ios.m src/textscan_ios.m src/translate_ios.m src/speech_ios.m \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c src/mlkit_ios.m src/textscan_ios.m src/translate_ios.m src/speech_ios.m \
     -I/Users/borjavazquez/kana/include -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
 
@@ -155,7 +155,7 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/ \
-    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/userwords.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c \
+    kana.c src/ink.c src/canvas.c src/toolbar.c src/save.c src/lasso.c src/kfile.c src/kanji.c src/bake.c src/viewer.c src/glyph.c src/catalog.c src/match.c src/browse.c src/scroll.c src/chart.c src/score.c src/history.c src/practice.c src/theme.c src/album.c src/side.c src/notes.c src/check.c src/segment.c src/mlkit.c src/recognize.c src/draw.c src/guide.c src/select.c src/marks.c src/examlog.c src/exam.c src/stats.c src/vocab.c src/wordcard.c src/vocabview.c src/wordexam.c src/charnote.c src/text.c src/textink.c src/textscan.c src/scan.c src/translate.c src/backup.c src/speech.c src/welcome.c src/review.c src/wordsplit.c src/sheet.c \
     -I/Users/borjavazquez/kana/include -Wall -Wextra
 
   ./build/osx-silicon/debug/project/exe/runnable                  # the app
@@ -172,6 +172,11 @@ by it; --data Settings › Your data, --data-export=FILE everything exported
 to FILE, --data-import=FILE that backup picked to import and --data-replace
 Replace pressed (run these from a scratch folder: they change ./saves/);
 --sheet=FILE (with --viewer=HEX) that character's practice sheet written to FILE;
+--note=TEXT (with --viewer=HEX) that character's note set to TEXT; --vocab[=N] the
+Vocabulary screen (on the Nth list), --vocab-sample a few words and a list first
+(when there are none), --word-exam[=STAGE] a word exam of every word (0 setup, 1
+writing, 2 by ear, 3 results), --word-card=TEXT the word card for TEXT as if the
+lasso read it, --save-selection Save word on the selection (after --paste-text);
 --scan-live the live
 camera, for measuring on the device), --trim-fonts (the fonts trimmed as on going to the background, just
 before the shot: every glyph drawn again from nothing), its size and theme (--size=744x1133 is an iPad
@@ -243,7 +248,8 @@ Then, with the Mac desktop build above, from the project root:
       [--kanjivg=PATH] [--kanjidic=PATH] [--jlpt=DIR] [--jmdict=PATH] [--tatoeba=DIR] [--out=PATH]
 
 It reports characters, strokes, sizes, stroke-count disagreements and example
-words and sentences, and takes about ten seconds. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
+words and sentences, then the look-alikes (the matcher over the file just
+written, appended as 'LOOK': ~18 s), and takes about twenty-five seconds. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
 ship with the app and its attribution must be shown to users.
 
 

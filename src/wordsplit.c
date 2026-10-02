@@ -91,7 +91,7 @@ RDE_INTERNAL void kana_wordsplit_rules_make(void) {
                                             { "び", "ぶ" }, { "み", "む" }, { "り", "る" }, { "い", "う" } };
     static const c8* const _a_row[9][2] = { { "か", "く" }, { "が", "ぐ" }, { "さ", "す" }, { "た", "つ" }, { "な", "ぬ" },
                                             { "ば", "ぶ" }, { "ま", "む" }, { "ら", "る" }, { "わ", "う" } };
-    static const c8* const _polite[] = { "ます", "ました", "ません", "ませんでした", "たい", "たかった", "たくない", "ながら", "まして", "ましょう" };
+    static const c8* const _polite[] = { "ます", "ました", "ません", "ませんでした", "たい", "たかった", "たくない", "ながら", "まして", "ましょう", "なさい" };
     static const c8* const _negative[] = { "ない", "なかった", "なくて", "ず", "せる", "れる" };
     for(u32 _k = 0; _k < 9u; _k++) {
         for(u32 _p = 0; _p < sizeof(_polite) / sizeof(_polite[0]); _p++) {
@@ -109,7 +109,7 @@ RDE_INTERNAL void kana_wordsplit_rules_make(void) {
         kana_wordsplit_add_rule(_te[_k][0], "", _te[_k][1]);
     }
     static const c8* const _ichidan[] = { "ます", "ました", "ません", "ませんでした", "た", "て", "ない", "なかった", "なくて", "たい", "たかった",
-                                          "られる", "させる", "よう", "ろ", "れば", "ましょう", "ながら" };
+                                          "られる", "させる", "よう", "ろ", "れば", "ましょう", "ながら", "なさい" };
     for(u32 _k = 0; _k < sizeof(_ichidan) / sizeof(_ichidan[0]); _k++) {
         kana_wordsplit_add_rule(_ichidan[_k], "", "る");
     }

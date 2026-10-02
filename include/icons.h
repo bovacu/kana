@@ -103,6 +103,11 @@
 #define KANA_ICON_IMPORT        "\xEE\x80\x90"   // ph-tray-arrow-down U+E010 (Your data: Import)
 #define KANA_ICON_SPEAK         "\xEE\x91\x8A"   // ph-speaker-high U+E44A (read aloud: speech.h)
 #define KANA_ICON_PRINT         "\xEE\x8F\x9C"   // ph-printer U+E3DC (a practice sheet: sheet.h)
+#define KANA_ICON_BOOKMARK      "\xEE\x83\xAA"   // ph-bookmark-simple U+E0EA (a word: save it / saved, Fill)
+#define KANA_ICON_VOCAB         "\xEE\x83\xA4"   // ph-book-bookmark U+E0E4 (the vocabulary)
+#define KANA_ICON_LISTS         "\xEE\x8B\xB2"   // ph-list-bullets U+E2F2 (the vocabulary's lists)
+#define KANA_ICON_LISTEN        "\xEE\x8A\xA6"   // ph-headphones U+E2A6 (an exam by ear)
+#define KANA_ICON_NOTE_EDIT     "\xEE\x8D\x8C"   // ph-note-pencil U+E34C (a character's own note)
 #define KANA_ICON_IMAGE         "\xEE\x8B\x8A"   // ph-image U+E2CA
 #define KANA_ICON_SCAN          "\xEE\xAE\xB6"   // ph-scan U+EBB6
 #define KANA_ICON_PAUSE         "\xEE\x8E\x9E"   // ph-pause U+E39E

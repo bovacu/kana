@@ -171,6 +171,8 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     u32         _freq_count  = 0;
     kana_reader _sent        = { 0 };
     b8          _has_sent    = false;
+    const u8*   _look        = NULL;
+    u32         _look_count  = 0;
     while(kana_next_chunk(&_r, &_tag, &_chunk)) {
         if(_tag == KANA_KANJI_CHUNK_CHARS) {
             const u32 _count  = kana_get_u32(&_chunk);
@@ -196,6 +198,12 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
         } else if(_tag == KANA_KANJI_CHUNK_WORDS) {
             _words_count = kana_get_u32(&_chunk);
             _words       = _chunk;
+        } else if(_tag == KANA_KANJI_CHUNK_LOOK) {
+            const u32 _count = kana_get_u32(&_chunk);
+            if(_chunk.ok && (u64)_count * KANA_KANJI_LOOKALIKES * 4u <= (u64)(_chunk.size - _chunk.pos)) {
+                _look       = &_chunk.data[_chunk.pos];
+                _look_count = _count;
+            }
         } else if(_tag == KANA_KANJI_CHUNK_SENTENCES) {
             _sent     = _chunk;
             _has_sent = true;
@@ -227,8 +235,24 @@ b8 kana_kanji_load(kana_kanji_db* _db, const c8* _path) {
     if(_has_sent) {
         kana_kanji_load_sentences(_db, &_sent);
     }
+    _db->_look = _look != NULL && _look_count == _db->count ? _look : NULL;   // for these characters, or none
 
     return true;
+}
+
+u32 kana_kanji_lookalikes(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
+    if(_db->_look == NULL || _index >= _db->count) {
+        return 0u;
+    }
+    u32 _n = 0;
+    for(u32 _k = 0; _k < KANA_KANJI_LOOKALIKES && _n < _max; _k++) {
+        const u8* _p  = &_db->_look[((usize)_index * KANA_KANJI_LOOKALIKES + _k) * 4u];
+        const u32 _cp = (u32)_p[0] | ((u32)_p[1] << 8) | ((u32)_p[2] << 16) | ((u32)_p[3] << 24);
+        if(_cp != 0u) {
+            _out[_n++] = _cp;
+        }
+    }
+    return _n;
 }
 
 u32 kana_kanji_words(const kana_kanji_db* _db, u32 _index, u32* _out, u32 _max, u32* _examples) {

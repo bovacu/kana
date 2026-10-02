@@ -234,6 +234,19 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_reviews(rde_ui_node* _node, const
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Vocabulary: the learner's words and lists (vocabview.h), over everything else but the page.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_vocabulary(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    _toolbar->side.open = false;
+    kana_lasso_clear(_toolbar->lasso, _toolbar->ink);
+    if(_toolbar->vocab != NULL) {
+        kana_vocabview_open(_toolbar->vocab);
+    }
+    kana_toolbar_update(_toolbar);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // Statistics: over everything else but the page (a character tapped there opens the viewer over it).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_side_on_statistics(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -1129,6 +1142,7 @@ RDE_INTERNAL void kana_side_layout(kana_toolbar* _toolbar) {
     KANA_SIDE_ROW(_side->kana);
     KANA_SIDE_ROW(_side->album);
     KANA_SIDE_ROW(_side->reviews);
+    KANA_SIDE_ROW(_side->vocabulary);
     KANA_SIDE_ROW(_side->exams);
     KANA_SIDE_ROW(_side->statistics);
     _y -= KANA_SIDE_MARGIN * 0.5f;
@@ -1339,6 +1353,7 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     _side->exams       = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_EXAMS), kana_side_on_exams);
     _side->reviews     = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_REVIEWS), kana_side_on_reviews);
     _side->_reviews_shown = UINT32_MAX;
+    _side->vocabulary  = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_VOCAB), kana_side_on_vocabulary);
     _side->statistics  = kana_toolbar_button(_toolbar, _panel, kana_text(KANA_TEXT_STATISTICS), kana_side_on_statistics);
     // The rows' icons: the Japanese ones as characters.
     kana_toolbar_icon(_side->kanji, "\xE5\xAD\x97", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 字
@@ -1346,6 +1361,7 @@ void kana_side_create(kana_toolbar* _toolbar, rde_ui_node* _root) {
     kana_toolbar_icon(_side->album, KANA_ICON_BOOKS, KANA_TOOLBAR_ICON_LEFT, 16.0f);
     kana_toolbar_icon(_side->exams, "\xE8\xA9\xA6", KANA_TOOLBAR_ICON_LEFT, 15.0f);        // 試
     kana_toolbar_icon(_side->reviews, "\xE5\xBE\xA9", KANA_TOOLBAR_ICON_LEFT, 15.0f);      // 復
+    kana_toolbar_icon(_side->vocabulary, "\xE8\xAA\x9E", KANA_TOOLBAR_ICON_LEFT, 15.0f);   // 語
     kana_toolbar_icon(_side->statistics, KANA_ICON_CHART_LINE, KANA_TOOLBAR_ICON_LEFT, 16.0f);
     if(!kana_browse_available(_toolbar->browse)) { kana_toolbar_set_enabled(_side->kanji, false); }   // no character data
     if(kana_chart_count(_toolbar->chart) == 0)   { kana_toolbar_set_enabled(_side->kana, false); }
@@ -1697,7 +1713,7 @@ void kana_side_apply_theme(kana_toolbar* _toolbar) {
     kana_toolbar_button_round(_side->menu_button, 12.0f);
 
     // The panel's rows are quiet, their icons in the accent.
-    rde_ui_button* const _rows[] = { _side->kanji, _side->kana, _side->album, _side->reviews, _side->exams, _side->statistics };
+    rde_ui_button* const _rows[] = { _side->kanji, _side->kana, _side->album, _side->reviews, _side->vocabulary, _side->exams, _side->statistics };
     for(u32 _i = 0; _i < sizeof(_rows) / sizeof(_rows[0]); _i++) {
         kana_toolbar_restyle_quiet(_rows[_i]);
         kana_toolbar_icon_color(_rows[_i], _t->accent);

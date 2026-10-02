@@ -54,13 +54,17 @@
 #include "scan.h"
 #include "examlog.h"
 #include "marks.h"
-#include "userwords.h"
+#include "vocab.h"
 #include "viewer.h"
 #include "theme.h"
 #include "draw.h"
 #include "recognize.h"
 #include "backup.h"
 #include "sheet.h"
+#include "wordcard.h"
+#include "vocabview.h"
+#include "wordexam.h"
+#include "charnote.h"
 #include "welcome.h"
 #include "review.h"
 #include "speech.h"
@@ -87,6 +91,8 @@ RDE_INTERNAL kana_chart   chart;
 RDE_INTERNAL kana_selection selection;   // Browse's and the chart's ticks (select.h)
 RDE_INTERNAL kana_exam      exam;        // exams (exam.h), over Browse, the chart and the album
 RDE_INTERNAL kana_stats     stats;       // statistics (stats.h)
+RDE_INTERNAL kana_vocabview vocabview;  // the Vocabulary screen (vocabview.h)
+RDE_INTERNAL kana_wordexam wordexam;    // word exams (wordexam.h)
 RDE_INTERNAL kana_scan      scan;        // text from a photo (scan.h)
 RDE_INTERNAL kana_practice practice;
 RDE_INTERNAL kana_album    album;
@@ -121,6 +127,10 @@ RDE_INTERNAL const c8* look_shot        = NULL;
 RDE_INTERNAL u32       look_shot_frames = 0;
 // Look flags that need the saves (the exams, the marks): acted on once they are loaded.
 RDE_INTERNAL b8        look_stats       = false;
+RDE_INTERNAL i32       look_vocab       = -1;     // --vocab[=N]: the Vocabulary screen (N: on the Nth list)
+RDE_INTERNAL b8        look_vocab_sample = false; // --vocab-sample: a few words and a list, when the vocabulary is empty
+RDE_INTERNAL const c8* look_note        = NULL;   // --note=TEXT: (with --viewer) the character's note set to TEXT
+RDE_INTERNAL i32       look_word_exam   = -1;     // --word-exam[=STAGE]: a word exam of every word (0 its setup, 1 writing, 2 by ear, 3 its results)
 RDE_INTERNAL i64       look_kept_exam   = -1;
 RDE_INTERNAL f32       look_scroll      = 0.0f;   // --scroll=PX: the open screen scrolled down (Statistics, the album)
 RDE_INTERNAL i32       look_theme       = -1;     // --theme=N: shown, not saved
@@ -134,6 +144,8 @@ RDE_INTERNAL b8        look_scan_rows   = false;  // --scan-demo-top-first: and 
 RDE_INTERNAL b8        look_scan_translate = false;  // --scan-demo-translate: and Translate with Google on, translate.h pretending
 RDE_INTERNAL const c8* look_translate_probe = NULL; // --translate-probe=xx: ML Kit's translator tried on the device (see kana_translate_probe)
 RDE_INTERNAL b8        look_translate_sel = false;  // --translate-selection: the selection (after --paste-text) translated, translate.h pretending
+RDE_INTERNAL b8        look_save_sel    = false;  // --save-selection: Save word on the selection (after --paste-text)
+RDE_INTERNAL const c8* look_word_card   = NULL;   // --word-card=TEXT: the word card for TEXT, as if the lasso read it
 RDE_INTERNAL b8        look_data        = false;  // --data: Settings › Your data
 RDE_INTERNAL i32       look_welcome     = -1;     // --welcome[=PAGE]: the welcome, on that page (from 1)
 RDE_INTERNAL const c8* look_data_export = NULL;   // --data-export=FILE: everything exported to FILE (no dialog)
@@ -411,9 +423,11 @@ RDE_INTERNAL void kana_load_saves(void) {
     snprintf(_path, sizeof(_path), "%sexams.kana", _dir);
     kana_examlog_open(_path);
     snprintf(_path, sizeof(_path), "%swords.kana", _dir);
-    kana_userwords_open(_path);
+    kana_vocab_open(_path);
     snprintf(_path, sizeof(_path), "%sreviews.kana", _dir);
     kana_reviews_open(_path);
+    snprintf(_path, sizeof(_path), "%scharnotes.kana", _dir);
+    kana_charnotes_open(_path);
 
     kana_settings    _settings = kana_gather_settings();
     const KANA_LOAD_ _loaded   = kana_load_settings(settings_path, &_settings);
@@ -507,6 +521,8 @@ RDE_INTERNAL void kana_reload_saves(void) {
     if(exam.open)     { kana_exam_close(&exam); }
     if(stats.open)    { kana_stats_close(&stats); }
     if(scan.open)     { kana_scan_close(&scan); }
+    if(wordexam.open) { kana_wordexam_close(&wordexam); }
+    if(vocabview.open) { kana_vocabview_close(&vocabview); }
     kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
     kana_ink_erase_end(&ink);
     kana_ink_end(&ink);
@@ -770,6 +786,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_chart_init(&chart, _have_kanji ? &kanji_db : NULL);
     kana_selection_init(&selection, _have_kanji ? kanji_db.count : 0u);
     kana_exam_init(&exam, _have_kanji ? &kanji_db : NULL, &browse.catalog);
+    kana_vocabview_init(&vocabview, _have_kanji ? &kanji_db : NULL);
+    kana_wordexam_init(&wordexam, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     kana_stats_init(&stats, _have_kanji ? &kanji_db : NULL, &browse.catalog);
     kana_scan_init(&scan);
     scan.db = _have_kanji ? &kanji_db : NULL;   // the lines' words (wordsplit.h)
@@ -790,6 +808,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
             kana_translate_demo(true);
             look_scan_translate = true;
         }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--save-selection") == 0) {
+            look_save_sel = true;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--word-card=", 12) == 0) {
+            look_word_card = _argv[_i] + 12;
+        }
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--translate-selection") == 0) {
             kana_translate_demo(true);
             look_translate_sel = true;
@@ -798,6 +822,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
     toolbar.selection = &selection;
     toolbar.exam      = &exam;
+    toolbar.vocab     = &vocabview;
+    toolbar.wordexam  = &wordexam;
     toolbar.stats     = &stats;
     toolbar.scan      = &scan;
     if(toolbar.font != NULL) {
@@ -955,6 +981,18 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         if(_argv[_i] != NULL && strcmp(_argv[_i], "--stats") == 0) {
             look_stats = true;
         }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--vocab", 7) == 0) {
+            look_vocab = _argv[_i][7] == '=' ? (i32)strtol(_argv[_i] + 8, NULL, 10) : 0;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--note=", 7) == 0) {
+            look_note = _argv[_i] + 7;
+        }
+        if(_argv[_i] != NULL && strcmp(_argv[_i], "--vocab-sample") == 0) {
+            look_vocab_sample = true;
+        }
+        if(_argv[_i] != NULL && strncmp(_argv[_i], "--word-exam", 11) == 0) {
+            look_word_exam = _argv[_i][11] == '=' ? (i32)strtol(_argv[_i] + 12, NULL, 10) : 0;
+        }
         if(_argv[_i] != NULL && (strcmp(_argv[_i], "--exam") == 0 || strcmp(_argv[_i], "--exam-start") == 0)) {
             kana_exam_open(&exam);
             if(strcmp(_argv[_i], "--exam-start") == 0) {
@@ -973,6 +1011,43 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
     if(look_stats) {
         kana_stats_open(&stats);
+    }
+    if(look_note != NULL && viewer.open) {
+        kana_charnote_set(kana_viewer_codepoint(&viewer), look_note);
+    }
+    if(look_vocab_sample && kana_vocab_count() == 0u) {
+        static const c8* const _sample[][3] = {
+            { "日本語", "にほんご", "Japanese (language)" }, { "勉強", "べんきょう", "study" }, { "食べる", "たべる", "to eat" }, { "東京", "とうきょう", "Tokyo" },
+            { "本", "ほん", "book; volume; script" }, { "先生", "せんせい", "teacher; instructor; master" }, { "学生", "がくせい", "student" }, { "読む", "よむ", "to read" },
+        };
+        const u32 _list = kana_vocab_list_add("Lesson 1");
+        for(u32 _w = 0; _w < sizeof(_sample) / sizeof(_sample[0]); _w++) {
+            const u32 _id = kana_vocab_add(_sample[_w][0], _sample[_w][1], _sample[_w][2], 0u);
+            if(_w % 2u == 0u) {
+                kana_vocab_set_in_list(_list, _id, true);
+            }
+        }
+        kana_vocab_list_add("Food");
+    }
+    if(look_word_exam >= 0) {
+        const u32 _n   = kana_vocab_count();
+        u32*      _ids = (u32*)rde_malloc(sizeof(u32) * (_n > 0 ? _n : 1u));
+        for(u32 _i = 0; _i < _n; _i++) {
+            _ids[_i] = kana_vocab_at(_i)->id;
+        }
+        kana_wordexam_open(&wordexam, _ids, _n, kana_text(KANA_TEXT_VOCAB));
+        rde_free(_ids);
+        if(look_word_exam >= 1) {
+            wordexam.by = look_word_exam == 2 ? KANA_WORDEXAM_BY_EAR : KANA_WORDEXAM_BY_MEANING;
+            kana_wordexam_start(&wordexam);
+        }
+        for(u32 _i = 0; look_word_exam == 3 && _i < KANA_WORDEXAM_MAX && wordexam.stage == KANA_WORDEXAM_WRITING; _i++) {
+            kana_wordexam_next(&wordexam);   // nothing written: the results, every word wrong
+        }
+    }
+    if(look_vocab >= 0) {
+        kana_vocabview_open(&vocabview);
+        kana_vocabview_show_list(&vocabview, look_vocab > 0 ? kana_vocab_list_at((u32)look_vocab - 1u) : 0u);
     }
     if(look_kept_exam >= 0) {
         kana_exam_open_kept(&exam, (u32)look_kept_exam);
@@ -1034,7 +1109,9 @@ RDE_INTERNAL void kana_list_down(rde_vec_2F _screen, b8 _pen, f64 _now) {
     else if(viewer.open) { kana_viewer_pointer_down(&viewer, _screen, _now); }
     else if(scan.open)  { kana_scan_pointer_down(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_down(&exam, _screen, _pen, _now); }
+    else if(wordexam.open) { kana_wordexam_pointer_down(&wordexam, _screen, _pen, _now); }
     else if(stats.open) { kana_stats_pointer_down(&stats, _screen, _now); }
+    else if(vocabview.open) { kana_vocabview_pointer_down(&vocabview, _screen, _now); }
     else if(check.open) { kana_check_pointer_down(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_down(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_down(&chart, _screen, _now); }
@@ -1046,7 +1123,9 @@ RDE_INTERNAL void kana_list_moved(rde_vec_2F _screen, f64 _now) {
     else if(viewer.open) { kana_viewer_pointer_moved(&viewer, _screen, _now); }
     else if(scan.open)  { kana_scan_pointer_moved(&scan, _screen, _now); }
     else if(exam.open)  { kana_exam_pointer_moved(&exam, _screen, _now); }
+    else if(wordexam.open) { kana_wordexam_pointer_moved(&wordexam, _screen, _now); }
     else if(stats.open) { kana_stats_pointer_moved(&stats, _screen, _now); }
+    else if(vocabview.open) { kana_vocabview_pointer_moved(&vocabview, _screen, _now); }
     else if(check.open) { kana_check_pointer_moved(&check, _screen, _now); }
     else if(album.open) { kana_album_pointer_moved(&album, _screen, _now); }
     else if(chart.open) { kana_chart_pointer_moved(&chart, _screen, _now); }
@@ -1057,7 +1136,9 @@ RDE_INTERNAL void kana_list_up(f64 _now) {
     else if(viewer.open) { kana_viewer_pointer_up(&viewer, _now); }
     else if(scan.open)  { kana_scan_pointer_up(&scan, _now); }
     else if(exam.open)  { kana_exam_pointer_up(&exam, _now); }
+    else if(wordexam.open) { kana_wordexam_pointer_up(&wordexam, _now); }
     else if(stats.open) { kana_stats_pointer_up(&stats, _now); }
+    else if(vocabview.open) { kana_vocabview_pointer_up(&vocabview, _now); }
     else if(check.open) { kana_check_pointer_up(&check, _now); }
     else if(album.open) { kana_album_pointer_up(&album, _now); }
     else if(chart.open) { kana_chart_pointer_up(&chart, _now); }
@@ -1203,7 +1284,8 @@ void on_event(rde_window* _window, rde_event* _event) {
     // The screens have the whole screen: nothing reaches the page (their buttons
     // are UI and have had the event already). Leaving the app still saves. The
     // top screen gets the pointer.
-    if(welcome.open || practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open) {
+    if(welcome.open || practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open ||
+       vocabview.open || wordexam.open) {
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -1606,6 +1688,12 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         if(look_shot_frames == 28u && look_translate_sel) {
             kana_toolbar_translate_selection(&toolbar);
         }
+        if(look_shot_frames == 28u && look_save_sel) {
+            kana_toolbar_save_selection(&toolbar);
+        }
+        if(look_shot_frames == 28u && look_word_card != NULL) {
+            kana_wordcard_ask_read(&kanji_db, look_word_card);
+        }
         if(look_shot_frames == 10u && look_welcome >= 0) {
             kana_welcome_open(&welcome);
             welcome.page = (u32)look_welcome < KANA_WELCOME_PAGES ? (u32)look_welcome : 0u;
@@ -1708,6 +1796,40 @@ RDE_INTERNAL void kana_update(f32 _dt) {
             kana_toolbar_paste_text(&toolbar, _lines, _at);
         }
         if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_scan_close(&scan); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    // A word exam: its answers read as it goes; a tapped result opens the word card.
+    if(wordexam.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_wordexam_update(&wordexam, _dt);
+        u32 _word;
+        if(kana_wordexam_take_tap(&wordexam, &_word)) {
+            kana_wordcard_ask_saved(_word);
+        }
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_wordexam_close(&wordexam); }
+        kana_toolbar_update(&toolbar);
+        kana_autosave();
+        return;
+    }
+
+    // The Vocabulary screen.
+    if(vocabview.open && !stats.open) {
+#if !defined(RDE_PLATFORM_MOBILE)
+        if(browse_pointer == KANA_POINTER_MOUSE) {
+            const rde_vec_2I _m = rde_input_mouse_get_position(window);
+            kana_list_moved((rde_vec_2F){ (f32)_m.x, (f32)_m.y }, rde_engine_get_time_now());
+        }
+#endif
+        kana_vocabview_update(&vocabview, _dt);
+        if(rde_input_key_is_just_pressed(window, RDE_KEYBOARD_KEY_ESCAPE)) { kana_vocabview_close(&vocabview); }
         kana_toolbar_update(&toolbar);
         kana_autosave();
         return;
@@ -2072,8 +2194,12 @@ RDE_INTERNAL void kana_render(rde_window* _window, f32 _dt) {
         kana_viewer_render(&viewer, _window, font, font_px, toolbar.viewer_menu.size.y + 16.0f);
     } else if(scan.open) {
         kana_scan_render(&scan, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.scan_menu.size.y + 24.0f);
+    } else if(wordexam.open) {
+        kana_wordexam_render(&wordexam, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.vocab_menu.size.y + 24.0f);
     } else if(stats.open) {
         kana_stats_render(&stats, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.stats_menu.size.y + 24.0f);
+    } else if(vocabview.open) {
+        kana_vocabview_render(&vocabview, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.vocab_menu.size.y + 24.0f);
     } else if(exam.open) {
         kana_exam_render(&exam, _window, font, font_px, _hh - (f32)_safe.y - 8.0f, -_hh + (f32)_safe.w + toolbar.exam_menu.size.y + 24.0f);
     } else if(check.open) {
@@ -2182,11 +2308,14 @@ void end_func(void) {
     kana_chart_destroy(&chart);
     kana_selection_destroy(&selection);
     kana_exam_destroy(&exam);
+    kana_wordexam_destroy(&wordexam);
+    kana_vocabview_destroy(&vocabview);
     kana_stats_destroy(&stats);
     kana_scan_destroy(&scan);
     kana_marks_close();
     kana_examlog_close();
-    kana_userwords_close();
+    kana_vocab_close();
+    kana_charnotes_close();
     kana_practice_destroy(&practice);
     kana_album_destroy(&album);
     kana_notes_destroy(&notes);

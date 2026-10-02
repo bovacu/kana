@@ -2,6 +2,10 @@
 #define KANA_TOOLBAR
 
 #include "rde.h"
+#include "wordcard.h"
+#include "sheet.h"
+
+#define KANA_SHEET_RECORDS (KANA_SHEET_MAX + 1u)   // one more: too many to fit is told
 #include "ink.h"
 #include "canvas.h"
 #include "lasso.h"
@@ -20,6 +24,8 @@
 #include "textink.h"
 #include "scan.h"
 #include "wordsplit.h"
+#include "vocabview.h"
+#include "wordexam.h"
 
 // ===========================================================================
 // The floating toolbar: a movable bar of tools that can sit anywhere on screen,
@@ -55,7 +61,7 @@ typedef enum {
 
 typedef struct kana_toolbar kana_toolbar;
 
-#define KANA_TOOLBAR_MENU_MAX 7
+#define KANA_TOOLBAR_MENU_MAX 8
 #define KANA_TOOLBAR_SEPARATORS 5
 
 // Translate with Google on a selection: where it is.
@@ -72,7 +78,8 @@ typedef enum {
 typedef enum {
     KANA_TOOLBAR_SHEET_NONE = 0,
     KANA_TOOLBAR_SHEET_VIEWER,       // the viewer's character
-    KANA_TOOLBAR_SHEET_SELECTION     // Select mode's ticks
+    KANA_TOOLBAR_SHEET_SELECTION,    // Select mode's ticks
+    KANA_TOOLBAR_SHEET_VOCAB         // the Vocabulary screen's words' characters
 } KANA_TOOLBAR_SHEET_;
 
 // A floating row of buttons: the menu over a lasso selection, the page's
@@ -118,6 +125,8 @@ struct kana_toolbar {
     kana_exam*     exam;            // exams (exam.h); set by the owner after init
     kana_stats*    stats;           // statistics (stats.h); set by the owner after init
     kana_scan*     scan;            // text from a photo (scan.h); set by the owner after init
+    kana_vocabview* vocab;          // the Vocabulary screen (vocabview.h); set by the owner after init
+    kana_wordexam* wordexam;        // word exams (wordexam.h); set by the owner after init
     b8*            show_hud;
     u8             _sheet_asked;    // KANA_TOOLBAR_SHEET_: for kana_toolbar_take_sheet
     u32            _sheet_one;      // ...the viewer's character's record
@@ -175,6 +184,7 @@ struct kana_toolbar {
     kana_textink_reader      text_reader;      // Copy as text: the selection being read (textink.h)
     b8                       _text_reader_ready;
     b8                       text_for_translate;   // the reading is for Translate with Google, not the clipboard
+    b8                       text_for_vocab;       // ...for the word card (Save word), not the clipboard
     // Translate with Google on a selection: what was read, into the translator
     // (translate.h), shown in a card by the selection until it goes.
     KANA_TOOLBAR_TRANSLATION_ translation_state;
@@ -228,23 +238,24 @@ struct kana_toolbar {
     u32                      _exam_shown;       // what the rows' labels were set for (a hash of stage and counts)
     // Statistics' row: Close.
     kana_toolbar_menu        stats_menu;
+    // The Vocabulary screen's row: Back, + Word, Review n, Exam, Sheet, Practice;
+    // and a word exam's: its setup's (Close, Start n), writing's (Quit, Undo,
+    // Clear, Next / Finish), results' (Done, Retry the wrong ones).
+    kana_toolbar_menu        vocab_menu;
+    kana_toolbar_menu        wordexam_setup_menu;
+    kana_toolbar_menu        wordexam_menu;
+    kana_toolbar_menu        wordexam_results_menu;
+    u32                      _vocab_shown;      // what the vocabulary row's labels were set for (UINT32_MAX: not yet)
+    u32                      _wordexam_shown;   // ...a word exam's rows'
+    u32                      _sheet_records[KANA_SHEET_RECORDS];   // a sheet of the vocabulary's characters
     // Text from a photo's row: Back, Camera, Photos, Write n.
     kana_toolbar_menu        scan_menu;
     u32                      _scan_kept_shown;   // the count "Write n" shows (UINT32_MAX: not yet)
     u8                       _scan_translate_shown;   // Translate with Google's look: 0 off, 1 on (UINT8_MAX: not yet)
-    // The viewer's Add (viewer.h): its row — Done, Type your own — and the form
-    // for a word typed in: written, reading (kana or romaji), meaning.
+    // The viewer's Add (viewer.h): its row — Done, Type your own.
     kana_toolbar_menu        viewer_add_menu;
-    rde_ui_button*           word_backdrop;
-    rde_ui_image*            word_card;
-    rde_ui_label*            word_title;
-    rde_ui_text_editor*      word_fields[3];
-    rde_ui_label*            word_error;
-    rde_ui_button*           word_cancel;
-    rde_ui_button*           word_add;
-    b8                       word_open;
-    u32                      word_kanji;       // the code point the word is for
-    rde_vec_2F               _word_laid_out;   // the screen size the form was laid out for
+    // The word card (wordcard.h): a word into the vocabulary, or a saved one.
+    kana_wordcard            word;
     // Practice's row: Back, Undo, Clear, Score, fewer / more squares.
     kana_toolbar_menu        practice_menu;
     // Check's row: Back, Stroke order, Practice; and its "I meant…" field, at
@@ -319,6 +330,9 @@ void       kana_toolbar_pen_double_tap(kana_toolbar* _toolbar, u8 _action);
 // Translate with Google on the selection (its menu's button, and a look flag):
 // read, translated, and shown in a card by it (kana_toolbar_render_translation).
 void       kana_toolbar_translate_selection(kana_toolbar* _toolbar);
+// Save word on the selection (its menu's button, and a look flag): read, then
+// the word card (wordcard.h) with what it says.
+void       kana_toolbar_save_selection(kana_toolbar* _toolbar);
 // The card, once a frame over the page (Kana's screen space).
 void       kana_toolbar_render_translation(kana_toolbar* _toolbar, rde_window* _window);
 // A press at _screen (Kana's screen space): on the card's speaker, what was read
