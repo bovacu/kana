@@ -9,7 +9,10 @@
 
 // ===========================================================================
 // The Vocabulary screen (the side panel's Vocabulary): the learner's words
-// (vocab.h), newest first — all of them, or one list's.
+// (vocab.h), newest first — all of them, or one list's; and of those, the ones
+// the field at the top right finds as it is typed: in what is written (駅: every
+// word with 駅 in it), its reading (in kana or romaji: えき, eki) or its meaning.
+// What is shown is what Review, Exam, Sheet and Practice take.
 //
 //   the lists as chips (All, each list with its count, + New list): a tap shows
 //   that list; a tap on the one shown renames or deletes it (the word card's
@@ -34,6 +37,9 @@ RDE_STRUCT {
     fude_glyph           glyph;
     b8                   open;
     u32                  list;           // the list shown (0: every word)
+    c8                   query[64];      // what the field searches for, as typed ("": every word)
+    c8                   _query_fold[64];   // ...lowered, katakana as hiragana
+    c8                   _query_kana[192];  // ...read as romaji ("": it is not)
     rde_arr TYPE(u32)    ids;            // the words shown, newest first
     u32                  _listed_at;     // fude_vocab_revision they were listed at (UINT32_MAX: to list)
     u32                  _listed_list;
@@ -57,6 +63,8 @@ void fude_vocabview_open(fude_vocabview* _view);
 void fude_vocabview_close(fude_vocabview* _view);
 // Shows list _list (0: every word).
 void fude_vocabview_show_list(fude_vocabview* _view, u32 _list);
+// Shows the words _query finds ("": every word of the list shown).
+void fude_vocabview_search(fude_vocabview* _view, const c8* _query);
 
 // The words shown: their ids, newest first. How many.
 u32  fude_vocabview_words(fude_vocabview* _view, const u32** _ids);

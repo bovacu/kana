@@ -38,6 +38,8 @@ RDE_INTERNAL struct {
     const c8* lasso_area; // --lasso-area=X0,Y0,X1,Y1: the lasso's loop round that box at frame 22 (a PDF's text: its area)
     const c8* doc_search; // --doc-search=WORDS: the document bar's Search for them, frame 26
     i32       doc_page;   // --doc-page=N: the document bar's page N gone to, frame 26 (0: no)
+    const c8* doc_export; // --doc-export=PDF: the document written there with its ink, frame 90
+    i32       doc_turn;   // --doc-turn=N: its page N turned a quarter clockwise, frame 30 (0: no)
     // --perf: frame times over this many seconds (0: off).
     f64       perf_seconds, perf_start;
     u32       perf_frames, perf_settle, perf_slow;
@@ -89,6 +91,8 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--lasso-area")) != NULL)     { fude_look.lasso_area = _v; }
         if((_v = fude_look_value(_a, "--doc-search")) != NULL)     { fude_look.doc_search = _v; }
         if((_v = fude_look_value(_a, "--doc-page")) != NULL)       { fude_look.doc_page = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--doc-export")) != NULL)     { fude_look.doc_export = _v; }
+        if((_v = fude_look_value(_a, "--doc-turn")) != NULL)       { fude_look.doc_turn = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--perf")) != NULL) {
             fude_look.perf_seconds = strtod(_v, NULL);
             for(i32 _k = 1; _k < _argc; _k++) {
@@ -236,6 +240,13 @@ void fude_look_frame(fude_app* _app) {
     }
     if(_frame == 26u && fude_look.doc_search != NULL) {
         fude_docbar_search(&_app->ui->docbar, fude_look.doc_search);
+    }
+    if(_frame == 30u && fude_look.doc_turn > 0) {
+        fude_doc_turn_page(&_app->page->doc, _app, (u32)(fude_look.doc_turn - 1));
+    }
+    if(_frame == 90u && fude_look.doc_export != NULL) {
+        rde_log_level(RDE_LOG_LEVEL_INFO, "look: --doc-export %s: %s", fude_look.doc_export,
+                      fude_doc_export(&_app->page->doc, _app->ink, fude_look.doc_export) ? "written" : "NOT written");
     }
     if(_frame == 26u && fude_look.doc_page > 0) {
         fude_doc_go_to_page(&_app->page->doc, _app->canvas, (u32)(fude_look.doc_page - 1));

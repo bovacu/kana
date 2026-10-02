@@ -659,9 +659,10 @@ a server): export / import instead. Built in this order:
       site/; CONTACT rde.apps.support@gmail.com. [ ] site/ on GitHub Pages, the
       two URLs in App Store Connect.
 - [x] The store texts in five languages, the age-rating answers, the review
-      notes: docs/store/listing.md.
+      notes: store/listing.md.
 - [x] The screenshot framer: tools/store/screenshots.py (iPad shots → 13-inch,
-      captioned, per language). [ ] The eight shots taken on the iPad.
+      captioned, per language). [x] The ten shots, framed in five languages:
+      store/ (README.md). [ ] A translation shot from the iPad in place of one.
 - [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID. Age
       13+ (Apple's nearest to the 12+ chosen); price suggested USD 9.99 once,
       with the Small Business Program.
@@ -818,8 +819,24 @@ docs/architecture.md has how it fits together and how to start a new app.
       between (ink.c, fude_ink_emit_stroke) — even, slow or fast; what is saved
       is unchanged, so strokes already made are fixed too.
 - [x] On the iPad: the marker marked slowly — "working perfectly now" (Borja, 2026-10-02).
-- [ ] A scan's text (no text in the PDF): ML Kit's text recognition on the lasso's
-      box, for the text row and Search.
+- [x] A scan's text (Borja, 2026-10-02: "Lets do the 3"): pages with no text of
+      their own read once each by ML Kit (textscan.h's page channel), in the
+      background, nearest first; the lines kept beside the PDF (<id>.lines); the
+      lasso and Search use them (the lasso's box takes the characters under it).
+- [x] More lessons: Wikivoyage's Japanese phrasebook, en es fr pt (CC BY-SA 4.0),
+      built by tools/lectures/phrasebook.py; the Library shows the one in the
+      app's language (else English). The letters asking MEXT and the Hyogo
+      International Association for theirs: docs/lectures_permission.md (Borja
+      to send).
+- [x] Share as PDF (the document bar): the pages with the ink over them (white
+      paper, the light theme's ink), a scan's read text in it unseen — any reader
+      finds it (PDFKit's do; a reader that ignores Hiragino's own map may not).
+- [x] Turn page (Borja, 2026-10-02: "can we make the scans of the lectures
+      rotatable?"): the document bar turns the page in the middle a quarter
+      clockwise; the canvas keeps it (its page's 'TURN'), the PDF is untouched;
+      what is written on it turns with it, the pages after move with their ink; a
+      scanned page is read again upright.
+- [ ] On the iPad: a scan read (lasso, Search), the phrasebook, Share as PDF, Turn page (Borja).
 - [ ] Android: PdfRenderer behind pdf.h; Windows: a renderer to choose (PDFium?).
 - [ ] Next: export a document with its ink as a PDF (to share); the page's text
       (lasso a PDF's words to look them up).

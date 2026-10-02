@@ -102,6 +102,21 @@ void fude_ink_add_loaded_stroke_2(fude_ink* _ink, const fude_ink_point* _points,
     fude_ink_recompute_bounds(_ink, &fude_ink_strokes(_ink)[fude_ink_len(&_ink->strokes) - 1]);
 }
 
+void fude_ink_remap(fude_ink* _ink, void (*_map)(any _user, u32 _stroke, fude_ink_point* _point), any _user) {
+    fude_ink_stroke* _strokes = (fude_ink_stroke*)_ink->strokes.memory;
+    fude_ink_point*  _points  = (fude_ink_point*)_ink->points.memory;
+    for(u32 _s = 0; _s < fude_ink_len(&_ink->strokes); _s++) {
+        if(!_strokes[_s].alive) {
+            continue;
+        }
+        for(u32 _p = 0; _p < _strokes[_s].point_count; _p++) {
+            _map(_user, _s, &_points[_strokes[_s].first_point + _p]);
+        }
+        fude_ink_recompute_bounds(_ink, &_strokes[_s]);
+    }
+    _ink->revision++;
+}
+
 const fude_ink_point* fude_ink_stroke_points(const fude_ink* _ink, const fude_ink_stroke* _stroke) {
     return &fude_ink_points(_ink)[_stroke->first_point];
 }

@@ -7,6 +7,8 @@
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 #include "study/widgets/wordcard.h"
+#include "drawing/base/utf8.h"
+#include "lang/ja/romaji.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -44,6 +46,7 @@ void fude_vocabview_destroy(fude_vocabview* _view) {
 void fude_vocabview_open(fude_vocabview* _view) {
     _view->open       = true;
     _view->_listed_at = UINT32_MAX;
+    fude_vocabview_search(_view, "");   // its field starts empty
     _view->pressed    = -1;
     fude_scroller_stop(&_view->scroller);
     _view->scroller.offset = 0.0f;
@@ -61,7 +64,77 @@ void fude_vocabview_show_list(fude_vocabview* _view, u32 _list) {
     fude_wordcard_prefer_list(_list);   // + Word saves in it
 }
 
-// The words of the list shown, newest first (again when the vocabulary changed).
+// --- the search ------------------------------------------------------------------------
+
+// _text as a search compares it: A-Z as a-z, katakana as hiragana (エキ finds
+// えき). Never longer than _text.
+RDE_INTERNAL void fude_vocabview_fold(const c8* _text, c8* _out, usize _size) {
+    usize _n = 0;
+    for(const c8* _p = _text; *_p != 0;) {
+        u32 _cp = fude_utf8_next(&_p);
+        if(_cp >= 'A' && _cp <= 'Z') {
+            _cp += 'a' - 'A';
+        } else if(_cp >= 0x30A1u && _cp <= 0x30F6u) {
+            _cp -= FUDE_ROMAJI_KATAKANA_SHIFT;
+        }
+        c8 _one[5];
+        fude_utf8_put(_cp, _one);
+        const usize _len = strlen(_one);
+        if(_n + _len >= _size) {
+            break;
+        }
+        memcpy(_out + _n, _one, _len);
+        _n += _len;
+    }
+    _out[_n] = 0;
+}
+
+void fude_vocabview_search(fude_vocabview* _view, const c8* _query) {
+    // Without the spaces around it.
+    while(*_query == ' ') {
+        _query++;
+    }
+    usize _len = strlen(_query);
+    while(_len > 0 && _query[_len - 1u] == ' ') {
+        _len--;
+    }
+    c8 _was[sizeof(_view->query)];
+    memcpy(_was, _view->query, sizeof(_was));
+    snprintf(_view->query, sizeof(_view->query), "%.*s", (int)_len, _query);
+    if(strcmp(_was, _view->query) == 0) {
+        return;
+    }
+    fude_vocabview_fold(_view->query, _view->_query_fold, sizeof(_view->_query_fold));
+    // Romaji (letters only): its kana too, so eki finds えき.
+    b8 _letters = _view->query[0] != 0;
+    for(const c8* _c = _view->query; *_c != 0 && _letters; _c++) {
+        _letters = (*_c >= 'a' && *_c <= 'z') || (*_c >= 'A' && *_c <= 'Z') || *_c == '-' || *_c == '\'';
+    }
+    if(!_letters || !fude_romaji_to_hiragana(_view->_query_fold, _view->_query_kana, sizeof(_view->_query_kana))) {
+        _view->_query_kana[0] = 0;
+    }
+    _view->_listed_at = UINT32_MAX;
+    fude_scroller_stop(&_view->scroller);
+    _view->scroller.offset = 0.0f;
+}
+
+// The word has what is searched for: in its written form, its reading, or its meaning.
+RDE_INTERNAL b8 fude_vocabview_finds(const fude_vocabview* _view, const fude_vocab_word* _w) {
+    c8 _folded[FUDE_USERWORD_MEANING];
+    const c8* const _parts[] = { _w->written, _w->reading, _w->meaning };
+    for(u32 _i = 0; _i < 3u; _i++) {
+        fude_vocabview_fold(_parts[_i], _folded, sizeof(_folded));
+        if(strstr(_folded, _view->_query_fold) != NULL || (_i < 2u && _view->_query_kana[0] != 0 && strstr(_folded, _view->_query_kana) != NULL)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// --- the words -------------------------------------------------------------------------
+
+// The words of the list shown, newest first, the search's only (again when the
+// vocabulary changed).
 RDE_INTERNAL void fude_vocabview_list(fude_vocabview* _view) {
     if(_view->_listed_at == fude_vocab_revision() && _view->_listed_list == _view->list) {
         return;
@@ -85,6 +158,20 @@ RDE_INTERNAL void fude_vocabview_list(fude_vocabview* _view) {
             const u32 _t = _w[_a];
             _w[_a]       = _w[_b];
             _w[_b]       = _t;
+        }
+    }
+    if(_view->query[0] != 0) {
+        u32*      _ids  = (u32*)_view->ids.memory;
+        const u32 _n    = (u32)rde_arr_length(&_view->ids);
+        u32       _kept = 0;
+        for(u32 _i = 0; _i < _n; _i++) {
+            const fude_vocab_word* _w = fude_vocab_get(_ids[_i]);
+            if(_w != NULL && fude_vocabview_finds(_view, _w)) {
+                _ids[_kept++] = _ids[_i];
+            }
+        }
+        while(rde_arr_length(&_view->ids) > _kept) {
+            rde_arr_remove(&_view->ids, rde_arr_length(&_view->ids) - 1u);   // the last: nothing moves
         }
     }
 }
@@ -322,8 +409,12 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     _view->content_h = (f32)_n * FUDE_VOCABVIEW_ROW;
     if(_n == 0u) {
         fude_draw_card((rde_vec_2F){ _left, _y - 84.0f }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
-        const FUDE_TEXT_ _empty = _view->list != 0u ? FUDE_TEXT_VOCAB_LIST_EMPTY : FUDE_TEXT_VOCAB_EMPTY;
-        fude_draw_text_wrap(_font, _font_px, fude_text(_empty), _left + 18.0f, _y - 30.0f, 14.0f, _right - _left - 36.0f, 20.0f, _theme->text_soft);
+        if(_view->query[0] != 0) {
+            FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_SEARCH_NONE, FUDE_TS(_view->query));
+        } else {
+            snprintf(_line, sizeof(_line), "%s", fude_text(_view->list != 0u ? FUDE_TEXT_VOCAB_LIST_EMPTY : FUDE_TEXT_VOCAB_EMPTY));
+        }
+        fude_draw_text_wrap(_font, _font_px, _line, _left + 18.0f, _y - 30.0f, 14.0f, _right - _left - 36.0f, 20.0f, _theme->text_soft);
         return;
     }
     // Columns: the written form, the reading (after its speaker), the meaning; the
@@ -400,6 +491,11 @@ FUDE_SCREEN_RENDER(fude_vocabview, fude_vocabview)
 RDE_INTERNAL void fude_vocabview_screen_update(fude_app* _app, void* _self, f32 _dt) {
     RDE_UNUSED(_app);
     fude_vocabview_update((fude_vocabview*)_self, _dt);
+}
+
+// The field: every keystroke searches.
+RDE_INTERNAL void fude_vocabview_screen_search(void* _self, const c8* _text) {
+    fude_vocabview_search((fude_vocabview*)_self, _text);
 }
 
 // What the screen shows is called: the list's name, or Vocabulary.
@@ -501,5 +597,5 @@ const fude_screen FUDE_VOCAB_SCREEN = {
     .update = fude_vocabview_screen_update, .render = fude_vocabview_screen_render,
     .pointer_down = fude_vocabview_screen_down, .pointer_moved = fude_vocabview_screen_moved, .pointer_up = fude_vocabview_screen_up,
     .rows = FUDE_VOCAB_BUTTON_ROWS, .row_count = 1u, .row = fude_vocabview_screen_row, .faces = fude_vocabview_screen_faces,
-    .field_hint = FUDE_TEXT_COUNT,
+    .field_hint = FUDE_TEXT_VOCAB_SEARCH_HINT, .field_max = 40u, .field_change = fude_vocabview_screen_search,
 };

@@ -214,6 +214,17 @@ ink, takes the text in its loop's box (`lasso.h`: an area) for the app's text
 row. The marker (`ink.h`: a stroke flag) is see-through and drawn under the
 other ink; it is never read as writing.
 
+A page with no text of its own (a scan, a photo) is read once, in the
+background, by the app's picture reader (`extension.h`'s `picture_read` and
+`picture_lines`: Kana's is ML Kit's Japanese text recognition), and its lines
+are kept beside the PDF (`<id>.lines`), so the lasso and Search find them as
+they find a PDF's own text. Share as PDF (`fude_doc_export`) writes the pages
+with the ink over them and the read lines as invisible text. A page can be
+turned a quarter at a time (the document bar's Turn page): the canvas keeps the
+turns with its page (`canvas.h`'s `fude_page`, saved as 'TURN'), the PDF is
+never changed, the ink on the page turns with it and the ink on the pages after
+it moves with them, and a page read from its picture is read again.
+
 PDFs are drawn by Core Graphics (`pdf.c`, plain C: iOS and macOS); the Mac links
 it with the builder's `--osx_framework`. Android (PdfRenderer) and Windows have
 stand-ins for now. The Library (`library.c`) is a core screen: an app that has

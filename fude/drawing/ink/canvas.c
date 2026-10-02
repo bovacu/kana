@@ -429,3 +429,43 @@ void fude_canvas_draw_grid(const fude_canvas* _canvas, rde_vec_2I _window_size) 
         }
     }
 }
+
+// --- a document's turned pages -----------------------------------------------------------------
+
+u8 fude_page_turned(const fude_page* _p, u32 _page) {
+    for(u32 _i = 0; _i < _p->turn_count && _i < FUDE_PAGE_TURNS; _i++) {
+        if(_p->turns[_i].page == _page) {
+            return _p->turns[_i].quarters & 3u;
+        }
+    }
+    return 0u;
+}
+
+b8 fude_page_turn_more(fude_page* _p, u32 _page) {
+    for(u32 _i = 0; _i < _p->turn_count; _i++) {
+        if(_p->turns[_i].page == _page) {
+            _p->turns[_i].quarters = (u8)((_p->turns[_i].quarters + 1u) & 3u);
+            if(_p->turns[_i].quarters == 0u) {   // round again: upright, and out of the list
+                _p->turns[_i] = _p->turns[--_p->turn_count];
+            }
+            return true;
+        }
+    }
+    if(_p->turn_count >= FUDE_PAGE_TURNS || _page > 0xFFFFu) {
+        return false;
+    }
+    _p->turns[_p->turn_count++] = (fude_page_turn){ (u16)_page, 1u };
+    return true;
+}
+
+b8 fude_page_same(const fude_page* _a, const fude_page* _b) {
+    if(_a->paper != _b->paper || _a->turn_count != _b->turn_count) {
+        return false;
+    }
+    for(u32 _i = 0; _i < _a->turn_count; _i++) {
+        if(fude_page_turned(_b, _a->turns[_i].page) != (_a->turns[_i].quarters & 3u)) {
+            return false;
+        }
+    }
+    return true;
+}

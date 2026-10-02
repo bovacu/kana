@@ -121,6 +121,15 @@ void* fude_pdf_kit_open(const c8* _path) {
     return (__bridge_retained void*)_text;
 }
 
+b8 fude_pdf_kit_page_has_text(void* _kit, u32 _page) {
+    KanaPdfText* _text = (__bridge KanaPdfText*)_kit;
+    if(_kit == NULL || _page >= (u32)_text.document.pageCount) {
+        return false;
+    }
+    NSString* _s = [_text.document pageAtIndex:_page].string;
+    return [_s stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].length > 0;
+}
+
 void fude_pdf_kit_close(void* _kit) {
     if(_kit == NULL) {
         return;

@@ -29,8 +29,9 @@ void fude_page_lasso_text(fude_page_input* _page) {
     fude_app*  _app = _page->app;
     rde_vec_2F _min, _max;
     c8         _some[8];   // whether there is any: a little is enough
+    b8         _pending = false;   // ...or a page under it still to be read (a scan's)
     if(fude_app_ext(_app)->text_row != NULL && fude_lasso_looped(_app->lasso, &_min, &_max) &&
-       fude_doc_text_in(&_page->doc, _min, _max, _some, sizeof(_some)) > 0u) {
+       (fude_doc_text_in(&_page->doc, _min, _max, _some, sizeof(_some), &_pending) > 0u || _pending)) {
         fude_lasso_select_area(_app->lasso, _min, _max);
     }
 }

@@ -76,9 +76,10 @@ RDE_INTERNAL b8 fude_pagetext_read(fude_pagetext* _text, FUDE_PAGETEXT_READ_ _wh
         if(!fude_lasso_area(_app->lasso, &_min, &_max) || _text->reading != FUDE_PAGETEXT_READ_NONE) {
             return false;
         }
-        fude_doc_text_in(&_app->page->doc, _min, _max, _text->area_text, sizeof(_text->area_text));
-        _text->area_ready = true;
-        _text->reading    = (u8)_what;
+        _text->area_min     = _min;
+        _text->area_max     = _max;
+        _text->area_waiting = true;   // read on the next update (or once its page is)
+        _text->reading      = (u8)_what;
         return true;
     }
     if(!_text->_reader_ready) {
@@ -149,6 +150,16 @@ RDE_INTERNAL void fude_pagetext_notice_copied(const c8* _copied) {
 RDE_INTERNAL void fude_pagetext_update_reading(fude_pagetext* _text) {
     fude_study* _study = FUDE_STUDY(_text->app);
     const c8*   _read  = NULL;
+    if(_text->area_waiting) {
+        // An area of a PDF's text: its own, or its picture's once read.
+        b8 _pending = false;
+        fude_doc_text_in(&_text->app->page->doc, _text->area_min, _text->area_max, _text->area_text, sizeof(_text->area_text), &_pending);
+        if(_pending) {
+            return;   // its page still being read: "Reading…" meanwhile
+        }
+        _text->area_waiting = false;
+        _text->area_ready   = true;
+    }
     if(_text->area_ready) {
         _text->area_ready = false;
         _read             = _text->area_text;   // a PDF's text: read already

@@ -310,6 +310,77 @@ b8 fude_textscan_read_frame(const u8* _rgba, u32 _width, u32 _height, f32 _rotat
     return true;
 }
 
+// --- a document's pages ------------------------------------------------------------------
+
+static b8                 fude_textscan_page_busy;
+static b8                 fude_textscan_page_done;
+static fude_textscan_line fude_textscan_page_lines[FUDE_TEXTSCAN_LINES];
+static u32                fude_textscan_page_count;
+static u32                fude_textscan_page_width;
+static u32                fude_textscan_page_height;
+
+b8 fude_textscan_read_page(const u8* _rgba, u32 _width, u32 _height) {
+    if(!fude_mlkit_enabled() || fude_textscan_page_busy || _rgba == NULL || _width == 0 || _height == 0) {
+        return false;
+    }
+    // A recognizer and a queue of its own: the camera's frames are never kept waiting.
+    static dispatch_queue_t   _queue;
+    static MLKTextRecognizer* _pages_reader;
+    if(_queue == nil) {
+        _queue        = dispatch_queue_create("kana.textscan.pages", DISPATCH_QUEUE_SERIAL);
+        _pages_reader = [MLKTextRecognizer textRecognizerWithOptions:[[MLKJapaneseTextRecognizerOptions alloc] init]];
+    }
+    NSData*            _data   = [NSData dataWithBytes:_rgba length:(NSUInteger)_width * _height * 4u];
+    MLKTextRecognizer* _reader = _pages_reader;
+    fude_textscan_page_busy    = true;
+    dispatch_async(_queue, ^{
+        @autoreleasepool {
+            CGDataProviderRef _provider = CGDataProviderCreateWithCFData((__bridge CFDataRef)_data);
+            CGColorSpaceRef   _space    = CGColorSpaceCreateDeviceRGB();
+            CGImageRef        _cg       = CGImageCreate(_width, _height, 8, 32, (size_t)_width * 4u, _space,
+                                                        kCGBitmapByteOrderDefault | (CGBitmapInfo)kCGImageAlphaNoneSkipLast, _provider, NULL, false,
+                                                        kCGRenderingIntentDefault);
+            CGColorSpaceRelease(_space);
+            CGDataProviderRelease(_provider);
+            if(_cg == NULL) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    fude_textscan_page_count = 0u;
+                    fude_textscan_page_done  = true;
+                });
+                return;
+            }
+            UIImage* _page = [UIImage imageWithCGImage:_cg scale:1.0 orientation:UIImageOrientationUp];
+            CGImageRelease(_cg);
+            MLKVisionImage* _image = [[MLKVisionImage alloc] initWithImage:_page];
+            _image.orientation     = UIImageOrientationUp;
+            [_reader processImage:_image completion:^(MLKText* _text, NSError* _error) {   // the main queue
+                fude_textscan_page_count  = (_error == nil && _text != nil) ? fude_textscan_collect(_text, fude_textscan_page_lines) : 0u;
+                fude_textscan_page_width  = _width;
+                fude_textscan_page_height = _height;
+                fude_textscan_page_done   = true;
+            }];
+        }
+    });
+    return true;
+}
+
+b8 fude_textscan_poll_page(fude_textscan_result* _out) {
+    if(!fude_textscan_page_done) {
+        return false;
+    }
+    fude_textscan_page_done = false;
+    fude_textscan_page_busy = false;
+    if(_out != NULL) {
+        _out->image      = NULL;
+        _out->image_size = 0;
+        _out->width      = fude_textscan_page_width;
+        _out->height     = fude_textscan_page_height;
+        _out->lines      = fude_textscan_page_lines;
+        _out->line_count = fude_textscan_page_count;
+    }
+    return true;
+}
+
 b8 fude_textscan_poll_frame(fude_textscan_result* _out) {
     if(!fude_textscan_frame_done) {
         return false;

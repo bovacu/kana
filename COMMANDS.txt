@@ -104,7 +104,7 @@ paths are absolute on purpose.
     --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitTranslate.framework \
     --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitNaturalLanguage.framework \
     --ios_framework=PhotosUI --ios_framework=CoreImage --ios_framework=Accelerate \
-    --ios_framework=Network --ios_framework=ImageIO --ios_framework=VisionKit --ios_framework=PDFKit \
+    --ios_framework=Network --ios_framework=ImageIO --ios_framework=VisionKit --ios_framework=PDFKit --ios_framework=CoreText \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
     --ios_bundle=/Users/borjavazquez/kana/apps/kana/platform/ios/localized \
     --ios_assets=/Users/borjavazquez/kana/apps/kana/platform/ios/Assets.xcassets \
@@ -199,7 +199,7 @@ Then the iOS command above, debug (it reads the look flags), with:
   no --apple_development_name, no --ios_provisioning_profile;
   no ML Kit: none of its --ios_framework=$M/..., no --ios_bundle=$M/bundles, and
     no -I$M/include -L$M/lib -lmlkit_deps -lz -lsqlite3 -liconv — but the system's
-    --ios_framework=PhotosUI --ios_framework=ImageIO --ios_framework=VisionKit --ios_framework=PDFKit
+    --ios_framework=PhotosUI --ios_framework=ImageIO --ios_framework=VisionKit --ios_framework=PDFKit --ios_framework=CoreText
     (Lectures: From Photos, pictures made into a PDF, Scan pages; a PDF's text).
 
 A Simulator of the iPad, installed and launched (simctl installs the .app):
@@ -241,7 +241,7 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/apps/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/kana/ \
-    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit \
+    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
     apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c \
     -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/kana/src -Wall -Wextra
 
@@ -298,7 +298,10 @@ the middle of the screen; the first page's top is at 0, pages go down) — a sho
 with a document waits until frame 100, its pages drawn by then. --mark=X0,Y0,X1,Y1[;...]
 marker strokes; --lasso-area=X0,Y0,X1,Y1 a lasso loop round that box (on a
 PDF's text: the text row); --doc-search=WORDS the document bar's Search;
---doc-page=N its page N (all canvas units, at frames 22-26).
+--doc-page=N its page N (all canvas units, at frames 22-26); --doc-turn=N its
+page N turned a quarter clockwise (frame 30); --doc-export=PDF
+the document written there with its ink (frame 90); --read-demo the pages
+without text "read" into made-up lines (no ML Kit on the desktop).
 
 On the device (a build that takes arguments, as for --perf):
 --translate-probe=xx tries ML Kit's translator — Japanese into xx (en, es, pt,
@@ -322,7 +325,7 @@ core's — every .c under fude/drawing/, in any order:
   ~/RDE/builder --project --debug \
     --assets_path=/Users/borjavazquez/kana/apps/draw/assets/ \
     --output_path=/Users/borjavazquez/kana/build/draw/ \
-    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit \
+    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
     apps/draw/draw.c $(ls fude/drawing/*/*.c) fude/drawing/doc/pdf_kit.m \
     -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/draw/src -Wall -Wextra
 
@@ -410,7 +413,7 @@ made from Fonts/regular/style.css)
 is kept in data/raw/phosphor-icons/, not in the repository nor the app.
 
 The two shipped fonts are cut down to the icons the apps use (fude/drawing/
-widgets/icons.h: 101, ~25 KB each instead of ~470 KB; the outlines and metrics are
+widgets/icons.h: 102, ~25 KB each instead of ~470 KB; the outlines and metrics are
 unchanged, so FUDE_KIT_ICON_BEARINGS still holds). A NEW ICON means cutting them
 again from the whole fonts, with fontTools' pyftsubset (pip install fonttools;
 a one-off tool, nothing in the app needs it). From the project root:
@@ -456,9 +459,11 @@ THE APP STORE
 -------------
 apps/kana/docs/app_store.md: what leaves the device, the permissions, the
 privacy manifests, App Store Connect's App Privacy answers, what is still open.
-apps/kana/docs/store/listing.md: the store texts in the five languages, the age
-rating, the review notes, the screenshots' list.
+apps/kana/store/: listing.md, the store texts in the five languages, the age
+rating, the review notes; README.md, the screenshots (screenshots/, framed/) and
+how to swap one.
 
   python3 apps/kana/tools/store/site.py                     # apps/kana/site/privacy.html + index.html (CONTACT at its top)
   python3 -m pip install pillow                             # once, for the next
   python3 apps/kana/tools/store/screenshots.py SHOTS [OUT]  # iPad screenshots -> 13-inch, captioned, per language
+  python3 apps/kana/tools/store/screenshots.py apps/kana/store/screenshots apps/kana/store/framed

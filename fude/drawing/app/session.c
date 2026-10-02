@@ -48,7 +48,7 @@ fude_session_info fude_session_info_now(void) {
 }
 
 RDE_INTERNAL b8 fude_session_same_page(fude_page _a, fude_page _b) {
-    return _a.paper == _b.paper;
+    return fude_page_same(&_a, &_b);
 }
 
 RDE_INTERNAL b8 fude_session_same_view(fude_view _a, fude_view _b) {

@@ -69,10 +69,12 @@ typedef struct fude_screen {
     const struct fude_filterbar_def* bar;
 
     // A field of its own at the top right (Check's "I meant…"): its hint
-    // (FUDE_TEXT_COUNT: none), its length, and what Return does with it.
+    // (FUDE_TEXT_COUNT: none), its length, what Return does with it, and what
+    // every keystroke does (a search's; NULL: nothing until Return).
     u32  field_hint;
     u32  field_max;
     void (*field_submit)(void* _self, const c8* _text);
+    void (*field_change)(void* _self, const c8* _text);
 
     // The characters in view, in order (records into the character data): what
     // its Practice and Select's All take. NULL: it has none.

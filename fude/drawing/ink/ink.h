@@ -250,6 +250,10 @@ void fude_ink_destroy(fude_ink* _ink);
 // @desc Appends a stroke read from a save: alive, and NOT in the undo history
 // (a loaded page is where history starts). Only before any editing.
 void fude_ink_add_loaded_stroke(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen);
+// Every alive stroke's points moved by _map (a document's page turned: its ink
+// with it), its bounds again after. Not an edit that undoes: the history still
+// holds, what it moves is moved.
+void fude_ink_remap(fude_ink* _ink, void (*_map)(any _user, u32 _stroke, fude_ink_point* _point), any _user);
 // The same, a marker's stroke (_marker) or not.
 void fude_ink_add_loaded_stroke_2(fude_ink* _ink, const fude_ink_point* _points, u32 _count, rde_color _color, b8 _from_pen, b8 _marker);
 

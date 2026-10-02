@@ -54,6 +54,8 @@ typedef struct {
     // PDF at once, handed on as a reading is on the next update.
     c8                  area_text[FUDE_TEXTINK_TEXT];
     b8                  area_ready;
+    b8                  area_waiting;     // ...its page still being read (a scan's): asked again each frame
+    rde_vec_2F          area_min, area_max;
     fude_clip           _text_clip;       // Paste text: the text written as strokes
 
     // The card: what was read, into the translator (translate.h), shown by the

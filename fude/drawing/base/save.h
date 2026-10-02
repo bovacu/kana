@@ -31,6 +31,8 @@
 //   'VIEW'  f32 offset.x, offset.y, zoom
 //   'PAGE'  u8 paper (FUDE_PAPER_: 0 dots, 1 squares, 2 lines, 3 none)
 //           (optional: a file from before it has none — dots)
+//   'TURN'  a document's pages turned (canvas.h): u32 count, then per page u16
+//           page, u8 quarter turns clockwise (optional: none turned)
 //   'STRK'  u32 count, u32 record size, then per stroke:
 //           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen; bit 1: the
 //           marker's, see-through under the other ink), 3 reserved

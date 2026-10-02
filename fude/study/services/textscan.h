@@ -71,4 +71,13 @@ b8                   fude_textscan_read_frame(const u8* _rgba, u32 _width, u32 _
 // frame's pixels — valid until the next frame read.
 b8                   fude_textscan_poll_frame(fude_textscan_result* _out);
 
+// A document's page (a scan: doc.h) read the same way, on a channel of its own
+// (never the camera's): _rgba, _width x _height pixels of 4 bytes, the top row
+// first, upright. Copied. False when it cannot now (not available, ML Kit off,
+// one still being read).
+b8                   fude_textscan_read_page(const u8* _rgba, u32 _width, u32 _height);
+// True once the page's reading is in: _out gets its lines, in its pixels —
+// valid until the next page read.
+b8                   fude_textscan_poll_page(fude_textscan_result* _out);
+
 #endif

@@ -47,6 +47,7 @@ RDE_INTERNAL struct {
     const c8* note;
     const c8* paste_text;
     const c8* word_card;
+    const c8* vocab_search;   // --vocab-search=WORDS: the Vocabulary's field
     const c8* word_sentence;
     const c8* word_translate;
     const c8* scan_demo;
@@ -82,6 +83,7 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--translate-selection")) { fude_translate_demo(true); fude_study_look.translate_sel = true; }
         if(fude_look_is(_a, "--save-selection"))      { fude_study_look.save_sel = true; }
         if(fude_look_is(_a, "--translate-demo"))      { fude_translate_demo(true); }
+        if(fude_look_is(_a, "--read-demo"))           { fude_study_picture_demo(true); }   // a document's scanned pages: lines made up
         if(fude_look_is(_a, "--scan-demo-top-first")) { fude_study_look.scan_rows = true; }
         if(fude_look_is(_a, "--scan-live"))           { fude_study_look.scan_live = true; }
         if(fude_look_is(_a, "--stats"))               { fude_study_look.stats = true; }
@@ -92,6 +94,7 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--demo")) != NULL)           { fude_study_look.demo = _v; }
         if((_v = fude_look_value(_a, "--translator")) != NULL)     { fude_study_look.translator = _v; fude_translate_demo(true); }
         if((_v = fude_look_value(_a, "--vocab")) != NULL)          { fude_study_look.vocab = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--vocab-search")) != NULL)   { fude_study_look.vocab_search = _v; }
         if((_v = fude_look_value(_a, "--word-exam")) != NULL)      { fude_study_look.word_exam = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--kept-exam")) != NULL)      { fude_study_look.kept_exam = (i64)strtoul(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--scroll")) != NULL)         { fude_study_look.scroll = strtof(_v, NULL); }
@@ -260,6 +263,9 @@ void fude_study_look_loaded(fude_app* _app) {
     if(fude_study_look.vocab >= 0) {
         fude_vocabview_open(_study->vocab);
         fude_vocabview_show_list(_study->vocab, fude_study_look.vocab > 0 ? fude_vocab_list_at((u32)fude_study_look.vocab - 1u) : 0u);
+        if(fude_study_look.vocab_search != NULL) {
+            fude_vocabview_search(_study->vocab, fude_study_look.vocab_search);
+        }
     }
     if(fude_study_look.kept_exam >= 0) {
         fude_exam_open_kept(_study->exam, (u32)fude_study_look.kept_exam);

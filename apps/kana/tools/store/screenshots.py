@@ -7,10 +7,11 @@
 #   python3 -m pip install pillow          # once
 #   python3 tools/store/screenshots.py IN_DIR [OUT_DIR]
 #
-# IN_DIR: the iPad's screenshots (top button + volume up), named so they sort in
-# the order wanted — 1.png, 2.png... (PNG or JPEG; any iPad, either orientation).
-# N.png gets caption N below (a name without a number: its place in the
-# order); docs/store/listing.md lists what each should show.
+# IN_DIR: the screenshots (PNG or JPEG; any iPad, either orientation: a smaller
+# iPad's are scaled into the frame), each named NN-what.png: NN its place in the
+# store's order (1 to 10), what the caption below it gets (01-page.png: the
+# first, captioned "page"). A name with only a number (4.png) gets the caption
+# of that place in CAPTIONS. store/README.md lists what each shows.
 # Shots of the app in each language (Settings › Language) can go in IN_DIR/en,
 # IN_DIR/es, IN_DIR/pt, IN_DIR/ja, IN_DIR/fr: each language then uses its own;
 # otherwise every language uses IN_DIR's.
@@ -22,27 +23,62 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "fonts", "NotoSansJP-Regular.otf")
 
-CAPTIONS = [
-    {"en": "Every kanji writes itself, stroke by stroke", "es": "Cada kanji se escribe solo, trazo a trazo", "pt": "Cada kanji se escreve sozinho, traço a traço",
-     "ja": "どの漢字も、書き順どおりに書いて見せる", "fr": "Chaque kanji s’écrit sous vos yeux, trait par trait"},
-    {"en": "Write it with the Apple Pencil, and get points for shape and order", "es": "Escríbelo con el Apple Pencil y gana puntos por la forma y el orden",
-     "pt": "Escreva com o Apple Pencil e ganhe pontos pela forma e pela ordem", "ja": "Apple Pencilで書いて、形と書き順に点数",
-     "fr": "Écrivez-le à l’Apple Pencil, et gagnez des points pour la forme et l’ordre"},
-    {"en": "Check anything you write, from a character to a sentence", "es": "Revisa todo lo que escribas, de un carácter a una frase",
-     "pt": "Verifique tudo o que você escreve, de um caractere a uma frase", "ja": "1文字から文まで、書いたものをチェック",
-     "fr": "Vérifiez tout ce que vous écrivez, du caractère à la phrase"},
-    {"en": "Your vocabulary, in your own lists", "es": "Tu vocabulario, en tus propias listas", "pt": "Seu vocabulário, nas suas próprias listas",
-     "ja": "自分の単語帳を、自分のリストで", "fr": "Votre vocabulaire, dans vos propres listes"},
-    {"en": "Write whole words from their meaning — or by ear", "es": "Escribe palabras enteras a partir de su significado, o de oído",
-     "pt": "Escreva palavras inteiras pelo significado, ou de ouvido", "ja": "意味から、または聞いて、言葉をまるごと書く",
-     "fr": "Écrivez des mots entiers à partir du sens, ou à l’oreille"},
-    {"en": "Point the camera at Japanese, and write it", "es": "Apunta la cámara al japonés y escríbelo", "pt": "Aponte a câmera para o japonês e escreva",
-     "ja": "カメラを向けた日本語を、自分の手で", "fr": "Visez du japonais avec l’appareil photo, et écrivez-le"},
-    {"en": "See what gets mixed up, and keep your own notes", "es": "Mira qué se confunde y guarda tus notas", "pt": "Veja o que se confunde e guarde suas notas",
-     "ja": "まぎらわしい字と、自分のメモ", "fr": "Voyez ce qui se confond, et gardez vos notes"},
-    {"en": "Reviews bring back what you are about to forget", "es": "Los repasos te traen lo que estás a punto de olvidar",
-     "pt": "As revisões trazem o que você está para esquecer", "ja": "忘れかけたころに、復習", "fr": "Les révisions ramènent ce que vous alliez oublier"},
-]
+# What each screenshot says, by its name. The first ten in the store's order;
+# then the spares, for a shot put in place of one of them.
+CAPTIONS = {
+    "page":
+        {"en": "Write Japanese by hand. Kana reads it.", "es": "Escribe japonés a mano. Kana lo lee.", "pt": "Escreva japonês à mão. O Kana lê.",
+         "ja": "手で書いた日本語を、Kanaが読み取る", "fr": "Écrivez le japonais à la main. Kana le lit."},
+    "kanji":
+        {"en": "Every kanji writes itself, stroke by stroke", "es": "Cada kanji se escribe solo, trazo a trazo", "pt": "Cada kanji se escreve sozinho, traço a traço",
+         "ja": "どの漢字も、書き順どおりに書いて見せる", "fr": "Chaque kanji s’écrit sous vos yeux, trait par trait"},
+    "lectures":
+        {"en": "Real Japanese lessons to read, highlight and write on", "es": "Lecciones de japonés para leer, subrayar y escribir encima",
+         "pt": "Lições de japonês para ler, marcar e escrever por cima", "ja": "本物の教材を読んで、マーカーを引いて、書き込む",
+         "fr": "De vraies leçons de japonais à lire, surligner et annoter"},
+    "select":
+        {"en": "Circle a word: check it, copy it as text, save it", "es": "Rodea una palabra: revísala, cópiala como texto, guárdala",
+         "pt": "Circule uma palavra: verifique, copie como texto, salve", "ja": "言葉を囲んで、チェック、コピー、単語帳へ",
+         "fr": "Entourez un mot\u00a0: vérifiez-le, copiez-le en texte, gardez-le"},
+    "practice":
+        {"en": "Practice with guidance, until you write it from memory", "es": "Practica con guía, hasta escribirlo de memoria",
+         "pt": "Pratique com orientação, até escrever de memória", "ja": "なぞり書きから、何も見ずに書けるまで",
+         "fr": "Entraînez-vous guidé, jusqu’à l’écrire de mémoire"},
+    "draw-search":
+        {"en": "Can’t type a kanji? Draw it", "es": "¿No sabes teclear un kanji? Dibújalo", "pt": "Não sabe digitar um kanji? Desenhe",
+         "ja": "読めない漢字は、描いて探す", "fr": "Impossible de taper un kanji\u00a0? Dessinez-le"},
+    "vocabulary":
+        {"en": "Your words come back right before you forget them", "es": "Tus palabras vuelven justo antes de que las olvides",
+         "pt": "Suas palavras voltam pouco antes de você esquecê-las", "ja": "忘れかけたころに、自分の単語が戻ってくる",
+         "fr": "Vos mots reviennent juste avant que vous les oubliiez"},
+    "kanji-list":
+        {"en": "6,412 kanji and all the kana, by JLPT level", "es": "6.412 kanji y todos los kana, por nivel del JLPT", "pt": "6.412 kanji e todos os kana, por nível do JLPT",
+         "ja": "漢字6,412字とすべてのかな、JLPTレベル別", "fr": "6\u00a0412 kanji et tous les kana, par niveau JLPT"},
+    "kana":
+        {"en": "Hiragana and katakana, from the very first stroke", "es": "Hiragana y katakana, desde el primer trazo", "pt": "Hiragana e katakana, desde o primeiro traço",
+         "ja": "ひらがなとカタカナを、最初の一画から", "fr": "Hiragana et katakana, dès le premier trait"},
+    "statistics":
+        {"en": "Watch your Japanese grow, day after day", "es": "Mira crecer tu japonés, día a día", "pt": "Veja seu japonês crescer, dia após dia",
+         "ja": "日本語の上達が、毎日見える", "fr": "Voyez votre japonais progresser, jour après jour"},
+    # Spares. Text from a photo with its translation and Into Japanese are the
+    # iPad's own (the Simulator has no ML Kit).
+    "translate":
+        {"en": "Point the camera at Japanese. Read it in your language.", "es": "Apunta la cámara al japonés. Léelo en tu idioma.",
+         "pt": "Aponte a câmera para o japonês. Leia no seu idioma.", "ja": "カメラを向けるだけで、日本語を翻訳",
+         "fr": "Visez du japonais. Lisez-le dans votre langue."},
+    "into-japanese":
+        {"en": "Say it in your language, write it in Japanese", "es": "Dilo en tu idioma, escríbelo en japonés",
+         "pt": "Diga no seu idioma, escreva em japonês", "ja": "自分の言葉を、日本語にして書く",
+         "fr": "Dites-le dans votre langue, écrivez-le en japonais"},
+    "library":
+        {"en": "Free lessons included, and room for your own PDFs and scans", "es": "Lecciones gratis incluidas, y sitio para tus PDF y escaneos",
+         "pt": "Lições grátis incluídas, e espaço para seus PDFs e digitalizações", "ja": "無料の教材入り。自分のPDFやスキャンも",
+         "fr": "Des leçons gratuites incluses, et vos propres PDF et scans"},
+    "album":
+        {"en": "Every character you have written, with its score", "es": "Cada carácter que has escrito, con su nota",
+         "pt": "Cada caractere que você escreveu, com sua nota", "ja": "書いた字を、点数とともにアルバムに",
+         "fr": "Chaque caractère écrit, avec sa note"},
+}
 LANGS = ["en", "es", "pt", "ja", "fr"]
 
 TOP    = (45, 79, 168)    # the background's gradient, top to bottom: Kana's blue
@@ -65,6 +101,34 @@ def wrap(draw, text, font, width):
         lines.append(line)
     return lines
 
+PHRASE_END = ",.:;?!、。"
+
+def wrap_two(draw, text, font, width):
+    # One line if it fits; else the two that read best: as even as they can be,
+    # and broken after a comma or a stop when one is near the middle (Latin text
+    # at a space; Japanese after 、, or between any two characters when that
+    # will not do). None: no two lines fit.
+    if draw.textlength(text, font=font) <= width:
+        return [text]
+    if " " in text:
+        cut_sets = [[(i, i + 1) for i, c in enumerate(text) if c == " "]]
+    else:
+        cut_sets = [[(i + 1, i + 1) for i, c in enumerate(text[:-1]) if c in "、。"],
+                    [(i, i) for i in range(1, len(text)) if not (text[i - 1].isascii() and text[i].isascii())]]   # not inside "JLPT" or "6,412"
+    for cuts in cut_sets:
+        best, best_score = None, None
+        for end, start in cuts:
+            a, b   = text[:end], text[start:]
+            longer = max(draw.textlength(a, font=font), draw.textlength(b, font=font))
+            if longer > width:
+                continue
+            score = longer * (0.6 if a[-1] in ".?!。" else 0.7 if a[-1] in PHRASE_END else 1.0)   # a stop, a comma, neither
+            if best_score is None or score < best_score:
+                best, best_score = [a, b], score
+        if best is not None:
+            return best
+    return None
+
 def frame(shot, caption):
     portrait = shot.height >= shot.width
     W, H     = (2048, 2732) if portrait else (2732, 2048)
@@ -80,16 +144,22 @@ def frame(shot, caption):
     size  = 104 if portrait else 96
     while True:
         font  = ImageFont.truetype(FONT, size)
-        lines = wrap(draw, caption, font, room)
-        if len(lines) <= 2 or size <= 60:
+        lines = wrap_two(draw, caption, font, room)
+        if lines is not None:
+            break
+        if size <= 60:
+            lines = wrap(draw, caption, font, room)   # longer than two lines can hold
             break
         size -= 4
+    # Two lines' room even for one, centred in it: every screenshot the same size.
     line_h = int(size * 1.3)
     top    = 150 if portrait else 110
+    rows   = max(2, len(lines))
+    first  = top + (rows - len(lines)) * line_h / 2
     for i, l in enumerate(lines):
         w = draw.textlength(l, font=font)
-        draw.text(((W - w) / 2, top + i * line_h), l, font=font, fill=WHITE)
-    caption_bottom = top + len(lines) * line_h
+        draw.text(((W - w) / 2, first + i * line_h), l, font=font, fill=WHITE)
+    caption_bottom = top + rows * line_h
 
     # The screenshot under it, as big as fits, rounded, on a soft shadow.
     margin  = 120
@@ -123,14 +193,18 @@ def main():
         shots  = shots_in(folder)
         os.makedirs(os.path.join(out, lang), exist_ok=True)
         done = 0
+        order  = list(CAPTIONS)
         for p, name in enumerate(shots):
-            # The caption: the number the name starts with (4.png: the 4th), else its place.
-            digits = "".join(itertools.takewhile(str.isdigit, name))
-            n = int(digits) - 1 if digits else p
-            if n < 0 or n >= len(CAPTIONS):
-                print("no caption for", name, "(1 to %d)" % len(CAPTIONS))
+            # Its place: the number the name starts with (else its place in the
+            # folder); its caption: the word after it (else that place's).
+            stem   = os.path.splitext(name)[0]
+            digits = "".join(itertools.takewhile(str.isdigit, stem))
+            n      = int(digits) - 1 if digits else p
+            what   = stem[len(digits):].lstrip("-_ ") or (order[n] if 0 <= n < len(order) else "")
+            if n < 0 or what not in CAPTIONS:
+                print("no caption for", name, "(captions:", ", ".join(order) + ")")
                 continue
-            img = frame(Image.open(os.path.join(folder, name)), CAPTIONS[n][lang])
+            img = frame(Image.open(os.path.join(folder, name)), CAPTIONS[what][lang])
             img.save(os.path.join(out, lang, "%d.png" % (n + 1)))
             done += 1
         print(lang, done, "screenshots ->", os.path.join(out, lang))

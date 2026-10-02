@@ -11,7 +11,11 @@
 //   own text: a scan has none); how many and which one ("3 / 12"), the one
 //   before and the next (round), Close;
 //   the page in the middle of the screen, "3 / 74": a tap asks for a page,
-//   Return goes there.
+//   Return goes there;
+//   Turn page: the page in the middle a quarter turn clockwise (a sideways
+//   scan upright), what is written on it with it;
+//   Export: the document as a PDF with what is written on it (doc.h) — shared
+//   (a device's share sheet) or, on a computer, saved where the learner says.
 //
 // Hidden under a screen, and on a canvas without a document.
 // ===========================================================================
@@ -31,6 +35,8 @@ typedef struct {
     rde_ui_image*       panel;
     rde_ui_button*      search;
     rde_ui_button*      page;          // "3 / 74"
+    rde_ui_button*      share;         // Export
+    rde_ui_button*      turn;          // the page in the middle, a quarter turn clockwise
     rde_ui_text_editor* field;         // the words, or the page's number
     rde_ui_label*       count;         // "3 / 12", "No matches"; "/ 74"
     rde_ui_button*      before;
@@ -41,6 +47,7 @@ typedef struct {
     u32                 _count_said;   // what count shows
     u8                  _mode_laid;    // the mode laid out (0xFF: not yet)
     rde_vec_2F          _laid_for;     // the screen size laid out for
+    rde_vec_4I          _insets_for;   // ...and the safe area
 } fude_docbar;
 
 void fude_docbar_create(fude_docbar* _bar, rde_ui_node* _root, struct fude_app* _app);

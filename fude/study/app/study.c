@@ -10,6 +10,11 @@
 #include "study/services/speech.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/widgets/icons.h"
+#include "drawing/doc/doc.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 // ===========================================================================
 // See study.h.
@@ -204,3 +209,69 @@ RDE_INTERNAL void fude_study_hand_restyle(fude_ui* _ui) {
 }
 
 const fude_extension_section FUDE_STUDY_HANDWRITING = { fude_study_hand_build, fude_study_hand_layout, fude_study_hand_refresh, fude_study_hand_restyle };
+
+// --- pictures read: a document's scanned pages ---------------------------------------------
+
+RDE_INTERNAL b8  fude_study_picture_demo_on = false;
+RDE_INTERNAL b8  fude_study_picture_demo_due = false;
+RDE_INTERNAL u32 fude_study_picture_demo_w, fude_study_picture_demo_h;
+
+void fude_study_picture_demo(b8 _on) {
+#if defined(RDE_DEBUG)
+    fude_study_picture_demo_on = _on;
+#else
+    RDE_UNUSED(_on);
+#endif
+}
+
+b8 fude_study_picture_read(const u8* _rgba, u32 _w, u32 _h) {
+    if(fude_study_picture_demo_on) {
+        fude_study_picture_demo_due = true;
+        fude_study_picture_demo_w   = _w;
+        fude_study_picture_demo_h   = _h;
+        return true;
+    }
+    return fude_textscan_read_page(_rgba, _w, _h);
+}
+
+b8 fude_study_picture_lines(struct fude_doc_line* _out, u32 _max, u32* _count) {
+    *_count = 0;
+    if(fude_study_picture_demo_on) {
+        // Made up: four lines down the page's top half, the same on every page.
+        if(!fude_study_picture_demo_due) {
+            return false;
+        }
+        fude_study_picture_demo_due = false;
+        static const c8* const _says[4] = { "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x82\x92\xE5\x8B\x89\xE5\xBC\xB7\xE3\x81\x97\xE3\x81\xBE\xE3\x81\x99",   // 日本語を勉強します
+                                            "Scan line two", "\xE3\x81\x82\xE3\x82\x8A\xE3\x81\x8C\xE3\x81\xA8\xE3\x81\x86",   // ありがとう
+                                            "The last line read" };
+        const f32 _w = (f32)fude_study_picture_demo_w, _h = (f32)fude_study_picture_demo_h;
+        for(u32 _i = 0; _i < 4u && _i < _max; _i++) {
+            struct fude_doc_line* _l = &_out[(*_count)++];
+            memset(_l, 0, sizeof(*_l));
+            _l->from = (rde_vec_2F){ _w * 0.12f, _h * (0.18f + 0.08f * (f32)_i) };
+            _l->size = (rde_vec_2F){ _w * 0.6f, _h * 0.035f };
+            snprintf(_l->text, sizeof(_l->text), "%s", _says[_i]);
+        }
+        return true;
+    }
+    fude_textscan_result _r;
+    if(!fude_textscan_poll_page(&_r)) {
+        return false;
+    }
+    // Each line's box: its corners' extent, in the picture's pixels.
+    for(u32 _i = 0; _i < _r.line_count && *_count < _max; _i++) {
+        const fude_textscan_line* _line = &_r.lines[_i];
+        rde_vec_2F _lo = _line->corners[0], _hi = _line->corners[0];
+        for(u32 _k = 1; _k < 4u; _k++) {
+            _lo = (rde_vec_2F){ fminf(_lo.x, _line->corners[_k].x), fminf(_lo.y, _line->corners[_k].y) };
+            _hi = (rde_vec_2F){ fmaxf(_hi.x, _line->corners[_k].x), fmaxf(_hi.y, _line->corners[_k].y) };
+        }
+        struct fude_doc_line* _l = &_out[(*_count)++];
+        memset(_l, 0, sizeof(*_l));
+        _l->from = _lo;
+        _l->size = (rde_vec_2F){ _hi.x - _lo.x, _hi.y - _lo.y };
+        snprintf(_l->text, sizeof(_l->text), "%s", _line->text);
+    }
+    return true;
+}

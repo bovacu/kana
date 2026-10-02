@@ -1,6 +1,9 @@
 #include "drawing/widgets/docbar.h"
 #include "drawing/app/app.h"
 #include "drawing/app/page.h"
+#include "drawing/app/session.h"
+#include "drawing/ink/notes.h"
+#include "drawing/widgets/notice.h"
 #include "drawing/app/ui.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
@@ -70,6 +73,72 @@ FUDE_DOCBAR_CALLBACK(fude_docbar_on_page)   { FUDE_DOCBAR_SELF; fude_docbar_set_
 FUDE_DOCBAR_CALLBACK(fude_docbar_on_before) { FUDE_DOCBAR_SELF; fude_doc_search_step(FUDE_DOCBAR_DOC(_bar), _bar->app->canvas, -1); return RDE_UI_EVENT_RESULT_CONSUME; }
 FUDE_DOCBAR_CALLBACK(fude_docbar_on_next)   { FUDE_DOCBAR_SELF; fude_doc_search_step(FUDE_DOCBAR_DOC(_bar), _bar->app->canvas, 1); return RDE_UI_EVENT_RESULT_CONSUME; }
 
+// --- Export ---------------------------------------------------------------------------------
+
+// The canvas's name, as a file's (no folder signs in it).
+RDE_INTERNAL void fude_docbar_file_name(const fude_docbar* _bar, c8* _out, usize _size) {
+    const fude_note* _note = fude_notes_find(_bar->app->notes, _bar->app->notes->open);
+    snprintf(_out, _size, "%s", _note != NULL && _note->name[0] != 0 ? _note->name : "Document");
+    for(c8* _c = _out; *_c != 0; _c++) {
+        if(*_c == '/' || *_c == '\\' || *_c == ':') {
+            *_c = '-';
+        }
+    }
+}
+
+RDE_INTERNAL b8 fude_docbar_write(fude_docbar* _bar, const c8* _path) {
+    if(!fude_doc_export(FUDE_DOCBAR_DOC(_bar), _bar->app->ink, _path)) {
+        fude_notice_show(fude_text(FUDE_TEXT_DOC_EXPORT_FAILED));
+        return false;
+    }
+    return true;
+}
+
+#if !defined(RDE_PLATFORM_MOBILE)
+// A computer: where to save it, chosen.
+RDE_INTERNAL void fude_docbar_on_export_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
+    RDE_UNUSED(_filter);
+    fude_docbar* _bar = (fude_docbar*)_user_data;
+    if(_paths == NULL || _count == 0u) {
+        return;   // cancelled, or no dialog
+    }
+    c8 _path[RDE_MAX_PATH];
+    fude_session_with_extension(_path, sizeof(_path), _paths[0], ".pdf", ".PDF");
+    if(fude_docbar_write(_bar, _path)) {
+        c8 _line[RDE_MAX_PATH + 64];
+        FUDE_TEXTF(_line, FUDE_TEXT_DOC_EXPORTED, FUDE_TS(_path));
+        fude_notice_show(_line);
+    }
+}
+#endif
+
+FUDE_DOCBAR_CALLBACK(fude_docbar_on_share) {
+    FUDE_DOCBAR_SELF;
+    c8 _name[FUDE_NOTE_NAME];
+    fude_docbar_file_name(_bar, _name, sizeof(_name));
+#if defined(RDE_PLATFORM_MOBILE)
+    // Written to the outbox, then shared from there (the share sheet: Files, Mail, AirDrop...).
+    c8 _path[RDE_MAX_PATH];
+    fude_session_outbox_path(_path, sizeof(_path), _name, "pdf");
+    if(fude_docbar_write(_bar, _path) && !rde_mobile_share_file(_path, "application/pdf", _name)) {
+        fude_notice_show(fude_text(FUDE_TEXT_DOC_EXPORT_FAILED));
+    }
+#else
+    static const rde_dialog_filter _pdf = { "PDF", "pdf" };
+    rde_dialog_save_file(_bar->app->window, &_pdf, 1u, NULL, fude_docbar_on_export_path, _bar);
+#endif
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+FUDE_DOCBAR_CALLBACK(fude_docbar_on_turn) {
+    FUDE_DOCBAR_SELF;
+    fude_doc* _doc = FUDE_DOCBAR_DOC(_bar);
+    if(fude_doc_page_count(_doc) > 0u && !fude_doc_turn_page(_doc, _bar->app, fude_doc_page_at(_doc, _bar->app->canvas->view))) {
+        fude_notice_show(fude_text(FUDE_TEXT_DOC_TURN_FULL));
+    }
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 FUDE_DOCBAR_CALLBACK(fude_docbar_on_close) {
     FUDE_DOCBAR_SELF;
     if(_bar->mode == FUDE_DOCBAR_SEARCH) {
@@ -114,12 +183,15 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
     const rde_vec_2F _screen = fude_kit_screen_size(_bar->app->window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_bar->app->window);   // left, top, right, bottom
     const u8         _mode   = _bar->mode;
-    _bar->_mode_laid = _mode;
-    _bar->_laid_for  = _screen;
+    _bar->_mode_laid  = _mode;
+    _bar->_laid_for   = _screen;
+    _bar->_insets_for = _insets;
     const b8 _idle   = _mode == FUDE_DOCBAR_IDLE;
     const b8 _search = _mode == FUDE_DOCBAR_SEARCH;
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->search), _idle);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->page), _idle);
+    rde_ui_node_set_active(rde_ui_button_as_node(_bar->share), _idle);
+    rde_ui_node_set_active(rde_ui_button_as_node(_bar->turn), _idle);
     rde_ui_node_set_active(fude_kit_field_node(_bar->field), !_idle);
     rde_ui_node_set_active(rde_ui_label_as_node(_bar->count), !_idle);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->before), _search);
@@ -130,6 +202,8 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
     if(_idle) {
         _x = fude_docbar_put(rde_ui_button_as_node(_bar->search), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
         _x = fude_docbar_put(rde_ui_button_as_node(_bar->page), _x, FUDE_DOCBAR_PAGE_W, FUDE_DOCBAR_BUTTON);
+        _x = fude_docbar_put(rde_ui_button_as_node(_bar->turn), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
+        _x = fude_docbar_put(rde_ui_button_as_node(_bar->share), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
     } else {
         // The words' field as wide as the screen allows (a phone's is narrow).
         const f32 _rest  = (_search ? 3.0f : 1.0f) * (FUDE_DOCBAR_BUTTON + FUDE_DOCBAR_PAD) + FUDE_DOCBAR_COUNT_W + 3.0f * FUDE_DOCBAR_PAD;
@@ -198,8 +272,12 @@ void fude_docbar_update(fude_docbar* _bar, b8 _hidden) {
         }
         rde_ui_label_set_text(_bar->count, _line);
     }
-    if(_bar->_mode_laid != _bar->mode || _bar->_laid_for.x != fude_kit_screen_size(_bar->app->window).x ||
-       _bar->_laid_for.y != fude_kit_screen_size(_bar->app->window).y) {
+    // Laid out again for another mode, a rotation, or the safe area: at start iOS
+    // reports none, and the status bar's arrives a frame or two later.
+    const rde_vec_2F _screen = fude_kit_screen_size(_bar->app->window);
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_bar->app->window);
+    if(_bar->_mode_laid != _bar->mode || memcmp(&_screen, &_bar->_laid_for, sizeof(rde_vec_2F)) != 0 ||
+       memcmp(&_insets, &_bar->_insets_for, sizeof(rde_vec_4I)) != 0) {
         fude_docbar_layout(_bar);
     }
 }
@@ -217,7 +295,7 @@ void fude_docbar_restyle(fude_docbar* _bar) {
     fude_kit_style_panel(_bar->panel, FUDE_DOCBAR_H * 0.5f, 1.0f);
     fude_kit_style_field(_bar->field);
     rde_ui_label_set_color(_bar->count, _t->text_soft);
-    rde_ui_button* const _buttons[] = { _bar->search, _bar->page, _bar->before, _bar->next, _bar->close };
+    rde_ui_button* const _buttons[] = { _bar->search, _bar->page, _bar->turn, _bar->share, _bar->before, _bar->next, _bar->close };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         fude_kit_restyle_quiet(_buttons[_i]);
     }
@@ -238,6 +316,10 @@ void fude_docbar_create(fude_docbar* _bar, rde_ui_node* _root, fude_app* _app) {
     _bar->search = fude_kit_button(_p, fude_text(FUDE_TEXT_DOC_SEARCH), fude_docbar_on_search, _bar);
     fude_kit_icon(_bar->search, FUDE_ICON_SEARCH, FUDE_KIT_ICON_ONLY, 18.0f);
     _bar->page   = fude_kit_button(_p, "", fude_docbar_on_page, _bar);
+    _bar->turn   = fude_kit_button(_p, fude_text(FUDE_TEXT_DOC_TURN), fude_docbar_on_turn, _bar);
+    fude_kit_icon(_bar->turn, FUDE_ICON_TURN_PAGE, FUDE_KIT_ICON_ONLY, 18.0f);
+    _bar->share  = fude_kit_button(_p, fude_text(FUDE_TEXT_DOC_EXPORT), fude_docbar_on_share, _bar);
+    fude_kit_icon(_bar->share, FUDE_ICON_EXPORT, FUDE_KIT_ICON_ONLY, 18.0f);
     _bar->before = fude_kit_button(_p, fude_text(FUDE_TEXT_DOC_BEFORE), fude_docbar_on_before, _bar);
     fude_kit_icon(_bar->before, FUDE_ICON_UP, FUDE_KIT_ICON_ONLY, 18.0f);
     _bar->next   = fude_kit_button(_p, fude_text(FUDE_TEXT_DOC_NEXT), fude_docbar_on_next, _bar);

@@ -43,6 +43,7 @@ rde_font* fude_kit_font(void) {
 // code point; Fill draws the same shapes filled). An icon not here is left as is.
 static const struct { u32 codepoint; u16 bearing; } FUDE_KIT_ICON_BEARINGS[] = {
     { 0xE010u, 128 },
+    { 0xE016u,  96 },
     { 0xE036u, 128 },
     { 0xE038u,  64 },
     { 0xE058u, 128 },

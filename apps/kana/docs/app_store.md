@@ -3,7 +3,7 @@
 What the app ships and declares, and what has to be filled in outside the app.
 Written 2026-09-30 for ML Kit's handwriting; brought up to date 2026-10-02 for
 everything since (text from a photo, translation, the camera, reading aloud,
-vocabulary). The store texts are in `docs/store/listing.md`; the two web pages
+vocabulary). The store texts and screenshots are in `store/`; the two web pages
 App Store Connect asks for are made by `tools/store/site.py` into `site/`.
 
 ---
@@ -66,6 +66,12 @@ Translate with Google say they need it.
   card and its first page, and in Settings › Licences › Lectures
   (`assets/lectures/LICENSE-lectures.txt`). How it was made:
   `tools/lectures/make_jpn101.py`.
+- **Lectures:** Wikivoyage's Japanese phrasebook in English, Spanish, French
+  and Portuguese (CC BY-SA 4.0, by Wikivoyage's contributors), text only, laid
+  out as PDFs; the Library shows the one in the app's language. ShareAlike
+  covers these PDFs, not the app (they are bundled beside it). Their credits,
+  revisions and changes: their first pages and `LICENSE-lectures.txt`. How they
+  were made: `tools/lectures/phrasebook.py` (and `html2pdf.swift`).
 - No microphone, location, contacts or tracking (`NSPrivacyTracking` is false
   everywhere, so no App Tracking Transparency prompt).
 
@@ -159,8 +165,8 @@ ship with the app.
       Pages, both URLs in App Store Connect.
 - [ ] **The App Store Connect record**: its Apple ID goes in `KANA_APP_STORE_ID`
       (src/app/version.h) so Rate opens the write-review page; then the texts
-      (`docs/store/listing.md`), the screenshots (iPad 13-inch:
-      `tools/store/screenshots.py`), the age rating, the price.
+      (`store/listing.md`), the screenshots (iPad 13-inch: `store/framed/`,
+      `store/README.md`), the age rating, the price.
 - [x] Export compliance: `ITSAppUsesNonExemptEncryption` false (HTTPS through
       Apple's networking only).
 - [x] A release build: optimised (-O3), the HUD and launch arguments ignored.

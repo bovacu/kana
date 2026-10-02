@@ -34,4 +34,14 @@ b8 fude_textscan_poll_frame(fude_textscan_result* _out) {
     return false;
 }
 
+b8 fude_textscan_read_page(const u8* _rgba, u32 _width, u32 _height) {
+    RDE_UNUSED(_rgba); RDE_UNUSED(_width); RDE_UNUSED(_height);
+    return false;
+}
+
+b8 fude_textscan_poll_page(fude_textscan_result* _out) {
+    RDE_UNUSED(_out);
+    return false;
+}
+
 #endif

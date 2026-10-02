@@ -20,6 +20,8 @@
 struct fude_app;
 struct fude_ui;
 
+struct fude_doc_line;   // doc.h
+
 // A tool of the app's on the toolbar, after Paper (Kana's camera).
 #define FUDE_EXTENSION_TOOLS 2u
 typedef struct {
@@ -122,6 +124,16 @@ typedef struct fude_extension {
     // Library screen lists them (Kana: its lectures). None: no books there.
     const struct fude_doc_book* library;
     u32                         library_count;
+
+    // Reading pictures: a document's pages with no text of their own (scans,
+    // photos), read once each so the lasso and Search find their words (doc.h).
+    // _rgba (_w x _h, 4 bytes a pixel, the top row first) read — false when it
+    // cannot (now: then it is not asked again until the document opens again).
+    // Then once a frame: true once read, its lines into _out (at most _max: their
+    // boxes in the picture's pixels, from its top-left) and how many into *_count.
+    // None: pictures are not read (Kana: ML Kit's Japanese text recognition).
+    b8 (*picture_read)(const u8* _rgba, u32 _w, u32 _h);
+    b8 (*picture_lines)(struct fude_doc_line* _out, u32 _max, u32* _count);
 } fude_extension;
 
 #endif

@@ -34,7 +34,16 @@ const fude_app_info KANA_INFO = {
 // reused: a canvas keeps its book's.
 static const fude_doc_book KANA_LIBRARY[] = {
     { 2u, "assets/lectures/jpn101.pdf", FUDE_TEXT_LECTURE_JPN101, FUDE_TEXT_LECTURE_JPN101_ABOUT,
-      "Yoko Sato, Mt Hood Community College \xC2\xB7 CC BY 4.0 \xC2\xB7 Kana edition: pages 1, 2 and 21 left out", "assets/lectures/jpn101.png" },
+      "Yoko Sato, Mt Hood Community College \xC2\xB7 CC BY 4.0 \xC2\xB7 Kana edition: pages 1, 2 and 21 left out", "assets/lectures/jpn101.png", NULL },
+    // Wikivoyage's Japanese phrasebook, one per language (the app's, else English).
+    { 3u, "assets/lectures/phrasebook_en.pdf", FUDE_TEXT_LECTURE_PHRASEBOOK, FUDE_TEXT_LECTURE_PHRASEBOOK_ABOUT,
+      "Wikivoyage contributors \xC2\xB7 CC BY-SA 4.0 \xC2\xB7 Kana edition: pictures and links left out", "assets/lectures/phrasebook_en.png", "en" },
+    { 4u, "assets/lectures/phrasebook_es.pdf", FUDE_TEXT_LECTURE_PHRASEBOOK, FUDE_TEXT_LECTURE_PHRASEBOOK_ABOUT,
+      "Colaboradores de Wikiviajes \xC2\xB7 CC BY-SA 4.0 \xC2\xB7 Edici\xC3\xB3n de Kana: sin im\xC3\xA1genes ni enlaces", "assets/lectures/phrasebook_es.png", "es" },
+    { 5u, "assets/lectures/phrasebook_fr.pdf", FUDE_TEXT_LECTURE_PHRASEBOOK, FUDE_TEXT_LECTURE_PHRASEBOOK_ABOUT,
+      "Contributeurs de Wikivoyage \xC2\xB7 CC BY-SA 4.0 \xC2\xB7 \xC3\x89" "dition de Kana : sans images ni liens", "assets/lectures/phrasebook_fr.png", "fr" },
+    { 6u, "assets/lectures/phrasebook_pt.pdf", FUDE_TEXT_LECTURE_PHRASEBOOK, FUDE_TEXT_LECTURE_PHRASEBOOK_ABOUT,
+      "Colaboradores do Wikivoyage \xC2\xB7 CC BY-SA 4.0 \xC2\xB7 Edi\xC3\xA7\xC3\xA3o do Kana: sem imagens nem links", "assets/lectures/phrasebook_pt.png", "pt" },
 };
 
 void kana_app_open(fude_app* _app, KANA_SCREEN_ _screen) {

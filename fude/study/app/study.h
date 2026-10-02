@@ -136,6 +136,13 @@ u32 fude_study_reviews_count(struct fude_app* _app);
 void fude_study_session_open(struct fude_app* _app, const c8* _dir);
 void fude_study_settings_gather(const struct fude_app* _app, fude_settings* _settings);
 void fude_study_settings_apply(struct fude_app* _app, const fude_settings* _settings);
+// Pictures read (extension.h: a document's scanned pages): ML Kit's Japanese
+// text recognition (textscan.h). A debug build can make lines up instead
+// (fude_study_picture_demo: --read-demo), to look at it without a device.
+struct fude_doc_line;
+b8   fude_study_picture_read(const u8* _rgba, u32 _w, u32 _h);
+b8   fude_study_picture_lines(struct fude_doc_line* _out, u32 _max, u32* _count);
+void fude_study_picture_demo(b8 _on);
 // A practice sheet of _records at _path (_cut: more were asked for than fit;
 // _share: then to the share sheet).
 void fude_study_sheet_write(struct fude_app* _app, const u32* _records, u32 _count, b8 _cut, const c8* _path, b8 _share);
@@ -171,6 +178,7 @@ extern const fude_extension_tool FUDE_STUDY_CAMERA;
     .ui_build = fude_study_ui_build, .ui_update = fude_study_ui_update, .ui_restyle = fude_study_ui_restyle,                       \
     .ui_hit = fude_study_ui_hit, .page_render = fude_study_page_render, .page_press = fude_study_page_press,                       \
     .session_open = fude_study_session_open, .settings_gather = fude_study_settings_gather,                                         \
-    .settings_apply = fude_study_settings_apply
+    .settings_apply = fude_study_settings_apply,                                                                                  \
+    .picture_read = fude_study_picture_read, .picture_lines = fude_study_picture_lines
 
 #endif

@@ -61,6 +61,7 @@
 #define FUDE_ICON_UP            "\xEE\x84\xBC"   // ph-caret-up U+E13C (a search's previous match)
 #define FUDE_ICON_DOWN          "\xEE\x84\xB6"   // ph-caret-down U+E136 (...its next)
 #define FUDE_ICON_PAGE_NUMBER   "\xEE\x8A\xA2"   // ph-hash U+E2A2 (go to a page)
+#define FUDE_ICON_TURN_PAGE     "\xEE\x80\x96"   // ph-arrow-arc-right U+E016 (a document's page turned)
 #define FUDE_ICON_FILTER        "\xEE\x89\xA6"   // ph-funnel U+E266
 #define FUDE_ICON_SORT          "\xEE\x91\x84"   // ph-sort-ascending U+E444
 #define FUDE_ICON_FOLDER        "\xEE\x89\x8A"   // ph-folder U+E24A

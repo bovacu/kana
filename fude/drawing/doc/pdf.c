@@ -15,17 +15,21 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
+#include <CoreText/CoreText.h>
 #include <ImageIO/ImageIO.h>
 #include <unistd.h>
 
 struct fude_pdf {
     CGPDFDocumentRef doc;
     u32              count;
-    rde_vec_2F*      sizes;   // each page's, turned, in points
+    rde_vec_2F*      sizes;   // each page's, turned as the PDF says, in points
+    u8*              turns;   // ...and the learner's quarter turns over that
     c8               path[RDE_MAX_PATH];
     void*            kit;     // its text's document (pdf_kit.m), opened the first time it is asked
     b8               kit_tried;
 };
+
+RDE_INTERNAL void fude_pdf_box(const fude_pdf* _pdf, u32 _page, b8 _to_pdf, rde_vec_2F* _from, rde_vec_2F* _size);
 
 // Its text's document, the first time.
 RDE_INTERNAL void* fude_pdf_kit(fude_pdf* _pdf) {
@@ -40,12 +44,21 @@ b8 fude_pdf_text_available(void) {
     return true;
 }
 
+b8 fude_pdf_page_has_text(fude_pdf* _pdf, u32 _page) {
+    void* _kit = fude_pdf_kit(_pdf);
+    return _kit != NULL && fude_pdf_kit_page_has_text(_kit, _page);
+}
+
 usize fude_pdf_text_in(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size, c8* _out, usize _out_size) {
     void* _kit = fude_pdf_kit(_pdf);
     if(_out_size > 0) {
         _out[0] = 0;
     }
-    return _kit != NULL ? fude_pdf_kit_text_in(_kit, _page, _from, _size, _out, _out_size) : 0u;
+    if(_kit == NULL || _page >= _pdf->count) {
+        return 0u;
+    }
+    fude_pdf_box(_pdf, _page, true, &_from, &_size);   // the page as the PDF reads it (PDFKit's)
+    return fude_pdf_kit_text_in(_kit, _page, _from, _size, _out, _out_size);
 }
 
 void fude_pdf_find_start(fude_pdf* _pdf, const c8* _query) {
@@ -63,7 +76,16 @@ void fude_pdf_find_stop(fude_pdf* _pdf) {
 
 u32 fude_pdf_find_matches(fude_pdf* _pdf, fude_pdf_match* _out, u32 _max, b8* _done) {
     *_done = true;
-    return _pdf != NULL && _pdf->kit != NULL ? fude_pdf_kit_find_matches(_pdf->kit, _out, _max, _done) : 0u;
+    if(_pdf == NULL || _pdf->kit == NULL) {
+        return 0u;
+    }
+    const u32 _n = fude_pdf_kit_find_matches(_pdf->kit, _out, _max, _done);
+    for(u32 _i = 0; _out != NULL && _i < _n; _i++) {
+        if(_out[_i].page < _pdf->count) {
+            fude_pdf_box(_pdf, _out[_i].page, false, &_out[_i].from, &_out[_i].size);   // as the learner turned it
+        }
+    }
+    return _n;
 }
 
 // _path as a file URL: a relative one from the working folder (a device's: the
@@ -118,6 +140,7 @@ fude_pdf* fude_pdf_open(const c8* _path) {
     _pdf->doc      = _doc;
     _pdf->count    = (u32)_count;
     _pdf->sizes    = (rde_vec_2F*)calloc(_count, sizeof(rde_vec_2F));
+    _pdf->turns    = (u8*)calloc(_count, sizeof(u8));
     for(u32 _i = 0; _i < _pdf->count; _i++) {
         CGPDFPageRef _page = CGPDFDocumentGetPage(_doc, (size_t)_i + 1u);
         if(_page == NULL) {
@@ -141,6 +164,7 @@ void fude_pdf_close(fude_pdf* _pdf) {
     if(_pdf->kit != NULL) {
         fude_pdf_kit_close(_pdf->kit);
     }
+    free(_pdf->turns);
     free(_pdf->sizes);
     free(_pdf);
 }
@@ -150,7 +174,61 @@ u32 fude_pdf_page_count(const fude_pdf* _pdf) {
 }
 
 rde_vec_2F fude_pdf_page_size(const fude_pdf* _pdf, u32 _page) {
-    return _pdf != NULL && _page < _pdf->count ? _pdf->sizes[_page] : (rde_vec_2F){ 595.0f, 842.0f };
+    if(_pdf == NULL || _page >= _pdf->count) {
+        return (rde_vec_2F){ 595.0f, 842.0f };
+    }
+    const rde_vec_2F _s = _pdf->sizes[_page];
+    return (_pdf->turns[_page] & 1u) != 0u ? (rde_vec_2F){ _s.y, _s.x } : _s;
+}
+
+void fude_pdf_set_turn(fude_pdf* _pdf, u32 _page, u8 _quarters) {
+    if(_pdf != NULL && _page < _pdf->count) {
+        _pdf->turns[_page] = (u8)(_quarters & 3u);
+    }
+}
+
+// The learner's turn of page _page over the page as the PDF reads (Y up from
+// its bottom-left, _s its size): to the page as turned.
+RDE_INTERNAL CGAffineTransform fude_pdf_turned(const fude_pdf* _pdf, u32 _page) {
+    const CGFloat _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
+    switch(_pdf->turns[_page] & 3u) {
+        case 1:  return CGAffineTransformMake(0.0, -1.0, 1.0, 0.0, 0.0, _w);
+        case 2:  return CGAffineTransformMake(-1.0, 0.0, 0.0, -1.0, _w, _h);
+        case 3:  return CGAffineTransformMake(0.0, 1.0, -1.0, 0.0, _h, 0.0);
+        default: return CGAffineTransformIdentity;
+    }
+}
+
+// A point of the page as turned (from its top-left) on the page as the PDF reads
+// it, and back.
+RDE_INTERNAL rde_vec_2F fude_pdf_unturn(const fude_pdf* _pdf, u32 _page, rde_vec_2F _p) {
+    const f32 _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
+    switch(_pdf->turns[_page] & 3u) {
+        case 1:  return (rde_vec_2F){ _p.y, _h - _p.x };
+        case 2:  return (rde_vec_2F){ _w - _p.x, _h - _p.y };
+        case 3:  return (rde_vec_2F){ _w - _p.y, _p.x };
+        default: return _p;
+    }
+}
+
+RDE_INTERNAL rde_vec_2F fude_pdf_return(const fude_pdf* _pdf, u32 _page, rde_vec_2F _p) {
+    const f32 _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
+    switch(_pdf->turns[_page] & 3u) {
+        case 1:  return (rde_vec_2F){ _h - _p.y, _p.x };
+        case 2:  return (rde_vec_2F){ _w - _p.x, _h - _p.y };
+        case 3:  return (rde_vec_2F){ _p.y, _w - _p.x };
+        default: return _p;
+    }
+}
+
+// A rectangle (_from, _size) through one of those: the box round its corners.
+RDE_INTERNAL void fude_pdf_box(const fude_pdf* _pdf, u32 _page, b8 _to_pdf, rde_vec_2F* _from, rde_vec_2F* _size) {
+    const rde_vec_2F _a = { _from->x, _from->y };
+    const rde_vec_2F _b = { _from->x + _size->x, _from->y + _size->y };
+    const rde_vec_2F _p = _to_pdf ? fude_pdf_unturn(_pdf, _page, _a) : fude_pdf_return(_pdf, _page, _a);
+    const rde_vec_2F _q = _to_pdf ? fude_pdf_unturn(_pdf, _page, _b) : fude_pdf_return(_pdf, _page, _b);
+    *_from = (rde_vec_2F){ fminf(_p.x, _q.x), fminf(_p.y, _q.y) };
+    *_size = (rde_vec_2F){ fabsf(_p.x - _q.x), fabsf(_p.y - _q.y) };
 }
 
 b8 fude_pdf_render(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size, u32 _w, u32 _h, u8* _rgba) {
@@ -174,9 +252,10 @@ b8 fude_pdf_render(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size
     // The page as read (points, Y up, its bottom-left corner at 0), to the
     // pixels: the rectangle asked for fills them. (The bitmap's first row is
     // its top.)
-    const rde_vec_2F _page_size = _pdf->sizes[_page];
+    const rde_vec_2F _page_size = fude_pdf_page_size(_pdf, _page);
     CGContextScaleCTM(_ctx, (CGFloat)_w / (CGFloat)_size.x, (CGFloat)_h / (CGFloat)_size.y);
     CGContextTranslateCTM(_ctx, -(CGFloat)_from.x, -(CGFloat)(_page_size.y - _from.y - _size.y));
+    CGContextConcatCTM(_ctx, fude_pdf_turned(_pdf, _page));   // as the learner turned it
     // The PDF's own space to the page as read: its crop box turned.
     const CGRect   _box  = CGPDFPageGetBoxRect(_p, kCGPDFCropBox);
     const CGFloat  _cx   = _box.origin.x, _cy = _box.origin.y, _cw = _box.size.width, _ch = _box.size.height;
@@ -192,6 +271,151 @@ b8 fude_pdf_render(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size
     CGContextDrawPDFPage(_ctx, _p);
     CGContextRelease(_ctx);
     return true;
+}
+
+// --- writing --------------------------------------------------------------------------------
+
+struct fude_pdf_writer {
+    CGContextRef ctx;
+    CGFloat      height;   // the page's, for its top-left points
+    b8           open;     // a page begun
+    b8           ok;
+};
+
+// The PDF's own space to the page as read, Y up from its bottom-left: page _p's
+// crop box, turned (as fude_pdf_render draws it).
+RDE_INTERNAL CGAffineTransform fude_pdf_reading(CGPDFPageRef _p) {
+    const CGRect  _box = CGPDFPageGetBoxRect(_p, kCGPDFCropBox);
+    const CGFloat _cx = _box.origin.x, _cy = _box.origin.y, _cw = _box.size.width, _ch = _box.size.height;
+    switch(fude_pdf_turn(_p)) {
+        case 90:  return CGAffineTransformMake(0.0, -1.0, 1.0, 0.0, -_cy, _cw + _cx);
+        case 180: return CGAffineTransformMake(-1.0, 0.0, 0.0, -1.0, _cw + _cx, _ch + _cy);
+        case 270: return CGAffineTransformMake(0.0, 1.0, -1.0, 0.0, _ch + _cy, -_cx);
+        default:  return CGAffineTransformMake(1.0, 0.0, 0.0, 1.0, -_cx, -_cy);
+    }
+}
+
+fude_pdf_writer* fude_pdf_write_begin(const c8* _out) {
+    CFURLRef _url = _out != NULL ? fude_pdf_url(_out) : NULL;
+    if(_url == NULL) {
+        return NULL;
+    }
+    CGContextRef _ctx = CGPDFContextCreateWithURL(_url, NULL, NULL);
+    CFRelease(_url);
+    if(_ctx == NULL) {
+        return NULL;
+    }
+    fude_pdf_writer* _w = (fude_pdf_writer*)calloc(1, sizeof(fude_pdf_writer));
+    _w->ctx = _ctx;
+    _w->ok  = true;
+    return _w;
+}
+
+void fude_pdf_write_page(fude_pdf_writer* _w, fude_pdf* _pdf, u32 _page) {
+    if(_w == NULL || _pdf == NULL || _page >= _pdf->count) {
+        return;
+    }
+    const rde_vec_2F _size = fude_pdf_page_size(_pdf, _page);
+    const CGRect     _box  = CGRectMake(0.0, 0.0, (CGFloat)_size.x, (CGFloat)_size.y);
+    CGContextBeginPage(_w->ctx, &_box);
+    _w->open   = true;
+    _w->height = (CGFloat)_size.y;
+    CGPDFPageRef _p = CGPDFDocumentGetPage(_pdf->doc, (size_t)_page + 1u);
+    if(_p != NULL) {
+        CGContextSaveGState(_w->ctx);
+        CGContextConcatCTM(_w->ctx, fude_pdf_turned(_pdf, _page));
+        CGContextConcatCTM(_w->ctx, fude_pdf_reading(_p));
+        CGContextClipToRect(_w->ctx, CGPDFPageGetBoxRect(_p, kCGPDFCropBox));
+        CGContextDrawPDFPage(_w->ctx, _p);
+        CGContextRestoreGState(_w->ctx);
+    }
+}
+
+void fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const f32* _radii, u32 _n, rde_color _color, b8 _even) {
+    if(_w == NULL || !_w->open || _n == 0u) {
+        return;
+    }
+    CGContextRef _c = _w->ctx;
+    CGContextSaveGState(_c);
+    CGContextSetRGBStrokeColor(_c, _color.r / 255.0, _color.g / 255.0, _color.b / 255.0, _color.a / 255.0);
+    CGContextSetRGBFillColor(_c, _color.r / 255.0, _color.g / 255.0, _color.b / 255.0, _color.a / 255.0);
+    CGContextSetLineCap(_c, kCGLineCapRound);
+    CGContextSetLineJoin(_c, kCGLineJoinRound);
+    if(_n == 1u) {
+        const CGFloat _r = _radii[0];
+        CGContextFillEllipseInRect(_c, CGRectMake(_points[0].x - _r, _w->height - _points[0].y - _r, 2.0 * _r, 2.0 * _r));
+    } else if(_even) {
+        // One shape: a see-through stroke painted once.
+        CGContextBeginPath(_c);
+        CGContextMoveToPoint(_c, _points[0].x, _w->height - _points[0].y);
+        for(u32 _i = 1; _i < _n; _i++) {
+            CGContextAddLineToPoint(_c, _points[_i].x, _w->height - _points[_i].y);
+        }
+        CGContextSetLineWidth(_c, 2.0 * _radii[0]);
+        CGContextStrokePath(_c);
+    } else {
+        // Its width follows the pen: a piece at a time (the ink is solid: where they meet does not show).
+        for(u32 _i = 0; _i + 1u < _n; _i++) {
+            CGContextBeginPath(_c);
+            CGContextMoveToPoint(_c, _points[_i].x, _w->height - _points[_i].y);
+            CGContextAddLineToPoint(_c, _points[_i + 1u].x, _w->height - _points[_i + 1u].y);
+            CGContextSetLineWidth(_c, _radii[_i] + _radii[_i + 1u]);
+            CGContextStrokePath(_c);
+        }
+    }
+    CGContextRestoreGState(_c);
+}
+
+void fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size) {
+    if(_w == NULL || !_w->open || _text == NULL || _text[0] == 0 || _size.x <= 0.0f || _size.y <= 0.0f) {
+        return;
+    }
+    CFStringRef _s = CFStringCreateWithCString(NULL, _text, kCFStringEncodingUTF8);
+    if(_s == NULL) {
+        return;
+    }
+    // A Japanese font as tall as the box, stretched across it: unseen, but where the picture shows it.
+    CTFontRef         _font  = CTFontCreateWithName(CFSTR("HiraginoSans-W3"), (CGFloat)_size.y * 0.85, NULL);
+    const void*       _k[]   = { kCTFontAttributeName };
+    const void*       _v[]   = { _font };
+    CFDictionaryRef   _attrs = CFDictionaryCreate(NULL, _k, _v, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFAttributedStringRef _as = CFAttributedStringCreate(NULL, _s, _attrs);
+    CTLineRef         _line  = CTLineCreateWithAttributedString(_as);
+    CGFloat           _ascent = 0.0, _descent = 0.0;
+    const double      _width = CTLineGetTypographicBounds(_line, &_ascent, &_descent, NULL);
+    CGContextRef      _c     = _w->ctx;
+    CGContextSaveGState(_c);
+    CGContextSetTextDrawingMode(_c, kCGTextInvisible);
+    CGContextSetTextMatrix(_c, CGAffineTransformIdentity);
+    CGContextTranslateCTM(_c, _from.x, _w->height - _from.y - _size.y + _descent);
+    CGContextScaleCTM(_c, _width > 0.0 ? (CGFloat)_size.x / (CGFloat)_width : 1.0, 1.0);
+    CGContextSetTextPosition(_c, 0.0, 0.0);
+    CTLineDraw(_line, _c);
+    CGContextRestoreGState(_c);
+    CFRelease(_line);
+    CFRelease(_as);
+    CFRelease(_attrs);
+    CFRelease(_font);
+    CFRelease(_s);
+}
+
+void fude_pdf_write_page_end(fude_pdf_writer* _w) {
+    if(_w != NULL && _w->open) {
+        CGContextEndPage(_w->ctx);
+        _w->open = false;
+    }
+}
+
+b8 fude_pdf_write_end(fude_pdf_writer* _w) {
+    if(_w == NULL) {
+        return false;
+    }
+    fude_pdf_write_page_end(_w);
+    CGPDFContextClose(_w->ctx);
+    CGContextRelease(_w->ctx);
+    const b8 _ok = _w->ok;
+    free(_w);
+    return _ok;
 }
 
 b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
@@ -276,6 +500,41 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
 
 b8 fude_pdf_text_available(void) {
     return false;
+}
+
+fude_pdf_writer* fude_pdf_write_begin(const c8* _out) {
+    RDE_UNUSED(_out);
+    return NULL;
+}
+
+void fude_pdf_write_page(fude_pdf_writer* _w, fude_pdf* _pdf, u32 _page) {
+    RDE_UNUSED(_w); RDE_UNUSED(_pdf); RDE_UNUSED(_page);
+}
+
+void fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const f32* _radii, u32 _n, rde_color _color, b8 _even) {
+    RDE_UNUSED(_w); RDE_UNUSED(_points); RDE_UNUSED(_radii); RDE_UNUSED(_n); RDE_UNUSED(_color); RDE_UNUSED(_even);
+}
+
+void fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size) {
+    RDE_UNUSED(_w); RDE_UNUSED(_text); RDE_UNUSED(_from); RDE_UNUSED(_size);
+}
+
+void fude_pdf_write_page_end(fude_pdf_writer* _w) {
+    RDE_UNUSED(_w);
+}
+
+b8 fude_pdf_write_end(fude_pdf_writer* _w) {
+    RDE_UNUSED(_w);
+    return false;
+}
+
+b8 fude_pdf_page_has_text(fude_pdf* _pdf, u32 _page) {
+    RDE_UNUSED(_pdf); RDE_UNUSED(_page);
+    return false;
+}
+
+void fude_pdf_set_turn(fude_pdf* _pdf, u32 _page, u8 _quarters) {
+    RDE_UNUSED(_pdf); RDE_UNUSED(_page); RDE_UNUSED(_quarters);
 }
 
 usize fude_pdf_text_in(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size, c8* _out, usize _out_size) {

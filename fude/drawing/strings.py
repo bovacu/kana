@@ -132,6 +132,11 @@ t('DOC_NO_MATCHES', 'Not found', 'Sin resultados', 'Nada encontrado', '見つか
 t('DOC_BEFORE', 'Previous', 'Anterior', 'Anterior', '前へ', 'Précédent')
 t('DOC_NEXT', 'Next', 'Siguiente', 'Próximo', '次へ', 'Suivant')
 t('DOC_PAGE', 'Page', 'Página', 'Página', 'ページ', 'Page')
+t('DOC_TURN', 'Turn page', 'Girar página', 'Girar página', 'ページを回転', 'Faire pivoter la page')
+t('DOC_TURN_FULL', 'No more pages can be turned in this document.', 'No se pueden girar más páginas en este documento.', 'Não é possível girar mais páginas neste documento.', 'この資料ではこれ以上ページを回転できません。', 'Impossible de faire pivoter d’autres pages dans ce document.')
+t('DOC_EXPORT', 'Share as PDF', 'Compartir como PDF', 'Compartilhar como PDF', 'PDFで共有', 'Partager en PDF')
+t('DOC_EXPORT_FAILED', 'The PDF could not be made.', 'No se pudo crear el PDF.', 'Não foi possível criar o PDF.', 'PDFを作成できませんでした。', 'Impossible de créer le PDF.')
+t('DOC_EXPORTED', 'Saved: {0}', 'Guardado: {0}', 'Salvo: {0}', '保存しました：{0}', 'Enregistré : {0}')
 
 # --- days of the week (a date's; Statistics' too) ------------------------------------------------
 t('DAY_MON', 'Mo', 'Lu', 'Seg', '月', 'Lu')

@@ -6,6 +6,8 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <sys/stat.h>
+// The canvas (its turned pages) draws its paper too: nothing to draw here.
+void rde_rendering_2d_draw_rectangle(const rde_vec_2F a, const rde_vec_2F b, const rde_color c) { (void)a; (void)b; (void)c; }
 
 // --- engine stubs (stdio) ---------------------------------------------------------
 struct rde_file { FILE* f; };
@@ -94,6 +96,15 @@ int main(void) {
     CHECK(pb.paper == FUDE_PAPER_SQUARES);               // the page's paper, saved with it
     CHECK(fude_ink_alive_strokes(&b) == 3); CHECK(same_page(&a, &b));
     CHECK(memcmp(&va, &vb, sizeof va) == 0);
+    { fude_ink k; fude_ink_init(&k); fude_view v = { {0,0}, 1 };                                       // a document's turned pages round trip
+      fude_page t = { .paper = FUDE_PAPER_NONE }, u;
+      CHECK(fude_page_turn_more(&t, 3) && fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 3) && fude_page_turn_more(&t, 70));
+      CHECK(fude_page_turned(&t, 3) == 2 && fude_page_turned(&t, 0) == 1 && fude_page_turned(&t, 70) == 1 && fude_page_turned(&t, 5) == 0);
+      CHECK(fude_save_document(doc2, &k, v, t, NULL));
+      memset(&u, 0, sizeof(u));
+      CHECK(fude_load_document(doc2, &k, &v, &u) == FUDE_LOAD_OK && fude_page_same(&t, &u) && u.turn_count == 3 && fude_page_turned(&u, 3) == 2);
+      CHECK(fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turned(&t, 0) == 0 && t.turn_count == 2);   // round again: upright, gone
+      fude_ink_destroy(&k); }
     { fude_ink k; fude_ink_init(&k); fude_view v = { {0,0}, 1 }; fude_page q;                      // every paper round trips
       for(u32 i = 0; i < FUDE_PAPER_COUNT; i++) { CHECK(fude_save_document(doc2, &k, v, (fude_page){ .paper = (FUDE_PAPER_)i }, NULL));
                                                  q.paper = (FUDE_PAPER_)((i + 1) % FUDE_PAPER_COUNT); CHECK(fude_load_document(doc2, &k, &v, &q) == FUDE_LOAD_OK && q.paper == (FUDE_PAPER_)i); }

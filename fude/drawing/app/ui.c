@@ -24,13 +24,27 @@ rde_font* fude_ui_icon_font(const fude_ui* _ui) {
 
 // --- a screen's field ----------------------------------------------------------------------
 
-// Return in the field: its screen has what it says.
+// Return in the field, or (a screen that searches as it is typed) a keystroke:
+// its screen has what it says.
+RDE_INTERNAL void fude_ui_field_tell(const fude_ui_field_ref* _ref, void (*_tell)(void*, const c8*)) {
+    if(_tell == NULL) {
+        return;
+    }
+    c8* _text = rde_ui_text_editor_get_text(_ref->field, 0, rde_ui_text_editor_get_byte_count(_ref->field));
+    _tell(_ref->slot->self, _text != NULL ? _text : "");
+    rde_ui_text_editor_free_text(_ref->field, _text);
+}
+
 RDE_INTERNAL void fude_ui_on_field_submit(rde_ui_node* _node, any _user_data) {
     RDE_UNUSED(_node);
     const fude_ui_field_ref* _ref = (const fude_ui_field_ref*)_user_data;
-    c8* _text = rde_ui_text_editor_get_text(_ref->field, 0, rde_ui_text_editor_get_byte_count(_ref->field));
-    _ref->slot->vt->field_submit(_ref->slot->self, _text != NULL ? _text : "");
-    rde_ui_text_editor_free_text(_ref->field, _text);
+    fude_ui_field_tell(_ref, _ref->slot->vt->field_submit);
+}
+
+RDE_INTERNAL void fude_ui_on_field_change(rde_ui_node* _node, any _user_data) {
+    RDE_UNUSED(_node);
+    const fude_ui_field_ref* _ref = (const fude_ui_field_ref*)_user_data;
+    fude_ui_field_tell(_ref, _ref->slot->vt->field_change);
 }
 
 RDE_INTERNAL rde_ui_text_editor* fude_ui_field_create(rde_ui_node* _root, fude_ui_field_ref* _ref, const fude_screen_slot* _slot) {
@@ -45,6 +59,9 @@ RDE_INTERNAL rde_ui_text_editor* fude_ui_field_create(rde_ui_node* _root, fude_u
     rde_ui_text_editor_add_plugin(_field, rde_ui_text_editor_plugin_ime_get());   // the keyboard's composition, at the caret
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_field), _ref);
     rde_ui_text_editor_set_on_submit(_field, fude_ui_on_field_submit);
+    if(_slot->vt->field_change != NULL) {
+        rde_ui_text_editor_set_on_change(_field, fude_ui_on_field_change);
+    }
     fude_kit_field_box(_root, _field);
     rde_ui_node_set_active(fude_kit_field_node(_field), false);
     return _field;
@@ -284,7 +301,7 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
         if(_slot->vt->bar != NULL) {
             fude_filterbar_create(&_ui->bars[_s], _root, _ui->window, _slot->vt->bar, _slot->self);
         }
-        if(_slot->vt->field_hint != FUDE_TEXT_COUNT && _slot->vt->field_submit != NULL) {
+        if(_slot->vt->field_hint != FUDE_TEXT_COUNT && (_slot->vt->field_submit != NULL || _slot->vt->field_change != NULL)) {
             _ui->fields[_s] = fude_ui_field_create(_root, &_ui->field_refs[_s], _slot);
         }
     }

@@ -56,6 +56,37 @@ RDE_INTERNAL u32 fude_library_book_count(const fude_library* _lib) {
     return _n < FUDE_LIBRARY_BOOKS ? _n : FUDE_LIBRARY_BOOKS;
 }
 
+// The app's language as a book names it.
+RDE_INTERNAL const c8* fude_library_language(void) {
+    switch(fude_text_language()) {
+        case RDE_LANGUAGE_ES_ES: return "es";
+        case RDE_LANGUAGE_PT_BR: return "pt";
+        case RDE_LANGUAGE_FR_FR: return "fr";
+        case RDE_LANGUAGE_JA_JP: return "ja";
+        default:                 return "en";
+    }
+}
+
+// Is book _i shown? One without a language always; of those sharing its title,
+// the one in the app's language — else the English one.
+RDE_INTERNAL b8 fude_library_shown(const fude_library* _lib, u32 _i) {
+    const fude_doc_book* _books = fude_app_ext(_lib->app)->library;
+    const fude_doc_book* _b     = &_books[_i];
+    const c8*            _ours  = fude_library_language();
+    if(_b->language == NULL || strcmp(_b->language, _ours) == 0) {
+        return true;
+    }
+    if(strcmp(_b->language, "en") != 0) {
+        return false;
+    }
+    for(u32 _k = 0; _k < fude_library_book_count(_lib); _k++) {
+        if(_books[_k].title == _b->title && _books[_k].language != NULL && strcmp(_books[_k].language, _ours) == 0) {
+            return false;   // there is one in the app's language
+        }
+    }
+    return true;
+}
+
 // The learner's documents: the canvases over their own PDFs, newest first.
 RDE_INTERNAL void fude_library_gather(fude_library* _lib) {
     const fude_notes* _notes = _lib->app->notes;
@@ -81,7 +112,7 @@ RDE_INTERNAL void fude_library_tap(fude_library* _lib, rde_vec_2F _at) {
     }
     fude_app* _app = _lib->app;
     for(u32 _i = 0; _i < fude_library_book_count(_lib); _i++) {
-        if(fude_library_in(_at, _lib->book_min[_i], _lib->book_max[_i])) {
+        if(fude_library_shown(_lib, _i) && fude_library_in(_at, _lib->book_min[_i], _lib->book_max[_i])) {
             if(fude_doc_open_book(_app, &fude_app_ext(_app)->library[_i], fude_text(FUDE_TEXT_LIBRARY_FOLDER)) != 0u) {
                 fude_app_close_all(_app);
             }
@@ -181,9 +212,13 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
         _at -= FUDE_LIBRARY_SECTION;
     }
     const f32 _text_x = _left + FUDE_LIBRARY_PAD + FUDE_LIBRARY_COVER_W + FUDE_LIBRARY_PAD;
-    const f32 _text_w = _right - FUDE_LIBRARY_PAD - _text_x;
+    const f32 _text_w = _right - FUDE_LIBRARY_PAD - _text_x - 8.0f;   // room: measuring and drawing can differ by a little
     for(u32 _i = 0; _i < _books; _i++) {
         const fude_doc_book* _book   = &_ext->library[_i];
+        if(!fude_library_shown(_lib, _i)) {
+            _lib->book_min[_i] = _lib->book_max[_i] = (rde_vec_2F){ 1e9f, 1e9f };   // not tappable
+            continue;
+        }
         const c8*            _title  = fude_text(_book->title);
         const c8*            _about  = fude_text(_book->about);
         const c8*            _credit = _book->credit != NULL ? _book->credit : "";
@@ -213,12 +248,12 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
     fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_LIBRARY_YOURS), _left, _at - 26.0f, 14.0f, _t->text_soft);
     _at -= FUDE_LIBRARY_SECTION;
     if(_lib->own_count == 0u) {
-        const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, fude_text(FUDE_TEXT_LIBRARY_YOURS_EMPTY), 15.0f, _width - 2.0f * FUDE_LIBRARY_PAD);
+        const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, fude_text(FUDE_TEXT_LIBRARY_YOURS_EMPTY), 15.0f, _width - 2.0f * FUDE_LIBRARY_PAD - 12.0f);   // room: measuring and drawing can differ by a little
         const f32 _h     = (f32)_lines * 21.0f + 2.0f * FUDE_LIBRARY_PAD;
         if(_at - _h < _y && _at > _bottom) {
             fude_draw_card((rde_vec_2F){ _left, _at - _h }, (rde_vec_2F){ _right, _at }, 16.0f, _t->surface, _t->outline);
             fude_draw_text_wrap(_font, _font_px, fude_text(FUDE_TEXT_LIBRARY_YOURS_EMPTY), _left + FUDE_LIBRARY_PAD, _at - FUDE_LIBRARY_PAD - 15.0f, 15.0f,
-                                _width - 2.0f * FUDE_LIBRARY_PAD, 21.0f, _t->text_soft);
+                                _width - 2.0f * FUDE_LIBRARY_PAD - 12.0f, 21.0f, _t->text_soft);
         }
         _at -= _h + FUDE_LIBRARY_GAP;
     }

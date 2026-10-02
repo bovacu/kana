@@ -78,11 +78,28 @@ typedef enum {
     FUDE_PAPER_COUNT
 } FUDE_PAPER_;
 
-// What the page shows under its ink — the page's own, saved with it (save.h
-// 'PAGE'): a new canvas has the dots.
+// A document's page turned by the learner (doc.h): which, and how far — quarter
+// turns clockwise, over the turn the PDF gives it.
+#define FUDE_PAGE_TURNS 64u   // a document's pages turned, at most
 RDE_STRUCT {
-    FUDE_PAPER_ paper;
+    u16 page;
+    u8  quarters;   // 1, 2 or 3
+} fude_page_turn;
+
+// What the page shows under its ink — the page's own, saved with it (save.h
+// 'PAGE', 'TURN'): a new canvas has the dots and no page turned.
+RDE_STRUCT {
+    FUDE_PAPER_    paper;
+    u32            turn_count;
+    fude_page_turn turns[FUDE_PAGE_TURNS];
 } fude_page;
+
+// Page _page's quarter turns on _p (0: none).
+u8   fude_page_turned(const fude_page* _p, u32 _page);
+// Page _page turned a quarter clockwise more (a full turn: none again). False:
+// no room for another turned page.
+b8   fude_page_turn_more(fude_page* _p, u32 _page);
+b8   fude_page_same(const fude_page* _a, const fude_page* _b);
 
 // The sizes lines and squares can be (a setting).
 typedef enum {

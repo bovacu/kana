@@ -435,6 +435,13 @@ RDE_INTERNAL void fude_notes_delete_files(u32 _id) {
     if(rde_file_exists(_path)) {
         rde_file_delete(_path);
     }
+    const usize _n = strlen(_path);
+    if(_n > 4u) {
+        snprintf(&_path[_n - 4u], sizeof(_path) - (_n - 4u), ".lines");   // its pictures' text, read (doc.h)
+        if(rde_file_exists(_path)) {
+            rde_file_delete(_path);
+        }
+    }
 }
 
 void fude_notes_set_document(fude_notes* _notes, u32 _id, u8 _document) {

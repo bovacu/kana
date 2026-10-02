@@ -57,5 +57,12 @@ t('LECTURE_JPN101_ABOUT', 'Kana charts, how each stroke ends, writing hiragana a
   'かなの表、とめ・はね・はらい、ひらがなとカタカナの書き方、あいさつ、助詞、動詞の形。書き込める練習シート付き。大学1年生の講座の教材です（英語）。',
   'Tableaux des kana, la fin de chaque trait, écriture des hiragana et katakana, salutations, particules et formes verbales, avec des fiches d’exercices sur lesquelles écrire. D’un cours universitaire de première année, en anglais.')
 
+t('LECTURE_PHRASEBOOK', 'Japanese phrasebook', 'Guía de japonés', 'Guia de conversação japonês', '日本語フレーズ集（英語）', 'Guide linguistique japonais')
+t('LECTURE_PHRASEBOOK_ABOUT', 'Pronunciation, a little grammar, and the phrases a trip needs (greetings, numbers, time, getting around, eating, shopping) in Japanese, with their readings. From Wikivoyage.',
+  'Pronunciación, algo de gramática y las frases de un viaje (saludos, números, horas, transporte, comida) en japonés, con su lectura. De Wikiviajes.',
+  'Pronúncia, um pouco de gramática e as frases de uma viagem (cumprimentos, números, horas, transporte, comida, compras) em japonês, com a leitura. Do Wikivoyage.',
+  '発音、少しの文法、旅に必要なフレーズ（あいさつ、数字、時間、交通、食事、買い物）を読み方つきで。Wikivoyageより（英語）。',
+  'La prononciation et les phrases d’un voyage (salutations, nombres, heures, transports, nourriture, achats) en japonais, avec leur lecture. De Wikivoyage.')
+
 if __name__ == '__main__':
     write(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..'), 'apps/kana/tools/strings.py')

@@ -16,6 +16,7 @@
 #define FUDE_CHUNK_VIEW     FUDE_TAG('V', 'I', 'E', 'W')
 #define FUDE_CHUNK_STROKES  FUDE_TAG('S', 'T', 'R', 'K')
 #define FUDE_CHUNK_PAGE     FUDE_TAG('P', 'A', 'G', 'E')
+#define FUDE_CHUNK_TURN     FUDE_TAG('T', 'U', 'R', 'N')
 #define FUDE_CHUNK_POINTS   FUDE_TAG('P', 'N', 'T', 'S')
 #define FUDE_CHUNK_PREFS    FUDE_TAG('P', 'R', 'E', 'F')
 
@@ -112,6 +113,15 @@ b8 fude_save_document(const c8* _path, const fude_ink* _ink, fude_view _view, fu
     _chunk = fude_chunk_begin(&_b, FUDE_CHUNK_PAGE);
     fude_put_u8(&_b, (u8)_page.paper);
     fude_chunk_end(&_b, _chunk);
+    if(_page.turn_count > 0u) {
+        _chunk = fude_chunk_begin(&_b, FUDE_CHUNK_TURN);
+        fude_put_u32(&_b, _page.turn_count);
+        for(u32 _i = 0; _i < _page.turn_count && _i < FUDE_PAGE_TURNS; _i++) {
+            fude_put_u16(&_b, _page.turns[_i].page);
+            fude_put_u8(&_b, _page.turns[_i].quarters);
+        }
+        fude_chunk_end(&_b, _chunk);
+    }
 
     _chunk = fude_chunk_begin(&_b, FUDE_CHUNK_STROKES);
     fude_put_u32(&_b, _strokes);
@@ -200,6 +210,15 @@ RDE_INTERNAL b8 fude_parse_document(const u8* _data, u32 _size, fude_ink* _ink, 
             if(_c.ok && fude_finite(_x) && fude_finite(_y) && fude_finite(_z) && _z > 0.0f) {
                 _v.offset = (rde_vec_2F){ _x, _y };
                 _v.zoom   = rde_math_clamp_f32(_z, FUDE_CANVAS_ZOOM_MIN, FUDE_CANVAS_ZOOM_MAX);
+            }
+        } else if(_tag == FUDE_CHUNK_TURN) {
+            const u32 _count = fude_get_u32(&_c);
+            for(u32 _i = 0; _i < _count && _c.ok && _pg.turn_count < FUDE_PAGE_TURNS; _i++) {
+                const u16 _page     = fude_get_u16(&_c);
+                const u8  _quarters = fude_get_u8(&_c);
+                if(_c.ok && (_quarters & 3u) != 0u) {
+                    _pg.turns[_pg.turn_count++] = (fude_page_turn){ _page, (u8)(_quarters & 3u) };
+                }
             }
         } else if(_tag == FUDE_CHUNK_PAGE) {
             const u8 _paper = fude_get_u8(&_c);
