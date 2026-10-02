@@ -25,7 +25,7 @@
 // (fude_translate_demo), to look at the screens on the desktop.
 //
 // Like everything ML Kit, it follows the Settings switch (mlkit.h): off, it is
-// never called. Asynchronous: ask, then poll once a frame.
+// never called. Asynchronous: ask, then take its answer once a frame.
 // ===========================================================================
 
 #define FUDE_TRANSLATE_TEXT 768u   // bytes of a translation, at most
@@ -49,6 +49,8 @@ typedef enum {
 // Google's badge drawn: its left edge at _left, centred on _y (Kana's screen
 // space), the white one on a _dark background. Loaded the first time.
 void                  fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark);
+// The badge itself (for a kit image), loaded the first time; NULL when missing.
+rde_texture*          fude_translate_badge(b8 _dark);
 
 // Can this platform translate at all (ML Kit's translator is in it)?
 b8                    fude_translate_available(void);
@@ -63,9 +65,9 @@ void                  fude_translate_prepare(const c8* _from, const c8* _to);
 // Starts translating _text (UTF-8) from _from into _to: a ticket for its
 // answer, 0 when it cannot now (not READY).
 u32                   fude_translate_text(const c8* _text, const c8* _from, const c8* _to);
-// True once an answer is in — one per call: its ticket, and the translation
-// into _out (UTF-8), empty when it failed.
-b8                    fude_translate_poll(u32* _ticket, c8* _out, usize _size);
+// True once _ticket's answer is in (once): the translation into _out (UTF-8),
+// empty when it failed. Answers to other tickets wait for their askers.
+b8                    fude_translate_take(u32 _ticket, c8* _out, usize _size);
 
 // Debug builds only (a release ignores it): pretend, on any platform — READY
 // at once, every text "translated" to a stand-in. For the desktop's looks.

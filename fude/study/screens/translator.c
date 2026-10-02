@@ -92,16 +92,11 @@ RDE_INTERNAL void fude_translator_translate(fude_translator* _tr) {
             _card->state = FUDE_TRANSLATOR_FAILED;
         }
     }
-    u32 _ticket;
-    c8  _answer[FUDE_TRANSLATE_TEXT];
-    while(fude_translate_poll(&_ticket, _answer, sizeof(_answer))) {
-        for(u32 _i = 0; _i < _tr->count; _i++) {
-            fude_translator_card* _card = &_tr->cards[_i];
-            if(_card->state == FUDE_TRANSLATOR_ASKED && _card->ticket == _ticket) {
-                memcpy(_card->japanese, _answer, sizeof(_card->japanese));
-                _card->state      = FUDE_TRANSLATOR_DONE;
-                _card->word_count = _tr->db != NULL && _answer[0] != 0 ? fude_wordsplit(_tr->db, _answer, _card->words, FUDE_WORDSPLIT_MAX) : 0u;
-            }
+    for(u32 _i = 0; _i < _tr->count; _i++) {
+        fude_translator_card* _card = &_tr->cards[_i];
+        if(_card->state == FUDE_TRANSLATOR_ASKED && fude_translate_take(_card->ticket, _card->japanese, sizeof(_card->japanese))) {
+            _card->state      = FUDE_TRANSLATOR_DONE;
+            _card->word_count = _tr->db != NULL && _card->japanese[0] != 0 ? fude_wordsplit(_tr->db, _card->japanese, _card->words, FUDE_WORDSPLIT_MAX) : 0u;
         }
     }
 }
@@ -129,7 +124,7 @@ RDE_INTERNAL void fude_translator_tap(fude_translator* _tr, rde_vec_2F _at) {
             const i32       _k = (i32)floorf((_card->words_top - _at.y) / FUDE_TRANSLATOR_WORD);
             fude_kanji_word _w;
             if(_k >= 0 && (u32)_k < _card->word_count && fude_kanji_word_at(_tr->db, _card->words[_k], &_w)) {
-                fude_wordcard_ask(_w.written, _w.reading, _w.meaning, 0u);   // to save it, or see it saved
+                fude_wordcard_ask_in(_w.written, _w.reading, _w.meaning, _card->japanese, _card->from);   // to save it (with its sentence), or see it saved
                 return;
             }
         }

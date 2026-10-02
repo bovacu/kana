@@ -39,12 +39,17 @@ RDE_INTERNAL b8 fude_translate_demoing(void) {
 // The two badges (translate.h), loaded once.
 RDE_INTERNAL rde_texture* fude_translate_badges[2];
 
-void fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark) {
+rde_texture* fude_translate_badge(b8 _dark) {
     const u32 _b = _dark ? 1u : 0u;
     if(fude_translate_badges[_b] == NULL) {
         fude_translate_badges[_b] = rde_texture_load(_dark ? FUDE_TRANSLATE_BADGE_WHITE : FUDE_TRANSLATE_BADGE_COLOR, NULL);
     }
-    if(fude_translate_badges[_b] == NULL) {
+    return fude_translate_badges[_b];
+}
+
+void fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark) {
+    const u32 _b = _dark ? 1u : 0u;
+    if(fude_translate_badge(_dark) == NULL) {
         return;
     }
     const rde_vec_2UI _px = rde_texture_get_size(fude_translate_badges[_b]);
@@ -104,7 +109,7 @@ u32 fude_translate_text(const c8* _text, const c8* _from, const c8* _to) {
     return fude_translate_platform_text(_text, _from, _to);
 }
 
-b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
+RDE_INTERNAL b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
 #if defined(RDE_DEBUG)
     if(fude_translate_demo_on) {
         if(fude_translate_demo_count == 0u) {
@@ -128,6 +133,38 @@ b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
     }
 #endif
     return fude_translate_platform_poll(_ticket, _out, _size);
+}
+
+// --- the answers, each to its asker ---------------------------------------------------
+// Taken from the platform as they come, kept until their askers take them: each
+// asker takes only its own, so several can wait at once (a word card over Into
+// Japanese). One nobody takes (its asker gone) is dropped when the box is full.
+
+#define FUDE_TRANSLATE_BOX 32u
+RDE_INTERNAL struct { u32 ticket; c8 text[FUDE_TRANSLATE_TEXT]; } fude_translate_box[FUDE_TRANSLATE_BOX];
+RDE_INTERNAL u32 fude_translate_box_count = 0u;
+
+b8 fude_translate_take(u32 _ticket, c8* _out, usize _size) {
+    u32 _in;
+    c8  _answer[FUDE_TRANSLATE_TEXT];
+    while(fude_translate_poll(&_in, _answer, sizeof(_answer))) {
+        if(fude_translate_box_count == FUDE_TRANSLATE_BOX) {
+            memmove(&fude_translate_box[0], &fude_translate_box[1], sizeof(fude_translate_box[0]) * (FUDE_TRANSLATE_BOX - 1u));
+            fude_translate_box_count--;
+        }
+        fude_translate_box[fude_translate_box_count].ticket = _in;
+        memcpy(fude_translate_box[fude_translate_box_count].text, _answer, sizeof(_answer));
+        fude_translate_box_count++;
+    }
+    for(u32 _i = 0; _i < fude_translate_box_count && _ticket != 0u; _i++) {
+        if(fude_translate_box[_i].ticket == _ticket) {
+            snprintf(_out, _size, "%s", fude_translate_box[_i].text);
+            memmove(&fude_translate_box[_i], &fude_translate_box[_i + 1u], sizeof(fude_translate_box[0]) * (fude_translate_box_count - _i - 1u));
+            fude_translate_box_count--;
+            return true;
+        }
+    }
+    return false;
 }
 
 // --- not here ---------------------------------------------------------------------------

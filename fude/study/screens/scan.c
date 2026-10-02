@@ -301,17 +301,11 @@ RDE_INTERNAL b8 fude_scan_panel_shown(const fude_scan* _scan) {
 RDE_INTERNAL void fude_scan_update_translations(fude_scan* _scan) {
     fude_scan_line* _lines = (fude_scan_line*)_scan->lines.memory;
     const u32       _count = (u32)rde_arr_length(&_scan->lines);
-    u32             _ticket;
-    c8              _answer[FUDE_TRANSLATE_TEXT];
-    while(fude_translate_poll(&_ticket, _answer, sizeof(_answer))) {
-        _scan->translate_asked -= _scan->translate_asked > 0 ? 1u : 0u;
-        for(u32 _i = 0; _i < _count; _i++) {
-            if(_lines[_i].translated == FUDE_SCAN_TRANSLATION_ASKED && _lines[_i].ticket == _ticket) {
-                memcpy(_lines[_i].translation, _answer, sizeof(_lines[_i].translation));
-                _lines[_i].translated = FUDE_SCAN_TRANSLATION_DONE;
-                break;
-            }
-        }   // none: the line is gone since (another picture)
+    for(u32 _i = 0; _i < _count; _i++) {
+        if(_lines[_i].translated == FUDE_SCAN_TRANSLATION_ASKED && fude_translate_take(_lines[_i].ticket, _lines[_i].translation, sizeof(_lines[_i].translation))) {
+            _lines[_i].translated  = FUDE_SCAN_TRANSLATION_DONE;
+            _scan->translate_asked -= _scan->translate_asked > 0 ? 1u : 0u;
+        }
     }
     if(!fude_scan_panel_shown(_scan)) {
         return;
@@ -323,6 +317,7 @@ RDE_INTERNAL void fude_scan_update_translations(fude_scan* _scan) {
         for(u32 _i = 0; _i < _count; _i++) {
             _lines[_i].translated = FUDE_SCAN_TRANSLATION_NONE;
         }
+        _scan->translate_asked    = 0;   // what was on its way is not waited for
         _scan->translate_prepared = false;
     }
     const FUDE_TRANSLATE_STATE_ _state = fude_translate_state("ja", _to);
@@ -482,7 +477,9 @@ void fude_scan_pointer_up(fude_scan* _scan, f64 _time) {
             const fude_scan_word_hit* _hit = &_scan->word_hits[_h];
             fude_kanji_word           _w;
             if(_at.y <= _hit->top && _at.y > _hit->bottom && _scan->db != NULL && fude_kanji_word_at(_scan->db, _hit->word, &_w)) {
-                fude_wordcard_ask(_w.written, _w.reading, _w.meaning, 0u);
+                const fude_scan_line* _in = _hit->line < (u32)rde_arr_length(&_scan->lines) ? &_lines[_hit->line] : NULL;
+                fude_wordcard_ask_in(_w.written, _w.reading, _w.meaning, _in != NULL ? _in->text : "",
+                                     _in != NULL && _in->translated == FUDE_SCAN_TRANSLATION_DONE ? _in->translation : "");
                 return;
             }
         }
@@ -600,7 +597,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
                 _c.a          = (u8)((u32)_c.a * _alpha / 255u);
                 fude_draw_text(_font, _font_px, _say, _x + 28.0f, _mid - _px * 0.36f, _px, _c);
                 if(_scan->word_hit_count < FUDE_SCAN_WORD_HITS && _wy - FUDE_SCAN_PANEL_WORD < _view_t && _wy > _view_b) {
-                    _scan->word_hits[_scan->word_hit_count++] = (fude_scan_word_hit){ _wy, _wy - FUDE_SCAN_PANEL_WORD, _line->words[_k] };
+                    _scan->word_hits[_scan->word_hit_count++] = (fude_scan_word_hit){ _wy, _wy - FUDE_SCAN_PANEL_WORD, _line->words[_k], _i };
                 }
                 _wy -= FUDE_SCAN_PANEL_WORD;
             }

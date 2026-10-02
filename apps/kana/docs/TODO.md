@@ -771,8 +771,18 @@ docs/architecture.md has how it fits together and how to start a new app.
 - [x] On the iPad: working (Borja, 2026-10-02). Fixed on the way: a screen's field
       was placed only when the screen turned, so one opened later (Into Japanese,
       Check's "I meant…") covered the whole window; it is placed as it shows now.
-- [ ] Next: the word card's meaning into Japanese (type the meaning, get the word);
-      a translation kept with the word (its sentence).
+- [x] The word card's meaning into Japanese: Translate with Google under the meaning
+      (where ML Kit's translator is); the answer goes to the word — the dictionary's
+      word, in its form and with its reading, when it is one; else as it came, the
+      dictionary's words in it offered as chips. Its status (the models coming,
+      Translating, why not) beside the button, Google's badge once it is in.
+- [x] A word keeps the sentence it was met in, with its translation (vocab.h 'SENT',
+      skipped by older versions; gone with the word): from Into Japanese's cards, the
+      page's Translate card, a photo's lines and the viewer's example sentences. The
+      word card shows it ("From the sentence"); a saved word keeps the one it has.
+- [x] Translation answers go each to its asker (fude_translate_take): a word card over
+      Into Japanese no longer risks one taking the other's.
+- [ ] On the iPad: check Translate with Google in the word card (Borja).
 
 ## 11. Release polish
 

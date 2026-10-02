@@ -188,15 +188,8 @@ RDE_INTERNAL void fude_pagetext_update_card(fude_pagetext* _text) {
             _text->card = FUDE_PAGETEXT_CARD_FAILED;
         }
     }
-    if(_text->card == FUDE_PAGETEXT_CARD_ASKED) {
-        u32 _ticket;
-        c8  _answer[FUDE_TRANSLATE_TEXT];
-        while(fude_translate_poll(&_ticket, _answer, sizeof(_answer))) {
-            if(_ticket == _text->card_ticket) {
-                memcpy(_text->card_to, _answer, sizeof(_text->card_to));
-                _text->card = FUDE_PAGETEXT_CARD_DONE;
-            }
-        }
+    if(_text->card == FUDE_PAGETEXT_CARD_ASKED && fude_translate_take(_text->card_ticket, _text->card_to, sizeof(_text->card_to))) {
+        _text->card = FUDE_PAGETEXT_CARD_DONE;
     }
 }
 
@@ -420,7 +413,7 @@ b8 fude_pagetext_press(fude_pagetext* _text, rde_vec_2F _screen) {
         const i32 _k = (i32)floorf((_text->words_top - _screen.y) / FUDE_PAGETEXT_CARD_WORD);
         fude_kanji_word _w;
         if(_k >= 0 && (u32)_k < _text->word_count && fude_kanji_word_at(_db, _text->words[_k], &_w)) {
-            fude_wordcard_ask(_w.written, _w.reading, _w.meaning, 0u);
+            fude_wordcard_ask_in(_w.written, _w.reading, _w.meaning, _text->card_from, _text->card == FUDE_PAGETEXT_CARD_DONE ? _text->card_to : "");
             return true;
         }
     }

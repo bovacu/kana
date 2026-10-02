@@ -16,6 +16,7 @@
 #define FUDE_VOCAB_KIND       FUDE_TAG('U', 'W', 'R', 'D')
 #define FUDE_VOCAB_CHUNK      FUDE_TAG('V', 'O', 'C', 'B')
 #define FUDE_VOCAB_LIST_CHUNK FUDE_TAG('L', 'I', 'S', 'T')
+#define FUDE_VOCAB_SENT_CHUNK FUDE_TAG('S', 'E', 'N', 'T')
 #define FUDE_VOCAB_OLD_CHUNK  FUDE_TAG('W', 'R', 'D', 'S')
 
 typedef struct {
@@ -25,7 +26,15 @@ typedef struct {
     rde_arr TYPE(u32) words;
 } fude_vocab_list;
 
+// A word's sentence (few words have one: kept apart).
+typedef struct {
+    u32 id;
+    c8  japanese[FUDE_VOCAB_SENTENCE];
+    c8  translation[FUDE_VOCAB_SENTENCE];
+} fude_vocab_sent;
+
 static rde_arr TYPE(fude_vocab_word) fude_vocab_words;
+static rde_arr TYPE(fude_vocab_sent) fude_vocab_sents;
 static fude_vocab_list               fude_vocab_lists[FUDE_VOCAB_LISTS];
 static u32                           fude_vocab_list_n   = 0;
 static u32                           fude_vocab_next     = 1;   // the next word id
@@ -37,6 +46,7 @@ static u32                           fude_vocab_changes  = 0;
 RDE_INTERNAL void fude_vocab_ensure(void) {
     if(!fude_vocab_ready) {
         fude_vocab_words = rde_arr_new(sizeof(fude_vocab_word), rde_memory_allocator_get_default_std());
+        fude_vocab_sents = rde_arr_new(sizeof(fude_vocab_sent), rde_memory_allocator_get_default_std());
         fude_vocab_ready = true;
     }
 }
@@ -50,6 +60,7 @@ RDE_INTERNAL void fude_vocab_clear(void) {
     fude_vocab_next_list = 1;
     if(fude_vocab_ready) {
         rde_arr_clear(&fude_vocab_words);
+        rde_arr_clear(&fude_vocab_sents);
     }
 }
 
@@ -126,6 +137,18 @@ RDE_INTERNAL b8 fude_vocab_save(void) {
         }
     }
     fude_chunk_end(&_b, _chunk);
+    const u32 _s = (u32)rde_arr_length(&fude_vocab_sents);
+    if(_s > 0) {
+        _chunk = fude_chunk_begin(&_b, FUDE_VOCAB_SENT_CHUNK);
+        fude_put_u32(&_b, _s);
+        for(u32 _i = 0; _i < _s; _i++) {
+            const fude_vocab_sent* _sent = &((const fude_vocab_sent*)fude_vocab_sents.memory)[_i];
+            fude_put_u32(&_b, _sent->id);
+            fude_vocab_put_string(&_b, _sent->japanese);
+            fude_vocab_put_string(&_b, _sent->translation);
+        }
+        fude_chunk_end(&_b, _chunk);
+    }
     return fude_bytes_write_and_free(&_b, fude_vocab_path, NULL);
 }
 
@@ -136,6 +159,20 @@ RDE_INTERNAL i32 fude_vocab_index(u32 _id) {
     const fude_vocab_word* _w = (const fude_vocab_word*)fude_vocab_words.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&fude_vocab_words); _i++) {
         if(_w[_i].id == _id) {
+            return (i32)_i;
+        }
+    }
+    return -1;
+}
+
+// Word _id's sentence: its index (-1: none).
+RDE_INTERNAL i32 fude_vocab_sent_index(u32 _id) {
+    if(!fude_vocab_ready || _id == 0u) {
+        return -1;
+    }
+    const fude_vocab_sent* _s = (const fude_vocab_sent*)fude_vocab_sents.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&fude_vocab_sents); _i++) {
+        if(_s[_i].id == _id) {
             return (i32)_i;
         }
     }
@@ -227,6 +264,16 @@ void fude_vocab_open(const c8* _path) {
                 fude_vocab_lists[fude_vocab_list_n++] = _l;
                 fude_vocab_next_list = _l.id >= fude_vocab_next_list ? _l.id + 1u : fude_vocab_next_list;
             }
+        } else if(_tag == FUDE_VOCAB_SENT_CHUNK) {
+            const u32 _count = fude_get_u32(&_chunk);
+            for(u32 _i = 0; _i < _count && _chunk.ok; _i++) {
+                fude_vocab_sent _sent = { 0 };
+                _sent.id              = fude_get_u32(&_chunk);
+                if(fude_vocab_get_string(&_chunk, _sent.japanese, sizeof(_sent.japanese)) && fude_vocab_get_string(&_chunk, _sent.translation, sizeof(_sent.translation)) &&
+                   _sent.id != 0u && (_sent.japanese[0] != 0 || _sent.translation[0] != 0) && fude_vocab_sent_index(_sent.id) < 0) {
+                    rde_arr_add(&fude_vocab_sents, &_sent);
+                }
+            }
         } else if(_tag == FUDE_VOCAB_OLD_CHUNK) {
             _old     = _chunk;
             _has_old = true;
@@ -248,6 +295,12 @@ void fude_vocab_open(const c8* _path) {
             }
         }
     }
+    // Sentences of words still here only.
+    for(u32 _k = (u32)rde_arr_length(&fude_vocab_sents); _k-- > 0;) {
+        if(fude_vocab_index(((const fude_vocab_sent*)fude_vocab_sents.memory)[_k].id) < 0) {
+            rde_arr_remove(&fude_vocab_sents, _k);
+        }
+    }
     // Lists of words still here only.
     for(u32 _l = 0; _l < fude_vocab_list_n; _l++) {
         rde_arr* _ids = &fude_vocab_lists[_l].words;
@@ -264,6 +317,7 @@ void fude_vocab_close(void) {
     fude_vocab_clear();
     if(fude_vocab_ready) {
         rde_arr_free(&fude_vocab_words);
+        rde_arr_free(&fude_vocab_sents);
         fude_vocab_ready = false;
     }
     fude_vocab_path[0] = 0;
@@ -346,6 +400,10 @@ void fude_vocab_remove(u32 _id) {
         return;
     }
     rde_arr_remove(&fude_vocab_words, (usize)_at);
+    const i32 _sent = fude_vocab_sent_index(_id);
+    if(_sent >= 0) {
+        rde_arr_remove(&fude_vocab_sents, (usize)_sent);
+    }
     for(u32 _l = 0; _l < fude_vocab_list_n; _l++) {
         rde_arr* _ids = &fude_vocab_lists[_l].words;
         for(u32 _k = (u32)rde_arr_length(_ids); _k-- > 0;) {
@@ -355,6 +413,45 @@ void fude_vocab_remove(u32 _id) {
         }
     }
     fude_vocab_save();
+}
+
+// --- a word's sentence ------------------------------------------------------------------
+
+void fude_vocab_set_sentence(u32 _id, const c8* _japanese, const c8* _translation) {
+    if(fude_vocab_index(_id) < 0) {
+        return;
+    }
+    const b8  _none = (_japanese == NULL || _japanese[0] == 0) && (_translation == NULL || _translation[0] == 0);
+    const i32 _at   = fude_vocab_sent_index(_id);
+    if(_none) {
+        if(_at >= 0) {
+            rde_arr_remove(&fude_vocab_sents, (usize)_at);
+            fude_vocab_save();
+        }
+        return;
+    }
+    fude_vocab_sent _sent = { .id = _id };
+    fude_vocab_set(_sent.japanese, sizeof(_sent.japanese), _japanese);
+    fude_vocab_set(_sent.translation, sizeof(_sent.translation), _translation);
+    if(_at >= 0) {
+        fude_vocab_sent* _there = &((fude_vocab_sent*)fude_vocab_sents.memory)[_at];
+        if(strcmp(_there->japanese, _sent.japanese) == 0 && strcmp(_there->translation, _sent.translation) == 0) {
+            return;   // as it was
+        }
+        *_there = _sent;
+    } else {
+        rde_arr_add(&fude_vocab_sents, &_sent);
+    }
+    fude_vocab_save();
+}
+
+const c8* fude_vocab_sentence(u32 _id, const c8** _translation) {
+    const i32              _at   = fude_vocab_sent_index(_id);
+    const fude_vocab_sent* _sent = _at >= 0 ? &((const fude_vocab_sent*)fude_vocab_sents.memory)[_at] : NULL;
+    if(_translation != NULL) {
+        *_translation = _sent != NULL ? _sent->translation : "";
+    }
+    return _sent != NULL ? _sent->japanese : "";
 }
 
 // Is _cp one of _text's characters?

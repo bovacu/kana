@@ -61,14 +61,28 @@ int main(int argc, char** argv) {
     CHECK(fude_vocab_list_words(food, NULL, 0) == 2 && fude_vocab_in_list(food, sushi) && !fude_vocab_in_list(food, nihon));
     CHECK(fude_vocab_list_rename(food, "Food & drink") && strcmp(fude_vocab_list_name(food), "Food & drink") == 0);
     fude_vocab_set_in_list(food, sushi, false); CHECK(fude_vocab_list_words(food, ids, 8) == 1 && ids[0] == taberu);
-    // A word removed leaves every list.
+    // A word's sentence: kept with it, replaced, gone with both empty; none for others.
+    fude_vocab_set_sentence(sushi, "すしを食べる。", "I eat sushi.");
+    fude_vocab_set_sentence(taberu, "毎朝パンを食べる。", "I eat bread every morning.");
+    fude_vocab_set_sentence(9999, "x", "y");
+    const char* to = NULL;
+    CHECK(strcmp(fude_vocab_sentence(sushi, &to), "すしを食べる。") == 0 && strcmp(to, "I eat sushi.") == 0);
+    CHECK(fude_vocab_sentence(nihon, &to)[0] == 0 && to[0] == 0 && fude_vocab_sentence(9999, NULL)[0] == 0);
+    fude_vocab_set_sentence(sushi, "すしが好き。", "I like sushi.");
+    CHECK(strcmp(fude_vocab_sentence(sushi, &to), "すしが好き。") == 0 && strcmp(to, "I like sushi.") == 0);
+    fude_vocab_set_sentence(nihon, "日本に行く。", NULL);
+    fude_vocab_set_sentence(nihon, "", "");
+    CHECK(fude_vocab_sentence(nihon, &to)[0] == 0 && to[0] == 0);
+    // A word removed leaves every list, and its sentence goes.
     fude_vocab_remove(taberu);
+    CHECK(fude_vocab_sentence(taberu, NULL)[0] == 0);
     CHECK(fude_vocab_get(taberu) == NULL && fude_vocab_list_words(food, NULL, 0) == 0 && fude_vocab_list_words(l1, ids, 8) == 1 && ids[0] == nihon);
 
     // Read back: the same, and ids are not reused.
     fude_vocab_close(); fude_vocab_open("saves/words.kana");
     CHECK(fude_vocab_count() == 4 && fude_vocab_find("すし", "すし") == sushi && fude_vocab_get(taberu) == NULL);
     CHECK(fude_vocab_list_count() == 2 && strcmp(fude_vocab_list_name(food), "Food & drink") == 0 && fude_vocab_in_list(l1, nihon));
+    CHECK(strcmp(fude_vocab_sentence(sushi, &to), "すしが好き。") == 0 && strcmp(to, "I like sushi.") == 0 && fude_vocab_sentence(nihon, NULL)[0] == 0);
     const u32 again = fude_vocab_add("食べる", "たべる", "to eat", 0);
     CHECK(again != taberu && again > lw);
     const u32 l3 = fude_vocab_list_add("Third"); CHECK(l3 > l1);
@@ -76,6 +90,7 @@ int main(int argc, char** argv) {
     CHECK(fude_vocab_list_count() == 2 && fude_vocab_list_at(0) == l1 && fude_vocab_find("すし", "すし") == sushi);
     fude_vocab_close(); fude_vocab_open("saves/words.kana");
     CHECK(fude_vocab_list_count() == 2 && fude_vocab_list_at(1) == l3 && fude_vocab_count() == 5);
+    CHECK(fude_vocab_sentence(again, NULL)[0] == 0 && strcmp(fude_vocab_sentence(sushi, NULL), "すしが好き。") == 0);   // a new word does not get the old one's
     // Keys for the reviews stay above code points.
     CHECK(FUDE_VOCAB_KEY(sushi) > 0x10FFFFu);
     // Characters as a new list (Select mode's Save list): a kanji read by its first

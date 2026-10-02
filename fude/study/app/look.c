@@ -10,6 +10,7 @@
 #include "study/services/translate.h"
 #include "study/services/textscan.h"
 #include "study/widgets/wordcard.h"
+#include "lang/ja/wordsplit.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -24,6 +25,8 @@
 //   --browse --viewer=HEX [--note=TEXT] --practice=HEX --guided=HEX --sheet=FILE
 //   --album --album-exams --album-page=HEX --kept-exam=N --stats [--scroll=PX]
 //   --exam --exam-start --vocab[=N] --vocab-sample --word-exam[=STAGE] --word-card=TEXT
+//   [--word-sentence=JA|TRANSLATION]   the word card's word as met in that sentence
+//   --word-translate=MEANING   the word card, MEANING into Japanese (Translate with Google, made up)
 //   --paste-text=TEXT [--save-selection] [--translate-selection]
 //   --scan-demo=PNG [--scan-demo-turn=DEG] [--scan-demo-top-first] [--scan-demo-translate] --scan-live
 //   --mlkit-samples=0-27,28-58  --translate-probe=xx
@@ -44,6 +47,8 @@ RDE_INTERNAL struct {
     const c8* note;
     const c8* paste_text;
     const c8* word_card;
+    const c8* word_sentence;
+    const c8* word_translate;
     const c8* scan_demo;
     const c8* sheet;
     const c8* translate_probe;
@@ -93,6 +98,8 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--scan-demo-turn")) != NULL) { fude_study_look.scan_turn = strtof(_v, NULL); }
         if((_v = fude_look_value(_a, "--note")) != NULL)           { fude_study_look.note = _v; }
         if((_v = fude_look_value(_a, "--word-card")) != NULL)      { fude_study_look.word_card = _v; }
+        if((_v = fude_look_value(_a, "--word-sentence")) != NULL)  { fude_study_look.word_sentence = _v; }
+        if((_v = fude_look_value(_a, "--word-translate")) != NULL) { fude_study_look.word_translate = _v; fude_translate_demo(true); }
         if((_v = fude_look_value(_a, "--scan-demo")) != NULL)      { fude_study_look.scan_demo = _v; }
         if((_v = fude_look_value(_a, "--sheet")) != NULL)          { fude_study_look.sheet = _v; }
         if((_v = fude_look_value(_a, "--translate-probe")) != NULL) { fude_study_look.translate_probe = _v; }
@@ -335,15 +342,10 @@ RDE_INTERNAL void fude_study_look_translate_probe(void) {
             _tickets[_i] = fude_translate_text(_sentences[_i], "ja", _to);
         }
     }
-    u32 _ticket;
-    c8  _out[FUDE_TRANSLATE_TEXT];
-    while(fude_translate_poll(&_ticket, _out, sizeof(_out))) {
-        for(u32 _i = 0; _i < 4u; _i++) {
-            if(_tickets[_i] != 0u && _tickets[_i] == _ticket) {
-                snprintf(_answers[_i], sizeof(_answers[_i]), "%s", _out);
-                _took[_i] = _now - _sent_at;
-                _got++;
-            }
+    for(u32 _i = 0; _i < 4u; _i++) {
+        if(_tickets[_i] != 0u && fude_translate_take(_tickets[_i], _answers[_i], sizeof(_answers[_i]))) {
+            _took[_i] = _now - _sent_at;
+            _got++;
         }
     }
     if((_sent && _got == 4u) || _state == FUDE_TRANSLATE_FAILED || _state == FUDE_TRANSLATE_UNAVAILABLE || _now - _start > 180.0) {
@@ -383,6 +385,21 @@ void fude_study_look_frame(fude_app* _app) {
     }
     if(_frame == 28u && fude_study_look.word_card != NULL) {
         fude_wordcard_ask_read(_study->db, fude_study_look.word_card);
+        u32             _w;
+        fude_kanji_word _kw;
+        if(fude_study_look.word_sentence != NULL && fude_wordsplit(_study->db, fude_study_look.word_card, &_w, 1u) == 1u && fude_kanji_word_at(_study->db, _w, &_kw)) {
+            c8          _ja[FUDE_VOCAB_SENTENCE];
+            const c8*   _bar = strchr(fude_study_look.word_sentence, '|');
+            const usize _n   = _bar != NULL ? (usize)(_bar - fude_study_look.word_sentence) : strlen(fude_study_look.word_sentence);
+            snprintf(_ja, sizeof(_ja), "%.*s", (i32)_n, fude_study_look.word_sentence);
+            fude_wordcard_ask_in(_kw.written, _kw.reading, _kw.meaning, _ja, _bar != NULL ? _bar + 1 : "");
+        }
+    }
+    if(_frame == 28u && fude_study_look.word_translate != NULL) {
+        fude_wordcard_ask("", "", fude_study_look.word_translate, 0u);
+    }
+    if(_frame == 30u && fude_study_look.word_translate != NULL) {
+        fude_wordcard_translate(_app->ui);
     }
     if(_frame == 30u && fude_study_look.scroll > 0.0f) {
         _study->stats->scroller.offset      = fude_study_look.scroll;

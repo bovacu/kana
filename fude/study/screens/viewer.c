@@ -387,10 +387,12 @@ void fude_viewer_pointer_up(fude_viewer* _viewer, f64 _time) {
             fude_speak(_s.japanese);
         }
     } else if(_viewer->sentence_pressed >= 3u && _viewer->sentence_at < _viewer->sentence_count) {
-        const u32       _k = _viewer->sentence_pressed - 3u;
-        fude_kanji_word _w;
+        const u32           _k = _viewer->sentence_pressed - 3u;
+        fude_kanji_word     _w;
+        fude_kanji_sentence _s = { "", "" };
         if(_k < _viewer->sentence_word_n[_viewer->sentence_at] && fude_kanji_word_at(_viewer->db, _viewer->sentence_words[_viewer->sentence_at][_k], &_w)) {
-            fude_wordcard_ask(_w.written, _w.reading, _w.meaning, 0u);   // into the vocabulary, or the saved one
+            fude_kanji_word_sentence(_viewer->db, _viewer->sentences[_viewer->sentence_at], &_s);
+            fude_wordcard_ask_in(_w.written, _w.reading, _w.meaning, _s.japanese, _s.translation);   // into the vocabulary (with its sentence), or the saved one
         }
     }
     _viewer->sentence_pressed = 0u;

@@ -29,6 +29,9 @@
 //   'LIST'  u32 count, u32 the next list id, then per list: u32 id, u32 time low,
 //           u32 time high (made), its name (u16 length, bytes), u32 n, n word ids
 //           (in the order they went in).
+//   'SENT'  u32 count, then per sentence: u32 word id, the Japanese sentence and its
+//           translation (u16 length, bytes each). Only the words met in one have
+//           one; a version from before it skips the chunk.
 //   'WRDS'  (read only: files from before the vocabulary) the kanji's words — u32
 //           count, then per word u32 kanji, u32 time low, u32 time high, written,
 //           reading, meaning (as above). Read into the vocabulary, each word once.
@@ -37,6 +40,7 @@
 #define FUDE_USERWORD_WRITTEN 64u     // bytes a written form can have (with its NUL)
 #define FUDE_USERWORD_READING 96u
 #define FUDE_USERWORD_MEANING 160u
+#define FUDE_VOCAB_SENTENCE   384u    // bytes a word's sentence (or its translation) can have
 #define FUDE_VOCAB_LIST_NAME  48u     // bytes a list's name can have (with its NUL)
 #define FUDE_VOCAB_LISTS      64u     // lists at most
 
@@ -73,8 +77,14 @@ u32  fude_vocab_add(const c8* _written, const c8* _reading, const c8* _meaning, 
 // A saved word's texts changed (its lists and reviews stay). False when another
 // saved word already is that written form and reading, or there is no such word.
 b8   fude_vocab_update(u32 _id, const c8* _written, const c8* _reading, const c8* _meaning);
-// Out of the vocabulary, and off every list.
+// Out of the vocabulary, off every list, its sentence gone.
 void fude_vocab_remove(u32 _id);
+
+// The sentence a word was met in (Japanese) and its translation, kept with it:
+// either may be empty. Set again, replaced; both empty (or NULL), gone.
+void      fude_vocab_set_sentence(u32 _id, const c8* _japanese, const c8* _translation);
+// Word _id's sentence ("": none); its translation into *_translation (may be NULL).
+const c8* fude_vocab_sentence(u32 _id, const c8** _translation);
 
 // A kanji's own words (see the top): their ids, in the order saved, at most
 // _max into _out (may be NULL to count). How many.

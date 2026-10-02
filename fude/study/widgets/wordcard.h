@@ -14,9 +14,13 @@
 //
 //   the word, its reading and its meaning, in fields to change (a reading in
 //   romaji becomes hiragana; one left empty is looked up in Kana's dictionary);
-//   the words found in what was read, when it was more than one (tap: the fields
-//   take it); the learner's lists, ticked (a new one named on the spot); Remove
-//   (a saved word), Cancel, Save.
+//   Translate with Google, where ML Kit's translator is (translate.h): the
+//   meaning, typed in the reader's language, into Japanese for the word (the
+//   dictionary's word, in its form, when it is one); the words found in what was
+//   read, when it was more than one (tap: the fields take it); the sentence the
+//   word was met in, and its translation, kept with it (vocab.h); the learner's
+//   lists, ticked (a new one named on the spot); Remove (a saved word), Cancel,
+//   Save.
 //
 // A new word comes with the lists the last one went in already ticked: saving a
 // lesson's words one after another is a tap each.
@@ -62,10 +66,26 @@ RDE_STRUCT {
     fude_wordcard_word  found[FUDE_WORDCARD_FOUND];
     u32                 found_count;
     fude_wordcard_ref   refs[FUDE_VOCAB_LISTS + FUDE_WORDCARD_FOUND];
+    c8                  sentence[FUDE_VOCAB_SENTENCE];      // the sentence it was met in ("": none), kept on Save
+    c8                  sentence_to[FUDE_VOCAB_SENTENCE];   // ...its translation
+    // The meaning into Japanese (Translate with Google): where it is, the
+    // meaning sent (and its language), the answer's ticket.
+    u8                  translating;               // FUDE_WORDCARD_TRANSLATE_ (wordcard.c)
+    u32                 translate_says;            // the status's text (FUDE_TEXT_; FUDE_TEXT_COUNT none)
+    b8                  translate_prepared;        // the models asked for, this time open
+    c8                  translate_from[FUDE_USERWORD_MEANING];
+    const c8*           translate_lang;
+    u32                 ticket;
 
     fude_kit_modal      modal;                     // the card over its backdrop (a tap on it cancels)
     rde_ui_label*       title;
     rde_ui_text_editor* fields[3];                 // written, reading, meaning
+    rde_ui_button*      translate;                 // Translate with Google
+    rde_ui_label*       translate_status;
+    rde_ui_image*       badge;                     // Google's, by a translation in
+    rde_ui_label*       sentence_caption;
+    rde_ui_label*       sentence_label;
+    rde_ui_label*       sentence_to_label;
     rde_ui_label*       found_caption;
     rde_ui_button*      found_chips[FUDE_WORDCARD_FOUND];
     rde_ui_label*       lists_caption;
@@ -86,6 +106,10 @@ RDE_STRUCT {
 // A word: saved already, the card shows it as saved (its own texts, its lists);
 // otherwise these texts, to save. _kanji: the page it comes from (0: none).
 void fude_wordcard_ask(const c8* _written, const c8* _reading, const c8* _meaning, u32 _kanji);
+// A word met in a sentence (_sentence, Japanese) and its translation: as
+// fude_wordcard_ask, the sentence kept with it when it is saved (a saved word
+// keeps the one it has).
+void fude_wordcard_ask_in(const c8* _written, const c8* _reading, const c8* _meaning, const c8* _sentence, const c8* _translation);
 // A saved word, by id.
 void fude_wordcard_ask_saved(u32 _id);
 // Empty fields, to type a word in. _kanji: the page it is typed on (0: none).
@@ -108,6 +132,8 @@ void fude_wordcard_create(struct fude_ui* _ui, rde_ui_node* _root);
 // Once a frame: what was asked for opened; laid out when the screen changed.
 void fude_wordcard_update(struct fude_ui* _ui);
 void fude_wordcard_close(struct fude_ui* _ui);
+// Translate with Google pressed: the meaning typed, into Japanese for the word.
+void fude_wordcard_translate(struct fude_ui* _ui);
 void fude_wordcard_apply_theme(struct fude_ui* _ui);
 
 #endif

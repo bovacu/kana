@@ -13,7 +13,7 @@
 // See translate.h. The iOS side: ML Kit's on-device translator, for a pair of
 // languages (Japanese and the reader's, either way round). ML Kit keeps its
 // models where it likes and answers on the main queue — where Kana's frame runs —
-// so the answers simply wait in a queue for fude_translate_poll. The builder compiles Objective-C with ARC: the statics
+// so the answers simply wait in a queue for fude_translate_platform_poll. The builder compiles Objective-C with ARC: the statics
 // below keep what is kept.
 // ===========================================================================
 

@@ -75,6 +75,7 @@ RDE_STRUCT {
     f32 top;
     f32 bottom;
     u32 word;
+    u32 line;   // the line it is in (its sentence, for the word card)
 } fude_scan_word_hit;
 #define FUDE_SCAN_WORD_HITS 64u
 
