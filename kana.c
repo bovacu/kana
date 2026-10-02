@@ -171,6 +171,31 @@ RDE_INTERNAL c8  perf_label[160];
 RDE_INTERNAL b8 pen_on_ui = false;
 // The pen (or mouse) is down with the Erase tool: its path erases.
 RDE_INTERNAL b8 erasing   = false;
+// A pen has written here, ever (saved): until one has, a tablet starts with the
+// toolbar's hand on — one finger writes — and the first pen turns it off.
+RDE_INTERNAL b8 pen_ever  = false;
+
+// --- writing with a finger (the toolbar's hand, toolbar.finger_writes) -----------------
+//
+// One finger writes, as the pen does; two or more move the page (canvas.h), as
+// fingers always do. Which it is shows a moment later: a finger down is PENDING —
+// its points kept — until it moves or rests a moment with a little movement:
+// then it writes, from where it landed. A second finger landing first makes them
+// the page's gesture (pinch, pan, the two- and three-finger taps). Held still, it
+// is the long press: the page's context menu. A finger landing while one writes
+// is a resting hand: nothing. A short touch is a dot.
+#define KANA_FINGER_POINTS 128u
+#define KANA_FINGER_MOVE   6.0f    // screen units from where it landed: it writes
+#define KANA_FINGER_WAIT   0.12    // seconds down with some movement: it writes
+typedef enum { KANA_FINGER_NONE = 0, KANA_FINGER_PENDING, KANA_FINGER_WRITING, KANA_FINGER_GESTURE, KANA_FINGER_IGNORED } KANA_FINGER_;
+RDE_INTERNAL struct {
+    u8         state;      // KANA_FINGER_
+    u64        id;         // the finger pending, writing or ignored
+    rde_vec_2F points[KANA_FINGER_POINTS];
+    u32        count;
+    f64        since;
+    u32        gesture;    // fingers handed to the page's gesture, still down
+} finger_ink;
 
 // A developer's build (debug, RDE_DEBUG): the diagnostics HUD (H) and the raw
 // pen samples (M) can be shown, and launch arguments are read (the look flags,
@@ -307,6 +332,8 @@ RDE_INTERNAL kana_settings kana_gather_settings(void) {
     _s.paper_size      = (u8)canvas.paper_size;
     // The language, once one other than the device's is chosen (0 until then: the device's).
     _s.language        = settings_language != 0 || kana_text_language() != kana_text_default_language() ? (u8)kana_text_language() : 0u;
+    _s.finger_writes   = toolbar.finger_writes;
+    _s.pen_ever        = pen_ever;
     return _s;
 }
 
@@ -320,6 +347,8 @@ RDE_INTERNAL void kana_apply_settings(const kana_settings* _s) {
     kana_mlkit_set_enabled(_s->mlkit);
     canvas.paper_size   = _s->paper_size < KANA_PAPER_SIZE_COUNT ? (KANA_PAPER_SIZE_)_s->paper_size : KANA_PAPER_MEDIUM;
     settings_language   = _s->language;
+    toolbar.finger_writes = _s->finger_writes;
+    pen_ever            = _s->pen_ever;
     if(_s->language != 0 && (RDE_LANGUAGE_)_s->language != kana_text_language()) {
         kana_text_set_language((RDE_LANGUAGE_)_s->language);   // the UI follows next frame
     }
@@ -820,6 +849,9 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         }
     }
     kana_toolbar_init(&toolbar, _window, &ink, &canvas, &lasso, &viewer, &browse, &chart, &practice, &album, &notes, &check, &show_hud);
+#if defined(RDE_PLATFORM_MOBILE)
+    toolbar.finger_writes = true;   // a tablet starts with the hand on, until its settings (or a pen) say otherwise
+#endif
     toolbar.selection = &selection;
     toolbar.exam      = &exam;
     toolbar.vocab     = &vocabview;
@@ -1145,14 +1177,209 @@ RDE_INTERNAL void kana_list_up(f64 _now) {
     else                { kana_browse_pointer_up(&browse, _now); }
 }
 
-// Practice: only the pen (and the desktop mouse) writes; a resting hand does nothing.
+// --- writing on the page: the pen's, and a writing finger's ---------------------------
+
+RDE_INTERNAL void kana_page_write_down(rde_vec_2F _screen, b8 _from_pen, b8 _eraser) {
+    kana_toolbar_close_context_menu(&toolbar);   // a press anywhere else dismisses it, and still does its job
+    kana_canvas_release_fingers(&canvas);        // writing takes over from any finger gesture in progress
+    if(toolbar.tool == KANA_TOOL_ERASE || _eraser) {
+        erasing = true;   // the Erase tool, or a pen's own eraser end
+        kana_erase_at_screen(_screen);
+        return;
+    }
+    if(toolbar.tool == KANA_TOOL_LASSO) {
+        kana_lasso_pen_down(&lasso, &ink, kana_screen_to_canvas(_screen), canvas.view.zoom);
+        return;
+    }
+    kana_ink_begin(&ink, kana_screen_to_canvas(_screen), _from_pen, false);
+}
+
+RDE_INTERNAL void kana_page_write_moved(rde_vec_2F _screen) {
+    if(erasing) {
+        kana_erase_at_screen(_screen);
+    } else if(kana_lasso_busy(&lasso)) {
+        kana_lasso_pen_moved(&lasso, &ink, kana_canvas_from_screen(&canvas, _screen), canvas.view.zoom);
+    } else if(ink.drawing) {
+        kana_ink_extend(&ink, kana_screen_to_canvas(_screen));
+    }
+}
+
+RDE_INTERNAL void kana_page_write_up(void) {
+    erasing = false;
+    kana_ink_erase_end(&ink);   // the whole swipe is one undo
+    kana_ink_end(&ink);
+    kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
+}
+
+// The pending finger writes: from where it landed, through where it has been.
+RDE_INTERNAL void kana_finger_start_writing(void) {
+    ink.eraser      = false;
+    ink.sample_time = rde_engine_get_time_now();
+    kana_page_write_down(finger_ink.points[0], false, false);
+    for(u32 _i = 1; _i < finger_ink.count; _i++) {
+        kana_page_write_moved(finger_ink.points[_i]);
+    }
+    finger_ink.state = KANA_FINGER_WRITING;
+}
+
+RDE_INTERNAL f32 kana_finger_moved_from_start(rde_vec_2F _p) {
+    const rde_vec_2F _d = { _p.x - finger_ink.points[0].x, _p.y - finger_ink.points[0].y };
+    return sqrtf(_d.x * _d.x + _d.y * _d.y);
+}
+
+RDE_INTERNAL void kana_finger_down(u64 _id, rde_vec_2F _screen) {
+    if(finger_ink.state == KANA_FINGER_WRITING || finger_ink.state == KANA_FINGER_IGNORED) {
+        return;   // a resting hand
+    }
+    if(finger_ink.state == KANA_FINGER_PENDING) {
+        // A second finger before the first wrote: both are the page's gesture.
+        kana_canvas_finger_down(&canvas, finger_ink.id, finger_ink.points[0]);
+        if(finger_ink.count > 1) {
+            kana_canvas_finger_moved(&canvas, finger_ink.id, finger_ink.points[finger_ink.count - 1]);
+        }
+        kana_canvas_finger_down(&canvas, _id, _screen);
+        finger_ink.state   = KANA_FINGER_GESTURE;
+        finger_ink.gesture = 2;
+        return;
+    }
+    if(finger_ink.state == KANA_FINGER_GESTURE) {
+        kana_canvas_finger_down(&canvas, _id, _screen);
+        finger_ink.gesture++;
+        return;
+    }
+    kana_toolbar_close_context_menu(&toolbar);
+    finger_ink.state     = KANA_FINGER_PENDING;
+    finger_ink.id        = _id;
+    finger_ink.points[0] = _screen;
+    finger_ink.count     = 1;
+    finger_ink.since     = rde_engine_get_time_now();
+}
+
+RDE_INTERNAL void kana_finger_moved(u64 _id, rde_vec_2F _screen) {
+    if(finger_ink.state == KANA_FINGER_GESTURE) {
+        kana_canvas_finger_moved(&canvas, _id, _screen);
+        return;
+    }
+    if(_id != finger_ink.id) {
+        return;
+    }
+    if(finger_ink.state == KANA_FINGER_PENDING) {
+        if(finger_ink.count < KANA_FINGER_POINTS) {
+            finger_ink.points[finger_ink.count++] = _screen;
+        } else {
+            finger_ink.points[KANA_FINGER_POINTS - 1u] = _screen;
+        }
+        if(kana_finger_moved_from_start(_screen) > KANA_FINGER_MOVE) {
+            kana_finger_start_writing();
+        }
+    } else if(finger_ink.state == KANA_FINGER_WRITING) {
+        ink.sample_time = rde_engine_get_time_now();
+        kana_page_write_moved(_screen);
+    }
+}
+
+RDE_INTERNAL void kana_finger_up(u64 _id) {
+    if(finger_ink.state == KANA_FINGER_GESTURE) {
+        // Two fingers tapped: undo. Three: redo.
+        const KANA_CANVAS_TAP_ _tap = kana_canvas_finger_up(&canvas, _id);
+        if(_tap == KANA_CANVAS_TAP_TWO) {
+            kana_ink_undo(&ink);
+        } else if(_tap == KANA_CANVAS_TAP_THREE) {
+            kana_ink_redo(&ink);
+        }
+        finger_ink.gesture = finger_ink.gesture > 0 ? finger_ink.gesture - 1u : 0u;
+        if(finger_ink.gesture == 0) {
+            finger_ink.state = KANA_FINGER_NONE;
+        }
+        return;
+    }
+    if(_id != finger_ink.id) {
+        return;
+    }
+    if(finger_ink.state == KANA_FINGER_PENDING) {
+        kana_finger_start_writing();   // a short touch: a dot
+    }
+    if(finger_ink.state == KANA_FINGER_WRITING) {
+        kana_page_write_up();
+    }
+    finger_ink.state = KANA_FINGER_NONE;
+}
+
+// Once a frame (a finger at rest sends nothing): a pending finger that rested a
+// moment with a little movement writes; one held quite still is the long press.
+RDE_INTERNAL void kana_finger_poll(void) {
+    if(finger_ink.state != KANA_FINGER_PENDING) {
+        return;
+    }
+    const f64 _held  = rde_engine_get_time_now() - finger_ink.since;
+    const f32 _moved = kana_finger_moved_from_start(finger_ink.points[finger_ink.count - 1]);
+    if(_held >= KANA_CANVAS_LONG_PRESS_TIME && _moved < KANA_FINGER_MOVE) {
+        kana_toolbar_open_context_menu(&toolbar, finger_ink.points[0], kana_canvas_from_screen(&canvas, finger_ink.points[0]));
+        finger_ink.state = KANA_FINGER_IGNORED;   // until it lifts
+    } else if(_held >= KANA_FINGER_WAIT && _moved > 1.5f) {
+        kana_finger_start_writing();
+    }
+}
+
+// Lets a finger's writing go (a pen came down, or a screen opened over the page).
+RDE_INTERNAL void kana_finger_forget(void) {
+    if(finger_ink.state == KANA_FINGER_WRITING) {
+        kana_page_write_up();
+    }
+    if(finger_ink.state == KANA_FINGER_GESTURE) {
+        kana_canvas_release_fingers(&canvas);
+    }
+    memset(&finger_ink, 0, sizeof(finger_ink));
+}
+
+// A pen came down, anywhere: the pen writes from now on (the hand goes off).
+RDE_INTERNAL void kana_pen_came(void) {
+    pen_ever = true;
+    if(toolbar.finger_writes) {
+        kana_finger_forget();
+        kana_toolbar_set_finger_writes(&toolbar, false);
+    }
+}
+
+// Practice: the pen (and the desktop mouse) writes — and, with the hand on, one
+// finger; otherwise a resting hand does nothing.
 RDE_INTERNAL void kana_practice_event(rde_event* _event) {
     switch(_event->type) {
         case RDE_EVENT_TYPE_PEN_DOWN: {
             const rde_vec_2F _screen = kana_window_to_world(_event->data.pen_event_data.position);
+            kana_pen_came();
+            if(browse_pointer == KANA_POINTER_FINGER) {
+                kana_practice_pen_up(&practice);   // the pen takes over from a writing finger
+                browse_pointer = KANA_POINTER_NONE;
+            }
             if(browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _screen)) {
                 browse_pointer = KANA_POINTER_PEN;
                 kana_practice_pen_down(&practice, _screen);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_DOWN: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            const rde_vec_2F        _pos   = kana_touch_to_screen(_touch->init_touch_position);
+            if(toolbar.finger_writes && !_touch->from_pen && browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _pos)) {
+                browse_pointer = KANA_POINTER_FINGER;
+                browse_finger  = _touch->finger_id;
+                kana_practice_pen_down(&practice, _pos);
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_MOVED: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            if(!_touch->from_pen && browse_pointer == KANA_POINTER_FINGER && _touch->finger_id == browse_finger) {
+                kana_practice_pen_moved(&practice, kana_touch_to_screen(_touch->moved_touch_position));
+            }
+        } break;
+
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_UP: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            if(!_touch->from_pen && browse_pointer == KANA_POINTER_FINGER && _touch->finger_id == browse_finger) {
+                kana_practice_pen_up(&practice);
+                browse_pointer = KANA_POINTER_NONE;
             }
         } break;
 
@@ -1200,6 +1427,7 @@ RDE_INTERNAL void kana_browse_event(rde_event* _event) {
     switch(_event->type) {
         case RDE_EVENT_TYPE_PEN_DOWN: {
             const rde_vec_2F _screen = kana_window_to_world(_event->data.pen_event_data.position);
+            kana_pen_came();
             if(browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _screen)) {
                 browse_pointer = KANA_POINTER_PEN;
                 kana_list_down(_screen, true, _now);
@@ -1225,7 +1453,7 @@ RDE_INTERNAL void kana_browse_event(rde_event* _event) {
             if(!_touch->from_pen && browse_pointer == KANA_POINTER_NONE && !kana_toolbar_hit(&toolbar, _pos)) {
                 browse_pointer = KANA_POINTER_FINGER;
                 browse_finger  = _touch->finger_id;
-                kana_list_down(_pos, false, _now);
+                kana_list_down(_pos, toolbar.finger_writes, _now);   // the hand on: it writes where a pen would
             }
         } break;
 
@@ -1286,6 +1514,9 @@ void on_event(rde_window* _window, rde_event* _event) {
     // top screen gets the pointer.
     if(welcome.open || practice.open || viewer.open || browse.open || chart.open || album.open || check.open || exam.open || stats.open || scan.open ||
        vocabview.open || wordexam.open) {
+        if(finger_ink.state != KANA_FINGER_NONE) {
+            kana_finger_forget();   // a screen over the page: a finger's writing there ends
+        }
         if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
            _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
             kana_save_on_exit();
@@ -1313,6 +1544,7 @@ void on_event(rde_window* _window, rde_event* _event) {
 
             const rde_vec_2F     _screen = kana_window_to_world(_pen->position);
 
+            kana_pen_came();
             ink.pen_seen    = true;
             ink.eraser      = _pen->eraser;
             ink.sample_time = (f64)_event->time_stamp * 1e-9; // SDL event time, ns
@@ -1327,25 +1559,7 @@ void on_event(rde_window* _window, rde_event* _event) {
                 break;
             }
 
-            // A press anywhere else dismisses the context menu, and still does its job.
-            kana_toolbar_close_context_menu(&toolbar);
-
-            // Writing takes over from any finger gesture in progress.
-            kana_canvas_release_fingers(&canvas);
-
-            // The Erase tool, or a pen's own eraser end.
-            if(toolbar.tool == KANA_TOOL_ERASE || _pen->eraser) {
-                erasing = true;
-                kana_erase_at_screen(_screen);
-                break;
-            }
-
-            if(toolbar.tool == KANA_TOOL_LASSO) {
-                kana_lasso_pen_down(&lasso, &ink, kana_screen_to_canvas(_screen), canvas.view.zoom);
-                break;
-            }
-
-            kana_ink_begin(&ink, kana_screen_to_canvas(_screen), true, false);
+            kana_page_write_down(_screen, true, _pen->eraser);
         } break;
 
         case RDE_EVENT_TYPE_PEN_MOVED: {
@@ -1357,31 +1571,17 @@ void on_event(rde_window* _window, rde_event* _event) {
                 break;
             }
 
-            if(erasing) {
-                kana_erase_at_screen(kana_window_to_world(_pen->position));
-                break;
-            }
-
-            if(kana_lasso_busy(&lasso)) {
-                kana_lasso_pen_moved(&lasso, &ink, kana_canvas_from_screen(&canvas, kana_window_to_world(_pen->position)), canvas.view.zoom);
-                break;
-            }
-
-            // Only while the tip is down. A pen hovering in proximity still
-            // reports motion, and inking on hover would be a mess.
-            if(ink.drawing) {
-                ink.sample_time = (f64)_event->time_stamp * 1e-9; // SDL event time, ns
-                kana_ink_extend(&ink, kana_screen_to_canvas(kana_window_to_world(_pen->position)));
-            }
+            // Only while the tip is down (kana_page_write_moved draws only then): a
+            // pen hovering in proximity still reports motion, and inking on hover
+            // would be a mess.
+            ink.sample_time = (f64)_event->time_stamp * 1e-9; // SDL event time, ns
+            kana_page_write_moved(kana_window_to_world(_pen->position));
         } break;
 
         case RDE_EVENT_TYPE_PEN_UP: {
             ink.pen_seen = true;
             pen_on_ui    = false;
-            erasing      = false;
-            kana_ink_erase_end(&ink);   // the whole swipe is one undo
-            kana_ink_end(&ink);
-            kana_lasso_pen_up(&lasso, &ink, canvas.view.zoom);
+            kana_page_write_up();
         } break;
 
         // Apple Pencil's double tap: what the learner set it to do (the system's
@@ -1432,6 +1632,10 @@ void on_event(rde_window* _window, rde_event* _event) {
             if(kana_toolbar_hit(&toolbar, _pos)) {
                 break;
             }
+            if(toolbar.finger_writes) {
+                kana_finger_down(_touch->finger_id, _pos);   // one finger writes; two move the page
+                break;
+            }
             kana_toolbar_close_context_menu(&toolbar);
             if(!ink.drawing && !erasing && !kana_lasso_busy(&lasso)) {
                 kana_canvas_finger_down(&canvas, _touch->finger_id, _pos);
@@ -1440,7 +1644,14 @@ void on_event(rde_window* _window, rde_event* _event) {
 
         case RDE_EVENT_TYPE_MOBILE_TOUCH_MOVED: {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
-            if(_touch->from_pen || ink.drawing) {
+            if(_touch->from_pen) {
+                break;
+            }
+            if(finger_ink.state != KANA_FINGER_NONE) {
+                kana_finger_moved(_touch->finger_id, kana_touch_to_screen(_touch->moved_touch_position));
+                break;
+            }
+            if(ink.drawing) {
                 break;
             }
 
@@ -1450,6 +1661,10 @@ void on_event(rde_window* _window, rde_event* _event) {
         case RDE_EVENT_TYPE_MOBILE_TOUCH_UP: {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
             if(_touch->from_pen) {
+                break;
+            }
+            if(finger_ink.state != KANA_FINGER_NONE) {
+                kana_finger_up(_touch->finger_id);
                 break;
             }
 
@@ -2004,6 +2219,10 @@ RDE_INTERNAL void kana_update(f32 _dt) {
         }
     }
 #endif
+
+    // A writing finger's moment to decide, and its long press (polled: a finger
+    // at rest sends nothing).
+    kana_finger_poll();
 
     // A finger held still: the page's context menu. Polled, because a finger
     // that doesn't move sends no events.

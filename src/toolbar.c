@@ -196,6 +196,7 @@ static const struct { u32 codepoint; u16 bearing; } KANA_TOOLBAR_ICON_BEARINGS[]
     { 0xE266u,  96 },
     { 0xE272u,  64 },
     { 0xE296u, 160 },
+    { 0xE29Au, 128 },
     { 0xE2A6u,  96 },
     { 0xE2CAu,  96 },
     { 0xE2CEu,  96 },
@@ -578,6 +579,12 @@ RDE_INTERNAL void kana_toolbar_refresh(kana_toolbar* _toolbar) {
         } else {
             kana_toolbar_button_quiet(_tools[_i].button);
         }
+    }
+    // The hand: chosen while a finger writes.
+    if(_toolbar->finger_writes) {
+        kana_toolbar_button_selected(_toolbar->finger);
+    } else {
+        kana_toolbar_button_quiet(_toolbar->finger);
     }
 
     // Color's dot IS the current colour (the theme's ink, when that is it),
@@ -1152,6 +1159,7 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
         { rde_ui_button_as_node(_toolbar->undo),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->redo),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_image_as_node(_toolbar->separators[0]), _sep },
+        { rde_ui_button_as_node(_toolbar->finger),      { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->draw),        { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->erase),       { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
         { rde_ui_button_as_node(_toolbar->lasso_tool),  { KANA_TOOLBAR_BUTTON_W, KANA_TOOLBAR_BUTTON_H } },
@@ -1173,9 +1181,19 @@ RDE_INTERNAL void kana_toolbar_layout(kana_toolbar* _toolbar) {
     const b8 _camera = kana_textscan_available();
     rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->camera), _camera);
     rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->separators[4]), _camera);
+    // The hand only on a tablet (a mouse writes on a computer).
+#if defined(RDE_PLATFORM_MOBILE)
+    const b8 _hand = true;
+#else
+    const b8 _hand = false;
+#endif
+    rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->finger), _hand);
     u32 _count = 0;
     for(u32 _i = 0; _i < sizeof(_items) / sizeof(_items[0]); _i++) {
         if(!_camera && (_items[_i].node == rde_ui_button_as_node(_toolbar->camera) || _items[_i].node == rde_ui_image_as_node(_toolbar->separators[4]))) {
+            continue;
+        }
+        if(!_hand && _items[_i].node == rde_ui_button_as_node(_toolbar->finger)) {
             continue;
         }
         _items[_count++] = _items[_i];
@@ -1364,6 +1382,23 @@ void kana_toolbar_pen_double_tap(kana_toolbar* _toolbar, u8 _action) {
         default:
             break;   // off, or the system's own shortcut
     }
+}
+
+void kana_toolbar_set_finger_writes(kana_toolbar* _toolbar, b8 _on) {
+    if(_toolbar->finger_writes == _on) {
+        return;
+    }
+    _toolbar->finger_writes = _on;
+    kana_toolbar_refresh(_toolbar);
+    kana_toolbar_notice(_toolbar, kana_text(_on ? KANA_TEXT_FINGER_ON : KANA_TEXT_FINGER_OFF));   // whoever switched it
+}
+
+// The hand: one finger writes, or (off) only the pen.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_finger(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    kana_toolbar* _toolbar = (kana_toolbar*)_user_data;
+    kana_toolbar_set_finger_writes(_toolbar, !_toolbar->finger_writes);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ kana_toolbar_on_draw(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
@@ -2976,7 +3011,7 @@ RDE_INTERNAL void kana_toolbar_apply_theme(kana_toolbar* _toolbar) {
 
     // The bar's tools are quiet; the ones that show a state are set after.
     rde_ui_button* const _tools[] = {
-        _toolbar->undo, _toolbar->redo, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
+        _toolbar->undo, _toolbar->redo, _toolbar->finger, _toolbar->draw, _toolbar->erase, _toolbar->lasso_tool, _toolbar->clear,
         _toolbar->brush_scale, _toolbar->paper, _toolbar->rotate, _toolbar->reset_view, _toolbar->camera,
         _toolbar->paper_choices[0], _toolbar->paper_choices[1], _toolbar->paper_choices[2], _toolbar->paper_choices[3],
     };
@@ -3177,6 +3212,7 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     // The tools are icons (their names kept as labels, hidden).
     _toolbar->undo  = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_UNDO),       kana_toolbar_on_undo);
     _toolbar->redo  = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_REDO),       kana_toolbar_on_redo);
+    _toolbar->finger = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_FINGER), kana_toolbar_on_finger);
     _toolbar->draw  = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_DRAW),  kana_toolbar_on_draw);
     _toolbar->erase = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_ERASE), kana_toolbar_on_erase);
     _toolbar->lasso_tool = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_TOOL_LASSO), kana_toolbar_on_lasso);
@@ -3205,7 +3241,7 @@ RDE_INTERNAL void kana_toolbar_build(kana_toolbar* _toolbar, b8 _first) {
     _toolbar->camera      = kana_toolbar_button(_toolbar, _tools, kana_text(KANA_TEXT_SCAN_CAMERA), kana_toolbar_on_camera);
     {
         const struct { rde_ui_button* button; const c8* icon; } _icons[] = {
-            { _toolbar->undo, KANA_ICON_UNDO }, { _toolbar->redo, KANA_ICON_REDO }, { _toolbar->draw, KANA_ICON_DRAW },
+            { _toolbar->undo, KANA_ICON_UNDO }, { _toolbar->redo, KANA_ICON_REDO }, { _toolbar->finger, KANA_ICON_FINGER }, { _toolbar->draw, KANA_ICON_DRAW },
             { _toolbar->erase, KANA_ICON_ERASE }, { _toolbar->lasso_tool, KANA_ICON_LASSO }, { _toolbar->clear, KANA_ICON_TRASH },
             { _toolbar->brush_scale, KANA_ICON_PAGE }, { _toolbar->paper, KANA_ICON_PAPER_DOTS }, { _toolbar->rotate, KANA_ICON_ROTATE },
             { _toolbar->reset_view, KANA_ICON_RESET_VIEW }, { _toolbar->camera, KANA_ICON_CAMERA },
@@ -3543,6 +3579,7 @@ RDE_INTERNAL void kana_toolbar_rebuild(kana_toolbar* _toolbar) {
     _toolbar->font_icons      = _kept.font_icons;
     _toolbar->font_icons_fill = _kept.font_icons_fill;
     _toolbar->tool            = _kept.tool;
+    _toolbar->finger_writes   = _kept.finger_writes;
     _toolbar->vertical        = _kept.vertical;
     _toolbar->center          = _kept.center;
     _toolbar->minimized       = _kept.minimized;

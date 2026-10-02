@@ -321,6 +321,6 @@ manifests, App Store Connect's App Privacy answers, what is still open.
 docs/store/listing.md: the store texts in the five languages, the age rating,
 the review notes, the screenshots' list.
 
-  python3 tools/store/site.py                     # site/privacy.html + site/index.html (set CONTACT first)
+  python3 tools/store/site.py                     # site/privacy.html + site/index.html (CONTACT at its top)
   python3 -m pip install pillow                   # once, for the next
   python3 tools/store/screenshots.py SHOTS [OUT]  # iPad screenshots -> 13-inch, captioned, per language

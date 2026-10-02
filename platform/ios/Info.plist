@@ -4,7 +4,7 @@
      (--ios_plist): a key here replaces the template's. -->
 <plist version="1.0">
 <dict>
-    <!-- iPad only: a pen app (Apple Pencil). -->
+    <!-- iPad only: written on with the Apple Pencil or a finger. -->
     <key>UIDeviceFamily</key>
     <array>
         <integer>2</integer>

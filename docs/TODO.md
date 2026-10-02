@@ -648,17 +648,23 @@ a server): export / import instead. Built in this order:
 
 - [ ] macOS and Xcode updated (this Mac: macOS 14.4, Xcode 15.3 — uploads need a
       current SDK); the engine and Kana rebuilt with it and tried on the iPad.
-- [ ] Writing without an Apple Pencil: decide (a finger-writing setting, or the
-      Pencil stated as required).
+- [x] Writing with a finger: the toolbar's hand (mobile only), saved in the
+      settings. One finger writes (a short wait tells it from a two-finger pan;
+      a long press is still the menu), two move the page. On for a new install
+      (no Pencil used yet); the first Pencil stroke turns it off, and the hand
+      turns it back on. No palm rejection while it is on. [ ] On the iPad.
 - [x] The camera's prompt in the five languages; the app declares them
       (CFBundleLocalizations, platform/ios/localized/*.lproj): the store lists them.
 - [x] Privacy policy and support pages, five languages: tools/store/site.py →
-      site/. [ ] CONTACT set, site/ hosted, the two URLs in App Store Connect.
+      site/; CONTACT rde.apps.support@gmail.com. [ ] site/ on GitHub Pages, the
+      two URLs in App Store Connect.
 - [x] The store texts in five languages, the age-rating answers, the review
       notes: docs/store/listing.md.
 - [x] The screenshot framer: tools/store/screenshots.py (iPad shots → 13-inch,
       captioned, per language). [ ] The eight shots taken on the iPad.
-- [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID.
+- [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID. Age
+      13+ (Apple's nearest to the 12+ chosen); price suggested USD 9.99 once,
+      with the Small Business Program.
 
 ## 11. Release polish
 

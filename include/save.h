@@ -46,8 +46,11 @@
 //           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
 //           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0),
 //           u8 paper_size (lines' and squares' size: KANA_PAPER_SIZE_),
-//           u8 language (RDE_LANGUAGE_: RDE's enum only grows; 0: never chosen)
-//           (new fields go at the END: an older file just ends sooner)
+//           u8 language (RDE_LANGUAGE_: RDE's enum only grows; 0: never chosen),
+//           u8 finger_writes (1: one finger writes on a tablet — the toolbar's
+//           hand; 0: only the pen), u8 pen_ever (1: a pen has written here)
+//           (new fields go at the END: an older file just ends sooner; one from
+//           before the hand is a pen user's: the pen writes)
 // ===========================================================================
 
 #define KANA_SAVE_VERSION        1u
@@ -75,6 +78,8 @@ RDE_STRUCT {
     b8         toolbar_minimized;   // the bar folded to its grip
     u8         paper_size;        // KANA_PAPER_SIZE_
     u8         language;          // RDE_LANGUAGE_ (0: never chosen — the device's)
+    b8         finger_writes;     // one finger writes (a tablet; the toolbar's hand)
+    b8         pen_ever;          // a pen has been used here (then the hand is the learner's to turn on)
 } kana_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

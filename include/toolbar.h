@@ -132,6 +132,7 @@ struct kana_toolbar {
     u32            _sheet_one;      // ...the viewer's character's record
 
     KANA_TOOL_     tool;
+    b8             finger_writes;   // a tablet: one finger writes too (the hand); a pen used turns it off
     KANA_TOOL_     tool_before;   // the one before it (a pen's double tap goes back to it)
     b8             covered;       // one of Kana's own screens is over everything (the welcome): the bar and the menu hide
     b8             vertical;
@@ -149,6 +150,7 @@ struct kana_toolbar {
     rde_ui_scroll_area* strip;
     rde_ui_button* undo;
     rde_ui_button* redo;
+    rde_ui_button* finger;          // the hand: one finger writes, or (off) only the pen — a tablet's
     rde_ui_button* draw;
     rde_ui_button* erase;
     rde_ui_button* lasso_tool;
@@ -321,6 +323,11 @@ void       kana_toolbar_notice(kana_toolbar* _toolbar, const c8* _text);
 // A practice sheet asked for (the viewer's Sheet, or Select mode's): its records
 // (valid until the selection changes), how many; 0 when none was. Once per ask.
 u32        kana_toolbar_take_sheet(kana_toolbar* _toolbar, const u32** _records);
+
+// Who writes on a tablet: one finger too (the hand on), or only the pen (off —
+// fingers move the page). The page says which, whoever switched it (the hand, or
+// a pen coming down).
+void       kana_toolbar_set_finger_writes(kana_toolbar* _toolbar, b8 _on);
 
 // Apple Pencil's double tap (RDE_EVENT_TYPE_PEN_DOUBLE_TAP), as the learner set
 // it in the system's settings (_action, RDE_PEN_TAP_ACTION_): the eraser and back,

@@ -329,6 +329,8 @@ b8 kana_save_settings(const c8* _path, const kana_settings* _settings) {
     kana_put_u8(&_b, _settings->toolbar_minimized ? 1u : 0u);
     kana_put_u8(&_b, _settings->paper_size);
     kana_put_u8(&_b, _settings->language);
+    kana_put_u8(&_b, _settings->finger_writes ? 1u : 0u);
+    kana_put_u8(&_b, _settings->pen_ever ? 1u : 0u);
     kana_chunk_end(&_b, _chunk);
 
     return kana_bytes_write_and_free(&_b, _path, NULL);
@@ -401,6 +403,13 @@ KANA_LOAD_ kana_load_settings(const c8* _path, kana_settings* _settings) {
         if(_c.ok && _paper < KANA_PAPER_SIZE_COUNT) { _s.paper_size = _paper; }
         const u8 _language = kana_get_u8(&_c);
         if(_c.ok && _language < RDE_LANGUAGE_COUNT) { _s.language = _language; }
+        // From before the toolbar's hand: a pen user's (the pen writes, fingers move the page).
+        _s.finger_writes = false;
+        _s.pen_ever      = true;
+        const u8 _finger = kana_get_u8(&_c);
+        if(_c.ok && _finger <= 1u) { _s.finger_writes = _finger != 0; }
+        const u8 _pen = kana_get_u8(&_c);
+        if(_c.ok && _pen <= 1u) { _s.pen_ever = _pen != 0; }
     }
 
     kana_file_free(_data);
@@ -419,5 +428,6 @@ b8 kana_settings_equal(const kana_settings* _a, const kana_settings* _b) {
            kana_same_f32(_a->radius, _b->radius) &&
            kana_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && kana_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
            _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
-           _a->paper_size == _b->paper_size && _a->language == _b->language;
+           _a->paper_size == _b->paper_size && _a->language == _b->language && _a->finger_writes == _b->finger_writes &&
+           _a->pen_ever == _b->pen_ever;
 }

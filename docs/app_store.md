@@ -99,10 +99,12 @@ them, re-read the bundles' `PrivacyInfo.xcprivacy` after `setup.py`.
 
 Written: `python3 tools/store/site.py` makes `site/privacy.html` (the policy)
 and `site/index.html` (help and support), each in the five languages (the
-reader's, or a choice at the top). Before publishing, set `CONTACT` at the top
-of `tools/store/site.py` and run it again. Then host `site/` anywhere static —
-GitHub Pages (a repository with `site/` as its root, or a `docs/` folder),
-Netlify, Cloudflare Pages — and give App Store Connect:
+reader's, or a choice at the top). `CONTACT` at the top of the script is the
+address both show (rde.apps.support@gmail.com); run the script again after
+changing it. Hosted on GitHub Pages: a public repository whose root holds the
+two files (or a `docs/` folder with them), Settings › Pages › Deploy from a
+branch, `main`, `/ (root)` or `/docs`; a minute later they are at
+`https://<user>.github.io/<repository>/`. Then give App Store Connect:
 - **Privacy Policy URL**: `…/privacy.html`
 - **Support URL**: `…/` (index.html)
 
@@ -137,11 +139,11 @@ ship with the app.
       (this Mac had Xcode 15.3 / iOS 17.4 SDK on macOS 14.4: too old). macOS
       first, then Xcode, then the engine and Kana rebuilt and retried on the iPad
       — the Pencil's 17.5 double-tap code compiles in then.
-- [ ] **Writing without an Apple Pencil.** Today only the Pencil writes; a
-      reviewer (or a learner) without one cannot write at all. Decide: a
-      finger-writing setting (on until a Pencil is first used), or say clearly in
-      the description and the review notes that the Pencil is required.
-- [ ] **The pages hosted** (above), CONTACT set, both URLs in App Store Connect.
+- [x] **Writing without an Apple Pencil**: the toolbar's hand — one finger
+      writes, two move the page; on for a new install, off by itself when a Pencil
+      writes (and back on by hand).
+- [x] CONTACT set (rde.apps.support@gmail.com). [ ] **The pages hosted** on GitHub
+      Pages, both URLs in App Store Connect.
 - [ ] **The App Store Connect record**: its Apple ID goes in `KANA_APP_STORE_ID`
       (include/version.h) so Rate opens the write-review page; then the texts
       (`docs/store/listing.md`), the screenshots (iPad 13-inch:

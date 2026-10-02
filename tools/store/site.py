@@ -13,7 +13,7 @@
 
 import html, os
 
-CONTACT = "CONTACT_EMAIL"          # ← the address for questions (shown on both pages)
+CONTACT = "rde.apps.support@gmail.com"   # the address for questions (shown on both pages)
 UPDATED = {"en": "2 October 2026", "es": "2 de octubre de 2026", "pt": "2 de outubro de 2026", "ja": "2026年10月2日", "fr": "2 octobre 2026"}
 LANGS   = [("en", "English"), ("es", "Español"), ("pt", "Português"), ("ja", "日本語"), ("fr", "Français")]
 GOOGLE_PRIVACY = "https://policies.google.com/privacy"
@@ -223,9 +223,9 @@ PRIVACY = {
 SUPPORT = {
 "en": dict(
     title="Kana — Help and support", other="Privacy policy",
-    intro="Kana teaches you to write Japanese by hand: kana and kanji stroke by stroke, your own vocabulary, exams and reviews — on iPad, with the Apple Pencil, offline.",
+    intro="Kana teaches you to write Japanese by hand: kana and kanji stroke by stroke, your own vocabulary, exams and reviews — on iPad, with the Apple Pencil or your finger, offline.",
     faq=[
-        ("Do I need an Apple Pencil?", "Kana is made for it: the Apple Pencil writes and your fingers move the page, so your hand can rest on the screen while you write."),
+        ("Do I need an Apple Pencil?", "No. With the hand on the toolbar on, one finger writes and two move the page. With an Apple Pencil, Kana switches to it by itself: the Pencil writes, fingers move the page, and your hand can rest on the screen."),
         ("Does Kana work offline?", "Yes. Everything works offline once the handwriting model (about 20 MB) — and, for Translate with Google, each language's model — has been downloaded the first time it is used."),
         ("Where is my work kept? Can I move it to a new iPad?", "On your iPad, and in its iCloud Backup when that is on. To keep a copy yourself or move it: Settings › Your data › Export, then Import on the other iPad."),
         ("Handwriting is not read well", "In Settings › Handwriting, Read with Google ML Kit should be on and its model downloaded (it needs the internet once). With it off, Kana reads handwriting on its own, less accurately."),
@@ -237,9 +237,9 @@ SUPPORT = {
     contact="Write to <a href=\"mailto:{contact}\">{contact}</a>. If something goes wrong, tell us your iPad model and iPadOS version, and what you were doing."),
 "es": dict(
     title="Kana — Ayuda y soporte", other="Política de privacidad",
-    intro="Kana te enseña a escribir japonés a mano: kana y kanji trazo a trazo, tu propio vocabulario, exámenes y repasos — en iPad, con el Apple Pencil, sin conexión.",
+    intro="Kana te enseña a escribir japonés a mano: kana y kanji trazo a trazo, tu propio vocabulario, exámenes y repasos — en iPad, con el Apple Pencil o con el dedo, sin conexión.",
     faq=[
-        ("¿Necesito un Apple Pencil?", "Kana está hecho para él: el Apple Pencil escribe y tus dedos mueven la página, así que puedes apoyar la mano en la pantalla mientras escribes."),
+        ("¿Necesito un Apple Pencil?", "No. Con la mano de la barra activada, un dedo escribe y dos mueven la página. Si usas un Apple Pencil, Kana cambia a él sola: escribe el Pencil, los dedos mueven la página y puedes apoyar la mano en la pantalla."),
         ("¿Kana funciona sin conexión?", "Sí. Todo funciona sin conexión una vez descargado el modelo de escritura (unos 20 MB) —y, para Traducir con Google, el modelo de cada idioma— la primera vez que se usa."),
         ("¿Dónde se guarda lo que hago? ¿Puedo pasarlo a otro iPad?", "En tu iPad, y en su Copia en iCloud si está activada. Para guardar una copia tú mismo o pasarlo: Ajustes › Tus datos › Exportar, y luego Importar en el otro iPad."),
         ("No reconoce bien mi escritura", "En Ajustes › Escritura, Leer con Google ML Kit debe estar activado y su modelo descargado (necesita internet una vez). Desactivado, Kana lee la escritura por su cuenta, con menos precisión."),
@@ -251,9 +251,9 @@ SUPPORT = {
     contact="Escribe a <a href=\"mailto:{contact}\">{contact}</a>. Si algo falla, indica el modelo de tu iPad, la versión de iPadOS y qué estabas haciendo."),
 "pt": dict(
     title="Kana — Ajuda e suporte", other="Política de privacidade",
-    intro="O Kana ensina você a escrever japonês à mão: kana e kanji traço a traço, seu próprio vocabulário, provas e revisões — no iPad, com o Apple Pencil, offline.",
+    intro="O Kana ensina você a escrever japonês à mão: kana e kanji traço a traço, seu próprio vocabulário, provas e revisões — no iPad, com o Apple Pencil ou com o dedo, offline.",
     faq=[
-        ("Preciso de um Apple Pencil?", "O Kana foi feito para ele: o Apple Pencil escreve e seus dedos movem a página, então você pode apoiar a mão na tela enquanto escreve."),
+        ("Preciso de um Apple Pencil?", "Não. Com a mão da barra ligada, um dedo escreve e dois movem a página. Se você usar um Apple Pencil, o Kana muda para ele sozinho: o Pencil escreve, os dedos movem a página e você pode apoiar a mão na tela."),
         ("O Kana funciona offline?", "Sim. Tudo funciona offline depois que o modelo de escrita (cerca de 20 MB) — e, para Traduzir com o Google, o modelo de cada idioma — for baixado na primeira vez em que é usado."),
         ("Onde fica o que eu faço? Posso passar para outro iPad?", "No seu iPad, e no Backup do iCloud dele quando ativado. Para guardar uma cópia você mesmo ou transferir: Configurações › Seus dados › Exportar, e depois Importar no outro iPad."),
         ("Minha escrita não é bem reconhecida", "Em Configurações › Escrita, Ler com o Google ML Kit deve estar ligado e o modelo baixado (precisa de internet uma vez). Desligado, o Kana lê a escrita por conta própria, com menos precisão."),
@@ -265,9 +265,9 @@ SUPPORT = {
     contact="Escreva para <a href=\"mailto:{contact}\">{contact}</a>. Se algo der errado, informe o modelo do seu iPad, a versão do iPadOS e o que você estava fazendo."),
 "ja": dict(
     title="Kana — ヘルプとサポート", other="プライバシーポリシー",
-    intro="Kanaは、手で日本語を書くことを学ぶアプリです。かなと漢字を一画ずつ、自分の単語帳、テストと復習を、iPadとApple Pencilで、オフラインで。",
+    intro="Kanaは、手で日本語を書くことを学ぶアプリです。かなと漢字を一画ずつ、自分の単語帳、テストと復習を、iPadで、Apple Pencilでも指でも、オフラインで。",
     faq=[
-        ("Apple Pencilは必要ですか？", "KanaはApple Pencilのために作られています。Apple Pencilで書き、指でページを動かすので、書いている間は手を画面に置いたままでかまいません。"),
+        ("Apple Pencilは必要ですか？", "いいえ。バーの手のボタンがオンなら、指1本で書き、2本指でページを動かします。Apple Pencilを使うと自動で切り替わり、Pencilで書いて指でページを動かすので、手を画面に置いたまま書けます。"),
         ("オフラインで使えますか？", "はい。手書きのモデル（約20 MB）と、Googleで翻訳を使う場合は各言語のモデルを、初めて使うときにダウンロードすれば、あとはすべてオフラインで使えます。"),
         ("作ったものはどこに保存されますか？新しいiPadに移せますか？", "お使いのiPadの中と、オンになっていればそのiCloudバックアップに保存されます。自分でコピーを取ったり移したりするには：設定 › データ › 書き出す、そして新しいiPadで 読み込む。"),
         ("手書きの文字がうまく読み取られません", "設定 › 手書き認識 で「Google ML Kitで読み取る」がオンで、モデルがダウンロード済みか確認してください（一度だけインターネットが必要です）。オフの場合、Kanaは自分で読み取りますが、精度は下がります。"),
@@ -279,9 +279,9 @@ SUPPORT = {
     contact="<a href=\"mailto:{contact}\">{contact}</a> までご連絡ください。不具合の場合は、iPadの機種、iPadOSのバージョン、何をしていたかをお知らせください。"),
 "fr": dict(
     title="Kana — Aide et assistance", other="Politique de confidentialité",
-    intro="Kana vous apprend à écrire le japonais à la main : kana et kanji trait par trait, votre propre vocabulaire, examens et révisions — sur iPad, avec l’Apple Pencil, hors ligne.",
+    intro="Kana vous apprend à écrire le japonais à la main : kana et kanji trait par trait, votre propre vocabulaire, examens et révisions — sur iPad, avec l’Apple Pencil ou du doigt, hors ligne.",
     faq=[
-        ("Faut-il un Apple Pencil ?", "Kana est faite pour lui : l’Apple Pencil écrit et vos doigts déplacent la page, vous pouvez donc poser la main sur l’écran en écrivant."),
+        ("Faut-il un Apple Pencil ?", "Non. Avec la main de la barre activée, un doigt écrit et deux déplacent la page. Avec un Apple Pencil, Kana bascule d’elle-même : le Pencil écrit, les doigts déplacent la page, et vous pouvez poser la main sur l’écran."),
         ("Kana fonctionne-t-elle hors ligne ?", "Oui. Tout fonctionne hors ligne une fois téléchargés, à la première utilisation, le modèle d’écriture (environ 20 Mo) et, pour Traduire avec Google, le modèle de chaque langue."),
         ("Où est enregistré mon travail ? Puis-je le passer sur un autre iPad ?", "Sur votre iPad, et dans sa Sauvegarde iCloud si elle est activée. Pour en garder une copie vous-même ou le transférer : Réglages › Vos données › Exporter, puis Importer sur l’autre iPad."),
         ("Mon écriture est mal reconnue", "Dans Réglages › Écriture, Lire avec Google ML Kit doit être activé et son modèle téléchargé (il faut internet une fois). Désactivé, Kana lit l’écriture par elle-même, moins précisément."),

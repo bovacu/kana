@@ -108,6 +108,7 @@
 #define KANA_ICON_LISTS         "\xEE\x8B\xB2"   // ph-list-bullets U+E2F2 (the vocabulary's lists)
 #define KANA_ICON_LISTEN        "\xEE\x8A\xA6"   // ph-headphones U+E2A6 (an exam by ear)
 #define KANA_ICON_NOTE_EDIT     "\xEE\x8D\x8C"   // ph-note-pencil U+E34C (a character's own note)
+#define KANA_ICON_FINGER        "\xEE\x8A\x9A"   // ph-hand-pointing U+E29A (one finger writes: the toolbar's hand)
 #define KANA_ICON_IMAGE         "\xEE\x8B\x8A"   // ph-image U+E2CA
 #define KANA_ICON_SCAN          "\xEE\xAE\xB6"   // ph-scan U+EBB6
 #define KANA_ICON_PAUSE         "\xEE\x8E\x9E"   // ph-pause U+E39E
