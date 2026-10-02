@@ -738,6 +738,17 @@ docs/architecture.md has how it fits together and how to start a new app.
       rde_mobile_open_review_page: an iOS debug build needs `./builder --engine
       --ios --debug` first (the release library has them).
 - [ ] Draw on a device: its own bundle id, icon, Info.plist; its build lists.
+- [x] The app's name in one place (src/version.h: KANA_NAME), the rest from it: the
+      window's title, the backup's name and extension, the save folder on a device
+      (the id, info.h), and the strings' {APP} (filled in by the strings tool).
+- [x] The iOS Simulator (Borja: "lets add the new flag"): RDE's builder takes
+      --ios_simulator (its own build folders, ad hoc signing, no profile) and rde.h
+      defines RDE_PLATFORM_IOS_SIMULATOR; ML Kit's code is a device's only (the
+      stand-ins in the Simulator); RDE's SDL3 lets the Simulator's GPU through its
+      Metal check. Kana runs on the iPad Pro 12.9-inch Simulator at 2048 x 2732, and
+      --stay runs a look without quitting, for its screenshots (COMMANDS.txt).
+- [ ] The store's screenshots from the Simulator: data to show (the test saves are
+      thin), and the shots that need a hand or ML Kit (2, 3, 6: listing.md).
 
 ## 11. Release polish
 

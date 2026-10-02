@@ -22,6 +22,7 @@ RDE_INTERNAL struct {
     const c8* shot;
     u32       frames;
     b8        paper, deselect, trim_fonts, data, data_replace;
+    b8        stay;       // --stay: a shot's sequence without the shot, and no quitting (a screenshot taken from outside: the Simulator's)
     i32       theme;
     const c8* data_export;
     const c8* data_import;
@@ -46,7 +47,7 @@ b8 fude_look_is(const c8* _arg, const c8* _flag) {
 }
 
 u32 fude_look_shot_frame(void) {
-    return fude_look.shot != NULL ? fude_look.frames : 0u;
+    return fude_look.shot != NULL || fude_look.stay ? fude_look.frames : 0u;
 }
 
 void fude_look_perf_note(void (*_note)(struct fude_app* _app, c8* _out, usize _size)) {
@@ -64,6 +65,7 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--trim-fonts"))          { fude_look.trim_fonts = true; }
         if(fude_look_is(_a, "--data"))                { fude_look.data = true; }
         if(fude_look_is(_a, "--data-replace"))        { fude_look.data_replace = true; }
+        if(fude_look_is(_a, "--stay"))                { fude_look.stay = true; }
         if((_v = fude_look_value(_a, "--theme")) != NULL)          { fude_look.theme = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; }
         if((_v = fude_look_value(_a, "--data-export")) != NULL)    { fude_look.data_export = _v; }
@@ -125,7 +127,7 @@ void fude_look_frame(fude_app* _app) {
         fude_toolbar_set_paper_open(&_app->ui->bar, true);
         fude_look.paper = false;
     }
-    if(fude_look.shot == NULL) {
+    if(fude_look.shot == NULL && !fude_look.stay) {
         fude_look.frames += fude_look.paper ? 1u : 0u;
         return;
     }
@@ -171,6 +173,9 @@ void fude_look_frame(fude_app* _app) {
     }
     if(_frame == 40u && fude_look.trim_fonts) {
         fude_ui_trim_fonts(_app->ui);   // the shot then shows every glyph uploaded again
+    }
+    if(fude_look.shot == NULL) {
+        return;   // --stay: the app carries on
     }
     if(_frame == fude_look_shot_at()) {
         rde_window_take_screenshot(_app->window, (rde_vec_2I){ 0, 0 }, (rde_vec_2I){ 0, 0 }, fude_look.shot, NULL);   // the next frame, whole

@@ -1,7 +1,7 @@
 // Apple's and ML Kit's headers before RDE's: rde.h's `any` macro would
 // otherwise reach the availability attributes in them.
 #import <TargetConditionals.h>
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS && !TARGET_OS_SIMULATOR
 #import <Foundation/Foundation.h>
 #import <MLKitCommon/MLKitCommon.h>
 #import <MLKitTranslate/MLKitTranslate.h>
@@ -17,7 +17,7 @@
 // below keep what is kept.
 // ===========================================================================
 
-#if defined(RDE_PLATFORM_IOS)
+#if defined(RDE_PLATFORM_IOS) && !defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit has no Simulator build: the stand-ins there (.c)
 
 #include <string.h>
 

@@ -5,7 +5,7 @@
 // only): no text in photos yet.
 // ===========================================================================
 
-#if !defined(RDE_PLATFORM_IOS)
+#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
 
 b8 fude_textscan_available(void) {
     return false;

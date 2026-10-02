@@ -1,7 +1,7 @@
 // Apple's headers before RDE's: rde.h's `any` macro would otherwise reach the
 // availability attributes in Photos' headers (apply_to = any(...)).
 #import <TargetConditionals.h>
-#if TARGET_OS_IOS
+#if TARGET_OS_IOS && !TARGET_OS_SIMULATOR
 #import <UIKit/UIKit.h>
 #import <PhotosUI/PhotosUI.h>
 #import <QuartzCore/QuartzCore.h>
@@ -25,7 +25,7 @@
 // the screen shows are then the same pixels, the same way up.
 // ===========================================================================
 
-#if defined(RDE_PLATFORM_IOS)
+#if defined(RDE_PLATFORM_IOS) && !defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit has no Simulator build: the stand-ins there (.c)
 
 #include <math.h>
 #include <string.h>

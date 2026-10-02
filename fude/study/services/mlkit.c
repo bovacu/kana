@@ -15,7 +15,7 @@ b8 fude_mlkit_enabled(void) {
     return fude_mlkit_on;
 }
 
-#if !defined(RDE_PLATFORM_IOS)
+#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
 
 FUDE_MLKIT_ fude_mlkit_state(void) {
     return FUDE_MLKIT_UNAVAILABLE;

@@ -282,8 +282,11 @@ Idéal avec l’Apple Pencil, et le doigt marche aussi.
 
 ## Screenshots (iPad 13-inch: 2048 × 2732, or 2732 × 2048)
 
-Taken on the iPad (top button + volume up), then framed with a caption in each
-language by `tools/store/screenshots.py` (see its header). The shots, in order:
+Taken on the iPad (top button + volume up), or in Xcode's Simulator of the iPad
+Pro 12.9-inch at 2048 × 2732 (COMMANDS.txt: iOS SIMULATOR), then framed with a
+caption in each language by `tools/store/screenshots.py` (see its header). The
+Simulator has no ML Kit: Text from a photo with its translation (6) is the
+iPad's. The shots, in order:
 
 | # | Screen | Caption (en / es / pt / ja / fr) |
 |---|---|---|

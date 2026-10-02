@@ -176,6 +176,48 @@ If the builder was just rebuilt (rde_build.c changed), the FIRST run can fail on
 the name's spaces/parentheses — it re-runs itself unquoted. Run it again.
 
 
+iOS SIMULATOR (from the Mac) — the App Store's screenshots, any iPad
+-------------------------------------------------------------------
+Xcode's Simulator draws an iPad at its real size: the iPad Pro 12.9-inch (6th
+generation) gives 2048 x 2732, the size App Store Connect takes for the 13-inch
+iPad. The builder's --ios_simulator builds for it instead of a device (its own
+build/.../ios_simulator/ folders; signed ad hoc, no profile), and the code tells
+it apart by RDE_PLATFORM_IOS_SIMULATOR (rde.h; RDE_PLATFORM_IOS too). ML Kit has
+no Simulator build: mlkit, textscan and translate use their stand-ins there
+(no Check by ML Kit, no text from photos, no translations; the camera is none).
+
+ENGINE FIRST, once (and after an engine change), like any platform:
+
+  cd ~/RDE
+  ./builder --engine --ios_simulator --debug
+
+Then the iOS command above, debug (it reads the look flags), with:
+  --ios_simulator instead of --ios;
+  --output_path=/Users/borjavazquez/kana/build/kana-simulator/ (its own: the
+    packager writes Kana.ipa at the output path's top, and would replace the
+    device's);
+  no --apple_development_name, no --ios_provisioning_profile;
+  no ML Kit: none of the --ios_framework=..., no --ios_bundle=$M/bundles, and
+    no -I$M/include -L$M/lib -lmlkit_deps -lz -lsqlite3 -liconv.
+
+A Simulator of the iPad, installed and launched (simctl installs the .app):
+
+  xcrun simctl create "Kana iPad 12.9" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-12-9-inch-6th-generation-8GB com.apple.CoreSimulator.SimRuntime.iOS-17-4
+  xcrun simctl boot <UDID>                                    # the UDID create printed
+  unzip -o build/kana-simulator/Kana.ipa -d /tmp/kana_sim
+  xcrun simctl install <UDID> /tmp/kana_sim/Payload/Kana.app
+  xcrun simctl status_bar <UDID> override --time "9:41" --batteryState charged --batteryLevel 100 --wifiBars 3
+  xcrun simctl launch <UDID> com.rde.kana --stay --viewer=65E5
+  xcrun simctl io <UDID> screenshot shot.png                  # some seconds later: 2048 x 2732
+
+open -a Simulator shows it (a mouse or trackpad writes as a finger does). The
+app's saves are in xcrun simctl get_app_container <UDID> com.rde.kana data, under
+Library/Application Support/rde/engine/kana/ — planted data goes there before a
+launch. --stay runs a look's sequence (--press, --paste-text...) as --shot does,
+without the shot and without quitting: the Simulator's screenshot is taken from
+outside. apps/kana/tools/store/screenshots.py then frames and captions them.
+
+
 MAC DESKTOP — for the data bake (and quick looks)
 -------------------------------------------------
 Build the engine for macOS first (this regenerates rde_config.h/shaders.h for
@@ -214,7 +256,8 @@ lasso read it, --save-selection Save word on the selection (after --paste-text);
 camera, for measuring on the device), --trim-fonts (the fonts trimmed as on going to the background, just
 before the shot: every glyph drawn again from nothing), its size and theme (--size=744x1133 is an iPad
 mini's points, --theme=N), how far down (--scroll=PX), and --shot=FILE: a PNG
-of the window once it has settled, then the app quits. --press=I,J,... presses
+of the window once it has settled, then the app quits (--stay: the same without
+the shot or quitting, for a screenshot from outside — the Simulator's). --press=I,J,... presses
 the buttons of the row of the screen on top in turn, as taps would (from frame
 30, one every four frames; the shot waits for the last), and --language=N
 switches to Kana's Nth language at frame 12 — to check what the buttons DO

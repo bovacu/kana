@@ -11,6 +11,8 @@
 //
 //   --size=744x1133    the window (an iPad mini's points)   --theme=N   a theme, shown not saved
 //   --shot=FILE        a screenshot once the screen has settled, then quit
+//   --stay             the same sequence (presses, pastes...) without the shot, and
+//                      the app carries on: for a screenshot taken from outside (the Simulator's)
 //   --side --settings --licences=N --data --paper
 //   --data-export=FILE --data-import=FILE [--data-replace] --deselect --trim-fonts
 //   --press=I,J,...  the screen on top's row's buttons, pressed in turn   --language=N

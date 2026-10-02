@@ -130,7 +130,7 @@ b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
 // --- not here ---------------------------------------------------------------------------
 // Every platform but iOS (src/translate_ios.m): no translator yet.
 
-#if !defined(RDE_PLATFORM_IOS)
+#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
 
 b8 fude_translate_platform_available(void) {
     return false;

@@ -5,7 +5,7 @@
 // (the builder compiles Objective-C with ARC: the statics below keep what is kept).
 // ===========================================================================
 
-#if defined(RDE_PLATFORM_IOS)
+#if defined(RDE_PLATFORM_IOS) && !defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit has no Simulator build: the stand-ins there (.c)
 
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
