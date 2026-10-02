@@ -662,7 +662,7 @@ a server): export / import instead. Built in this order:
       notes: store/listing.md.
 - [x] The screenshot framer: tools/store/screenshots.py (iPad shots → 13-inch,
       captioned, per language). [x] The ten shots, framed in five languages:
-      store/ (README.md). [ ] A translation shot from the iPad in place of one.
+      store/ (README.md). [x] Two translation shots from the iPad at #1 and #2.
 - [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID. Age
       13+ (Apple's nearest to the 12+ chosen); price suggested USD 9.99 once,
       with the Small Business Program.

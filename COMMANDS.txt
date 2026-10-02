@@ -267,9 +267,10 @@ to FILE, --data-import=FILE that backup picked to import and --data-replace
 Replace pressed (run these from a scratch folder: they change ./saves/);
 --sheet=FILE (with --viewer=HEX) that character's practice sheet written to FILE;
 --note=TEXT (with --viewer=HEX) that character's note set to TEXT; --vocab[=N] the
-Vocabulary screen (on the Nth list), --vocab-sample a few words and a list first
-(when there are none), --word-exam[=STAGE] a word exam of every word (0 setup, 1
-writing, 2 by ear, 3 results), --word-card=TEXT the word card for TEXT as if the
+Vocabulary screen (on the Nth list; --vocab-search=WORDS: what its field finds),
+--vocab-sample a few words and a list first (when there are none),
+--word-exam[=STAGE] a word exam of every word (0 setup, 1 writing, 2 by ear, 3
+results), --word-card=TEXT the word card for TEXT as if the
 lasso read it (--word-sentence=JA|TRANSLATION: as met in that sentence),
 --word-translate=MEANING the word card with MEANING translated into Japanese (made
 up), --save-selection Save word on the selection (after --paste-text);
