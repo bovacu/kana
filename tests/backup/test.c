@@ -1,6 +1,6 @@
 // backup.h: export, inspect, restore — with real files in ./saves/.
-#include "base/backup.h"
-#include "app/version.h"
+#include "drawing/base/backup.h"
+#include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,21 +66,21 @@ int main(void) {
     put("outbox/old.kanabackup", "an earlier export");
 
     // Export: the real files only.
-    kana_backup_info info;
-    CHECK(kana_backup_export("saves/", "out.kanabackup", &info));
+    fude_backup_info info;
+    CHECK(fude_backup_export("saves/", "out.kanabackup", KANA_VERSION, &info));
     CHECK(info.files == 6 && info.canvases == 2 && strcmp(info.version, KANA_VERSION) == 0 && info.created > 1700000000u);
     usize n = 0; u8* data = slurp("out.kanabackup", &n);
     CHECK(data != NULL && n > 40);
-    kana_backup_info seen;
-    CHECK(kana_backup_inspect(data, n, &seen) && seen.files == 6 && seen.canvases == 2 && seen.bytes == info.bytes && seen.created == info.created);
+    fude_backup_info seen;
+    CHECK(fude_backup_inspect(data, n, &seen) && seen.files == 6 && seen.canvases == 2 && seen.bytes == info.bytes && seen.created == info.created);
     printf("exported %u files, %llu bytes, %u canvases, into %zu bytes\n", info.files, (unsigned long long)info.bytes, info.canvases, n);
 
     // Damaged or cut short: not a backup, and nothing changes.
-    data[n / 2] ^= 0x40; CHECK(!kana_backup_inspect(data, n, NULL)); data[n / 2] ^= 0x40;
-    CHECK(!kana_backup_inspect(data, n - 1, NULL));
-    CHECK(!kana_backup_inspect((const u8*)"KANABKP", 8, NULL));
+    data[n / 2] ^= 0x40; CHECK(!fude_backup_inspect(data, n, NULL)); data[n / 2] ^= 0x40;
+    CHECK(!fude_backup_inspect(data, n - 1, NULL));
+    CHECK(!fude_backup_inspect((const u8*)"KANABKP", 8, NULL));
     put("notes/1.kana", "page one EDITED");
-    CHECK(!kana_backup_restore(data, n - 3, "saves/") && has("notes/1.kana", "page one EDITED"));
+    CHECK(!fude_backup_restore(data, n - 3, "saves/") && has("notes/1.kana", "page one EDITED"));
 
     // Things change after the export: a page edited, one added, marks lost.
     put("notes/3.kana", "page three");
@@ -88,7 +88,7 @@ int main(void) {
     put("words.kana", "words");
 
     // Import: exactly the backup's files, what was there aside.
-    CHECK(kana_backup_restore(data, n, "saves/"));
+    CHECK(fude_backup_restore(data, n, "saves/"));
     CHECK(has("notes/1.kana", "page one") && has("notes/2.kana", "page two") && has("marks.kana", "marks v1") && has("practice/3042.kana", "あ history"));
     CHECK(!has("notes/3.kana", NULL) && !has("words.kana", NULL));               // not in the backup: gone
     CHECK(!has("marks.kana.bak", NULL) && !has("notes/2.kana.bak", NULL));       // no stale copies to fall back on
@@ -98,7 +98,7 @@ int main(void) {
 
     // A second import: the first one's "before" is let go, this one's kept.
     put("notes/1.kana", "page one AGAIN");
-    CHECK(kana_backup_restore(data, n, "saves/"));
+    CHECK(fude_backup_restore(data, n, "saves/"));
     CHECK(has("before-import/notes/1.kana", "page one AGAIN") && !has("before-import/notes/3.kana", NULL));
 
     // A backup that would write outside the save folder is not one.
@@ -112,8 +112,8 @@ int main(void) {
         u32 four = 4; memcpy(buf + at, &four, 4); at += 4; memcpy(buf + at, "evil", 4); at += 4;
         for(usize k = 0; k < at; k++) h = (h ^ buf[k]) * 16777619u;
         memcpy(buf + at, &h, 4); at += 4;
-        CHECK(!kana_backup_inspect(buf, at, NULL));
-        CHECK(!kana_backup_restore(buf, at, "saves/"));
+        CHECK(!fude_backup_inspect(buf, at, NULL));
+        CHECK(!fude_backup_restore(buf, at, "saves/"));
     }
     CHECK(has("notes/1.kana", "page one AGAIN") == false && has("notes/1.kana", "page one"));   // restored copy still there
     free(data);

@@ -1,6 +1,6 @@
-#include "screens/scan.h"
-#include "base/theme.h"
-#include "base/text.h"
+#include "study/screens/scan.h"
+#include "drawing/base/theme.h"
+#include "drawing/base/text.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,7 +58,7 @@ b8 rde_device_camera_update_texture(rde_device_camera* c, rde_memory_texture* m)
     g_cam_frames++; return true;
 }
 
-static void tap(kana_scan* s, rde_vec_2F at) { kana_scan_pointer_down(s, at, 1.0); kana_scan_pointer_up(s, 1.05); }
+static void tap(fude_scan* s, rde_vec_2F at) { fude_scan_pointer_down(s, at, 1.0); fude_scan_pointer_up(s, 1.05); }
 // Translate with Google: Google's badge (a texture), the panel's clip and lines.
 static rde_texture* g_badge = (rde_texture*)0x9abc;
 static u32 g_badge_loads = 0, g_clips = 0, g_lines = 0;
@@ -68,14 +68,14 @@ void rde_rendering_end_clipping_rect(void) {}
 void rde_rendering_2d_draw_line(const rde_vec_2F a, rde_vec_2F b, rde_color c) { (void)a; (void)b; (void)c; g_lines++; }
 
 int main(void) {
-    kana_scan s; kana_scan_init(&s);
-    kana_scan_open(&s, NULL, (rde_vec_2F){ 10, 20 });
-    CHECK(s.open && s.stage == KANA_SCAN_EMPTY && kana_scan_kept(&s) == 0);
+    fude_scan s; fude_scan_init(&s);
+    fude_scan_open(&s, NULL, (rde_vec_2F){ 10, 20 });
+    CHECK(s.open && s.stage == FUDE_SCAN_EMPTY && fude_scan_kept(&s) == 0);
     c8 out[512];
-    kana_scan_write(&s); CHECK(!kana_scan_take_text(&s, out, sizeof out));   // nothing to write
+    fude_scan_write(&s); CHECK(!fude_scan_take_text(&s, out, sizeof out));   // nothing to write
 
     // A 1000 x 500 photo, three lines (the middle one standing on end: vertical text).
-    static kana_textscan_line lines[3];
+    static fude_textscan_line lines[3];
     snprintf(lines[0].text, sizeof lines[0].text, "今日は");
     lines[0].corners[0] = (rde_vec_2F){ 100, 50 };  lines[0].corners[1] = (rde_vec_2F){ 500, 50 };
     lines[0].corners[2] = (rde_vec_2F){ 500, 120 }; lines[0].corners[3] = (rde_vec_2F){ 100, 120 };
@@ -87,12 +87,12 @@ int main(void) {
     lines[2].corners[2] = (rde_vec_2F){ 600, 380 }; lines[2].corners[3] = (rde_vec_2F){ 100, 380 };
     lines[2].block = 1;
     const u8 jpeg[4] = { 1, 2, 3, 4 };
-    const kana_textscan_result r = { jpeg, 4, 1000, 500, lines, 3 };
-    kana_scan_show(&s, &r);
-    CHECK(s.stage == KANA_SCAN_RESULT && kana_scan_kept(&s) == 3);
+    const fude_textscan_result r = { jpeg, 4, 1000, 500, lines, 3 };
+    fude_scan_show(&s, &r);
+    CHECK(s.stage == FUDE_SCAN_RESULT && fude_scan_kept(&s) == 3);
 
     const f32 top = 566.5f - 24.0f - 8.0f, bottom = -566.5f + 20.0f + 76.0f + 24.0f;
-    kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(g_textures == 1 && g_polys == 3 && g_borders == 0 && g_last_rotation == 0.0f);
     printf("photo at (%.0f, %.0f), scale %.3f\n", (f64)s.picture_tl.x, (f64)s.picture_tl.y, (f64)s.picture_scale);
     CHECK(s.picture_scale > 0.6f && s.picture_scale < 0.75f);   // 696 points wide for 1000 pixels
@@ -100,95 +100,95 @@ int main(void) {
     // Tap the vertical line: left out; the photo between lines: nothing.
     const rde_vec_2F mid_v = { s.picture_tl.x + 830.0f * s.picture_scale, s.picture_tl.y - 250.0f * s.picture_scale };
     tap(&s, mid_v);
-    CHECK(kana_scan_kept(&s) == 2 && !((kana_scan_line*)s.lines.memory)[1].kept);
+    CHECK(fude_scan_kept(&s) == 2 && !((fude_scan_line*)s.lines.memory)[1].kept);
     tap(&s, (rde_vec_2F){ s.picture_tl.x + 700.0f * s.picture_scale, s.picture_tl.y - 200.0f * s.picture_scale });
-    CHECK(kana_scan_kept(&s) == 2);
-    g_polys = g_borders = 0; kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    CHECK(fude_scan_kept(&s) == 2);
+    g_polys = g_borders = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(g_polys == 2 && g_borders == 1);
 
     // Write: the kept lines, in order, one a line; once.
-    kana_scan_write(&s);
-    CHECK(kana_scan_take_text(&s, out, sizeof out) && strcmp(out, "今日は\n日本語") == 0);
-    CHECK(!kana_scan_take_text(&s, out, sizeof out));
+    fude_scan_write(&s);
+    CHECK(fude_scan_take_text(&s, out, sizeof out) && strcmp(out, "今日は\n日本語") == 0);
+    CHECK(!fude_scan_take_text(&s, out, sizeof out));
     // Taken back in: all three.
     tap(&s, mid_v);
-    kana_scan_write(&s);
-    CHECK(kana_scan_take_text(&s, out, sizeof out) && strcmp(out, "今日は\n縦書き\n日本語") == 0);
+    fude_scan_write(&s);
+    CHECK(fude_scan_take_text(&s, out, sizeof out) && strcmp(out, "今日は\n縦書き\n日本語") == 0);
 
     // A photo with no text, and one that cannot be shown.
-    const kana_textscan_result none = { jpeg, 4, 1000, 500, lines, 0 };
-    kana_scan_show(&s, &none); CHECK(s.stage == KANA_SCAN_RESULT && kana_scan_kept(&s) == 0);
-    kana_scan_write(&s); CHECK(!kana_scan_take_text(&s, out, sizeof out));
-    const kana_textscan_result broken = { NULL, 0, 1000, 500, lines, 3 };
-    kana_scan_show(&s, &broken); CHECK(s.stage == KANA_SCAN_EMPTY && s.message == KANA_TEXT_SCAN_FAILED);
+    const fude_textscan_result none = { jpeg, 4, 1000, 500, lines, 0 };
+    fude_scan_show(&s, &none); CHECK(s.stage == FUDE_SCAN_RESULT && fude_scan_kept(&s) == 0);
+    fude_scan_write(&s); CHECK(!fude_scan_take_text(&s, out, sizeof out));
+    const fude_textscan_result broken = { NULL, 0, 1000, 500, lines, 3 };
+    fude_scan_show(&s, &broken); CHECK(s.stage == FUDE_SCAN_EMPTY && s.message == FUDE_TEXT_SCAN_FAILED);
 
     // The library is not here (the desktop): nothing waits.
-    kana_scan_photos(&s); kana_scan_update(&s, 0.016f);
-    CHECK(s.stage != KANA_SCAN_WAITING);
+    fude_scan_photos(&s); fude_scan_update(&s, 0.016f);
+    CHECK(s.stage != FUDE_SCAN_WAITING);
 
     // Live: the back camera; the first frame tells the size, then frames come,
     // shown a quarter turn clockwise — upright, the picture is 1080 x 1920.
-    kana_scan_camera(&s);
-    CHECK(s.stage == KANA_SCAN_LIVE && g_cam_open && s.camera != NULL);
-    kana_scan_update(&s, 0.016f);   // the probe: the size
+    fude_scan_camera(&s);
+    CHECK(s.stage == FUDE_SCAN_LIVE && g_cam_open && s.camera != NULL);
+    fude_scan_update(&s, 0.016f);   // the probe: the size
     CHECK(g_cam_frames == 0 && s.shown == NULL);
-    kana_scan_update(&s, 0.016f);   // a frame texture that size
-    kana_scan_update(&s, 0.016f);
+    fude_scan_update(&s, 0.016f);   // a frame texture that size
+    fude_scan_update(&s, 0.016f);
     CHECK(g_cam_frames >= 1 && g_uploads >= 1 && s.shown != NULL && s.shown_rotation == 90.0f);
     CHECK(s.picture_w == 1080 && s.picture_h == 1920);
-    g_textures = 0; kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    g_textures = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     // RDE turns clockwise for a positive angle (checked on screen); the camera's
     // rows come top first, mirrored back by a negative height.
     CHECK(g_textures == 1 && g_last_rotation == 90.0f && g_last_scale.y < 0.0f && g_last_scale.x > 0.0f);
-    CHECK(kana_scan_kept(&s) == 0);                        // live: nothing to write yet
-    kana_scan_write(&s); CHECK(!kana_scan_take_text(&s, out, sizeof out));
+    CHECK(fude_scan_kept(&s) == 0);                        // live: nothing to write yet
+    fude_scan_write(&s); CHECK(!fude_scan_take_text(&s, out, sizeof out));
     // Hold: the camera stops, the frame stays.
     CHECK(g_cam_subsystem);                                // on while live
-    kana_scan_hold(&s);
-    CHECK(s.stage == KANA_SCAN_RESULT && !g_cam_open && s.camera == NULL && s.shown != NULL);
+    fude_scan_hold(&s);
+    CHECK(s.stage == FUDE_SCAN_RESULT && !g_cam_open && s.camera == NULL && s.shown != NULL);
     CHECK(!g_cam_subsystem);                               // and off again
     // Live again, then the app goes to the background: held, camera off.
-    kana_scan_camera(&s); CHECK(s.stage == KANA_SCAN_LIVE && g_cam_open);
-    kana_scan_pause(&s);  CHECK(!g_cam_open && s.stage != KANA_SCAN_LIVE);
+    fude_scan_camera(&s); CHECK(s.stage == FUDE_SCAN_LIVE && g_cam_open);
+    fude_scan_pause(&s);  CHECK(!g_cam_open && s.stage != FUDE_SCAN_LIVE);
     // Back closes everything.
-    kana_scan_camera(&s); CHECK(g_cam_open);
-    kana_scan_close(&s); CHECK(!s.open && !g_cam_open && s.frame == NULL);
-    kana_scan_destroy(&s);
+    fude_scan_camera(&s); CHECK(g_cam_open);
+    fude_scan_close(&s); CHECK(!s.open && !g_cam_open && s.frame == NULL);
+    fude_scan_destroy(&s);
     // Translate with Google (translate.h pretending, as the desktop's look does):
     // a photo of six lines; on, they are asked for four at a time, in order.
-    kana_translate_demo(true);
-    static kana_textscan_line six[6];
+    fude_translate_demo(true);
+    static fude_textscan_line six[6];
     for(u32 i = 0; i < 6u; i++) {
         snprintf(six[i].text, sizeof six[i].text, "行%u", i);
         const f32 y = 40.0f + 70.0f * (f32)i;
         six[i].corners[0] = (rde_vec_2F){ 100, y };      six[i].corners[1] = (rde_vec_2F){ 600, y };
         six[i].corners[2] = (rde_vec_2F){ 600, y + 50 }; six[i].corners[3] = (rde_vec_2F){ 100, y + 50 };
     }
-    kana_scan_init(&s);
-    kana_scan_open(&s, NULL, (rde_vec_2F){ 0, 0 });
-    const kana_textscan_result r6 = { jpeg, 4, 1000, 500, six, 6 };
-    kana_scan_show(&s, &r6);
-    CHECK(!kana_scan_translating(&s));
-    kana_scan_update(&s, 0.016f);
-    CHECK(((kana_scan_line*)s.lines.memory)[0].translated == KANA_SCAN_TRANSLATION_NONE);   // off: nothing asked
-    g_textures = 0; kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    fude_scan_init(&s);
+    fude_scan_open(&s, NULL, (rde_vec_2F){ 0, 0 });
+    const fude_textscan_result r6 = { jpeg, 4, 1000, 500, six, 6 };
+    fude_scan_show(&s, &r6);
+    CHECK(!fude_scan_translating(&s));
+    fude_scan_update(&s, 0.016f);
+    CHECK(((fude_scan_line*)s.lines.memory)[0].translated == FUDE_SCAN_TRANSLATION_NONE);   // off: nothing asked
+    g_textures = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     const f32 full_scale = s.picture_scale;
-    kana_scan_translate(&s); CHECK(kana_scan_translating(&s));
-    kana_scan_update(&s, 0.016f);
-    kana_scan_line* L = (kana_scan_line*)s.lines.memory;
-    CHECK(s.translate_asked == 4 && L[3].translated == KANA_SCAN_TRANSLATION_ASKED && L[4].translated == KANA_SCAN_TRANSLATION_NONE);
-    kana_scan_update(&s, 0.016f);   // the four answers in, the last two asked
-    CHECK(L[0].translated == KANA_SCAN_TRANSLATION_DONE && strstr(L[0].translation, "行0") != NULL);
-    CHECK(L[4].translated == KANA_SCAN_TRANSLATION_ASKED && L[5].translated == KANA_SCAN_TRANSLATION_ASKED);
-    kana_scan_update(&s, 0.016f);
+    fude_scan_translate(&s); CHECK(fude_scan_translating(&s));
+    fude_scan_update(&s, 0.016f);
+    fude_scan_line* L = (fude_scan_line*)s.lines.memory;
+    CHECK(s.translate_asked == 4 && L[3].translated == FUDE_SCAN_TRANSLATION_ASKED && L[4].translated == FUDE_SCAN_TRANSLATION_NONE);
+    fude_scan_update(&s, 0.016f);   // the four answers in, the last two asked
+    CHECK(L[0].translated == FUDE_SCAN_TRANSLATION_DONE && strstr(L[0].translation, "行0") != NULL);
+    CHECK(L[4].translated == FUDE_SCAN_TRANSLATION_ASKED && L[5].translated == FUDE_SCAN_TRANSLATION_ASKED);
+    fude_scan_update(&s, 0.016f);
     u32 done = 0, empty = 0;
-    for(u32 i = 0; i < 6u; i++) { done += L[i].translated == KANA_SCAN_TRANSLATION_DONE; empty += L[i].translation[0] == 0; }
+    for(u32 i = 0; i < 6u; i++) { done += L[i].translated == FUDE_SCAN_TRANSLATION_DONE; empty += L[i].translation[0] == 0; }
     CHECK(done == 6 && empty == 1 && s.translate_asked == 0);   // the demo fails every fifth: "could not be translated"
     printf("translation: \"%s\"\n", L[0].translation);
 
     // Drawn: the picture over the panel, Google's badge in it, the rows clipped.
     g_textures = 0; g_clips = 0; g_lines = 0;
-    kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(g_textures == 2 && g_badge_loads == 1 && g_clips == 1 && g_lines >= 1);
     CHECK(s.picture_tl.y - 500.0f * s.picture_scale > s.panel_rows_top);   // the picture above the panel, whole
     CHECK(s.panel_view > 100.0f && s.panel_content > 0.0f);
@@ -196,16 +196,16 @@ int main(void) {
     printf("panel: view %.0f, content %.0f, picture scale %.3f (was %.3f)\n", (f64)s.panel_view, (f64)s.panel_content, (f64)s.picture_scale, (f64)full_scale);
     // A tap on a row leaves its line out (and back in).
     const rde_vec_2F row1 = { s.panel_left + 40.0f, (L[1].row_top + L[1].row_bottom) * 0.5f };
-    tap(&s, row1); CHECK(!L[1].kept && kana_scan_kept(&s) == 5);
-    tap(&s, row1); CHECK(L[1].kept && kana_scan_kept(&s) == 6);
+    tap(&s, row1); CHECK(!L[1].kept && fude_scan_kept(&s) == 5);
+    tap(&s, row1); CHECK(L[1].kept && fude_scan_kept(&s) == 6);
     // Write still writes the Japanese.
-    kana_scan_write(&s); CHECK(kana_scan_take_text(&s, out, sizeof out) && strncmp(out, "行0\n行1", strlen("行0\n行1")) == 0);
+    fude_scan_write(&s); CHECK(fude_scan_take_text(&s, out, sizeof out) && strncmp(out, "行0\n行1", strlen("行0\n行1")) == 0);
     // Off: the panel goes, the picture has the space again.
-    kana_scan_translate(&s); CHECK(!kana_scan_translating(&s));
-    g_textures = 0; kana_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
+    fude_scan_translate(&s); CHECK(!fude_scan_translating(&s));
+    g_textures = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(g_textures == 1 && s.picture_scale == full_scale);   // (this photo is as wide as the screen: the same scale either way)
-    kana_scan_destroy(&s);
-    kana_translate_demo(false);
+    fude_scan_destroy(&s);
+    fude_translate_demo(false);
 
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

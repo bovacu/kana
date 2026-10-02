@@ -24,7 +24,7 @@ b8 rde_localization_load(const c8* _file, const c8* _language, rde_memory_alloca
     FILE* f = fopen(_file, "rb");
     if(f == NULL) {
         char alt[1024];
-        snprintf(alt, sizeof alt, "%s/%s", KANA_ROOT, _file);   // run.sh: the repository
+        snprintf(alt, sizeof alt, "%s/%s", FUDE_ROOT, _file);   // run.sh: the repository
         f = fopen(alt, "rb");
     }
     if(f == NULL) return false;
@@ -131,6 +131,6 @@ const c8* rde_localization_render(const rde_localization_binding* _b) {
 void rde_localization_free_translation(const c8* _t) { free((void*)_t); }
 
 // The tests speak English: loaded before main.
-#include "base/text.h"
+#include "drawing/base/text.h"
 __attribute__((weak)) void rde_log_level(RDE_LOG_LEVEL_ _level, const c8* _fmt, ...) { (void)_level; (void)_fmt; }
-__attribute__((constructor)) static void ts_english(void) { kana_text_set_language(RDE_LANGUAGE_EN_US); }
+__attribute__((constructor)) static void ts_english(void) { fude_text_set_language(RDE_LANGUAGE_EN_US); }

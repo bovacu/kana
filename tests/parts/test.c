@@ -1,5 +1,5 @@
-#include "screens/browse.h"
-#include "base/theme.h"
+#include "study/screens/browse.h"
+#include "drawing/base/theme.h"
 #include <stdio.h>
 #include <string.h>
 static int fails = 0;
@@ -17,19 +17,19 @@ rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return g_now; }
 static const f32 TOP = 566.5f - 184.0f;
-static void frame(kana_browse* b) { g_now += 0.016; kana_browse_update(b, 0.016f); kana_browse_render(b, NULL, NULL, 32.0f, TOP, -10000.0f); }
-static b8 listed(kana_browse* b, u32 cp) { const u32* l = kana_browse_list(b); for(u32 i = 0; i < kana_browse_count(b); i++) { kana_kanji_info in; kana_kanji_at(b->db, l[i], &in); if(in.codepoint == cp) return true; } return false; }
-static i32 part_index(kana_browse* b, u32 cp) { const kana_browse_part* p = b->parts.memory; for(u32 i = 0; i < b->parts.count; i++) if(p[i].codepoint == cp) return (i32)i; return -1; }
+static void frame(fude_browse* b) { g_now += 0.016; fude_browse_update(b, 0.016f); fude_browse_render(b, NULL, NULL, 32.0f, TOP, -10000.0f); }
+static b8 listed(fude_browse* b, u32 cp) { const u32* l = fude_browse_list(b); for(u32 i = 0; i < fude_browse_count(b); i++) { fude_kanji_info in; fude_kanji_at(b->db, l[i], &in); if(in.codepoint == cp) return true; } return false; }
+static i32 part_index(fude_browse* b, u32 cp) { const fude_browse_part* p = b->parts.memory; for(u32 i = 0; i < b->parts.count; i++) if(p[i].codepoint == cp) return (i32)i; return -1; }
 // Taps a part on the panel, scrolling the panel until it shows.
-static b8 tap_part(kana_browse* b, u32 cp) {
+static b8 tap_part(fude_browse* b, u32 cp) {
     const i32 want = part_index(b, cp); if(want < 0) return false;
     b->parts_scroller.offset = 0.0f;
     for(int tries = 0; tries < 60; tries++) {
         frame(b);
-        const kana_browse_part_hit* h = b->part_hits.memory;
+        const fude_browse_part_hit* h = b->part_hits.memory;
         for(u32 i = 0; i < b->part_hits.count; i++) if((i32)h[i].part == want) {
             const rde_vec_2F at = { h[i].x + h[i].size * 0.5f, b->panel_max.y - (h[i].y + h[i].size * 0.5f - b->parts_scroller.offset) };
-            kana_browse_pointer_down(b, at, false, g_now); kana_browse_pointer_up(b, g_now + 0.05); frame(b); return true;
+            fude_browse_pointer_down(b, at, false, g_now); fude_browse_pointer_up(b, g_now + 0.05); frame(b); return true;
         }
         b->parts_scroller.offset += 150.0f;
     }
@@ -37,27 +37,27 @@ static b8 tap_part(kana_browse* b, u32 cp) {
 }
 
 int main(int argc, char** argv) {
-    kana_kanji_db db; CHECK(kana_kanji_load(&db, argc > 1 ? argv[1] : "characters.kana"));
-    kana_browse b; kana_browse_init(&b, &db);
-    CHECK(kana_browse_parts_available(&b));
-    const kana_browse_part* p = b.parts.memory;
+    fude_kanji_db db; CHECK(fude_kanji_load(&db, argc > 1 ? argv[1] : "characters.kana"));
+    fude_browse b; fude_browse_init(&b, &db);
+    CHECK(fude_browse_parts_available(&b));
+    const fude_browse_part* p = b.parts.memory;
     printf("%u parts offered; first: U+%04X (%u strokes, %u uses), last %u strokes\n", b.parts.count, p[0].codepoint, p[0].strokes, p[0].uses, p[b.parts.count - 1].strokes);
     CHECK(b.parts.count > 300 && p[0].strokes <= p[b.parts.count - 1].strokes);
     CHECK(part_index(&b, 0x6728) >= 0 && part_index(&b, 0x4EBB) >= 0 && part_index(&b, 0x53E3) >= 0);   // 木 亻 口
 
-    kana_browse_open(&b);
-    kana_browse_set_picking(&b, true); frame(&b);
-    const u32 all = kana_browse_count(&b);
+    fude_browse_open(&b);
+    fude_browse_set_picking(&b, true); frame(&b);
+    const u32 all = fude_browse_count(&b);
     CHECK(b.picking && b.part_hits.count > 0 && b.panel_max.y > b.panel_min.y);
 
     CHECK(tap_part(&b, 0x6728));                                         // 木
-    printf("with 木: %u of %u (status '%s')\n", kana_browse_count(&b), all, g_status);
-    CHECK(b.picked_count == 1 && kana_browse_count(&b) < all && listed(&b, 0x6728) && listed(&b, 0x6797) && listed(&b, 0x4F11) && !listed(&b, 0x65E5));
-    const kana_browse_part* pp = b.parts.memory;
+    printf("with 木: %u of %u (status '%s')\n", fude_browse_count(&b), all, g_status);
+    CHECK(b.picked_count == 1 && fude_browse_count(&b) < all && listed(&b, 0x6728) && listed(&b, 0x6797) && listed(&b, 0x4F11) && !listed(&b, 0x65E5));
+    const fude_browse_part* pp = b.parts.memory;
     CHECK(pp[part_index(&b, 0x4EBB)].usable);                            // 亻: 休 has both
 
     CHECK(tap_part(&b, 0x4EBB));                                         // + 亻
-    printf("with 木 and 亻: %u\n", kana_browse_count(&b));
+    printf("with 木 and 亻: %u\n", fude_browse_count(&b));
     CHECK(b.picked_count == 2 && listed(&b, 0x4F11) && !listed(&b, 0x6797));
 
     // A dimmed part cannot be picked.
@@ -67,35 +67,35 @@ int main(int argc, char** argv) {
     if(dim >= 0) { const u32 before = b.picked_count; tap_part(&b, pp[dim].codepoint); CHECK(b.picked_count == before); }
 
     CHECK(tap_part(&b, 0x6728)); CHECK(b.picked_count == 1);           // tap again: unpicked
-    kana_browse_clear_parts(&b); frame(&b); CHECK(b.picked_count == 0 && kana_browse_count(&b) == all);
-    kana_browse_set_drawing(&b, true); CHECK(!b.picking && b.drawing);
-    kana_browse_set_picking(&b, true); CHECK(b.picking && !b.drawing);
+    fude_browse_clear_parts(&b); frame(&b); CHECK(b.picked_count == 0 && fude_browse_count(&b) == all);
+    fude_browse_set_drawing(&b, true); CHECK(!b.picking && b.drawing);
+    fude_browse_set_picking(&b, true); CHECK(b.picking && !b.drawing);
     for(int i = 0; i < 100; i++) frame(&b);
 
     // Select mode (select.h): ticks in the order made, unticking keeps the rest's order, All adds
     // the list after them, None clears; the grid draws its ticks.
     {
-        kana_selection sel; kana_selection_init(&sel, db.count);
-        CHECK(kana_selection_count(&sel) == 0 && !kana_selection_has(&sel, 5));
-        kana_selection_toggle(&sel, 7); kana_selection_toggle(&sel, 3); kana_selection_toggle(&sel, 9);
-        CHECK(kana_selection_count(&sel) == 3 && kana_selection_records(&sel)[0] == 7 && kana_selection_records(&sel)[2] == 9);
-        kana_selection_toggle(&sel, 3);
-        CHECK(kana_selection_count(&sel) == 2 && !kana_selection_has(&sel, 3) && kana_selection_records(&sel)[1] == 9);
+        fude_selection sel; fude_selection_init(&sel, db.count);
+        CHECK(fude_selection_count(&sel) == 0 && !fude_selection_has(&sel, 5));
+        fude_selection_toggle(&sel, 7); fude_selection_toggle(&sel, 3); fude_selection_toggle(&sel, 9);
+        CHECK(fude_selection_count(&sel) == 3 && fude_selection_records(&sel)[0] == 7 && fude_selection_records(&sel)[2] == 9);
+        fude_selection_toggle(&sel, 3);
+        CHECK(fude_selection_count(&sel) == 2 && !fude_selection_has(&sel, 3) && fude_selection_records(&sel)[1] == 9);
         const u32 more[4] = { 9, 11, 7, 12 };
-        kana_selection_add(&sel, more, 4);
-        CHECK(kana_selection_count(&sel) == 4 && kana_selection_records(&sel)[2] == 11 && kana_selection_records(&sel)[3] == 12);
-        kana_selection_toggle(&sel, db.count + 5);   // not a record: nothing
-        CHECK(kana_selection_count(&sel) == 4);
+        fude_selection_add(&sel, more, 4);
+        CHECK(fude_selection_count(&sel) == 4 && fude_selection_records(&sel)[2] == 11 && fude_selection_records(&sel)[3] == 12);
+        fude_selection_toggle(&sel, db.count + 5);   // not a record: nothing
+        CHECK(fude_selection_count(&sel) == 4);
         b.selection = &sel; sel.active = true;
-        kana_browse_set_filter(&b, KANA_FILTER_ALL); frame(&b);
-        kana_selection_add(&sel, kana_browse_list(&b), kana_browse_count(&b));
-        CHECK(kana_selection_count(&sel) >= kana_browse_count(&b)); frame(&b);
-        kana_selection_clear(&sel);
-        CHECK(kana_selection_count(&sel) == 0 && !kana_selection_has(&sel, 7));
-        b.selection = NULL; kana_selection_destroy(&sel);
+        fude_browse_set_filter(&b, FUDE_FILTER_ALL); frame(&b);
+        fude_selection_add(&sel, fude_browse_list(&b), fude_browse_count(&b));
+        CHECK(fude_selection_count(&sel) >= fude_browse_count(&b)); frame(&b);
+        fude_selection_clear(&sel);
+        CHECK(fude_selection_count(&sel) == 0 && !fude_selection_has(&sel, 7));
+        b.selection = NULL; fude_selection_destroy(&sel);
     }
 
-    kana_browse_destroy(&b); kana_kanji_unload(&db);
+    fude_browse_destroy(&b); fude_kanji_unload(&db);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

@@ -1,24 +1,33 @@
 kana — build commands
 =====================
 
-THE SOURCES are in layer folders under src/ (docs/architecture.md says what each
-is for): app/ screens/ widgets/ ink/ handwriting/ study/ chars/ base/ services/
-lang/ja/; kana.c, the shell, at the root. Each header is beside its source and
-is included by its folder ("widgets/row.h"), with -I<project>/src the only
-include path. A source added goes into the four lists below (Windows, Android,
-iOS, macOS) in its folder's place.
+THE SOURCES (docs/architecture.md says what each layer is for):
+  fude/drawing/   the drawing core, every app's: app/ (the shell's parts) base/ ink/ widgets/
+  fude/study/     a study app's: app/ (its extension, verbs, files, flags) chars/
+                  handwriting/ models/ screens/ widgets/ services/
+  fude/lang/ja/   Japanese's own
+  apps/kana/      Kana: kana.c (the shell), src/ (its own: kana_app, welcome,
+                  version.h, text_ids.h), assets/, platform/ios/, tools/, docs/, site/
+  apps/draw/      Draw, the drawing app: draw.c, src/text_ids.h, assets/, tools/
+Each header is beside its source and is included by its layer's path
+("drawing/widgets/row.h", "study/app/study.h"); the include paths are
+-I<project>/fude and the app's src/. A source added goes into the four lists
+below (Windows, Android, iOS, macOS) in its folder's place.
 
 ONCE, after the move into folders (2026-10-02): delete build/ before building —
 the builder links every object it finds in its obj/ folder, and the old flat
-names (src.toolbar.c.o) would be linked beside the new (src.app.ui.c.o...).
+names (src.toolbar.c.o) would be linked beside the new (fude.drawing.app.ui.c.o...).
 
 THE TESTS: tests/run.sh (macOS or Linux; RDE beside the project, or RDE=...)
 builds every suite with AddressSanitizer and UBSan and runs it; tests/README.md
 has what each covers.
 
-THE STRINGS: every text the app shows, in its five languages, is in
-tools/text/strings.py; after changing one, python3 tools/text/strings.py writes
-assets/text/strings.rdel and src/base/text_ids.h (don't edit those by hand).
+THE STRINGS: every text the app shows, in its five languages, is in the layers'
+strings files — fude/drawing/strings.py (the core's), fude/study/strings.py (a
+study app's) — and the app's own tool, which reads them and adds its own:
+python3 apps/kana/tools/strings.py writes apps/kana/assets/text/strings.rdel and
+apps/kana/src/text_ids.h (don't edit those by hand); apps/draw/tools/strings.py
+the same for Draw. A string of the core's or the study's changed: run both.
 
 The engine is built separately from the app, and it is built PER PLATFORM. A
 Windows engine build followed by an Android app build (or the reverse) does not
@@ -37,9 +46,9 @@ a tablet's. Use it to iterate on the code, then measure on a device.
 
   cd C:\Users\borja\Programming\Projects\kana
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
-    --assets_path=C:/Users/borja/Programming/Projects/kana/assets/ ^
-    --output_path=C:/Users/borja/Programming/Projects/kana/build/ ^
-    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c -IC:/Users/borja/Programming/Projects/kana/src ^
+    --assets_path=C:/Users/borja/Programming/Projects/kana/apps/kana/assets/ ^
+    --output_path=C:/Users/borja/Programming/Projects/kana/build/kana/ ^
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/widgets/draw.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c -IC:/Users/borja/Programming/Projects/kana/fude -IC:/Users/borja/Programming/Projects/kana/apps/kana/src ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -59,12 +68,12 @@ old .so, and the change simply is not in the APK.
   cd C:\Users\borja\Programming\Projects\kana
   C:/Users/borja/Programming/RDE/builder.exe --project --debug --android ^
     --android_app_name=Kana --android_package_name=com.rde.kana ^
-    --assets_path=./assets/ --abi_armv8a ^
+    --assets_path=./apps/kana/assets/ --abi_armv8a ^
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c -Isrc -Wall -Wextra ^
-    --output_path=C:\Users\borja\Programming\Projects\kana\build\
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/widgets/draw.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c -Ifude -Iapps/kana/src -Wall -Wextra ^
+    --output_path=C:\Users\borja\Programming\Projects\kana\build\kana\
 
 No --android_internet: the spike talks to nothing. Add it only when something
 actually needs the network, and never by default.
@@ -80,8 +89,8 @@ paths are absolute on purpose.
 
   cd ~/kana
   ~/RDE/builder --project --debug --ios \
-    --assets_path=/Users/borjavazquez/kana/assets/ \
-    --output_path=/Users/borjavazquez/kana/build/ \
+    --assets_path=/Users/borjavazquez/kana/apps/kana/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/kana/ \
     --ios_package_name=com.rde.kana --ios_app_name=Kana \
     "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
     "--ios_provisioning_profile=<~/Library/MobileDevice/Provisioning Profiles/....mobileprovision>" \
@@ -97,15 +106,15 @@ paths are absolute on purpose.
     --ios_framework=PhotosUI --ios_framework=CoreImage --ios_framework=Accelerate \
     --ios_framework=Network \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
-    --ios_bundle=/Users/borjavazquez/kana/platform/ios/localized \
-    --ios_assets=/Users/borjavazquez/kana/platform/ios/Assets.xcassets \
-    --ios_launch_storyboard=/Users/borjavazquez/kana/platform/ios/LaunchScreen.storyboard \
-    --ios_plist=/Users/borjavazquez/kana/platform/ios/Info.plist \
-    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c src/services/mlkit_ios.m src/services/textscan_ios.m src/services/translate_ios.m src/services/speech_ios.m \
-    -I/Users/borjavazquez/kana/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    --ios_bundle=/Users/borjavazquez/kana/apps/kana/platform/ios/localized \
+    --ios_assets=/Users/borjavazquez/kana/apps/kana/platform/ios/Assets.xcassets \
+    --ios_launch_storyboard=/Users/borjavazquez/kana/apps/kana/platform/ios/LaunchScreen.storyboard \
+    --ios_plist=/Users/borjavazquez/kana/apps/kana/platform/ios/Info.plist \
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/widgets/draw.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c fude/study/services/mlkit_ios.m fude/study/services/speech_ios.m fude/study/services/textscan_ios.m fude/study/services/translate_ios.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/kana/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
 
-platform/ios/ holds what the app is on iOS besides its code: the asset catalog
+apps/kana/platform/ios/ holds what the app is on iOS besides its code: the asset catalog
 (Assets.xcassets: the icon, AppIcon-1024.png, drawn from AppIcon.svg — 日本語 in
 KanjiVG's strokes before a red sun, over an open book; LaunchIcon, the icon
 rounded as iOS rounds it, for the launch screen; LaunchBackground, the launch
@@ -138,7 +147,7 @@ the iPad connected, then point the command at the new file.
 
 Install and launch (devicectl installs the .app, not the .ipa):
 
-  unzip -o build/Kana.ipa -d /tmp/kana_ipa
+  unzip -o build/kana/Kana.ipa -d /tmp/kana_ipa
   xcrun devicectl device install app --device <UDID> /tmp/kana_ipa/Payload/Kana.app
   xcrun devicectl device process launch --device <UDID> --terminate-existing com.rde.kana
 
@@ -177,13 +186,13 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
 
   cd ~/kana
   ~/RDE/builder --project --debug \
-    --assets_path=/Users/borjavazquez/kana/assets/ \
-    --output_path=/Users/borjavazquez/kana/build/ \
-    kana.c src/app/app.c src/app/ui.c src/app/page.c src/app/session.c src/app/look.c src/screens/viewer.c src/screens/browse.c src/screens/chart.c src/screens/practice.c src/screens/album.c src/screens/check.c src/screens/exam.c src/screens/stats.c src/screens/scan.c src/screens/vocabview.c src/screens/wordexam.c src/screens/welcome.c src/widgets/kit.c src/widgets/row.c src/widgets/filterbar.c src/widgets/header.c src/widgets/notice.c src/widgets/toolbar.c src/widgets/pagemenu.c src/widgets/side.c src/widgets/wordcard.c src/widgets/glyph.c src/widgets/draw.c src/widgets/scroll.c src/ink/ink.c src/ink/lasso.c src/ink/canvas.c src/ink/notes.c src/handwriting/match.c src/handwriting/score.c src/handwriting/segment.c src/handwriting/recognize.c src/handwriting/guide.c src/handwriting/textink.c src/study/vocab.c src/study/review.c src/study/marks.c src/study/examlog.c src/study/history.c src/study/charnote.c src/study/select.c src/study/sheet.c src/chars/kanji.c src/chars/catalog.c src/base/kfile.c src/base/save.c src/base/backup.c src/base/text.c src/base/theme.c src/services/mlkit.c src/services/textscan.c src/services/translate.c src/services/speech.c src/lang/ja/romaji.c src/lang/ja/wordsplit.c src/lang/ja/bake.c \
-    -I/Users/borjavazquez/kana/src -Wall -Wextra
+    --assets_path=/Users/borjavazquez/kana/apps/kana/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/kana/ \
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/widgets/draw.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/kana/src -Wall -Wextra
 
-  ./build/osx-silicon/debug/project/exe/runnable                  # the app
-  ./build/osx-silicon/debug/project/exe/runnable --viewer=6728    # straight into the viewer on 木 (hex code point)
+  ./build/kana/osx-silicon/debug/project/exe/runnable                  # the app
+  ./build/kana/osx-silicon/debug/project/exe/runnable --viewer=6728    # straight into the viewer on 木 (hex code point)
 
 Looks, without the device (debug builds: a release takes no arguments): a screen (--browse, --kana, --stats, --exam,
 --exam-start, --side, --paper, --album, --album-exams, --album-page=HEX,
@@ -209,7 +218,8 @@ of the window once it has settled, then the app quits. --press=I,J,... presses
 the buttons of the row of the screen on top in turn, as taps would (from frame
 30, one every four frames; the shot waits for the last), and --language=N
 switches to Kana's Nth language at frame 12 — to check what the buttons DO
-without a device (src/app/look.c has every flag).
+without a device (fude/drawing/app/look.h has the core's flags, fude/study/app/
+look.c the study's, apps/kana/src/kana_app.c Kana's: --kana, --welcome[=PAGE]).
 
 On the device (a build that takes arguments, as for --perf):
 --translate-probe=xx tries ML Kit's translator — Japanese into xx (en, es, pt,
@@ -217,17 +227,37 @@ fr), its models downloaded when missing, four sentences — and writes the answe
 and times to translate.txt in the save folder (copy it back as perf.txt is). The
 app carries on afterwards: an iOS app cannot quit itself.
 
-  ./build/osx-silicon/debug/project/exe/runnable --size=744x1133 --stats --scroll=900 --shot=/tmp/stats.png
+  ./build/kana/osx-silicon/debug/project/exe/runnable --size=744x1133 --stats --scroll=900 --shot=/tmp/stats.png
 
 Saves are ./saves/ under the folder it runs in: run it from another folder
 (with links to runnable, libRDE.dylib and assets) to look at planted data.
 
 
+DRAW (the drawing app) — on the Mac
+----------------------------------
+The drawing core alone (fude/drawing), no study layer: an endless page, the
+toolbar, the side panel's canvases, Settings. Its sources are its shell and the
+core's — every .c under fude/drawing/, in any order:
+
+  cd ~/kana
+  ~/RDE/builder --project --debug \
+    --assets_path=/Users/borjavazquez/kana/apps/draw/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/draw/ \
+    apps/draw/draw.c $(ls fude/drawing/*/*.c) \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/draw/src -Wall -Wextra
+
+  ./build/draw/osx-silicon/debug/project/exe/runnable
+
+The core's launch flags work the same (--size, --side, --settings, --shot...).
+Its saves are ./saves/ under the folder it runs in on a computer, and draw/ in
+its own storage on a device (fude_save_set_folder).
+
+
 THE CHARACTER DATA BAKE
 -----------------------
-assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2, with the JLPT
-lists, JMdict's example words and Tatoeba's example sentences (format in
-src/chars/kanji.h). Re-bake only when the sources are updated. The sources are
+apps/kana/assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2, with the
+JLPT lists, JMdict's example words and Tatoeba's example sentences (format in
+fude/study/chars/kanji.h; the bake: fude/lang/ja/bake.c). Re-bake only when the sources are updated. The sources are
 not in the repository (data/raw/ is ignored):
 
   mkdir -p data/raw && cd data/raw
@@ -272,53 +302,57 @@ none.)
 
 Then, with the Mac desktop build above, from the project root:
 
-  ./build/osx-silicon/debug/project/exe/runnable --bake
+  ./build/kana/osx-silicon/debug/project/exe/runnable --bake
       [--kanjivg=PATH] [--kanjidic=PATH] [--jlpt=DIR] [--jmdict=PATH] [--tatoeba=DIR] [--out=PATH]
 
 It reports characters, strokes, sizes, stroke-count disagreements and example
 words and sentences, then the look-alikes (the matcher over the file just
-written, appended as 'LOOK': ~18 s), and takes about twenty-five seconds. The sources are CC BY-SA and CC BY: assets/data/LICENSE-data.txt must
+written, appended as 'LOOK': ~18 s), and takes about twenty-five seconds. The sources are CC BY-SA and CC BY: apps/kana/assets/data/LICENSE-data.txt must
 ship with the app and its attribution must be shown to users.
 
 
 THE FONTS
 ---------
-assets/fonts/ ships Roboto (the UI's Latin, Apache 2.0) and Noto Sans JP (its
-fallback for Japanese typed or shown as text, SIL OFL 1.1: the licence file
-ships beside it). Noto Sans JP is the Japanese subset from the noto-cjk
+apps/kana/assets/fonts/ ships Roboto (the UI's Latin, Apache 2.0) and Noto Sans
+JP (its fallback for Japanese typed or shown as text — the app's script font,
+info.h — SIL OFL 1.1: the licence file ships beside it). Draw ships Roboto,
+Phosphor and NotoSansJP-Names.otf: Noto Sans JP cut down to 日本語, for the
+language picker (pyftsubset ... --text="日本語"). Noto Sans JP is the Japanese subset from the noto-cjk
 repository, Regular only (~4.5 MB); Slug loads its glyphs as they are used:
 
-  curl -L -o assets/fonts/NotoSansJP-Regular.otf https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/JP/NotoSansJP-Regular.otf
+  curl -L -o apps/kana/assets/fonts/NotoSansJP-Regular.otf https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/JP/NotoSansJP-Regular.otf
 
 The icons are Phosphor (MIT, https://phosphoricons.com): only its Regular and
-Fill fonts ship (assets/fonts/Phosphor-*.ttf, and LICENSE-Phosphor.txt). The
-whole package (SVGs, PNGs, the other weights, and the stylesheets that give
-each icon's code point — src/widgets/icons.h is made from Fonts/regular/style.css)
+Fill fonts ship (apps/kana/assets/fonts/Phosphor-*.ttf, and LICENSE-Phosphor.txt;
+Draw has copies). The whole package (SVGs, PNGs, the other weights, and the
+stylesheets that give each icon's code point — fude/drawing/widgets/icons.h is
+made from Fonts/regular/style.css)
 is kept in data/raw/phosphor-icons/, not in the repository nor the app.
 
-The two shipped fonts are cut down to the icons Kana uses (src/widgets/icons.h:
-97, ~20 KB each instead of ~470 KB; the outlines and metrics are unchanged,
-so KANA_KIT_ICON_BEARINGS still holds). A NEW ICON means cutting them
+The two shipped fonts are cut down to the icons the apps use (fude/drawing/
+widgets/icons.h: 97, ~20 KB each instead of ~470 KB; the outlines and metrics are
+unchanged, so FUDE_KIT_ICON_BEARINGS still holds). A NEW ICON means cutting them
 again from the whole fonts, with fontTools' pyftsubset (pip install fonttools;
 a one-off tool, nothing in the app needs it). From the project root:
 
-  U=$(python3 -c "import re;s=open('src/widgets/icons.h').read();print(','.join(sorted({'%04X'%ord(c) for m in re.findall(r'#define\s+KANA_ICON_\w+\s+\"([^\"]+)\"',s) for c in bytes(int(h,16) for h in re.findall(r'\\\\x([0-9A-Fa-f]{2})',m)).decode()})))")
+  U=$(python3 -c "import re;s=open('fude/drawing/widgets/icons.h').read();print(','.join(sorted({'%04X'%ord(c) for m in re.findall(r'#define\s+FUDE_ICON_\w+\s+\"([^\"]+)\"',s) for c in bytes(int(h,16) for h in re.findall(r'\\\\x([0-9A-Fa-f]{2})',m)).decode()})))")
   for f in regular/Phosphor:Regular fill/Phosphor-Fill:Fill; do
     pyftsubset data/raw/phosphor-icons/Fonts/${f%%:*}.ttf --unicodes="$U" \
-      --output-file=assets/fonts/Phosphor-${f##*:}.ttf --no-hinting --layout-features='' \
+      --output-file=apps/kana/assets/fonts/Phosphor-${f##*:}.ttf --no-hinting --layout-features='' \
       --name-IDs='*' --name-languages='*' --name-legacy --notdef-outline
   done
 
-then the icons' bearings, measured from the new font (KANA_KIT_ICON_BEARINGS
-in src/widgets/kit.c is rewritten): python3 tools/icons/bearings.py
-  curl -L -o assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
+then the icons' bearings, measured from the new font (FUDE_KIT_ICON_BEARINGS
+in fude/drawing/widgets/kit.c is rewritten): python3 tools/icons/bearings.py;
+and the new fonts copied into apps/draw/assets/fonts/ too.
+  curl -L -o apps/kana/assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
 
 
 WHAT TO LOOK FOR ON THE DEVICE
 ------------------------------
 1. The top line of the HUD. "PEN" means stylus events arrive and the shared-ink
    plan holds. "TOUCH ONLY" on an iPad with an Apple Pencil is the answer to
-   open question 1 in docs/design.md, and it is a bad one.
+   open question 1 in apps/kana/docs/design.md, and it is a bad one.
 
 2. Pressure moving as you press harder, and the stroke visibly thickening. If
    pressure stays 0.00 the PEN_AXIS events are not arriving even though position
@@ -340,11 +374,11 @@ WHAT TO LOOK FOR ON THE DEVICE
 
 THE APP STORE
 -------------
-docs/app_store.md: what leaves the device, the permissions, the privacy
-manifests, App Store Connect's App Privacy answers, what is still open.
-docs/store/listing.md: the store texts in the five languages, the age rating,
-the review notes, the screenshots' list.
+apps/kana/docs/app_store.md: what leaves the device, the permissions, the
+privacy manifests, App Store Connect's App Privacy answers, what is still open.
+apps/kana/docs/store/listing.md: the store texts in the five languages, the age
+rating, the review notes, the screenshots' list.
 
-  python3 tools/store/site.py                     # site/privacy.html + site/index.html (CONTACT at its top)
-  python3 -m pip install pillow                   # once, for the next
-  python3 tools/store/screenshots.py SHOTS [OUT]  # iPad screenshots -> 13-inch, captioned, per language
+  python3 apps/kana/tools/store/site.py                     # apps/kana/site/privacy.html + index.html (CONTACT at its top)
+  python3 -m pip install pillow                             # once, for the next
+  python3 apps/kana/tools/store/screenshots.py SHOTS [OUT]  # iPad screenshots -> 13-inch, captioned, per language

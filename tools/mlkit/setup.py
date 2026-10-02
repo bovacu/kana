@@ -28,8 +28,8 @@
 #                Apple's privacy report reads every manifest in the app
 #
 # and, into the app's assets (they ship, and Settings > Licences shows them):
-#   assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
-#   assets/licenses/libraries.txt        the source pods' licences
+#   apps/kana/assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
+#   apps/kana/assets/licenses/libraries.txt        the source pods' licences
 #
 # Run from the project root:  python3 tools/mlkit/setup.py
 # ===========================================================================
@@ -175,7 +175,7 @@ for fw in FRAMEWORKS:
         bundle(fw + "_Privacy", [(manifest, "PrivacyInfo.xcprivacy")])
 
 # The licences, into the app's assets.
-LIC = os.path.join(ROOT, "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
+LIC = os.path.join(ROOT, "apps", "kana", "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
 with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
     out.write("GOOGLE ML KIT (" + ", ".join(FRAMEWORKS) + ")\n"
               "Used under Google's terms: developers.google.com/ml-kit/terms\n\n"
