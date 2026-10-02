@@ -78,6 +78,7 @@ paths are absolute on purpose.
     --ios_framework=PhotosUI --ios_framework=CoreImage --ios_framework=Accelerate \
     --ios_framework=Network \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    --ios_bundle=/Users/borjavazquez/kana/platform/ios/localized \
     --ios_assets=/Users/borjavazquez/kana/platform/ios/Assets.xcassets \
     --ios_launch_storyboard=/Users/borjavazquez/kana/platform/ios/LaunchScreen.storyboard \
     --ios_plist=/Users/borjavazquez/kana/platform/ios/Info.plist \
@@ -92,7 +93,11 @@ rounded as iOS rounds it, for the launch screen; LaunchBackground, the launch
 screen's colour: Paper's page, Night's in dark mode), the launch screen (LaunchScreen.storyboard:
 the icon centred, 160 points) and Kana's
 own Info.plist keys (Info.plist: iPad only, every orientation, full screen, no
-non-exempt encryption), merged over the engine template's. --ios_assets,
+non-exempt encryption, the camera's purpose, Kana's five languages), merged over
+the engine template's; localized/<language>.lproj/InfoPlist.strings, the camera
+prompt in each language, go into the app through --ios_bundle (a plain folder:
+its contents are copied beside the executable) — and make the App Store list the
+five languages. --ios_assets,
 --ios_launch_storyboard and --ios_plist are builder options added for them
 (rde_build.c); without them a build gets the template's.
 
@@ -307,3 +312,15 @@ WHAT TO LOOK FOR ON THE DEVICE
    app's half only, because everything before the event reaches the process is
    invisible from inside it. Photograph it if you want a number: gap in mm,
    divided by pen speed in mm/ms.
+
+
+THE APP STORE
+-------------
+docs/app_store.md: what leaves the device, the permissions, the privacy
+manifests, App Store Connect's App Privacy answers, what is still open.
+docs/store/listing.md: the store texts in the five languages, the age rating,
+the review notes, the screenshots' list.
+
+  python3 tools/store/site.py                     # site/privacy.html + site/index.html (set CONTACT first)
+  python3 -m pip install pillow                   # once, for the next
+  python3 tools/store/screenshots.py SHOTS [OUT]  # iPad screenshots -> 13-inch, captioned, per language

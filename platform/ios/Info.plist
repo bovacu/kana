@@ -31,5 +31,19 @@
          photo chosen. -->
     <key>NSCameraUsageDescription</key>
     <string>Kana reads the Japanese text the camera sees, so you can write it on the page.</string>
+    <!-- Kana's languages (text.h): iOS shows the camera prompt in the device's
+         language from platform/ios/localized/<language>.lproj/InfoPlist.strings
+         (copied into the app with --ios_bundle), and the App Store lists these
+         languages on the app's page. -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>es</string>
+        <string>pt-BR</string>
+        <string>ja</string>
+        <string>fr</string>
+    </array>
 </dict>
 </plist>

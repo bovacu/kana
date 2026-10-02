@@ -644,6 +644,22 @@ a server): export / import instead. Built in this order:
 - [ ] On the iPad: the word card (typing, lists), Save word on handwriting,
       word exams by ear, the screens' layouts.
 
+## 10f. To the App Store (2026-10-02; details in docs/app_store.md)
+
+- [ ] macOS and Xcode updated (this Mac: macOS 14.4, Xcode 15.3 — uploads need a
+      current SDK); the engine and Kana rebuilt with it and tried on the iPad.
+- [ ] Writing without an Apple Pencil: decide (a finger-writing setting, or the
+      Pencil stated as required).
+- [x] The camera's prompt in the five languages; the app declares them
+      (CFBundleLocalizations, platform/ios/localized/*.lproj): the store lists them.
+- [x] Privacy policy and support pages, five languages: tools/store/site.py →
+      site/. [ ] CONTACT set, site/ hosted, the two URLs in App Store Connect.
+- [x] The store texts in five languages, the age-rating answers, the review
+      notes: docs/store/listing.md.
+- [x] The screenshot framer: tools/store/screenshots.py (iPad shots → 13-inch,
+      captioned, per language). [ ] The eight shots taken on the iPad.
+- [ ] The App Store Connect record; its Apple ID into KANA_APP_STORE_ID.
+
 ## 11. Release polish
 
 See `docs/app_store.md` for privacy, licences and permissions.
