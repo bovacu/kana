@@ -10,6 +10,7 @@ EN-US:
 @plural = n != 1
 FINISH=Finish
 CLOSE=Close
+READ_CLOSE_IN=Close ({0})
 CANCEL=Cancel
 DELETE=Delete
 SAVE=Save
@@ -149,6 +150,7 @@ ES-ES:
 @group = .
 FINISH=Terminar
 CLOSE=Cerrar
+READ_CLOSE_IN=Cerrar ({0})
 CANCEL=Cancelar
 DELETE=Eliminar
 SAVE=Guardar
@@ -288,6 +290,7 @@ PT-BR:
 @group = .
 FINISH=Concluir
 CLOSE=Fechar
+READ_CLOSE_IN=Fechar ({0})
 CANCEL=Cancelar
 DELETE=Excluir
 SAVE=Salvar
@@ -425,6 +428,7 @@ JA-JP:
 @plural = 1
 FINISH=終了
 CLOSE=閉じる
+READ_CLOSE_IN=閉じる（{0}）
 CANCEL=キャンセル
 DELETE=削除
 SAVE=保存
@@ -564,6 +568,7 @@ FR-FR:
 @group =  
 FINISH=Terminer
 CLOSE=Fermer
+READ_CLOSE_IN=Fermer ({0})
 CANCEL=Annuler
 DELETE=Supprimer
 SAVE=Enregistrer

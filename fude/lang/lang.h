@@ -32,6 +32,9 @@ const c8* fude_lang_code(void);
 const c8* fude_lang_ink_model(void);
 // The voice reading aloud (iOS AVSpeechSynthesizer): "ja-JP".
 const c8* fude_lang_voice(void);
+// The language as one of the app's UI languages (the fourth: text.h's taught
+// one): its RDE id, its name in itself ("日本語") and its flag (assets/flags/).
+RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag);
 
 // --- groups: the kinds of character to learn ---------------------------------------
 

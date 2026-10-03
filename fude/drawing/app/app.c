@@ -5,6 +5,7 @@
 #include "drawing/widgets/notice.h"
 #include "drawing/base/save.h"
 #include "drawing/base/android.h"
+#include "drawing/ink/lasso.h"
 
 #include <string.h>
 
@@ -78,9 +79,62 @@ void fude_app_close_all(fude_app* _app) {
     _app->pointer = FUDE_POINTER_NONE;
 }
 
+// --- Back ---------------------------------------------------------------------------------
+// Android's Back and the desktop's Escape: the topmost thing closed as its own
+// button closes it — the side panel's cards and the panel, the toolbar's
+// palettes, the page's menu, the screen on top (its row's Back, else its Close,
+// else its close: a screen without one, as the welcome, keeps it), the document
+// bar's search, a lasso's selection. Nothing open: Android's Back is the
+// system's (it leaves the app); Escape does nothing.
+RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
+    fude_ui* _ui = _app->ui;
+    if(fude_side_back(_ui)) {
+        return;
+    }
+    if(_ui->bar.palette_open || _ui->bar.paper_open) {
+        fude_toolbar_set_palette_open(&_ui->bar, false);
+        fude_toolbar_set_paper_open(&_ui->bar, false);
+        fude_ui_update(_ui);
+        return;
+    }
+    if(_ui->page.context.open) {
+        fude_pagemenu_close_context(&_ui->page);
+        fude_ui_update(_ui);
+        return;
+    }
+    const fude_screen_slot* _top = fude_app_top(_app);
+    if(_top != NULL) {
+        if(!fude_ui_press_back(_ui) && _top->vt->close != NULL) {
+            _top->vt->close(_top->self);
+        }
+        _app->pointer = FUDE_POINTER_NONE;
+        return;
+    }
+    if(fude_docbar_back(&_ui->docbar)) {
+        fude_ui_update(_ui);
+        return;
+    }
+    rde_vec_2F _min, _max;
+    if(fude_lasso_busy(_app->lasso) || fude_lasso_box(_app->lasso, _app->ink, &_min, &_max)) {
+        fude_lasso_clear(_app->lasso, _app->ink);
+        return;
+    }
+    if(_system) {
+        rde_mobile_system_back();
+    }
+}
+
 // --- each frame -----------------------------------------------------------------------------
 
 b8 fude_app_update(fude_app* _app, f32 _dt) {
+    // Back first: what it closes is gone before anything else looks. Android's on
+    // its RELEASE, as Android acts on it: the gesture (and adb) send the press and
+    // the release together, so one frame has both and "just pressed" never shows.
+    const b8 _back = rde_input_key_is_just_released(_app->window, RDE_KEYBOARD_KEY_AC_BACK);
+    if(_back || rde_input_key_is_just_pressed(_app->window, RDE_KEYBOARD_KEY_ESCAPE)) {
+        fude_app_back(_app, _back);
+    }
+
     // A screen back on top — the one over it closed — picks up where it was.
     const fude_screen_slot* _top = fude_app_top(_app);
     if(_top != _app->top_seen) {
@@ -104,9 +158,6 @@ b8 fude_app_update(fude_app* _app, f32 _dt) {
 #endif
     if(_top->vt->update != NULL) {
         _top->vt->update(_app, _top->self, _dt);
-    }
-    if(rde_input_key_is_just_pressed(_app->window, RDE_KEYBOARD_KEY_ESCAPE) && _top->vt->close != NULL && fude_app_slot_open(_top)) {
-        _top->vt->close(_top->self);
     }
     return true;
 }

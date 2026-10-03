@@ -30,6 +30,7 @@
 #include "drawing/widgets/draw.h"
 #include "study/services/mlkit.h"
 #include "study/handwriting/match.h"
+#include "lang/lang.h"
 #include "study/models/marks.h"
 #include "study/models/examlog.h"
 #include "study/models/vocab.h"
@@ -74,6 +75,7 @@ RDE_INTERNAL fude_vocabview vocabview;
 RDE_INTERNAL fude_wordexam  wordexam;
 RDE_INTERNAL fude_translator translator;
 RDE_INTERNAL fude_welcome   welcome;
+RDE_INTERNAL fude_readcard  readcard;   // why the app works offline, once after the welcome
 RDE_INTERNAL fude_library   library;
 RDE_INTERNAL fude_page_input page;
 RDE_INTERNAL fude_ui        ui;
@@ -136,6 +138,7 @@ RDE_INTERNAL void fude_hud_render(rde_window* _window) {
 // The screens, in the order they stack (kana_app.h: KANA_SCREEN_).
 RDE_INTERNAL void fude_screens_place(void) {
     const struct { KANA_SCREEN_ id; const fude_screen* vt; void* self; } _screens[] = {
+        { KANA_SCREEN_READCARD, &FUDE_READCARD_SCREEN, &readcard },
         { KANA_SCREEN_WELCOME,  &FUDE_WELCOME_SCREEN,  &welcome },
         { KANA_SCREEN_PRACTICE, &FUDE_PRACTICE_SCREEN, &practice },
         { KANA_SCREEN_VIEWER,   &FUDE_VIEWER_SCREEN,   &viewer },
@@ -171,6 +174,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_app_window(_window);    // its units (dp on Android): before anything reads its size
     // The words first: the UI is built in them. The device's language when Kana
     // speaks it; a saved choice replaces it (session.h).
+    {   // its fourth UI language: the one it teaches (lang.h), when its strings have it
+        const c8*           _name;
+        const c8*           _flag;
+        const RDE_LANGUAGE_ _taught = fude_lang_ui_language(&_name, &_flag);
+        fude_text_set_taught_language(_taught, _name, _flag);
+    }
     fude_text_set_language(fude_text_default_language());
     camera = rde_camera_create(_window, RDE_CAMERA_TYPE_ORTHOGRAPHIC);
     rde_engine_set_top_overlay_render(fude_render_top);
@@ -226,6 +235,8 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     app->finger_writes = true;   // a tablet starts with the hand on, until its settings (or a pen) say otherwise
 #endif
     fude_screens_place();
+    welcome.card       = &readcard;          // closed, the welcome opens it the first time
+    welcome.cards_read = &app->cards_read;
     fude_study_init(&kana.study);
     fude_page_init(&page, app);
     fude_ui_init(&ui, app);

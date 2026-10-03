@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 sys.dont_write_bytecode = True   # no __pycache__ left in tools/strings/
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'strings'))
-from build import t, o, P, layer, write
+from build import t, o, P, layer, write, fourth
 
 layer(os.path.join(ROOT, 'fude', 'drawing', 'strings.py'))
 layer(os.path.join(ROOT, 'fude', 'study', 'strings.py'))
@@ -87,6 +87,16 @@ t('LECTURE_PHRASEBOOK_ABOUT', 'Hangul, pronunciation, a little grammar, and the 
   'O hangul, a pronúncia, um pouco de gramática e as frases de que uma viagem precisa (cumprimentos, números, horas, transporte, comida, compras), com a romanização. Do Wikivoyage.',
   'ハングル、発音、少しの文法、旅に必要なフレーズ（あいさつ、数字、時間、交通、食事、買い物）をローマ字つきで。Wikivoyageより。',
   'Le hangul, la prononciation, un peu de grammaire et les phrases d’un voyage (salutations, nombres, heures, transports, nourriture, achats), avec leur romanisation. De Wikivoyage.')
+
+# The fourth language: Korean (the one Hangul teaches) in place of Japanese, once
+# every string has one: each layer's strings_ko.py beside its strings.py, and this
+# tool's own (tools/strings/build.py: fourth).
+fourth('KO-KR', 'Korean', ['@plural = 1'], [
+    os.path.join(ROOT, 'fude', 'drawing', 'strings_ko.py'),
+    os.path.join(ROOT, 'fude', 'study', 'strings_ko.py'),
+    os.path.join(ROOT, 'fude', 'lang', 'ko', 'strings_ko.py'),
+    os.path.join(HERE, 'strings_ko.py'),
+])
 
 if __name__ == '__main__':
     write(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..'), 'apps/hangul/tools/strings.py')

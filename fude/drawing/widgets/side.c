@@ -121,6 +121,25 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_backdrop(rde_ui_node* _node, cons
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Back: the topmost card, as its own button closes it (the handlers above and
+// below take no node or event).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_licences_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_data_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_settings_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_card_cancel(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+
+b8 fude_side_back(fude_ui* _ui) {
+    fude_side* _side = &_ui->side;
+    if(_side->licences_open)                          { fude_side_on_licences_close(NULL, NULL, _ui); }
+    else if(_side->data_open)                         { fude_side_on_data_close(NULL, NULL, _ui); }
+    else if(_side->card_mode != FUDE_SIDE_CARD_NONE)  { fude_side_on_card_cancel(NULL, NULL, _ui); }
+    else if(_side->settings_open)                     { fude_side_on_settings_close(NULL, NULL, _ui); }
+    else if(_side->open)                              { fude_side_on_backdrop(NULL, NULL, _ui); }
+    else                                              { return false; }
+    fude_ui_update(_ui);
+    return true;
+}
+
 // The app's navigation (extension.h).
 RDE_INTERNAL const fude_extension_nav* fude_side_nav(const fude_ui* _ui) {
     const fude_extension_nav* _nav = fude_app_ext(_ui->app)->nav;

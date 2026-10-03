@@ -368,6 +368,7 @@ b8 fude_save_settings(const c8* _path, const fude_settings* _settings) {
     fude_put_u8(&_b, _settings->pen_ever ? 1u : 0u);
     fude_put_color(&_b, _settings->marker_color);
     fude_put_f32(&_b, _settings->marker_radius);
+    fude_put_u8(&_b, _settings->cards_read);
     fude_chunk_end(&_b, _chunk);
 
     return fude_bytes_write_and_free(&_b, _path, NULL);
@@ -451,6 +452,8 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         if(_c.ok && _marker.a > 0u) { _s.marker_color = _marker; }
         const f32 _marker_radius = fude_get_f32(&_c);
         if(_c.ok && fude_finite(_marker_radius) && _marker_radius > 0.0f) { _s.marker_radius = _marker_radius; }
+        const u8 _cards = fude_get_u8(&_c);   // from before the cards: none read
+        if(_c.ok) { _s.cards_read = _cards; }
     }
 
     fude_file_free(_data);
@@ -471,5 +474,5 @@ b8 fude_settings_equal(const fude_settings* _a, const fude_settings* _b) {
            fude_same_f32(_a->toolbar_center.x, _b->toolbar_center.x) && fude_same_f32(_a->toolbar_center.y, _b->toolbar_center.y) &&
            _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
            _a->paper_size == _b->paper_size && _a->language == _b->language && _a->finger_writes == _b->finger_writes &&
-           _a->pen_ever == _b->pen_ever;
+           _a->pen_ever == _b->pen_ever && _a->cards_read == _b->cards_read;
 }

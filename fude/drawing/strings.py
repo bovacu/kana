@@ -8,6 +8,7 @@
 # --- common words ---------------------------------------------------------------
 t('FINISH', 'Finish', 'Terminar', 'Concluir', '終了', 'Terminer')
 t('CLOSE', 'Close', 'Cerrar', 'Fechar', '閉じる', 'Fermer')
+t('READ_CLOSE_IN', 'Close ({0})', 'Cerrar ({0})', 'Fechar ({0})', '閉じる（{0}）', 'Fermer ({0})')   # a must-read card's Close, counting down (readcard.h)
 t('CANCEL', 'Cancel', 'Cancelar', 'Cancelar', 'キャンセル', 'Annuler')
 t('DELETE', 'Delete', 'Eliminar', 'Excluir', '削除', 'Supprimer')
 t('SAVE', 'Save', 'Guardar', 'Salvar', '保存', 'Enregistrer')

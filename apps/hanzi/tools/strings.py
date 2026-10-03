@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 sys.dont_write_bytecode = True   # no __pycache__ left in tools/strings/
 sys.path.insert(0, os.path.join(ROOT, 'tools', 'strings'))
-from build import t, o, P, layer, write
+from build import t, o, P, layer, write, fourth
 
 layer(os.path.join(ROOT, 'fude', 'drawing', 'strings.py'))
 layer(os.path.join(ROOT, 'fude', 'study', 'strings.py'))
@@ -86,6 +86,16 @@ t('LECTURE_PHRASEBOOK_ABOUT', 'Pronunciation, tones, a little grammar, and the p
   'Pronúncia, tons, um pouco de gramática e as frases de que uma viagem precisa (cumprimentos, números, horas, transporte, comida, compras) em mandarim, com o pinyin. Do Wikivoyage.',
   '発音、声調、少しの文法、旅に必要なフレーズ（あいさつ、数字、時間、交通、食事、買い物）をピンインつきで。Wikivoyageより。',
   'La prononciation, les tons, un peu de grammaire et les phrases d’un voyage (salutations, nombres, heures, transports, nourriture, achats) en mandarin, avec leur pinyin. De Wikivoyage.')
+
+# The fourth language: Chinese (Simplified) (the one Hanzi teaches) in place of Japanese, once
+# every string has one: each layer's strings_zh.py beside its strings.py, and this
+# tool's own (tools/strings/build.py: fourth).
+fourth('ZH-CN', 'Chinese (Simplified)', ['@plural = 1'], [
+    os.path.join(ROOT, 'fude', 'drawing', 'strings_zh.py'),
+    os.path.join(ROOT, 'fude', 'study', 'strings_zh.py'),
+    os.path.join(ROOT, 'fude', 'lang', 'zh', 'strings_zh.py'),
+    os.path.join(HERE, 'strings_zh.py'),
+])
 
 if __name__ == '__main__':
     write(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..'), 'apps/hanzi/tools/strings.py')

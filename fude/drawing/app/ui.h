@@ -88,6 +88,9 @@ void       fude_ui_trim_fonts(fude_ui* _ui);
 // Button _button of the row of the screen on top pressed, as a tap would (a
 // developer's look: --press). False when there is no such button.
 b8         fude_ui_press(fude_ui* _ui, u32 _button);
+// Back (Android's, Escape): the row on top's Back, else its Close, pressed as a
+// tap would. False: it has neither there now (left out, greyed, or no row).
+b8         fude_ui_press_back(fude_ui* _ui);
 // Phosphor Regular (the UI font when it did not load).
 rde_font*  fude_ui_icon_font(const fude_ui* _ui);
 

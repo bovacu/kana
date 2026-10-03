@@ -18,6 +18,12 @@ const c8* fude_lang_code(void)      { return "zh"; }
 const c8* fude_lang_ink_model(void) { return "zh-Hani-CN"; }
 const c8* fude_lang_voice(void)     { return "zh-CN"; }
 
+RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
+    *_name = "\xE7\xAE\x80\xE4\xBD\x93\xE4\xB8\xAD\xE6\x96\x87";   // 简体中文
+    *_flag = "assets/flags/cn.png";
+    return RDE_LANGUAGE_ZH_CN;
+}
+
 // --- groups: simplified (and shared), traditional only -------------------------------
 
 enum { FUDE_ZH_SIMPLIFIED = 0, FUDE_ZH_TRADITIONAL, FUDE_ZH_GROUPS };

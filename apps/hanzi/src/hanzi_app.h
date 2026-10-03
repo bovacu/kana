@@ -16,7 +16,8 @@
 // Every screen, in the order they stack: the first open one is on top (and gets
 // the pointer, its row, the frame). The page is under them all.
 typedef enum {
-    HANZI_SCREEN_WELCOME = 0,   // over everything (the first time, and from Settings)
+    HANZI_SCREEN_READCARD = 0,  // a must-read card (readcard.h): over everything, the welcome too
+    HANZI_SCREEN_WELCOME,   // over everything (the first time, and from Settings)
     HANZI_SCREEN_PRACTICE,      // over whatever opened it
     HANZI_SCREEN_VIEWER,        // over the lists, an exam's results, Check, Statistics
     HANZI_SCREEN_SCAN,

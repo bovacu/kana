@@ -149,6 +149,14 @@ FUDE_DOCBAR_CALLBACK(fude_docbar_on_close) {
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+b8 fude_docbar_back(fude_docbar* _bar) {
+    if(_bar->mode == FUDE_DOCBAR_IDLE) {
+        return false;
+    }
+    fude_docbar_on_close(NULL, NULL, _bar);
+    return true;
+}
+
 // Return: the words searched for, or the page gone to.
 RDE_INTERNAL void fude_docbar_on_submit(rde_ui_node* _node, any _user_data) {
     RDE_UNUSED(_node);

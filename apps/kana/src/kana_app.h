@@ -17,7 +17,8 @@
 // Every screen, in the order they stack: the first open one is on top (and gets
 // the pointer, its row, the frame). The page is under them all.
 typedef enum {
-    KANA_SCREEN_WELCOME = 0,   // over everything (the first time, and from Settings)
+    KANA_SCREEN_READCARD = 0,  // a must-read card (readcard.h): over everything, the welcome too
+    KANA_SCREEN_WELCOME,   // over everything (the first time, and from Settings)
     KANA_SCREEN_PRACTICE,      // over whatever opened it
     KANA_SCREEN_VIEWER,        // over the lists, an exam's results, Check, Statistics
     KANA_SCREEN_SCAN,

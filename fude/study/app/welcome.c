@@ -35,6 +35,21 @@ void fude_welcome_open(fude_welcome* _welcome) {
     _welcome->pressed = 0;
 }
 
+void fude_welcome_offline(fude_welcome* _welcome) {
+    if(_welcome->card != NULL) {
+        fude_readcard_open(_welcome->card, FUDE_TEXT_OFFLINE_TITLE, FUDE_TEXT_OFFLINE, FUDE_WELCOME_CARD_SECONDS, _welcome->cards_read,
+                           FUDE_WELCOME_CARD_OFFLINE);
+    }
+}
+
+// Skipped or finished: the card, the first time.
+RDE_INTERNAL void fude_welcome_close(fude_welcome* _welcome) {
+    _welcome->open = false;
+    if(_welcome->cards_read != NULL && (*_welcome->cards_read & FUDE_WELCOME_CARD_OFFLINE) == 0u) {
+        fude_welcome_offline(_welcome);
+    }
+}
+
 RDE_INTERNAL b8 fude_welcome_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F _max) {
     return _p.x >= _min.x && _p.x <= _max.x && _p.y >= _min.y && _p.y <= _max.y;
 }
@@ -51,10 +66,10 @@ void fude_welcome_pointer_up(fude_welcome* _welcome, rde_vec_2F _screen) {
         if(_welcome->page + 1u < FUDE_WELCOME_PAGES) {
             _welcome->page++;
         } else {
-            _welcome->open = false;   // Start writing
+            fude_welcome_close(_welcome);   // Start writing
         }
     } else if(_was == 2 && fude_welcome_inside(_screen, _welcome->skip_min, _welcome->skip_max)) {
-        _welcome->open = false;
+        fude_welcome_close(_welcome);
     }
 }
 

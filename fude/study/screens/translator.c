@@ -181,14 +181,18 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - 24.0f;
     const f32         _width  = _right - _left;
 
-    // The header: 訳, "Into Japanese", the language typed in → 日本語. (The field
-    // is at the top right: the UI's.)
-    c8 _caption[96];
-    const c8* _name = "English";
+    // The header: 訳, "Into Japanese", the language typed in → the one taught, in
+    // itself (日本語). The UI in that one: English is what is typed. (The field is
+    // at the top right: the UI's.)
+    c8                  _caption[96];
+    const c8*           _target;
+    const c8*           _target_flag;
+    const RDE_LANGUAGE_ _taught = fude_lang_ui_language(&_target, &_target_flag);
+    const c8*           _name   = "English";
     for(u32 _l = 0; _l < FUDE_TEXT_LANGUAGES; _l++) {
-        _name = FUDE_TEXT_LANGUAGE_LIST[_l].language == fude_text_language() && fude_text_language() != RDE_LANGUAGE_JA_JP ? FUDE_TEXT_LANGUAGE_LIST[_l].name : _name;
+        _name = FUDE_TEXT_LANGUAGE_LIST[_l].language == fude_text_language() && fude_text_language() != _taught ? FUDE_TEXT_LANGUAGE_LIST[_l].name : _name;
     }
-    snprintf(_caption, sizeof(_caption), "%s \xE2\x86\x92 \xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E", _name);   // → 日本語
+    snprintf(_caption, sizeof(_caption), "%s \xE2\x86\x92 %s", _name, _target);   // →
     fude_header_draw(&_tr->glyph, 0x8A33u, _font, _font_px, _left, _right - 380.0f, _top, fude_text(FUDE_TEXT_TRANSLATOR_TITLE), _caption, NULL);   // 訳
 
     // Google's badge, by the translations.

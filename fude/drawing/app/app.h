@@ -51,6 +51,7 @@ typedef struct fude_app {
     struct fude_page_input* page;    // writing on it, moving it (page.h)
     b8               finger_writes;  // a tablet: one finger writes too (the toolbar's hand); a pen coming down turns it off
     b8               pen_ever;       // a pen has written here, ever (saved): until one has, a tablet starts with the hand on
+    u8               cards_read;     // the must-read cards closed, a bit each (saved; readcard.h)
 
     // The screens, in the order they stack: the first open one is on top (and
     // gets the pointer, its row, the frame). The page is under them all. The

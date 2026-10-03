@@ -268,6 +268,33 @@ RDE_INTERNAL f32 fude_draw_span_width(rde_font* _font, f32 _font_px, const c8* _
     return fude_draw_text_width(_font, _font_px, _row, _px);
 }
 
+// Japanese and Chinese line breaking (kinsoku): what never starts a line —
+// closing punctuation and brackets, the small kana, the long-vowel mark, the
+// iteration marks — and what never ends one: an opening bracket.
+RDE_INTERNAL b8 fude_draw_no_line_start(u32 _cp) {
+    switch(_cp) {
+        case 0x3001: case 0x3002: case 0xFF0C: case 0xFF0E: case 0x30FB: case 0xFF1A: case 0xFF1B: case 0xFF01: case 0xFF1F:   // 、。，．・：；！？
+        case 0x300D: case 0x300F: case 0xFF09: case 0x3015: case 0xFF3D: case 0xFF5D: case 0x3009: case 0x300B: case 0x3011:   // 」』）〕］｝〉》】
+        case 0x30FC: case 0x3005: case 0x309D: case 0x309E: case 0x30FD: case 0x30FE: case 0x2026: case 0x2025:                // ー々ゝゞヽヾ…‥
+        case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: case 0x3063: case 0x3083: case 0x3085: case 0x3087:   // ぁぃぅぇぉっゃゅょ
+        case 0x308E: case 0x30A1: case 0x30A3: case 0x30A5: case 0x30A7: case 0x30A9: case 0x30C3: case 0x30E3: case 0x30E5:   // ゎァィゥェォッャュ
+        case 0x30E7: case 0x30EE: case 0x30F5: case 0x30F6:                                                                    // ョヮヵヶ
+        case ',': case '.': case ')': case '!': case '?': case ':': case ';':
+            return true;
+        default:
+            return false;
+    }
+}
+
+RDE_INTERNAL b8 fude_draw_no_line_end(u32 _cp) {
+    switch(_cp) {
+        case 0x300C: case 0x300E: case 0xFF08: case 0x3014: case 0xFF3B: case 0xFF5B: case 0x3008: case 0x300A: case 0x3010:   // 「『（〔［｛〈《【
+            return true;
+        default:
+            return false;
+    }
+}
+
 RDE_INTERNAL const fude_draw_wrapped* fude_draw_wrap_layout(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
     const usize _len  = strlen(_text);
     const u64   _hash = fude_draw_hash(_text, _len);
@@ -301,6 +328,12 @@ RDE_INTERNAL const fude_draw_wrapped* fude_draw_wrap_layout(rde_font* _font, f32
             const b8    _gap  = _cp == ' ' || _cp == '\n' || _cp == 0;
             if(!_gap && _cp < 0x2E80u) {
                 continue;   // inside a word
+            }
+            if(!_gap) {   // after a CJK character: not before what may not start a line, nor after what may not end one
+                const c8* _peek = _p;
+                if(fude_draw_no_line_end(_cp) || fude_draw_no_line_start(fude_utf8_next(&_peek))) {
+                    continue;
+                }
             }
             const usize _try = _gap ? _here : _past;
             if(_try > _s && fude_draw_span_width(_font, _font_px, _text, _s, _try, _px) > _width) {

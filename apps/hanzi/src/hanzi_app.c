@@ -108,7 +108,8 @@ RDE_INTERNAL struct {
     c8** argv;
     i32  welcome;   // --welcome[=PAGE]: the welcome at frame 10, on that page (-1: no)
     b8   demo;      // --demo: the welcome closed (the demo's saves are a learner's, not a first launch)
-} hanzi_look = { 0, NULL, -1, false };
+    b8   offline;   // --offline-note: why the app works offline (the must-read card) at frame 10
+} hanzi_look = { 0, NULL, -1, false, false };
 
 void hanzi_look_args(i32 _argc, c8** _argv) {
     fude_study_look_args(_argc, _argv);
@@ -117,6 +118,7 @@ void hanzi_look_args(i32 _argc, c8** _argv) {
     for(i32 _i = 1; _i < _argc; _i++) {
         const c8* _v;
         if(fude_look_is(_argv[_i], "--welcome"))                    { hanzi_look.welcome = 0; }
+        if(fude_look_is(_argv[_i], "--offline-note"))               { hanzi_look.offline = true; }
         if(fude_look_is(_argv[_i], "--demo") || fude_look_value(_argv[_i], "--demo") != NULL) { hanzi_look.demo = true; }
         if((_v = fude_look_value(_argv[_i], "--welcome")) != NULL) { hanzi_look.welcome = (i32)strtol(_v, NULL, 10) - 1; }
     }
@@ -141,6 +143,9 @@ void hanzi_look_frame(fude_app* _app) {
     if(fude_look_shot_frame() == 10u && hanzi_look.welcome >= 0) {
         fude_welcome_open(HANZI_APP(_app)->welcome);
         HANZI_APP(_app)->welcome->page = (u32)hanzi_look.welcome < FUDE_WELCOME_PAGES ? (u32)hanzi_look.welcome : 0u;
+    }
+    if(fude_look_shot_frame() == 10u && hanzi_look.offline) {
+        fude_welcome_offline(HANZI_APP(_app)->welcome);
     }
 }
 

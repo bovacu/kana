@@ -19,6 +19,12 @@ const c8* fude_lang_code(void)      { return "ko"; }
 const c8* fude_lang_ink_model(void) { return "ko"; }
 const c8* fude_lang_voice(void)     { return "ko-KR"; }
 
+RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
+    *_name = "\xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";   // 한국어
+    *_flag = "assets/flags/kr.png";
+    return RDE_LANGUAGE_KO_KR;
+}
+
 // --- the jamo, and the syllables they make ------------------------------------------------
 
 #define FUDE_KO_SYLLABLE_FIRST 0xAC00u   // 가

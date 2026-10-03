@@ -422,9 +422,6 @@ void fude_page_update(fude_page_input* _page) {
     if(rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_BACKSPACE) || rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_DELETE)) {
         fude_lasso_delete(_app->lasso, _app->ink);
     }
-    if(rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_ESCAPE)) {
-        fude_lasso_clear(_app->lasso, _app->ink);
-    }
 #if defined(RDE_DEBUG)
     if(rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_M)) {
         _page->show_samples = !_page->show_samples;

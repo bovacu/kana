@@ -59,5 +59,8 @@ void fude_docbar_restyle(fude_docbar* _bar);
 b8   fude_docbar_hit(const fude_docbar* _bar, rde_vec_2F _ui);
 // Search open with _words in its field, and searched for (as Return would).
 void fude_docbar_search(fude_docbar* _bar, const c8* _words);
+// Back (Android's, Escape): its search or its page number closed, as its Close
+// does. False: it was showing neither.
+b8   fude_docbar_back(fude_docbar* _bar);
 
 #endif

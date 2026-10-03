@@ -216,6 +216,10 @@ void fude_side_apply_theme(struct fude_ui* _ui);
 // is open, everywhere is.
 b8   fude_side_hit(const struct fude_ui* _ui, rde_vec_2F _at);
 void fude_side_close(struct fude_ui* _ui);
+// Back (Android's, Escape): the topmost of the panel's cards — Licences, Your
+// data, a note's card, Settings — or the panel, closed as its own Close or
+// Cancel does. False: none was open.
+b8   fude_side_back(struct fude_ui* _ui);
 // Opens Settings — and over it Licences on document _licences, if that is not
 // negative (developer launch options, kana.c).
 void fude_side_open_settings(struct fude_ui* _ui, i32 _licences);

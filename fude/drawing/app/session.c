@@ -78,6 +78,7 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
     _s.language          = fude_session_language != 0 || fude_text_language() != fude_text_default_language() ? (u8)fude_text_language() : 0u;
     _s.finger_writes     = _app->finger_writes;
     _s.pen_ever          = _app->pen_ever;
+    _s.cards_read        = _app->cards_read;
     if(fude_app_ext(_app)->settings_gather != NULL) {
         fude_app_ext(_app)->settings_gather(_app, &_s);   // the app's own (Kana: ML Kit on or off)
     }
@@ -100,11 +101,13 @@ RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
         fude_app_ext(_app)->settings_apply(_app, _s);
     }
     _app->canvas->paper_size     = _s->paper_size < FUDE_PAPER_SIZE_COUNT ? (FUDE_PAPER_SIZE_)_s->paper_size : FUDE_PAPER_MEDIUM;
-    fude_session_language        = _s->language;
+    // A language the app no longer offers (Hanzi's Japanese, before Chinese took its place): the device's.
+    fude_session_language        = fude_text_language_offered((RDE_LANGUAGE_)_s->language) ? _s->language : 0u;
     _app->finger_writes          = _s->finger_writes;
     _app->pen_ever               = _s->pen_ever;
-    if(_s->language != 0 && (RDE_LANGUAGE_)_s->language != fude_text_language()) {
-        fude_text_set_language((RDE_LANGUAGE_)_s->language);   // the UI follows next frame
+    _app->cards_read             = _s->cards_read;
+    if(fude_session_language != 0 && (RDE_LANGUAGE_)fude_session_language != fude_text_language()) {
+        fude_text_set_language((RDE_LANGUAGE_)fude_session_language);   // the UI follows next frame
     }
     fude_toolbar_set_placement(_bar, _s->vertical, _s->toolbar_center, _s->toolbar_minimized);
     fude_ui_apply_theme(_app->ui);   // the theme, and what the tools show

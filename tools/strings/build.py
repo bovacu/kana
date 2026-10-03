@@ -14,6 +14,13 @@
 # app's src/version.h (#define KANA_NAME "Kana"), the name its C code shows too.
 #
 # A row: t('ID', English, Spanish, Portuguese (Brazil), Japanese, French).
+#
+# The fourth language is the one the app teaches (a learner may use the app in it
+# as practice): Japanese, unless the app's tool calls fourth() with its own —
+# Hanzi's Chinese, Hangul's Korean — read from files beside the layers'
+# (fude/drawing/strings_zh.py...) of rows x('ID', text). It takes Japanese's place
+# only once every string has one; until then Japanese stays, and how many are
+# missing is printed.
 # Messages use RDE's placeholders: {0} plain, {0,plural, one{...} other{...}}
 # (# is the count). An apostrophe quotes the next character in RDE, so the
 # texts use the typographic one (’) instead.
@@ -31,6 +38,7 @@ NAMES = {'EN-US': 'English', 'ES-ES': 'Spanish', 'PT-BR': 'Portuguese (Brazil)',
 
 T = []          # [id, en, es, pt, ja, fr], in order
 OVERRIDDEN = set()
+FOURTH = None   # the app's own fourth language (fourth()): [tag, name, locale lines, {id: text}]
 
 P = lambda one, other: '{0,plural, one{%s} other{%s}}' % (one, other)
 
@@ -49,6 +57,19 @@ def o(i, en, es, pt, ja, fr):
 # A layer's strings (a file of t() rows, and o() for a lower layer's), read in.
 def layer(path):
     exec(open(path, encoding='utf-8').read(), {'t': t, 'o': o, 'P': P})
+
+# The app's fourth language in place of Japanese: its tag ('ZH-CN'), its name, its
+# locale lines (['@plural = 1']) and its files (one per layer, read in order: a
+# later file's row wins, as the app's own over a layer's; a missing file is none).
+def fourth(tag, name, locale, paths):
+    global FOURTH
+    rows = {}
+    def x(i, text):
+        rows[i] = text
+    for path in paths:
+        if os.path.exists(path):
+            exec(open(path, encoding='utf-8').read(), {'x': x, 'P': P})
+    FOURTH = [tag, name, locale, rows]
 
 # The app's name, from its src/version.h (#define <APP>_NAME "...").
 def app_name(_app_dir):
@@ -84,6 +105,17 @@ def check():
 # folder (apps/<app>), _tool its tool's path (the files' notes).
 def write(_app_dir, _tool):
     _name = app_name(_app_dir)
+    if FOURTH is not None:
+        tag, name, locale, rows = FOURTH
+        missing = [row[0] for row in T if row[0] not in rows]
+        if missing:
+            print('%s: %d of %d strings still to translate (%s...): Japanese stays the fourth language' % (name, len(missing), len(T), ', '.join(missing[:3])))
+        else:
+            for row in T:
+                row[4] = rows[row[0]]
+            L[3] = tag
+            LOCALES[tag] = locale
+            NAMES[tag] = name
     for row in T:
         row[1:] = [s.replace('{APP}', _name) for s in row[1:]]
     if not check():

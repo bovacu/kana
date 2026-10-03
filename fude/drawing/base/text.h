@@ -27,8 +27,11 @@ typedef enum {
 } FUDE_TEXT_;
 
 // The languages Kana speaks, as the settings keep them (RDE_LANGUAGE_ ordinals:
-// RDE's enum is append-only, so a saved one keeps its meaning).
+// RDE's enum is append-only, so a saved one keeps its meaning). The fourth is the
+// one the app teaches — a learner may use the app in it as practice: Japanese
+// unless the app says otherwise (fude_text_set_taught_language).
 #define FUDE_TEXT_LANGUAGES 5u
+#define FUDE_TEXT_TAUGHT    3u   // the taught language's place in the list
 
 RDE_STRUCT {
     RDE_LANGUAGE_ language;
@@ -36,7 +39,15 @@ RDE_STRUCT {
     const c8*     flag;      // its flag (assets/flags/)
 } fude_text_language_info;
 
-extern const fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES];
+extern fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES];
+
+// The fourth language: the one the app teaches (a study app's lang layer gives
+// it: Hanzi's Chinese, Hangul's Korean), at start, before the first
+// fude_text_set_language. Taken only when the strings file has that language;
+// until then the fourth stays Japanese.
+void          fude_text_set_taught_language(RDE_LANGUAGE_ _language, const c8* _name, const c8* _flag);
+// Is _language one of the list's (a saved choice may name one the app no longer offers)?
+b8            fude_text_language_offered(RDE_LANGUAGE_ _language);
 
 // Reads _language's strings (English under them). False, and nothing changes,
 // when the file or the language cannot be read.

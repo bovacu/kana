@@ -13,6 +13,12 @@ const c8* fude_lang_code(void)      { return "ja"; }
 const c8* fude_lang_ink_model(void) { return "ja"; }
 const c8* fude_lang_voice(void)     { return "ja-JP"; }
 
+RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
+    *_name = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";   // 日本語
+    *_flag = "assets/flags/jp.png";
+    return RDE_LANGUAGE_JA_JP;
+}
+
 // --- groups ------------------------------------------------------------------------------
 
 enum { FUDE_JA_HIRAGANA = 0, FUDE_JA_KATAKANA, FUDE_JA_KANJI, FUDE_JA_GROUPS };

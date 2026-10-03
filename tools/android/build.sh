@@ -71,7 +71,7 @@ COMMON=(
     fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c \
     fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c \
     fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c \
-    fude/study/services/textscan.c fude/study/services/translate.c fude/study/app/welcome.c
+    fude/study/services/textscan.c fude/study/services/translate.c fude/study/app/welcome.c fude/drawing/widgets/readcard.c
 )
 # Android's sides of the services (JNI into fude/android/java).
 ANDROID_SRC=(

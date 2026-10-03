@@ -17,7 +17,7 @@ static const c8* const FUDE_TEXT_NAMES[FUDE_TEXT_COUNT] = {
 #undef FUDE_TEXT_ID
 };
 
-const fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES] = {
+fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES] = {
     { RDE_LANGUAGE_EN_US, "English",            "assets/flags/en.png" },
     { RDE_LANGUAGE_ES_ES, "Espa\xC3\xB1ol",       "assets/flags/es.png" },
     { RDE_LANGUAGE_PT_BR, "Portugu\xC3\xAAs (Brasil)", "assets/flags/br.png" },
@@ -149,6 +149,31 @@ b8 fude_text_set_language(RDE_LANGUAGE_ _language) {
 
 RDE_LANGUAGE_ fude_text_language(void) {
     return fude_text_active;
+}
+
+void fude_text_set_taught_language(RDE_LANGUAGE_ _language, const c8* _name, const c8* _flag) {
+    const c8* _code = rde_localization_language_code(_language);
+    if(_code[0] == 0 || _name == NULL || _flag == NULL) {
+        return;
+    }
+    // Its strings, there? (Loaded to know — a file without the language loads, with
+    // nothing in it, so a string is looked for too. fude_text_set_language loads
+    // the one chosen next.)
+    if(_language != FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_TAUGHT].language &&
+       (!rde_localization_load(FUDE_TEXT_FILE, _code, NULL) || !rde_localization_string_id_exists(FUDE_TEXT_NAMES[0]))) {
+        rde_log_level(RDE_LOG_LEVEL_INFO, "fude: no %s strings yet: the fourth language stays %s", _code, FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_TAUGHT].name);
+        return;
+    }
+    FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_TAUGHT] = (fude_text_language_info){ _language, _name, _flag };
+}
+
+b8 fude_text_language_offered(RDE_LANGUAGE_ _language) {
+    for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
+        if(FUDE_TEXT_LANGUAGE_LIST[_i].language == _language) {
+            return true;
+        }
+    }
+    return false;
 }
 
 RDE_LANGUAGE_ fude_text_default_language(void) {

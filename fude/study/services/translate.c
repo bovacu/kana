@@ -70,6 +70,8 @@ const c8* fude_translate_target(void) {
         case RDE_LANGUAGE_PT_BR: _ui = "pt"; break;
         case RDE_LANGUAGE_FR_FR: _ui = "fr"; break;
         case RDE_LANGUAGE_JA_JP: _ui = "ja"; break;
+        case RDE_LANGUAGE_ZH_CN: _ui = "zh"; break;
+        case RDE_LANGUAGE_KO_KR: _ui = "ko"; break;
         default:                 _ui = "en"; break;
     }
     return strcmp(_ui, fude_lang_code()) == 0 ? "en" : _ui;   // the app in the language it teaches: English

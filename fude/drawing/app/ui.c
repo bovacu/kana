@@ -187,6 +187,27 @@ b8 fude_ui_press(fude_ui* _ui, u32 _button) {
     return true;
 }
 
+b8 fude_ui_press_back(fude_ui* _ui) {
+    const fude_screen_slot* _top = fude_app_top(_ui->app);
+    if(_top == NULL || _top->vt->row == NULL) {
+        return false;
+    }
+    const u32 _row = _top->vt->row(_top->self);
+    if(_row >= _top->vt->row_count) {
+        return false;
+    }
+    const fude_row* _w = &_ui->rows[_ui->row_first[_top - _ui->app->screens] + _row];
+    static const u32 FUDE_UI_BACK_TEXTS[] = { FUDE_TEXT_BACK, FUDE_TEXT_CLOSE };
+    for(u32 _t = 0; _t < sizeof(FUDE_UI_BACK_TEXTS) / sizeof(FUDE_UI_BACK_TEXTS[0]); _t++) {
+        for(u32 _b = 0; _b < _w->def->count && _b < FUDE_ROW_BUTTONS; _b++) {
+            if(_w->def->buttons[_b].text == FUDE_UI_BACK_TEXTS[_t] && _w->buttons[_b] != NULL) {
+                return fude_ui_press(_ui, _b);
+            }
+        }
+    }
+    return false;
+}
+
 b8 fude_ui_hit(const fude_ui* _ui, rde_vec_2F _screen) {
     if(_ui->canvas == NULL) {
         return false;
