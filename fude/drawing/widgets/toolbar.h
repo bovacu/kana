@@ -127,6 +127,9 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar);
 b8   fude_toolbar_hit(const fude_toolbar* _toolbar, rde_vec_2F _ui);
 // Laid out again along its axis, clamped on screen (the safe area changed, the screen turned).
 void fude_toolbar_layout(fude_toolbar* _toolbar);
+// The screen went from _from to _to (UI units): the bar keeps its distance to an
+// edge it was near, or its place in proportion. Then lay it out.
+void fude_toolbar_follow_screen(fude_toolbar* _toolbar, rde_vec_2F _from, rde_vec_2F _to);
 
 void fude_toolbar_set_tool(fude_toolbar* _toolbar, FUDE_TOOL_ _tool);
 // Puts the bar back where a save left it (orientation, centre in UI canvas units,

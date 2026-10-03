@@ -88,6 +88,10 @@ RDE_INTERNAL void fude_side_refresh_settings(fude_ui* _ui) {
         if(_ui->app->canvas->paper_size == (FUDE_PAPER_SIZE_)_i) { fude_kit_button_selected(_side->paper_sizes[_i]); }
         else                                                     { fude_kit_button_plain(_side->paper_sizes[_i]); }
     }
+    for(u32 _i = 0; _i < 3u; _i++) {
+        if(fude_app_ui_size(_ui->app) == (FUDE_UI_SIZE_)(FUDE_UI_SIZE_SMALL + _i)) { fude_kit_button_selected(_side->ui_sizes[_i]); }
+        else                                                                       { fude_kit_button_plain(_side->ui_sizes[_i]); }
+    }
     for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
         if(FUDE_TEXT_LANGUAGE_LIST[_i].language == fude_text_language()) { fude_kit_button_selected(_side->languages[_i]); }
         else                                                               { fude_kit_button_quiet(_side->languages[_i]); }
@@ -192,6 +196,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_settings(rde_ui_node* _node, cons
     fude_ui* _ui = (fude_ui*)_user_data;
     _ui->side.open          = false;
     _ui->side.settings_open = true;
+    rde_ui_scroll_area_set_scroll(_ui->side.settings_body, (rde_vec_2F){ 0.0f, 0.0f });   // from its top
     fude_side_refresh_settings(_ui);
     fude_ui_update(_ui);
     return RDE_UI_EVENT_RESULT_CONSUME;
@@ -337,6 +342,16 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_paper_large(rde_ui_node* _node, c
     return fude_side_paper_size((fude_ui*)_user_data, FUDE_PAPER_LARGE);
 }
 
+// The interface's size: everything is laid out again for it next frame.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_ui_size(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    const fude_side_theme_ref* _ref = (const fude_side_theme_ref*)_user_data;
+    _ref->ui->app->ui_size = (u8)_ref->value;
+    fude_app_apply_ui_size(_ref->ui->app);
+    fude_side_refresh_settings(_ref->ui);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // --- licences ------------------------------------------------------------------------------
 
 RDE_INTERNAL void fude_side_licence_free(fude_side* _side) {
@@ -479,6 +494,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_licences(rde_ui_node* _node, cons
 void fude_side_open_settings(fude_ui* _ui, i32 _licences) {
     _ui->side.open          = false;
     _ui->side.settings_open = true;
+    rde_ui_scroll_area_set_scroll(_ui->side.settings_body, (rde_vec_2F){ 0.0f, 0.0f });   // from its top
     fude_side_refresh_settings(_ui);
     if(_licences >= 0 && _licences < (i32)fude_side_licence_count(_ui)) {
         _ui->side.licences_open = true;
@@ -985,6 +1001,87 @@ RDE_INTERNAL void fude_side_build_notes(fude_ui* _ui) {
 
 // --- layout ---------------------------------------------------------------------------
 
+// About's words (built with the card), measured by the layout.
+RDE_INTERNAL c8 fude_side_about[1536];
+
+// Settings' rows down from _top (in its body), up to About's header: returns
+// where About's text starts. A narrow card (a phone) puts a setting's name
+// over its choices, and the languages in rows of three.
+RDE_INTERNAL f32 fude_side_settings_rows(fude_ui* _ui, f32 _top, f32 _m, f32 _kw) {
+    fude_side* _side   = &_ui->side;
+    const f32  _lw     = _kw - 2.0f * _m;
+    const b8   _narrow = _lw < 460.0f;
+
+    // The theme: a header, then one button per theme across the card.
+    f32 _ry = _top - 24.0f;
+    fude_kit_place(rde_ui_label_as_node(_side->theme_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+    _ry -= 42.0f;
+    const f32 _tw = (_lw - FUDE_SIDE_GAP * (f32)(FUDE_THEME_COUNT - 1u)) / (f32)FUDE_THEME_COUNT;
+    for(u32 _i = 0; _i < FUDE_THEME_COUNT; _i++) {
+        fude_kit_place(rde_ui_button_as_node(_side->themes[_i]), (rde_vec_2F){ _m + (f32)_i * (_tw + FUDE_SIDE_GAP) + _tw * 0.5f, _ry },
+                           (rde_vec_2F){ _tw, 40.0f });
+    }
+    // The language: a header, then a flag and its name for each (a short last row centred).
+    _ry -= 50.0f;
+    fude_kit_place(rde_ui_label_as_node(_side->language_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+    _ry -= 48.0f;
+    const u32 _per = _narrow ? 3u : FUDE_TEXT_LANGUAGES;
+    const f32 _gw  = (_lw - FUDE_SIDE_GAP * (f32)(_per - 1u)) / (f32)_per;
+    for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
+        const u32 _row   = _i / _per;
+        const u32 _in    = FUDE_TEXT_LANGUAGES - _row * _per < _per ? FUDE_TEXT_LANGUAGES - _row * _per : _per;
+        const f32 _shift = (f32)(_per - _in) * (_gw + FUDE_SIDE_GAP) * 0.5f;
+        fude_kit_place(rde_ui_button_as_node(_side->languages[_i]), (rde_vec_2F){ _m + _shift + (f32)(_i % _per) * (_gw + FUDE_SIDE_GAP) + _gw * 0.5f, _ry - (f32)_row * (62.0f + FUDE_SIDE_GAP) },
+                           (rde_vec_2F){ _gw, 62.0f });
+    }
+    _ry -= (f32)((FUDE_TEXT_LANGUAGES - 1u) / _per) * (62.0f + FUDE_SIDE_GAP);
+    _ry -= 66.0f;
+    if(_narrow) {
+        // The name, then its choices across.
+        fude_kit_place(rde_ui_label_as_node(_side->width_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+        _ry -= 38.0f;
+        const f32 _ww = (_lw - FUDE_SIDE_GAP) * 0.5f;
+        fude_kit_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _m + _ww * 0.5f, _ry }, (rde_vec_2F){ _ww, 40.0f });
+        fude_kit_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _m + _ww * 1.5f + FUDE_SIDE_GAP, _ry }, (rde_vec_2F){ _ww, 40.0f });
+        _ry -= 50.0f;
+        fude_kit_place(rde_ui_label_as_node(_side->paper_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+        _ry -= 38.0f;
+        const f32 _pw = (_lw - FUDE_SIDE_GAP * (f32)(FUDE_PAPER_SIZE_COUNT - 1u)) / (f32)FUDE_PAPER_SIZE_COUNT;
+        for(u32 _i = 0; _i < FUDE_PAPER_SIZE_COUNT; _i++) {
+            fude_kit_place(rde_ui_button_as_node(_side->paper_sizes[_i]), (rde_vec_2F){ _m + (f32)_i * (_pw + FUDE_SIDE_GAP) + _pw * 0.5f, _ry }, (rde_vec_2F){ _pw, 40.0f });
+        }
+        _ry -= 50.0f;
+        fude_kit_place(rde_ui_label_as_node(_side->ui_size_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
+        _ry -= 38.0f;
+        for(u32 _i = 0; _i < 3u; _i++) {
+            fude_kit_place(rde_ui_button_as_node(_side->ui_sizes[_i]), (rde_vec_2F){ _m + (f32)_i * (_pw + FUDE_SIDE_GAP) + _pw * 0.5f, _ry }, (rde_vec_2F){ _pw, 40.0f });
+        }
+    } else {
+        fude_kit_place(rde_ui_label_as_node(_side->width_label), (rde_vec_2F){ _m + _lw * 0.25f, _ry }, (rde_vec_2F){ _lw * 0.5f, 44.0f });
+        fude_kit_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _kw - _m - 186.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
+        fude_kit_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
+        _ry -= 54.0f;
+        fude_kit_place(rde_ui_label_as_node(_side->paper_label), (rde_vec_2F){ _m + (_lw - 318.0f) * 0.5f, _ry }, (rde_vec_2F){ _lw - 318.0f, 44.0f });
+        for(u32 _i = 0; _i < FUDE_PAPER_SIZE_COUNT; _i++) {
+            const f32 _from_right = (f32)(FUDE_PAPER_SIZE_COUNT - 1u - _i) * (100.0f + FUDE_SIDE_GAP);
+            fude_kit_place(rde_ui_button_as_node(_side->paper_sizes[_i]), (rde_vec_2F){ _kw - _m - 50.0f - _from_right, _ry }, (rde_vec_2F){ 100.0f, 40.0f });
+        }
+        _ry -= 54.0f;
+        fude_kit_place(rde_ui_label_as_node(_side->ui_size_label), (rde_vec_2F){ _m + (_lw - 318.0f) * 0.5f, _ry }, (rde_vec_2F){ _lw - 318.0f, 44.0f });
+        for(u32 _i = 0; _i < 3u; _i++) {
+            const f32 _from_right = (f32)(2u - _i) * (100.0f + FUDE_SIDE_GAP);
+            fude_kit_place(rde_ui_button_as_node(_side->ui_sizes[_i]), (rde_vec_2F){ _kw - _m - 50.0f - _from_right, _ry }, (rde_vec_2F){ 100.0f, 40.0f });
+        }
+    }
+    _ry -= 56.0f;
+    // The app's sections (Kana's Handwriting), then About.
+    for(u32 _i = 0; _i < fude_side_section_count(_ui); _i++) {
+        _ry = fude_app_ext(_ui->app)->sections[_i].layout(_ui, _ry, _m, _kw);
+    }
+    fude_kit_place(rde_ui_label_as_node(_side->about_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 34.0f });
+    return _ry - 20.0f;
+}
+
 RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     fude_side*       _side   = &_ui->side;
     const rde_vec_2F _screen = fude_kit_screen_size((_ui)->window);
@@ -1086,48 +1183,29 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     fude_kit_modal_place(&_side->settings, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, (rde_vec_2F){ _kw, _kh });
     fude_kit_place(rde_ui_label_as_node(_side->settings_title), (rde_vec_2F){ _m + _lw * 0.5f, _kh - 36.0f }, (rde_vec_2F){ _lw, 44.0f });
 
-    // The theme: a header, then one button per theme across the card.
-    f32 _ry = _kh - 84.0f;
-    fude_kit_place(rde_ui_label_as_node(_side->theme_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
-    _ry -= 42.0f;
-    const f32 _tw = (_lw - FUDE_SIDE_GAP * (f32)(FUDE_THEME_COUNT - 1u)) / (f32)FUDE_THEME_COUNT;
-    for(u32 _i = 0; _i < FUDE_THEME_COUNT; _i++) {
-        fude_kit_place(rde_ui_button_as_node(_side->themes[_i]), (rde_vec_2F){ _m + (f32)_i * (_tw + FUDE_SIDE_GAP) + _tw * 0.5f, _ry },
-                           (rde_vec_2F){ _tw, 40.0f });
-    }
-    // The language: a header, then a flag and its name for each.
-    _ry -= 50.0f;
-    fude_kit_place(rde_ui_label_as_node(_side->language_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
-    _ry -= 48.0f;
-    const f32 _gw = (_lw - FUDE_SIDE_GAP * (f32)(FUDE_TEXT_LANGUAGES - 1u)) / (f32)FUDE_TEXT_LANGUAGES;
-    for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
-        fude_kit_place(rde_ui_button_as_node(_side->languages[_i]), (rde_vec_2F){ _m + (f32)_i * (_gw + FUDE_SIDE_GAP) + _gw * 0.5f, _ry },
-                           (rde_vec_2F){ _gw, 62.0f });
-    }
-    _ry -= 66.0f;
-    fude_kit_place(rde_ui_label_as_node(_side->width_label), (rde_vec_2F){ _m + _lw * 0.25f, _ry }, (rde_vec_2F){ _lw * 0.5f, 44.0f });
-    fude_kit_place(rde_ui_button_as_node(_side->width_even), (rde_vec_2F){ _kw - _m - 186.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
-    fude_kit_place(rde_ui_button_as_node(_side->width_pressure), (rde_vec_2F){ _kw - _m - 60.0f, _ry }, (rde_vec_2F){ 120.0f, 40.0f });
-    _ry -= 54.0f;
-    fude_kit_place(rde_ui_label_as_node(_side->paper_label), (rde_vec_2F){ _m + (_lw - 318.0f) * 0.5f, _ry }, (rde_vec_2F){ _lw - 318.0f, 44.0f });
-    for(u32 _i = 0; _i < FUDE_PAPER_SIZE_COUNT; _i++) {
-        const f32 _from_right = (f32)(FUDE_PAPER_SIZE_COUNT - 1u - _i) * (100.0f + FUDE_SIDE_GAP);
-        fude_kit_place(rde_ui_button_as_node(_side->paper_sizes[_i]), (rde_vec_2F){ _kw - _m - 50.0f - _from_right, _ry }, (rde_vec_2F){ 100.0f, 40.0f });
-    }
-    _ry -= 56.0f;
-    // The app's sections (Kana's Handwriting), then About.
-    for(u32 _i = 0; _i < fude_side_section_count(_ui); _i++) {
-        _ry = fude_app_ext(_ui->app)->sections[_i].layout(_ui, _ry, _m, _kw);
-    }
-    fude_kit_place(rde_ui_label_as_node(_side->about_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 34.0f });
+    // The rest scrolls between the title and the buttons. Laid out from the top
+    // of its content, once to measure it and once more where it ends up.
+    const f32 _body_lo = _m + 44.0f + 12.0f;
+    const f32 _body_hi = _kh - 60.0f;
+    const f32 _view_h  = fmaxf(1.0f, _body_hi - _body_lo);
+    fude_kit_place(rde_ui_scroll_area_as_node(_side->settings_body), (rde_vec_2F){ _kw * 0.5f, (_body_lo + _body_hi) * 0.5f }, (rde_vec_2F){ _kw, _view_h });
+    // About's text: as tall as its lines (room: measuring and drawing can differ by a little).
+    const u32 _about_n = fude_draw_text_wrap_lines(_ui->font, (f32)FUDE_KIT_FONT_SIZE, fude_side_about, FUDE_SIDE_SMALL_PX, _lw - 12.0f);
+    const f32 _about_h = (f32)_about_n * FUDE_SIDE_SMALL_PX * 1.4f + 8.0f;
+    const f32 _used    = _view_h - fude_side_settings_rows(_ui, _view_h, _m, _kw);
+    const f32 _body_h  = fmaxf(_view_h, _used + _about_h);
+    const f32 _text_top = fude_side_settings_rows(_ui, _body_h, _m, _kw);
+    rde_ui_scroll_area_set_content_size(_side->settings_body, (rde_vec_2F){ _kw, _body_h });
+    fude_kit_place(rde_ui_label_as_node(_side->about_text), (rde_vec_2F){ _m + _lw * 0.5f, _text_top * 0.5f }, (rde_vec_2F){ _lw, fmaxf(20.0f, _text_top) });
 
-    const f32 _text_top    = _ry - 20.0f;
-    const f32 _text_bottom = _m + 44.0f + 12.0f;
-    fude_kit_place(rde_ui_label_as_node(_side->about_text), (rde_vec_2F){ _m + _lw * 0.5f, (_text_top + _text_bottom) * 0.5f },
-                       (rde_vec_2F){ _lw, fmaxf(20.0f, _text_top - _text_bottom) });
-    fude_kit_place(rde_ui_button_as_node(_side->settings_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
-    fude_kit_place(rde_ui_button_as_node(_side->licences_button), (rde_vec_2F){ _kw - _m - 186.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
-    fude_kit_place(rde_ui_button_as_node(_side->data_button), (rde_vec_2F){ _kw - _m - 312.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    // The buttons: at the right, or across a narrow card.
+    rde_ui_button* const _foot[] = { _side->data_button, _side->licences_button, _side->settings_close };
+    const b8             _foot_across = _lw < 3.0f * 120.0f + 2.0f * FUDE_SIDE_GAP + 120.0f;
+    const f32            _fw          = _foot_across ? (_lw - 2.0f * FUDE_SIDE_GAP) / 3.0f : 120.0f;
+    const f32            _fx          = _foot_across ? _m : _kw - _m - 3.0f * 120.0f - 2.0f * FUDE_SIDE_GAP;
+    for(u32 _i = 0; _i < 3u; _i++) {
+        fude_kit_place(rde_ui_button_as_node(_foot[_i]), (rde_vec_2F){ _fx + (f32)_i * (_fw + FUDE_SIDE_GAP) + _fw * 0.5f, _m + 22.0f }, (rde_vec_2F){ _fw, 44.0f });
+    }
 
     // Your data: the same card's size, over Settings — the title, what Kana
     // does with your data, then the answer line, Export / Import (or Replace /
@@ -1215,6 +1293,10 @@ RDE_INTERNAL void fude_side_flag(rde_ui_button* _button, u32 _language) {
     }
 }
 
+void fude_side_relayout(fude_ui* _ui) {
+    _ui->side._laid_out = (rde_vec_2F){ 0.0f, 0.0f };   // no screen is that size
+}
+
 void fude_side_forget(fude_ui* _ui) {
     fude_side* _side = &_ui->side;
     free(_side->_note_refs);
@@ -1299,40 +1381,49 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     rde_ui_node* _card = rde_ui_image_as_node(_side->settings.card);
 
     _side->settings_title = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS), FUDE_SIDE_TITLE_PX);
-    _side->theme_label    = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS_THEME), FUDE_SIDE_HEADER_PX);
+    // The rest, up to the buttons, scrolls: a phone's card is too short for it.
+    _side->settings_body = rde_ui_scroll_area_create(NULL);
+    rde_ui_scroll_area_set_bar_thickness(_side->settings_body, 4.0f);
+    rde_ui_node_add_child(_card, rde_ui_scroll_area_as_node(_side->settings_body));
+    rde_ui_node* _body = rde_ui_scroll_area_as_node(_side->settings_body);
+    _side->theme_label    = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_THEME), FUDE_SIDE_HEADER_PX);
     for(u32 _i = 0; _i < FUDE_THEME_COUNT; _i++) {
         _side->theme_refs[_i] = (fude_side_theme_ref){ _ui, _i };
-        _side->themes[_i]     = fude_kit_button(_card, fude_text((FUDE_TEXT_)(FUDE_TEXT_THEME_PAPER + _i)), fude_side_on_theme, _ui);   // FUDE_THEME_ order
+        _side->themes[_i]     = fude_kit_button(_body, fude_text((FUDE_TEXT_)(FUDE_TEXT_THEME_PAPER + _i)), fude_side_on_theme, _ui);   // FUDE_THEME_ order
         rde_ui_button_set_on_click(_side->themes[_i], fude_side_on_theme, &_side->theme_refs[_i]);
     }
-    _side->language_label = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS_LANGUAGE), FUDE_SIDE_HEADER_PX);
+    _side->language_label = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_LANGUAGE), FUDE_SIDE_HEADER_PX);
     for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
         _side->language_refs[_i] = (fude_side_theme_ref){ _ui, _i };
-        _side->languages[_i]     = fude_kit_button(_card, FUDE_TEXT_LANGUAGE_LIST[_i].name, fude_side_on_language, _ui);
+        _side->languages[_i]     = fude_kit_button(_body, FUDE_TEXT_LANGUAGE_LIST[_i].name, fude_side_on_language, _ui);
         rde_ui_button_set_on_click(_side->languages[_i], fude_side_on_language, &_side->language_refs[_i]);
         fude_side_flag(_side->languages[_i], _i);
     }
-    _side->width_label    = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS_PEN_WIDTH), FUDE_SIDE_ROW_PX);
-    _side->width_even     = fude_kit_button(_card, fude_text(FUDE_TEXT_SETTINGS_EVEN), fude_side_on_width_even, _ui);
-    _side->width_pressure = fude_kit_button(_card, fude_text(FUDE_TEXT_SETTINGS_PRESSURE), fude_side_on_width_pressure, _ui);
-    _side->paper_label  = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS_PAPER), FUDE_SIDE_ROW_PX);
-    _side->paper_sizes[FUDE_PAPER_SMALL]  = fude_kit_button(_card, fude_text(FUDE_TEXT_SIZE_SMALL), fude_side_on_paper_small, _ui);
-    _side->paper_sizes[FUDE_PAPER_MEDIUM] = fude_kit_button(_card, fude_text(FUDE_TEXT_SIZE_MEDIUM), fude_side_on_paper_medium, _ui);
-    _side->paper_sizes[FUDE_PAPER_LARGE]  = fude_kit_button(_card, fude_text(FUDE_TEXT_SIZE_LARGE), fude_side_on_paper_large, _ui);
-    _side->about_label    = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_SETTINGS_ABOUT), FUDE_SIDE_HEADER_PX);
+    _side->width_label    = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_PEN_WIDTH), FUDE_SIDE_ROW_PX);
+    _side->width_even     = fude_kit_button(_body, fude_text(FUDE_TEXT_SETTINGS_EVEN), fude_side_on_width_even, _ui);
+    _side->width_pressure = fude_kit_button(_body, fude_text(FUDE_TEXT_SETTINGS_PRESSURE), fude_side_on_width_pressure, _ui);
+    _side->paper_label  = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_PAPER), FUDE_SIDE_ROW_PX);
+    _side->paper_sizes[FUDE_PAPER_SMALL]  = fude_kit_button(_body, fude_text(FUDE_TEXT_SIZE_SMALL), fude_side_on_paper_small, _ui);
+    _side->paper_sizes[FUDE_PAPER_MEDIUM] = fude_kit_button(_body, fude_text(FUDE_TEXT_SIZE_MEDIUM), fude_side_on_paper_medium, _ui);
+    _side->paper_sizes[FUDE_PAPER_LARGE]  = fude_kit_button(_body, fude_text(FUDE_TEXT_SIZE_LARGE), fude_side_on_paper_large, _ui);
+    _side->ui_size_label = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_UI_SIZE), FUDE_SIDE_ROW_PX);
+    for(u32 _i = 0; _i < 3u; _i++) {
+        _side->ui_size_refs[_i] = (fude_side_theme_ref){ _ui, FUDE_UI_SIZE_SMALL + _i };
+        _side->ui_sizes[_i]     = fude_kit_button(_body, fude_text((FUDE_TEXT_)(FUDE_TEXT_SIZE_SMALL + _i)), fude_side_on_ui_size, &_side->ui_size_refs[_i]);
+    }
+    _side->about_label    = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_ABOUT), FUDE_SIDE_HEADER_PX);
 
     for(u32 _i = 0; _i < fude_side_section_count(_ui); _i++) {
-        fude_app_ext(_ui->app)->sections[_i].build(_ui, _card);
+        fude_app_ext(_ui->app)->sections[_i].build(_ui, _body);
     }
 
-    c8 _about[1536];
-    FUDE_TEXTF(_about, FUDE_TEXT_ABOUT_BUILT, FUDE_TS(_ui->app->info->version), FUDE_TS(__DATE__));
+    FUDE_TEXTF(fude_side_about, FUDE_TEXT_ABOUT_BUILT, FUDE_TS(_ui->app->info->version), FUDE_TS(__DATE__));
     if(_ui->app->info->credits < FUDE_TEXT_COUNT) {
-        snprintf(_about + strlen(_about), sizeof(_about) - strlen(_about), "\n\n%s", fude_text((FUDE_TEXT_)_ui->app->info->credits));
+        snprintf(fude_side_about + strlen(fude_side_about), sizeof(fude_side_about) - strlen(fude_side_about), "\n\n%s", fude_text((FUDE_TEXT_)_ui->app->info->credits));
     }
-    _side->about_text = fude_side_label(_ui, _card, _about, FUDE_SIDE_SMALL_PX);
+    _side->about_text = fude_side_label(_ui, _body, fude_side_about, FUDE_SIDE_SMALL_PX);
     rde_ui_label_set_wrap(_side->about_text, true);
-    // A short screen (landscape) gives it less room: smaller rather than over the buttons.
+    // As tall as its lines, measured near enough: a little short, it shrinks rather than spills.
     rde_ui_label_set_auto_fit(_side->about_text, true);
     rde_ui_label_set_auto_fit_min_scale(_side->about_text, 0.7f);
     rde_ui_label_set_alignment(_side->about_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_TOP);
@@ -1566,6 +1657,7 @@ void fude_side_apply_theme(fude_ui* _ui) {
     }
     rde_ui_button* const _buttons[] = { _side->width_even, _side->width_pressure, _side->settings_close,
                                         _side->paper_sizes[0], _side->paper_sizes[1], _side->paper_sizes[2],
+                                        _side->ui_sizes[0], _side->ui_sizes[1], _side->ui_sizes[2],
                                         _side->licences_button, _side->licences_close,
                                         _side->data_button, _side->data_export, _side->data_import, _side->data_cancel, _side->data_close,
                                         _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
@@ -1583,9 +1675,12 @@ void fude_side_apply_theme(fude_ui* _ui) {
     _side->_data_shown[0] = 1;   // the answer line's colour again
     fude_kit_modal_restyle(&_side->note, 18.0f);
     fude_kit_modal_restyle(&_side->licences, 18.0f);
-    rde_ui_scroll_area_set_background_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
-    rde_ui_scroll_area_set_track_color(_side->licences_text, (rde_color){ 0, 0, 0, 0 });
-    rde_ui_scroll_area_set_thumb_colors(_side->licences_text, _t->grip, fude_kit_shade(_t->grip, 20), fude_kit_shade(_t->grip, 40));
+    rde_ui_scroll_area* const _scrolled[] = { _side->licences_text, _side->settings_body };
+    for(u32 _k = 0; _k < sizeof(_scrolled) / sizeof(_scrolled[0]); _k++) {
+        rde_ui_scroll_area_set_background_color(_scrolled[_k], (rde_color){ 0, 0, 0, 0 });
+        rde_ui_scroll_area_set_track_color(_scrolled[_k], (rde_color){ 0, 0, 0, 0 });
+        rde_ui_scroll_area_set_thumb_colors(_scrolled[_k], _t->grip, fude_kit_shade(_t->grip, 20), fude_kit_shade(_t->grip, 40));
+    }
     for(u32 _k = 0; _k < FUDE_SIDE_LICENCE_LINES; _k++) {
         rde_ui_label_set_color(_side->licences_lines[_k], _t->button_text);
     }

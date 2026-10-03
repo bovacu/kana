@@ -6,7 +6,9 @@
 // ===========================================================================
 // A filter bar: across the top of a screen (Browse), rows of chips — one chosen
 // in each (a filter, a sort) — and under them a search field, searching as it is
-// typed, with toggles beside it (Draw, Parts, Clear).
+// typed, with toggles beside it (Draw, Parts, Clear). On a phone (kit.h:
+// compact) each row of chips is one line that scrolls sideways, and the toggles
+// are their icons alone.
 //
 // DECLARED by its screen (screen.h: bar): the chips' labels and which is on,
 // what choosing one does, what the field searches, the toggles. The widget
@@ -60,6 +62,7 @@ typedef struct fude_filterbar {
     void*                     self;            // its screen
     rde_window*               window;
     rde_ui_image*             panel;
+    rde_ui_scroll_area*       lines[FUDE_FILTERBAR_CHIP_ROWS];   // each row's chips (a phone's: one line, scrolled)
     rde_ui_button*            chips[FUDE_FILTERBAR_CHIP_ROWS][FUDE_FILTERBAR_CHIPS];
     fude_filterbar_ref        chip_refs[FUDE_FILTERBAR_CHIP_ROWS][FUDE_FILTERBAR_CHIPS];
     rde_ui_text_editor*       field;
@@ -69,6 +72,7 @@ typedef struct fude_filterbar {
     f32                       height;          // UI units, the top safe inset included (laid out)
     rde_vec_2F                _laid_out;       // the screen size it was laid out for
     rde_vec_4I                _insets_for;
+    i8                        _compact_for;    // laid out compact (1) or not (0); -1: not yet
     u32                       _chosen_shown[FUDE_FILTERBAR_CHIP_ROWS];
     u8                        _on_shown[FUDE_FILTERBAR_TOGGLES];
 } fude_filterbar;

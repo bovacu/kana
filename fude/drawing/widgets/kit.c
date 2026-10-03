@@ -474,6 +474,11 @@ void fude_kit_restyle_button(rde_ui_button* _button) {
     fude_kit_set_enabled(_button, rde_ui_button_as_node(_button)->interactable);
 }
 
+b8 fude_kit_compact(rde_window* _window) {
+    const rde_vec_2F _s = fude_kit_screen_size(_window);
+    return fminf(_s.x, _s.y) < FUDE_KIT_COMPACT_BELOW;
+}
+
 rde_vec_2F fude_kit_screen_size(rde_window* _window) {
     const rde_vec_2I _w = rde_window_get_size(_window);
     return (rde_vec_2F){ (f32)_w.x, (f32)_w.y };

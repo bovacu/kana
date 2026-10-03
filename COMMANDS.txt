@@ -216,7 +216,7 @@ KanjiVG's strokes before a red sun, over an open book; LaunchIcon, the icon
 rounded as iOS rounds it, for the launch screen; LaunchBackground, the launch
 screen's colour: Paper's page, Night's in dark mode), the launch screen (LaunchScreen.storyboard:
 the icon centred, 160 points) and Kana's
-own Info.plist keys (Info.plist: iPad only, every orientation, full screen, no
+own Info.plist keys (Info.plist: iPad only, portrait either way up — the app locks it on Android too, app.c — full screen, no
 non-exempt encryption, the camera's purpose, Kana's five languages), merged over
 the engine template's; localized/<language>.lproj/InfoPlist.strings, the camera
 prompt in each language, go into the app through --ios_bundle (a plain folder:
@@ -404,6 +404,19 @@ PDF's text: the text row); --doc-search=WORDS the document bar's Search;
 page N turned a quarter clockwise (frame 30); --doc-export=PDF
 the document written there with its ink (frame 90); --read-demo the pages
 without text "read" into made-up lines (no ML Kit on the desktop).
+
+A phone (fude_kit_compact, kit.h: the screen's shorter side under 600 points/dp)
+gets the same UI laid out tighter: a row's buttons that do not fit go under More
+(a menu over the row; Back closes it), the filter chips scroll sideways with
+icon-only toggles, the search field takes a line of its own, the welcome card's
+words get smaller, and Settings puts a setting's name over its choices and
+scrolls (--scroll=PX scrolls it too). Looked at on the Mac with --size=411x880 (a
+Galaxy S23), 360x640, 393x852 (an iPhone 15) or 375x667 (an iPhone SE).
+And everything is smaller there: Settings' Interface size (Small, Medium, Large:
+a window unit at 0.8, 1, 1.15 of a point/dp — RDE's rde_window_set_ui_scale) is
+Small on a phone until one is chosen, Medium on anything bigger (app.h,
+FUDE_UI_SIZE_). --size is the device's size in points, the scale on top;
+--ui-size=N looks at another (1 Small, 2 Medium, 3 Large, 0 the device's).
 
 On the device (a build that takes arguments, as for --perf):
 --translate-probe=xx tries ML Kit's translator — Japanese into xx (en, es, pt,

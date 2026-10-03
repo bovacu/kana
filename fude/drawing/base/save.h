@@ -53,7 +53,8 @@
 //           u8 finger_writes (1: one finger writes on a tablet — the toolbar's
 //           hand; 0: only the pen), u8 pen_ever (1: a pen has written here),
 //           u8 r g b a (the marker's colour), f32 the marker's half-width,
-//           u8 cards_read (the must-read cards closed, a bit each: readcard.h)
+//           u8 cards_read (the must-read cards closed, a bit each: readcard.h),
+//           u8 ui_size (the interface's: FUDE_UI_SIZE_, app.h; 0: the device's)
 //           (new fields go at the END: an older file just ends sooner; one from
 //           before the hand is a pen user's: the pen writes)
 // ===========================================================================
@@ -88,6 +89,7 @@ RDE_STRUCT {
     rde_color  marker_color;      // the marker's (ink.h), see-through
     f32        marker_radius;
     u8         cards_read;        // the must-read cards closed, a bit each (readcard.h)
+    u8         ui_size;           // FUDE_UI_SIZE_ (app.h; 0: the device's)
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

@@ -15,6 +15,7 @@
 #define FUDE_FILTERBAR_ROW_H    36.0f
 #define FUDE_FILTERBAR_FIELD_H  44.0f
 #define FUDE_FILTERBAR_SIDE_W   76.0f    // a toggle beside the field
+#define FUDE_FILTERBAR_ICON_W   48.0f    // ...on a phone: its icon alone
 #define FUDE_FILTERBAR_PAD      10.0f
 #define FUDE_FILTERBAR_GAP      4.0f
 #define FUDE_FILTERBAR_FIELD_PX 14u
@@ -69,11 +70,18 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     rde_ui_node_add_child(_root, _node);
 
     for(u32 _r = 0; _r < _def->chip_rows && _r < FUDE_FILTERBAR_CHIP_ROWS; _r++) {
+        _bar->lines[_r] = rde_ui_scroll_area_create(NULL);
+        rde_ui_scroll_area_set_bar_thickness(_bar->lines[_r], 0.0f);
+        rde_ui_scroll_area_set_background_color(_bar->lines[_r], (rde_color){ 0, 0, 0, 0 });   // the bar's panel shows through
+        rde_ui_scroll_area_set_track_color(_bar->lines[_r], (rde_color){ 0, 0, 0, 0 });
+        rde_ui_node* _line = rde_ui_scroll_area_as_node(_bar->lines[_r]);
+        rde_ui_node_add_child(_node, _line);
         for(u32 _i = 0; _i < fude_filterbar_chip_count(&_def->chips[_r]); _i++) {
             _bar->chip_refs[_r][_i] = (fude_filterbar_ref){ _bar, _r, _i };
-            _bar->chips[_r][_i]     = fude_kit_button(_node, _def->chips[_r].label(_i), fude_filterbar_on_chip, &_bar->chip_refs[_r][_i]);
+            _bar->chips[_r][_i]     = fude_kit_button(_line, _def->chips[_r].label(_i), fude_filterbar_on_chip, &_bar->chip_refs[_r][_i]);
         }
     }
+    _bar->_compact_for = -1;
     for(u32 _t = 0; _t < _def->toggle_count && _t < FUDE_FILTERBAR_TOGGLES; _t++) {
         const fude_filterbar_toggle* _toggle = &_def->toggles[_t];
         _bar->toggle_refs[_t] = (fude_filterbar_ref){ _bar, FUDE_FILTERBAR_CHIP_ROWS, _t };
@@ -102,26 +110,29 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     rde_ui_node_set_active(_node, false);
 }
 
-// A row of chips from _left, each as wide as its label (and padding), the
-// first line's centred on _y; one that would pass _width starts another line
-// below (a language's many levels: HSK 1 ... HSK 7–9). Placed only when _place;
-// how many lines it takes.
-RDE_INTERNAL u32 fude_filterbar_chip_row(fude_filterbar* _bar, u32 _r, f32 _left, f32 _width, f32 _y, b8 _place) {
+// A row of chips in its line's content (bottom-left origin), each as wide as its
+// label (and padding), the first line's centred on _y; one that would pass _width
+// starts another line below (a language's many levels: HSK 1 ... HSK 7–9) —
+// unless _one_line (a phone's, scrolled). Placed only when _place; how many
+// lines it takes, and in *_widest how wide.
+RDE_INTERNAL u32 fude_filterbar_chip_row(fude_filterbar* _bar, u32 _r, f32 _width, f32 _y, b8 _one_line, b8 _place, f32* _widest) {
     const fude_filterbar_chips* _chips = &_bar->def->chips[_r];
     const u32 _count = fude_filterbar_chip_count(_chips);
     u32       _lines = 1u;
-    f32       _x     = _left;
+    f32       _x     = 0.0f;
+    *_widest         = 0.0f;
     for(u32 _i = 0; _i < _count; _i++) {
         const f32 _cw = fmaxf(48.0f, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _chips->label(_i), FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 26.0f);
-        if(_x > _left && _x + _cw > _left + _width) {
-            _x  = _left;
+        if(!_one_line && _x > 0.0f && _x + _cw > _width) {
+            _x  = 0.0f;
             _y -= FUDE_FILTERBAR_ROW_H + FUDE_FILTERBAR_GAP;
             _lines++;
         }
         if(_place) {
             fude_kit_place(rde_ui_button_as_node(_bar->chips[_r][_i]), (rde_vec_2F){ _x + _cw * 0.5f, _y }, (rde_vec_2F){ _cw, FUDE_FILTERBAR_ROW_H });
         }
-        _x += _cw + FUDE_FILTERBAR_GAP;
+        _x       += _cw + FUDE_FILTERBAR_GAP;
+        *_widest  = fmaxf(*_widest, _x - FUDE_FILTERBAR_GAP);
     }
     return _lines;
 }
@@ -136,9 +147,13 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     const f32        _left   = (f32)_insets.x + _pad;
     const f32        _width  = _screen.x - (f32)(_insets.x + _insets.z) - 2.0f * _pad;
     const u32        _rows   = _bar->def->chip_rows;
-    u32              _lines  = 0;   // the chip rows' lines, wrapped
+    const b8         _compact = fude_kit_compact(_bar->window);
+    u32              _lines  = 0;   // the chip rows' lines, wrapped (a phone's: one each)
+    u32              _per[FUDE_FILTERBAR_CHIP_ROWS];
+    f32              _wide[FUDE_FILTERBAR_CHIP_ROWS];
     for(u32 _r = 0; _r < _rows; _r++) {
-        _lines += fude_filterbar_chip_row(_bar, _r, _left, _width, 0.0f, false);
+        _per[_r] = fude_filterbar_chip_row(_bar, _r, _width, 0.0f, _compact, false, &_wide[_r]);
+        _lines  += _per[_r];
     }
     const f32        _height = (f32)_insets.y + _pad + (f32)_lines * (FUDE_FILTERBAR_ROW_H + _gap) + FUDE_FILTERBAR_FIELD_H + _pad;
 
@@ -147,22 +162,41 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     _bar->height      = _height;
     fude_kit_place(rde_ui_image_as_node(_bar->panel), (rde_vec_2F){ _screen.x * 0.5f, _screen.y - _height * 0.5f }, (rde_vec_2F){ _screen.x, _height });
 
-    // Rows, top to bottom (panel-local: bottom-left origin).
-    f32 _y = _height - (f32)_insets.y - _pad - FUDE_FILTERBAR_ROW_H * 0.5f;
+    // Rows, top to bottom (panel-local: bottom-left origin), each in its line:
+    // as tall as its chips wrap and no wider than the bar — or, on a phone, one
+    // line as wide as its chips, scrolled.
+    f32 _top = _height - (f32)_insets.y - _pad;   // the next row's top
     for(u32 _r = 0; _r < _rows; _r++) {
-        const u32 _n = fude_filterbar_chip_row(_bar, _r, _left, _width, _y, true);
-        _y -= (f32)(_n - 1u) * (FUDE_FILTERBAR_ROW_H + _gap) + (_r + 1u < _rows ? FUDE_FILTERBAR_ROW_H + _gap : 0.0f);
+        const f32 _h       = (f32)_per[_r] * (FUDE_FILTERBAR_ROW_H + _gap) - _gap;
+        const f32 _content = _compact ? fmaxf(_width, _wide[_r]) : _width;
+        fude_kit_place(rde_ui_scroll_area_as_node(_bar->lines[_r]), (rde_vec_2F){ _left + _width * 0.5f, _top - _h * 0.5f }, (rde_vec_2F){ _width, _h });
+        rde_ui_scroll_area_set_content_size(_bar->lines[_r], (rde_vec_2F){ _content, _h });
+        if(_compact != (_bar->_compact_for == 1)) {
+            rde_ui_scroll_area_set_scroll(_bar->lines[_r], (rde_vec_2F){ 0.0f, 0.0f });
+        }
+        fude_filterbar_chip_row(_bar, _r, _width, _h - FUDE_FILTERBAR_ROW_H * 0.5f, _compact, true, &_wide[_r]);
+        _top -= _h + _gap;
     }
 
-    _y -= (FUDE_FILTERBAR_ROW_H + FUDE_FILTERBAR_FIELD_H) * 0.5f + _gap;
+    // The field, the toggles after it (a phone's: their icons alone).
+    f32       _y     = _top - FUDE_FILTERBAR_FIELD_H * 0.5f;
     const u32 _n     = _bar->def->toggle_count;
-    const f32 _field = _width - (f32)_n * (FUDE_FILTERBAR_SIDE_W + _gap);
+    const f32 _side  = _compact ? FUDE_FILTERBAR_ICON_W : FUDE_FILTERBAR_SIDE_W;
+    const f32 _field = _width - (f32)_n * (_side + _gap);
+    if(_compact != (_bar->_compact_for == 1)) {
+        for(u32 _t = 0; _t < _n; _t++) {
+            const fude_filterbar_toggle* _toggle = &_bar->def->toggles[_t];
+            rde_ui_button_set_text(_bar->toggles[_t], _compact ? "" : fude_text((FUDE_TEXT_)_toggle->text));
+            fude_kit_icon(_bar->toggles[_t], _toggle->icon, _compact ? FUDE_KIT_ICON_ONLY : FUDE_KIT_ICON_LEFT, _toggle->icon_px);
+        }
+    }
+    _bar->_compact_for = _compact ? 1 : 0;
     fude_kit_place(fude_kit_field_node(_bar->field), (rde_vec_2F){ _left + _field * 0.5f, _y }, (rde_vec_2F){ _field, FUDE_FILTERBAR_FIELD_H });
     for(u32 _t = 0; _t < _n; _t++) {
         // The last against the right edge; the others after the field.
-        const f32 _x = _t + 1u == _n ? _left + _width - FUDE_FILTERBAR_SIDE_W * 0.5f
-                                     : _left + _field + (f32)(_t + 1u) * _gap + FUDE_FILTERBAR_SIDE_W * ((f32)_t + 0.5f);
-        fude_kit_place(rde_ui_button_as_node(_bar->toggles[_t]), (rde_vec_2F){ _x, _y }, (rde_vec_2F){ FUDE_FILTERBAR_SIDE_W, FUDE_FILTERBAR_FIELD_H });
+        const f32 _x = _t + 1u == _n ? _left + _width - _side * 0.5f
+                                     : _left + _field + (f32)(_t + 1u) * _gap + _side * ((f32)_t + 0.5f);
+        fude_kit_place(rde_ui_button_as_node(_bar->toggles[_t]), (rde_vec_2F){ _x, _y }, (rde_vec_2F){ _side, FUDE_FILTERBAR_FIELD_H });
     }
 }
 

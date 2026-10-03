@@ -567,11 +567,8 @@ RDE_INTERNAL void fude_stats_draw_overview(const fude_stats_box* _b) {
         const f32 _x = _b->left + (f32)(_i % _cols) * _tw;
         const f32 _y = _b->top - (f32)(_i / _cols) * FUDE_STATS_TILE_H;
         const rde_color _accent = _i == 5u && _d->streak > 0 ? _theme->score_fair : _theme->text;
-        c8 _fit[48];
-        fude_draw_text_fit(_b->font, _b->font_px, _values[_i], 30.0f, _tw - 10.0f, _fit, sizeof(_fit));
-        fude_draw_text(_b->font, _b->font_px, _fit, _x, _y - 32.0f, 30.0f, _accent);
-        fude_draw_text_fit(_b->font, _b->font_px, _labels[_i], 14.0f, _tw - 10.0f, _fit, sizeof(_fit));
-        fude_draw_text(_b->font, _b->font_px, _fit, _x, _y - 56.0f, 14.0f, _theme->text_soft);
+        fude_draw_text_whole(_b->font, _b->font_px, _values[_i], _x, _y - 32.0f + 30.0f * 0.38f, 30.0f, _tw - 10.0f, 1u, _accent);
+        fude_draw_text_whole(_b->font, _b->font_px, _labels[_i], _x, _y - 56.0f + 14.0f * 0.38f, 14.0f, _tw - 10.0f, 1u, _theme->text_soft);
     }
 }
 

@@ -59,8 +59,9 @@ f32  fude_draw_text_balanced_width(rde_font* _font, f32 _font_px, const c8* _tex
 // The size to draw _text at so it fits _width: _px, or smaller (down to
 // _min_scale of it) when it would not fit.
 f32  fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);
-// _text into _out, cut with "…" (at a word when one is near) where it would pass
-// _width at _px.
-void fude_draw_text_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, c8* _out, usize _size);
+// _text whole in _width, its line's middle at _mid — never cut short: at _px,
+// else smaller (to three quarters), else on up to _lines lines (smaller still if
+// need be), else as small as it takes. Returns the size drawn at.
+f32  fude_draw_text_whole(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, f32 _width, u32 _lines, rde_color _color);
 
 #endif

@@ -8,6 +8,7 @@
 # --- common words ---------------------------------------------------------------
 t('FINISH', 'Finish', 'Terminar', 'Concluir', '終了', 'Terminer')
 t('CLOSE', 'Close', 'Cerrar', 'Fechar', '閉じる', 'Fermer')
+t('MORE_MENU', 'More', 'Más', 'Mais', 'その他', 'Plus')   # a row's buttons that do not fit a phone (row.h)
 t('READ_CLOSE_IN', 'Close ({0})', 'Cerrar ({0})', 'Fechar ({0})', '閉じる（{0}）', 'Fermer ({0})')   # a must-read card's Close, counting down (readcard.h)
 t('CANCEL', 'Cancel', 'Cancelar', 'Cancelar', 'キャンセル', 'Annuler')
 t('DELETE', 'Delete', 'Eliminar', 'Excluir', '削除', 'Supprimer')
@@ -55,6 +56,7 @@ t('SETTINGS_PEN_WIDTH', 'Pen width', 'Grosor del trazo', 'Espessura do traço', 
 t('SETTINGS_EVEN', 'Even', 'Uniforme', 'Uniforme', '均一', 'Uniforme')
 t('SETTINGS_PRESSURE', 'Pressure', 'Presión', 'Pressão', '筆圧', 'Pression')
 t('SETTINGS_PAPER', 'Lines & squares', 'Líneas y cuadros', 'Linhas e quadrados', '罫線とマス目', 'Lignes et carreaux')
+t('SETTINGS_UI_SIZE', 'Interface size', 'Tamaño de la interfaz', 'Tamanho da interface', '表示サイズ', 'Taille de l’interface')   # everything on screen bigger or smaller (Small on a phone at first)
 t('SIZE_SMALL', 'Small', 'Pequeño', 'Pequeno', '小', 'Petit')
 t('SIZE_MEDIUM', 'Medium', 'Mediano', 'Médio', '中', 'Moyen')
 t('SIZE_LARGE', 'Large', 'Grande', 'Grande', '大', 'Grand')

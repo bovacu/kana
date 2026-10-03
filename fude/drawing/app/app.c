@@ -6,8 +6,10 @@
 #include "drawing/base/save.h"
 #include "drawing/base/android.h"
 #include "drawing/ink/lasso.h"
+#include "drawing/widgets/kit.h"
 
 #include <string.h>
+#include <math.h>
 
 // ===========================================================================
 // See app.h.
@@ -36,6 +38,27 @@ void fude_app_window(rde_window* _window) {
 #else
     RDE_UNUSED(_window);
 #endif
+}
+
+// A window unit's size for each (AUTO has none of its own).
+RDE_INTERNAL const f32 FUDE_APP_UI_SCALES[FUDE_UI_SIZE_COUNT] = { 1.0f, 0.8f, 1.0f, 1.15f };
+
+FUDE_UI_SIZE_ fude_app_ui_size(const fude_app* _app) {
+    if(_app->ui_size != FUDE_UI_SIZE_AUTO && _app->ui_size < FUDE_UI_SIZE_COUNT) {
+        return (FUDE_UI_SIZE_)_app->ui_size;
+    }
+    // The device's: a phone is a screen whose shorter side, in its own points
+    // (dp), is under what a phone's layout starts at — the scale undone.
+    const rde_vec_2I _size = rde_window_get_size(_app->window);
+    const f32        _side = fminf((f32)_size.x, (f32)_size.y) * rde_window_get_ui_scale(_app->window);
+    return _side < FUDE_KIT_COMPACT_BELOW ? FUDE_UI_SIZE_SMALL : FUDE_UI_SIZE_MEDIUM;
+}
+
+void fude_app_apply_ui_size(fude_app* _app) {
+    const f32 _scale = FUDE_APP_UI_SCALES[fude_app_ui_size(_app)];
+    if(fabsf(rde_window_get_ui_scale(_app->window) - _scale) > 0.001f) {
+        rde_window_set_ui_scale(_app->window, _scale);   // everything is laid out again: the window's size changed
+    }
 }
 
 const c8* fude_app_id(const fude_app* _app) {
@@ -88,6 +111,14 @@ void fude_app_close_all(fude_app* _app) {
 // system's (it leaves the app); Escape does nothing.
 RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
     fude_ui* _ui = _app->ui;
+    // A row's More card (a phone's), over everything.
+    b8 _closed = fude_row_close_menu(&_ui->page.selection) || fude_row_close_menu(&_ui->page.text) || fude_row_close_menu(&_ui->page.context);
+    for(u32 _r = 0; !_closed && _r < FUDE_UI_ROWS; _r++) {
+        _closed = fude_row_close_menu(&_ui->rows[_r]);
+    }
+    if(_closed) {
+        return;
+    }
     if(fude_side_back(_ui)) {
         return;
     }
@@ -127,6 +158,17 @@ RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
 // --- each frame -----------------------------------------------------------------------------
 
 b8 fude_app_update(fude_app* _app, f32 _dt) {
+    fude_app_apply_ui_size(_app);   // before anything reads the window's size
+#if defined(RDE_PLATFORM_MOBILE)
+    // Portrait only, either way up, on every phone and tablet. Asked once the
+    // window has its size: SDL's own request at its creation can come too early
+    // and do nothing (Android then rotates freely).
+    static b8 _portrait = false;
+    if(!_portrait) {
+        _portrait = rde_window_set_orientation_lock(RDE_ORIENTATION_LOCK_PORTRAIT_ANY);
+    }
+#endif
+
     // Back first: what it closes is gone before anything else looks. Android's on
     // its RELEASE, as Android acts on it: the gesture (and adb) send the press and
     // the release together, so one frame has both and "just pressed" never shows.

@@ -408,12 +408,13 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     _view->rows_max  = (rde_vec_2F){ _right, _y };
     _view->content_h = (f32)_n * FUDE_VOCABVIEW_ROW;
     if(_n == 0u) {
-        fude_draw_card((rde_vec_2F){ _left, _y - 84.0f }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
         if(_view->query[0] != 0) {
             FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_SEARCH_NONE, FUDE_TS(_view->query));
         } else {
             snprintf(_line, sizeof(_line), "%s", fude_text(_view->list != 0u ? FUDE_TEXT_VOCAB_LIST_EMPTY : FUDE_TEXT_VOCAB_EMPTY));
         }
+        const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, _line, 14.0f, _right - _left - 36.0f);   // as tall as they are (a phone's are more)
+        fude_draw_card((rde_vec_2F){ _left, _y - fmaxf(84.0f, (f32)_lines * 20.0f + 34.0f) }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
         fude_draw_text_wrap(_font, _font_px, _line, _left + 18.0f, _y - 30.0f, 14.0f, _right - _left - 36.0f, 20.0f, _theme->text_soft);
         return;
     }

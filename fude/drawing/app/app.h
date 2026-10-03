@@ -36,6 +36,18 @@ struct fude_page_input;
 // The pointer the screens follow: one at a time, whichever pressed first.
 typedef enum { FUDE_POINTER_NONE = 0, FUDE_POINTER_PEN, FUDE_POINTER_FINGER, FUDE_POINTER_MOUSE } FUDE_POINTER_;
 
+// How big everything on screen is (Settings' Interface size): a window unit's
+// size (rde_window_set_ui_scale). AUTO, until one is chosen: Small on a phone
+// (a UI laid out for tablets, at a tablet's sizes, crowds its narrow screen),
+// Medium on anything bigger.
+typedef enum {
+    FUDE_UI_SIZE_AUTO = 0,
+    FUDE_UI_SIZE_SMALL,
+    FUDE_UI_SIZE_MEDIUM,
+    FUDE_UI_SIZE_LARGE,
+    FUDE_UI_SIZE_COUNT
+} FUDE_UI_SIZE_;
+
 typedef struct fude_app {
     const fude_app_info*  info;      // what the app is (info.h)
     const fude_extension* ext;       // what it adds to the core (extension.h; NULL: nothing)
@@ -52,6 +64,7 @@ typedef struct fude_app {
     b8               finger_writes;  // a tablet: one finger writes too (the toolbar's hand); a pen coming down turns it off
     b8               pen_ever;       // a pen has written here, ever (saved): until one has, a tablet starts with the hand on
     u8               cards_read;     // the must-read cards closed, a bit each (saved; readcard.h)
+    u8               ui_size;        // FUDE_UI_SIZE_ (saved): how big everything is; AUTO: the device's
 
     // The screens, in the order they stack: the first open one is on top (and
     // gets the pointer, its row, the frame). The page is under them all. The
@@ -79,6 +92,10 @@ void                  fude_app_start(fude_app* _app);
 void                  fude_app_window(rde_window* _window);
 // What the app adds (extension.h): its own, or nothing.
 const fude_extension* fude_app_ext(const fude_app* _app);
+// The interface's size as it is: the one chosen, or the device's (never AUTO).
+FUDE_UI_SIZE_         fude_app_ui_size(const fude_app* _app);
+// The window's units for it (each frame: a window resized, a phone turned).
+void                  fude_app_apply_ui_size(fude_app* _app);
 // Its id (info.h): its own, or its name in lowercase (letters and digits).
 const c8*             fude_app_id(const fude_app* _app);
 

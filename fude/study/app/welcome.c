@@ -2,6 +2,7 @@
 #include "drawing/app/screen.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/widgets/icons.h"
+#include "drawing/widgets/kit.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 
@@ -91,22 +92,40 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     const c8* _title = fude_text(FUDE_WELCOME_PAGE[_page].title);
     const c8* _body  = fude_text(FUDE_WELCOME_PAGE[_page].body);
     const f32 _title_px = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_WELCOME_TITLE, _inner, 0.6f);
-    const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, _body, FUDE_WELCOME_BODY, _inner);
-    const f32 _h = FUDE_WELCOME_PAD + FUDE_WELCOME_ICON + 24.0f + _title_px * 1.4f + 16.0f + (f32)_lines * FUDE_WELCOME_LINE + 28.0f + 12.0f + 28.0f +
-                   FUDE_WELCOME_BUTTON.y + FUDE_WELCOME_PAD;
+    // On a phone the first page says the app is made for tablets, under its words.
+    const c8* _phone = _page == 0u && fude_kit_compact(_window) ? fude_text(FUDE_TEXT_WELCOME_PHONE) : NULL;
+    // A screen too short for it (a phone): smaller words and icon.
+    f32 _body_px = FUDE_WELCOME_BODY, _line = FUDE_WELCOME_LINE, _icon = FUDE_WELCOME_ICON;
+    u32 _lines   = fude_draw_text_wrap_lines(_font, _font_px, _body, _body_px, _inner);
+    u32 _notes   = _phone != NULL ? fude_draw_text_wrap_lines(_font, _font_px, _phone, _body_px, _inner) : 0u;
+    #define FUDE_WELCOME_H() (FUDE_WELCOME_PAD + _icon + 24.0f + _title_px * 1.4f + 16.0f + (f32)_lines * _line + (_notes > 0u ? 14.0f + (f32)_notes * _line : 0.0f) + \
+                              28.0f + 12.0f + 28.0f + FUDE_WELCOME_BUTTON.y + FUDE_WELCOME_PAD)
+    if(FUDE_WELCOME_H() > _sh - (f32)(_insets.y + _insets.w) - 32.0f) {
+        _body_px = 15.0f;
+        _line    = 22.0f;
+        _icon    = 44.0f;
+        _lines   = fude_draw_text_wrap_lines(_font, _font_px, _body, _body_px, _inner);
+        _notes   = _phone != NULL ? fude_draw_text_wrap_lines(_font, _font_px, _phone, _body_px, _inner) : 0u;
+    }
+    const f32 _h = FUDE_WELCOME_H();
+    #undef FUDE_WELCOME_H
     const f32 _cy  = ((f32)_insets.w - (f32)_insets.y) * 0.5f;   // the safe area's middle
     const f32 _top = _cy + _h * 0.5f;
     const f32 _l   = -_w * 0.5f;
     fude_draw_card((rde_vec_2F){ _l, _top - _h }, (rde_vec_2F){ _l + _w, _top }, 24.0f, _t->surface, _t->outline);
 
-    f32 _y = _top - FUDE_WELCOME_PAD - FUDE_WELCOME_ICON * 0.5f;
-    fude_draw_icon(_font, _font_px, FUDE_WELCOME_PAGE[_page].icon, (rde_vec_2F){ 0.0f, _y }, FUDE_WELCOME_ICON, _t->accent);
-    _y -= FUDE_WELCOME_ICON * 0.5f + 24.0f + _title_px;
+    f32 _y = _top - FUDE_WELCOME_PAD - _icon * 0.5f;
+    fude_draw_icon(_font, _font_px, FUDE_WELCOME_PAGE[_page].icon, (rde_vec_2F){ 0.0f, _y }, _icon, _t->accent);
+    _y -= _icon * 0.5f + 24.0f + _title_px;
     const f32 _tw = fude_draw_text_width(_font, _font_px, _title, _title_px);
     fude_draw_text(_font, _font_px, _title, -_tw * 0.5f, _y, _title_px, _t->text);
-    _y -= _title_px * 0.4f + 16.0f + FUDE_WELCOME_BODY * 0.8f;
-    fude_draw_text_wrap(_font, _font_px, _body, _l + FUDE_WELCOME_PAD, _y, FUDE_WELCOME_BODY, _inner, FUDE_WELCOME_LINE, _t->text_soft);
-    _y -= (f32)_lines * FUDE_WELCOME_LINE + 12.0f;
+    _y -= _title_px * 0.4f + 16.0f + _body_px * 0.8f;
+    fude_draw_text_wrap(_font, _font_px, _body, _l + FUDE_WELCOME_PAD, _y, _body_px, _inner, _line, _t->text_soft);
+    _y -= (f32)_lines * _line + 12.0f;
+    if(_notes > 0u) {
+        fude_draw_text_wrap(_font, _font_px, _phone, _l + FUDE_WELCOME_PAD, _y - _body_px * 0.8f + 2.0f, _body_px, _inner, _line, _t->accent);
+        _y -= 14.0f + (f32)_notes * _line;
+    }
 
     // Where it is: a dot a page.
     for(u32 _i = 0; _i < FUDE_WELCOME_PAGES; _i++) {
@@ -115,7 +134,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     }
 
     // Skip (not on the last page) at the left, Next / Start writing at the right.
-    const rde_vec_2F _b    = FUDE_WELCOME_BUTTON;
+    const rde_vec_2F _b    = { fminf(FUDE_WELCOME_BUTTON.x, (_inner - 12.0f) * 0.5f), FUDE_WELCOME_BUTTON.y };   // halves of a narrow card
     const f32        _by   = _top - _h + FUDE_WELCOME_PAD + _b.y * 0.5f;
     const b8         _last = _page + 1u == FUDE_WELCOME_PAGES;
     const f32        _nx   = _l + _w - FUDE_WELCOME_PAD - _b.x * 0.5f;

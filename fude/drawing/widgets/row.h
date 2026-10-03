@@ -2,10 +2,13 @@
 #define FUDE_ROW
 
 #include "rde.h"
+#include "drawing/widgets/kit.h"
 
 // ===========================================================================
 // A row of buttons, each an icon over its label: the bar at the bottom of every
-// screen, the menu over the lasso's selection, the page's context menu.
+// screen, the menu over the lasso's selection, the page's context menu. Where
+// they do not all fit (a phone), the row keeps what does — its primary button
+// and its Back or Close always — and a More opens a card of the others above it.
 //
 // A row is DECLARED as data — its buttons, what each says and does, how it looks
 // (fude_row_def) — and each frame its owner says how each button shows now
@@ -89,6 +92,15 @@ typedef struct fude_row {
     b8                  open;
     rde_vec_2F          center;                      // UI canvas units
     rde_vec_2F          size;
+    // Where they do not all fit: More, and the card of those it holds.
+    f32                 widths[FUDE_ROW_BUTTONS];    // each as its label wants (0: left out)
+    rde_ui_button*      more;
+    fude_kit_modal      menu;
+    rde_ui_button*      items[FUDE_ROW_BUTTONS];     // in the card (NULL: left out)
+    b8                  in_menu[FUDE_ROW_BUTTONS];   // under More now
+    b8                  menu_open;
+    f32                 _laid_for;                   // the width it was laid out in (0: not yet)
+    rde_window*         _window;                     // as last shown: where the card opens
 } fude_row;
 
 // Built under _root from _def (hidden): each button as wide as its label needs.
@@ -102,8 +114,10 @@ rde_vec_2F fude_row_bottom(const fude_row* _row, rde_window* _window);
 void fude_row_apply(fude_row* _row, const fude_row_face* _faces);
 // Every button styled again from the theme (its look, and its face over it).
 void fude_row_restyle(fude_row* _row);
-// Is _ui (UI canvas units) on the row, while it shows?
+// Is _ui (UI canvas units) on the row (or its More card), while it shows?
 b8   fude_row_hit(const fude_row* _row, rde_vec_2F _ui);
+// Back (Android's, Escape): its More card closed. False: it was not open.
+b8   fude_row_close_menu(fude_row* _row);
 // The row's height when shown (every row is as tall).
 f32  fude_row_height(void);
 

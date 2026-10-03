@@ -859,8 +859,8 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
     }
     fude_draw_text(_font, _font_px, fude_text((FUDE_TEXT_)fude_lang_group_prompt(fude_lang_group(_info->codepoint))), _x, _cy, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
     const c8* _meaning = fude_kanji_meanings(_exam->db, _info);
-    fude_draw_text_fit(_font, _font_px, _meaning[0] != 0 ? _meaning : fude_text(FUDE_TEXT_NO_MEANING), FUDE_EXAM_MEANING_PX, _right - _pad - _x, _line, sizeof(_line));
-    fude_draw_text(_font, _font_px, _line, _x, _cy - 34.0f, FUDE_EXAM_MEANING_PX, _theme->text);
+    fude_draw_text_whole(_font, _font_px, _meaning[0] != 0 ? _meaning : fude_text(FUDE_TEXT_NO_MEANING), _x, _cy - 34.0f + FUDE_EXAM_MEANING_PX * 0.38f,
+                         FUDE_EXAM_MEANING_PX, _right - _pad - _x, 1u, _theme->text);
     _cy -= 40.0f;
 
     // The readings side by side, each behind its label.
@@ -888,8 +888,7 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
         const f32 _rx = _x + 6.0f + fude_draw_text_width(_font, _font_px, _blanked, FUDE_EXAM_WORD_PX) + 14.0f;
         fude_draw_text(_font, _font_px, _word.reading, _rx, _mid - 13.0f * 0.42f, 13.0f, _theme->text_soft);
         const f32 _mx = _rx + fude_draw_text_width(_font, _font_px, _word.reading, 13.0f) + 14.0f;
-        fude_draw_text_fit(_font, _font_px, _word.meaning, 13.0f, _right - _pad - _mx, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _mx, _mid - 13.0f * 0.42f, 13.0f, _theme->text);
+        fude_draw_text_whole(_font, _font_px, _word.meaning, _mx, _mid - 13.0f * 0.04f, 13.0f, _right - _pad - _mx, 2u, _theme->text);
     }
     return _y - _h;
 }

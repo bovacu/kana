@@ -27,6 +27,7 @@ RDE_INTERNAL struct {
     b8        paper, deselect, trim_fonts, data, data_replace;
     b8        stay;       // --stay: a shot's sequence without the shot, and no quitting (a screenshot taken from outside: the Simulator's)
     i32       theme;
+    i32       ui_size;    // --ui-size=N: the interface's (FUDE_UI_SIZE_, app.h: 1 Small, 2 Medium, 3 Large; 0 the device's)
     const c8* data_export;
     const c8* data_import;
     const c8* press;      // --press=I,J,...: the top screen's row's buttons pressed in turn, from frame 30
@@ -47,7 +48,7 @@ RDE_INTERNAL struct {
     f64       perf_dt_sum, perf_dt_max, perf_update_sum, perf_update_max, perf_render_sum, perf_render_max;
     c8        perf_label[160];
     void    (*perf_note)(struct fude_app* _app, c8* _out, usize _size);
-} fude_look = { .theme = -1, .language = -1, .book = -1 };
+} fude_look = { .theme = -1, .ui_size = -1, .language = -1, .book = -1 };
 
 const c8* fude_look_value(const c8* _arg, const c8* _flag) {
     const usize _n = strlen(_flag);
@@ -79,6 +80,7 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--data-replace"))        { fude_look.data_replace = true; }
         if(fude_look_is(_a, "--stay"))                { fude_look.stay = true; }
         if((_v = fude_look_value(_a, "--theme")) != NULL)          { fude_look.theme = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--ui-size")) != NULL)        { fude_look.ui_size = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; }
         if((_v = fude_look_value(_a, "--data-export")) != NULL)    { fude_look.data_export = _v; }
         if((_v = fude_look_value(_a, "--data-import")) != NULL)    { fude_look.data_import = _v; }
@@ -119,7 +121,10 @@ void fude_look_start(fude_app* _app) {
             const i32 _w   = (i32)strtol(_v, &_end, 10);
             const i32 _h   = _end != NULL && *_end == 'x' ? (i32)strtol(_end + 1, NULL, 10) : 0;
             if(_w > 0 && _h > 0) {
+                // The device's size in its points; the interface's scale on top (app.h).
+                rde_window_set_ui_scale(_app->window, 1.0f);
                 rde_window_set_size(_app->window, (rde_vec_2I){ _w, _h });
+                fude_app_apply_ui_size(_app);
             }
         }
     }
@@ -135,6 +140,11 @@ void fude_look_loaded(fude_app* _app) {
     if(fude_look.theme >= 0) {
         fude_theme_set((FUDE_THEME_)fude_look.theme);
         fude_ui_apply_theme(_app->ui);
+        fude_session_settings_seen(_app);   // a look, not a change to save
+    }
+    if(fude_look.ui_size >= 0 && fude_look.ui_size < (i32)FUDE_UI_SIZE_COUNT) {
+        _app->ui_size = (u8)fude_look.ui_size;
+        fude_app_apply_ui_size(_app);
         fude_session_settings_seen(_app);   // a look, not a change to save
     }
 }

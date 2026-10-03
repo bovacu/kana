@@ -67,11 +67,18 @@ RDE_INTERNAL rde_ui_text_editor* fude_ui_field_create(rde_ui_node* _root, fude_u
     return _field;
 }
 
-// At the top right, on the row of its screen's title.
+// At the top right, on the row of its screen's title — on a phone (kit.h:
+// compact), a line of its own across the top, the screen under it (fude_ui_frame).
 RDE_INTERNAL void fude_ui_field_rect(const fude_ui* _ui, rde_vec_2F* _center, rde_vec_2F* _size) {
     const rde_vec_2F _screen = fude_kit_screen_size(_ui->window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_ui->window);   // left, top, right, bottom
     const rde_vec_2F _most   = FUDE_UI_FIELD;
+    if(fude_kit_compact(_ui->window)) {
+        const f32 _w = _screen.x - (f32)_insets.x - (f32)_insets.z - 32.0f;
+        *_size   = (rde_vec_2F){ _w, _most.y };
+        *_center = (rde_vec_2F){ (f32)_insets.x + 16.0f + _w * 0.5f, _screen.y - (f32)_insets.y - 8.0f - _most.y * 0.5f };
+        return;
+    }
     const f32        _w      = fminf(_most.x, _screen.x - (f32)_insets.x - (f32)_insets.z - 180.0f);
     *_size   = (rde_vec_2F){ _w, _most.y };
     *_center = (rde_vec_2F){ _screen.x - (f32)_insets.z - 16.0f - _w * 0.5f, _screen.y - (f32)_insets.y - 8.0f - _most.y * 0.5f };
@@ -101,8 +108,16 @@ void fude_ui_update(fude_ui* _ui) {
     // The safe area changed — at start iOS reports none (SDL has the whole
     // window until the view is laid out) and the real one arrives a frame or two
     // later: the bar is clamped again.
+    // So is a screen of another size (in UI units: the interface's size changed,
+    // a computer's window was resized): an edge's bar stays at its edge.
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_ui->window);
-    if(memcmp(&_insets, &_ui->_insets_seen, sizeof(rde_vec_4I)) != 0) {
+    const rde_vec_2F _screen = fude_kit_screen_size(_ui->window);
+    const b8         _sized  = memcmp(&_screen, &_ui->_screen_seen, sizeof(rde_vec_2F)) != 0;
+    if(memcmp(&_insets, &_ui->_insets_seen, sizeof(rde_vec_4I)) != 0 || _sized) {
+        if(_sized) {
+            fude_toolbar_follow_screen(&_ui->bar, _ui->_screen_seen, _screen);
+            _ui->_screen_seen = _screen;
+        }
         _ui->_insets_seen = _insets;
         fude_toolbar_layout(&_ui->bar);
     }
@@ -115,7 +130,6 @@ void fude_ui_update(fude_ui* _ui) {
     // A screen just opened starts with its field empty.
     rde_vec_2F _field_c, _field_s;
     fude_ui_field_rect(_ui, &_field_c, &_field_s);
-    const rde_vec_2F _screen    = fude_kit_screen_size(_ui->window);
     const rde_vec_4F _field_for = { _screen.x, _screen.y, (f32)_insets.y, (f32)_insets.z };
     const b8         _replace   = memcmp(&_field_for, &_ui->_field_for, sizeof(rde_vec_4F)) != 0;
     _ui->_field_for = _field_for;
@@ -255,6 +269,9 @@ void fude_ui_frame(const fude_ui* _ui, u32 _screen, fude_screen_frame* _frame) {
     _frame->font_px = _app->font_px;
     _frame->row_h   = _app->screens[_screen].vt != NULL && _app->screens[_screen].vt->row_count > 0 ? fude_row_height() : 0.0f;
     _frame->top     = _bar ? _hh - _ui->bars[_screen].height : _hh - (f32)_safe.y - 8.0f;
+    if(!_bar && _ui->fields[_screen] != NULL && fude_kit_compact(_ui->window)) {
+        _frame->top -= FUDE_UI_FIELD.y + 12.0f;   // a phone's field, on a line of its own above
+    }
     _frame->bottom  = -_hh + (f32)_safe.w + _frame->row_h + 24.0f;
 }
 
@@ -332,6 +349,7 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     }
 
     _ui->_insets_seen = rde_window_get_safe_area_insets(_ui->window);
+    _ui->_screen_seen = fude_kit_screen_size(_ui->window);
     fude_toolbar_layout(&_ui->bar);
     fude_ui_apply_theme(_ui);
     fude_ui_update(_ui);

@@ -141,11 +141,15 @@ RDE_STRUCT {
     // Settings.
     fude_kit_modal  settings;
     rde_ui_label*   settings_title;
+    rde_ui_scroll_area* settings_body;   // all between the title and the buttons: scrolled when the card is short (a phone)
     rde_ui_label*   width_label;
     rde_ui_button*  width_even;
     rde_ui_button*  width_pressure;
     rde_ui_label*   paper_label;        // lines' and squares' size (canvas.h), for every canvas
     rde_ui_button*  paper_sizes[FUDE_PAPER_SIZE_COUNT];
+    rde_ui_label*   ui_size_label;      // the interface's size (app.h): Small, Medium, Large
+    rde_ui_button*  ui_sizes[3];
+    fude_side_theme_ref ui_size_refs[3];
     rde_ui_label*   about_label;
     rde_ui_label*   about_text;
     rde_ui_button*  settings_close;
@@ -212,6 +216,8 @@ void fude_side_create(struct fude_ui* _ui, rde_ui_node* _root);
 // no panel), and a new layout when the screen changed.
 void fude_side_update(struct fude_ui* _ui, b8 _full);
 void fude_side_apply_theme(struct fude_ui* _ui);
+// Laid out again next frame: an app's section of Settings changed its rows.
+void fude_side_relayout(struct fude_ui* _ui);
 // Is this UI point (bottom-left origin) the side's? While the panel or Settings
 // is open, everywhere is.
 b8   fude_side_hit(const struct fude_ui* _ui, rde_vec_2F _at);

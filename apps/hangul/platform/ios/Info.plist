@@ -9,15 +9,14 @@
     <array>
         <integer>2</integer>
     </array>
-    <!-- Every orientation (the App Store asks it of an iPad app), and the whole
-         screen: no Split View or Slide Over, whose narrow windows the screens
-         are not laid out for. -->
+    <!-- Portrait only, either way up (the app locks it too: app.c), and the
+         whole screen: no Split View or Slide Over, whose narrow windows the
+         screens are not laid out for. UIRequiresFullScreen is what lets an iPad
+         app leave the landscape orientations out. -->
     <key>UISupportedInterfaceOrientations~ipad</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>UIRequiresFullScreen</key>
     <true/>

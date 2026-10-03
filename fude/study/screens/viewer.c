@@ -8,6 +8,7 @@
 #include "study/models/charnote.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/widgets/icons.h"
+#include "drawing/widgets/kit.h"
 #include "study/models/select.h"
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
@@ -606,17 +607,13 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
         if(_r->kind == FUDE_VIEWER_ROW_YOURS || _r->kind == FUDE_VIEWER_ROW_TYPED) {
             rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x0 + 2.0f, _mid }, (rde_vec_2F){ 4.0f, _h - 14.0f }, 1.0f, 4, _theme->accent, NULL);   // the learner's
         }
-        fude_draw_text_fit(_font, _font_px, _r->written, FUDE_VIEWER_WORD_PX, _written_w, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _x0 + 12.0f, _mid - FUDE_VIEWER_WORD_PX * 0.38f, FUDE_VIEWER_WORD_PX, _theme->ink);
+        fude_draw_text_whole(_font, _font_px, _r->written, _x0 + 12.0f, _mid, FUDE_VIEWER_WORD_PX, _written_w, 1u, _theme->ink);
         if(_speak) {
             fude_draw_icon(_font, _font_px, FUDE_ICON_SPEAK, (rde_vec_2F){ _reading_x - 14.0f, _mid }, 14.0f, _theme->accent);
         }
-        fude_draw_text_fit(_font, _font_px, _r->reading, FUDE_VIEWER_SMALL_PX, _reading_w, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _reading_x, _baseline, FUDE_VIEWER_SMALL_PX, _theme->text_soft);
-        // A long meaning: smaller, to fit whole (cut short only past that).
-        const f32 _meaning_px = fude_draw_text_px_to_fit(_font, _font_px, _r->meaning, FUDE_VIEWER_SMALL_PX, _end - _meaning_x, 0.78f);
-        fude_draw_text_fit(_font, _font_px, _r->meaning, _meaning_px, _end - _meaning_x, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _meaning_x, _baseline, _meaning_px, _theme->text);
+        fude_draw_text_whole(_font, _font_px, _r->reading, _reading_x, _mid, FUDE_VIEWER_SMALL_PX, _reading_w, 1u, _theme->text_soft);
+        // A long meaning: smaller, then on up to three lines — whole, never cut.
+        fude_draw_text_whole(_font, _font_px, _r->meaning, _meaning_x, _mid, FUDE_VIEWER_SMALL_PX, _end - _meaning_x, 3u, _theme->text);
         if(_r->kind == FUDE_VIEWER_ROW_TO_ADD || _r->kind == FUDE_VIEWER_ROW_TYPED) {
             // A tick: on, the learner's; off, one to add.
             const rde_vec_2F _c = { _right - 20.0f, _mid };
@@ -836,26 +833,12 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     {
         const u8  _group   = fude_lang_group(_info.codepoint);
         const f32 _mid     = _top - 14.0f;
-        f32       _x       = _left;
-        // Its group (one outside them all, as the language names it: 々 a kanji).
-        _x += fude_draw_chip(_font, _font_px, fude_text((FUDE_TEXT_)fude_lang_group_name(_group)), _x, _mid, FUDE_VIEWER_CHIP_PX,
-                             _theme->surface_2, _theme->text) + 6.0f;
-        if(_info.level != 0) {
-            fude_lang_level_name(_info.level, false, _line, sizeof(_line));
-            _x += fude_draw_chip(_font, _font_px, _line, _x, _mid, FUDE_VIEWER_CHIP_PX, _theme->accent, _theme->on_accent) + 6.0f;
-        }
-        FUDE_TEXTF(_line, FUDE_TEXT_STROKES_N, FUDE_TN(_info.strokes));
-        _x += fude_draw_chip(_font, _font_px, _line, _x, _mid, FUDE_VIEWER_CHIP_PX, _theme->surface_2, _theme->text) + 6.0f;
-        const c8* _grade = NULL;
-        if(_info.grade >= 1 && _info.grade <= 6)       { FUDE_TEXTF(_line, FUDE_TEXT_GRADE_N, FUDE_TN(_info.grade)); _grade = _line; }
-        else if(_info.grade == 8)                      { _grade = fude_text(FUDE_TEXT_GRADE_SECONDARY); }
-        else if(_info.grade == 9 || _info.grade == 10) { _grade = fude_text(FUDE_TEXT_GRADE_NAMES); }
-        if(_grade != NULL) {
-            fude_draw_chip(_font, _font_px, _grade, _x, _mid, FUDE_VIEWER_CHIP_PX, _theme->surface_2, _theme->text);
-        }
-        snprintf(_line, sizeof(_line), "%u / %u", _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
-        const f32 _pos_w = fude_draw_text_width(_font, _font_px, _line, 14.0f);
-        fude_draw_text(_font, _font_px, _line, _right - _pos_w, _mid - 14.0f * 0.42f, 14.0f, _theme->text_soft);
+        // At the right: where it is in the list, and Note before it.
+        c8 _pos[32];
+        snprintf(_pos, sizeof(_pos), "%u / %u", _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
+        const f32 _pos_w = fude_draw_text_width(_font, _font_px, _pos, 14.0f);
+        fude_draw_text(_font, _font_px, _pos, _right - _pos_w, _mid - 14.0f * 0.42f, 14.0f, _theme->text_soft);
+        f32 _chips_end = _right - _pos_w - 16.0f;   // the chips stop short of them
         // Note: the learner's own, written in the word card.
         if(!_viewer->adding) {
             c8 _note[64];
@@ -868,6 +851,37 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
             rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _nx + _nw * 0.5f, _mid }, (rde_vec_2F){ _nw, 28.0f }, 1.0f, 8,
                                                     _viewer->note_pressed ? _theme->accent : _has ? _theme->tint : _theme->surface_2, NULL);
             fude_draw_text(_font, _font_px, _note, _nx + 12.0f, _mid - 12.0f * 0.42f, 12.0f, _viewer->note_pressed ? _theme->on_accent : _theme->accent);
+            _chips_end = _nx - 8.0f;
+        }
+        // The chips, as many as fit before them (a phone: the grade, then the
+        // strokes, are left out). Its group (one outside them all, as the
+        // language names it: 々 a kanji), its level, its strokes, its grade.
+        c8         _chip[4][96];
+        rde_color  _fill[4], _ink[4];
+        u32        _n = 0;
+        snprintf(_chip[_n], sizeof(_chip[_n]), "%s", fude_text((FUDE_TEXT_)fude_lang_group_name(_group)));
+        _fill[_n] = _theme->surface_2; _ink[_n] = _theme->text; _n++;
+        if(_info.level != 0) {
+            fude_lang_level_name(_info.level, false, _chip[_n], sizeof(_chip[_n]));
+            _fill[_n] = _theme->accent; _ink[_n] = _theme->on_accent; _n++;
+        }
+        FUDE_TEXTF(_chip[_n], FUDE_TEXT_STROKES_N, FUDE_TN(_info.strokes));
+        _fill[_n] = _theme->surface_2; _ink[_n] = _theme->text; _n++;
+        const c8* _grade = NULL;
+        if(_info.grade >= 1 && _info.grade <= 6)       { FUDE_TEXTF(_line, FUDE_TEXT_GRADE_N, FUDE_TN(_info.grade)); _grade = _line; }
+        else if(_info.grade == 8)                      { _grade = fude_text(FUDE_TEXT_GRADE_SECONDARY); }
+        else if(_info.grade == 9 || _info.grade == 10) { _grade = fude_text(FUDE_TEXT_GRADE_NAMES); }
+        if(_grade != NULL) {
+            snprintf(_chip[_n], sizeof(_chip[_n]), "%s", _grade);
+            _fill[_n] = _theme->surface_2; _ink[_n] = _theme->text; _n++;
+        }
+        f32 _x = _left;
+        for(u32 _i = 0; _i < _n; _i++) {
+            const f32 _w = fude_draw_text_width(_font, _font_px, _chip[_i], FUDE_VIEWER_CHIP_PX) + 22.0f;   // fude_draw_chip's
+            if(_i > 0u && _x + _w > _chips_end) {
+                break;
+            }
+            _x += fude_draw_chip(_font, _font_px, _chip[_i], _x, _mid, FUDE_VIEWER_CHIP_PX, _fill[_i], _ink[_i]) + 6.0f;
         }
     }
 
@@ -934,17 +948,23 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         // for the sentence is the tallest shown for this character so far: ›
         // moves the character once at most, never back and forth.
         const f32 _room = (_top - 48.0f) - (_bottom + _details);
+        // A phone has less room for all of it: the character smaller before the
+        // example sentence goes.
+        const b8  _phone         = fude_kit_compact(_window);
+        const f32 _min_char      = _phone ? 210.0f : FUDE_VIEWER_MIN_CHAR;
+        const f32 _min_char_sent = _phone ? 170.0f : FUDE_VIEWER_MIN_CHAR_SENT;
         #define FUDE_VIEWER_WORDS_H(n) ((n) > 0u ? 8.0f + FUDE_VIEWER_TITLE + (f32)(n) * FUDE_VIEWER_ROW + FUDE_VIEWER_CARD_PAD : 0.0f)
         _viewer->sentence_room = _plain ? 0.0f : fmaxf(_viewer->sentence_room, fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, false));
         _sent_h = _viewer->sentence_room;
         u32 _fits = _visible;
-        while(_fits > 2u && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < FUDE_VIEWER_MIN_CHAR) {
+        const u32 _fewest = _phone ? 1u : 2u;   // the words' rows kept beside a sentence (a phone's: one, the rest scroll)
+        while(_fits > _fewest && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < _min_char) {
             _fits--;
         }
-        if(_sent_h > 0.0f && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < FUDE_VIEWER_MIN_CHAR_SENT) {
+        if(_sent_h > 0.0f && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < _min_char_sent) {
             _sent_h = 0.0f;
             _fits   = _visible;
-            while(_fits > 3u && _room - FUDE_VIEWER_WORDS_H(_fits) < FUDE_VIEWER_MIN_CHAR) {
+            while(_fits > 3u && _room - FUDE_VIEWER_WORDS_H(_fits) < _min_char) {
                 _fits--;
             }
         }
@@ -1016,8 +1036,8 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     // The meaning first, as the title; then each reading and the parts behind a
     // label that is one of the language's characters (lang.h's badges: 音, 訓, 部), written from its strokes.
     const c8* _meanings = _letter ? fude_lang_latin(_info.codepoint) : fude_kanji_meanings(_viewer->db, &_info);
-    fude_draw_text_fit(_font, _font_px, _meanings[0] != 0 ? _meanings : fude_text(FUDE_TEXT_NO_MEANING), FUDE_VIEWER_MEANING_PX, _right - _x0, _line, sizeof(_line));
-    fude_draw_text(_font, _font_px, _line, _x0, _y0 - FUDE_VIEWER_LINE * 0.5f - FUDE_VIEWER_MEANING_PX * 0.42f, FUDE_VIEWER_MEANING_PX, _theme->text);
+    fude_draw_text_whole(_font, _font_px, _meanings[0] != 0 ? _meanings : fude_text(FUDE_TEXT_NO_MEANING), _x0, _y0 - FUDE_VIEWER_LINE * 0.5f - FUDE_VIEWER_MEANING_PX * 0.04f,
+                         FUDE_VIEWER_MEANING_PX, _right - _x0, 1u, _theme->text);
 
     // With a voice: the reading lines say themselves when tapped (a speaker at their
     // end); a letter's line, the letter.

@@ -447,35 +447,25 @@ f32 fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32
     return _px * fmaxf(_min_scale, _width / _w);
 }
 
-void fude_draw_text_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, c8* _out, usize _size) {
-    snprintf(_out, _size, "%s", _text);
-    if(fude_draw_text_width(_font, _font_px, _text, _px) <= _width) {
-        return;
+f32 fude_draw_text_whole(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, f32 _width, u32 _lines, rde_color _color) {
+    if(_text == NULL || _text[0] == 0) {
+        return _px;
     }
-    const f32 _ellipsis = fude_draw_advance(_font, _font_px, 'x') * _px;
-    f32       _w        = 0.0f;
-    const c8* _p        = _text;
-    for(;;) {
-        const c8* _before = _p;
-        const u32 _cp     = fude_utf8_next(&_p);
-        _w += fude_draw_advance(_font, _font_px, _cp) * _px;
-        if(_cp == 0 || _w + _ellipsis > _width) {
-            // Back to the last whole word when there is one not far back.
-            usize _cut = (usize)(_before - _text);
-            for(usize _k = _cut; _k > 0 && _cut - _k < 12u; _k--) {
-                if(_text[_k - 1] == ' ') {
-                    _cut = _k - 1;
-                    break;
-                }
-            }
-            while(_cut > 0 && (_text[_cut - 1] == ' ' || _text[_cut - 1] == ',' || _text[_cut - 1] == ';')) {
-                _cut--;
-            }
-            if(_cut + 4u <= _size) {
-                memcpy(_out, _text, _cut);
-                memcpy(_out + _cut, "\xE2\x80\xA6", 4u);   // … and its NUL
-            }
-            return;
-        }
+    // One line: as it is, or smaller.
+    const f32 _one = fude_draw_text_px_to_fit(_font, _font_px, _text, _px, _width, 0.75f);
+    if(fude_draw_text_width(_font, _font_px, _text, _one) <= _width || _lines < 2u) {
+        const f32 _p = fude_draw_text_px_to_fit(_font, _font_px, _text, _px, _width, 0.35f);
+        fude_draw_text(_font, _font_px, _text, _x, _mid - _p * 0.38f, _p, _color);
+        return _p;
     }
+    // More lines, a little smaller each step until they are few enough.
+    f32 _p = _px * 0.92f;
+    u32 _n = fude_draw_text_wrap_lines(_font, _font_px, _text, _p, _width);
+    while(_n > _lines && _p > _px * 0.5f) {
+        _p -= 0.5f;
+        _n  = fude_draw_text_wrap_lines(_font, _font_px, _text, _p, _width);
+    }
+    const f32 _line = _p * 1.18f;
+    fude_draw_text_wrap(_font, _font_px, _text, _x, _mid + (f32)(_n - 1u) * _line * 0.5f - _p * 0.38f, _p, _width, _line, _color);
+    return _p;
 }

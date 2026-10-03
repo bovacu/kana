@@ -379,6 +379,21 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
     fude_toolbar_place_popups(_toolbar);
 }
 
+void fude_toolbar_follow_screen(fude_toolbar* _toolbar, rde_vec_2F _from, rde_vec_2F _to) {
+    if(_from.x <= 0.0f || _from.y <= 0.0f) {
+        return;
+    }
+    f32* const       _at[2]   = { &_toolbar->center.x, &_toolbar->center.y };
+    const f32        _was[2]  = { _from.x, _from.y };
+    const f32        _now[2]  = { _to.x, _to.y };
+    for(u32 _k = 0; _k < 2u; _k++) {
+        const f32 _near_far = _was[_k] - *_at[_k];   // to the right (top) edge
+        if(*_at[_k] < _was[_k] * 0.25f)        { /* near the left (bottom) edge: as far from it */ }
+        else if(_near_far < _was[_k] * 0.25f)  { *_at[_k] = _now[_k] - _near_far; }
+        else                                   { *_at[_k] *= _now[_k] / _was[_k]; }
+    }
+}
+
 // Folds the bar down to its grip, or opens it again, with the grip's end staying
 // where it is (under the finger that double tapped it) — then clamped on screen,
 // so a bar opened near an edge moves back in.

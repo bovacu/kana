@@ -58,6 +58,7 @@ typedef struct fude_ui {
 
     u32                 _text_revision;                // the language the widgets were built in (fude_text_revision)
     rde_vec_4I          _insets_seen;                  // the safe area the bar is laid out for
+    rde_vec_2F          _screen_seen;                  // and the screen (UI units: the interface's size changes them)
     rde_vec_4F          _field_for;                    // the screen size and insets the fields were placed for
     b8                  _open_seen[FUDE_APP_SCREENS]; // which screens were open last frame
     b8                  _field_shown[FUDE_APP_SCREENS];

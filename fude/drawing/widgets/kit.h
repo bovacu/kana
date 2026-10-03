@@ -106,6 +106,12 @@ void           fude_kit_modal_show(fude_kit_modal* _modal, b8 _show);
 void           fude_kit_modal_restyle(fude_kit_modal* _modal, f32 _radius);
 // The window in UI canvas units (bottom-left origin).
 rde_vec_2F     fude_kit_screen_size(rde_window* _window);
+// A phone's screen: its shorter side under FUDE_KIT_COMPACT_BELOW (window units:
+// points, dp) — in either orientation. Tablets (an iPad mini's 744) are not; a
+// tablet's narrow split view is. What is laid out for it fits a phone: rows
+// with a More, chips on lines that scroll, a field on a line of its own...
+#define FUDE_KIT_COMPACT_BELOW 600.0f
+b8             fude_kit_compact(rde_window* _window);
 // A rect of _size centred at _center kept inside the safe area — clear of the
 // status bar, notch and home indicator.
 rde_vec_2F     fude_kit_clamp(rde_window* _window, rde_vec_2F _center, rde_vec_2F _size);

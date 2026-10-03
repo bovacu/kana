@@ -540,8 +540,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     }
     const c8* _meanings = fude_kanji_meanings(_practice->db, _info);
     if(_meanings[0] != 0) {
-        fude_draw_text_fit(_font, _font_px, _meanings, 17.0f, _right - _tx, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _tx, _ty, 17.0f, fude_theme_active()->text_soft);
+        fude_draw_text_whole(_font, _font_px, _meanings, _tx, _ty + 17.0f * 0.38f, 17.0f, _right - _tx, 1u, fude_theme_active()->text_soft);
         _ty -= 30.0f;
     }
 

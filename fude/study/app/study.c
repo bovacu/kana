@@ -149,6 +149,9 @@ RDE_INTERNAL void fude_study_hand_refresh(fude_ui* _ui, b8 _force) {
         _download = fude_text(FUDE_TEXT_DOWNLOAD);
     }
     rde_ui_label_set_text(_study->mlkit_status, _status);
+    if(rde_ui_node_is_active(rde_ui_button_as_node(_study->mlkit_download)) != (_download != NULL)) {
+        fude_side_relayout(_ui);   // the state's line takes the button's room, or gives it back
+    }
     rde_ui_node_set_active(rde_ui_button_as_node(_study->mlkit_download), _download != NULL);
     if(_download != NULL) {
         rde_ui_button_set_text(_study->mlkit_download, _download);
@@ -190,10 +193,11 @@ RDE_INTERNAL f32 fude_study_hand_layout(fude_ui* _ui, f32 _y, f32 _m, f32 _kw) {
     const f32   _lw    = _kw - 2.0f * _m;
     fude_kit_place(rde_ui_label_as_node(_study->hand_label), (rde_vec_2F){ _m + _lw * 0.5f, _y }, (rde_vec_2F){ _lw, 30.0f });
     _y -= 40.0f;
-    fude_kit_place(rde_ui_label_as_node(_study->mlkit_label), (rde_vec_2F){ _m + _lw * 0.35f, _y }, (rde_vec_2F){ _lw * 0.7f, 44.0f });
+    fude_kit_place(rde_ui_label_as_node(_study->mlkit_label), (rde_vec_2F){ _m + fminf(_lw * 0.7f, _lw - 130.0f) * 0.5f, _y }, (rde_vec_2F){ fminf(_lw * 0.7f, _lw - 130.0f), 44.0f });   // clear of the toggle
     fude_kit_place(rde_ui_button_as_node(_study->mlkit_toggle), (rde_vec_2F){ _kw - _m - 60.0f, _y }, (rde_vec_2F){ 120.0f, 40.0f });
     _y -= 46.0f;
-    fude_kit_place(rde_ui_label_as_node(_study->mlkit_status), (rde_vec_2F){ _m + (_lw - 130.0f) * 0.5f, _y }, (rde_vec_2F){ _lw - 130.0f, 44.0f });
+    const f32   _sw    = rde_ui_node_is_active(rde_ui_button_as_node(_study->mlkit_download)) ? _lw - 130.0f : _lw;   // beside Download, when it shows
+    fude_kit_place(rde_ui_label_as_node(_study->mlkit_status), (rde_vec_2F){ _m + _sw * 0.5f, _y }, (rde_vec_2F){ _sw, 44.0f });
     fude_kit_place(rde_ui_button_as_node(_study->mlkit_download), (rde_vec_2F){ _kw - _m - 60.0f, _y }, (rde_vec_2F){ 120.0f, 40.0f });
     return _y - 52.0f;
 }

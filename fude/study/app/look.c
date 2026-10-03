@@ -25,7 +25,7 @@
 // shot's sequence, and two probes of the device's own services:
 //
 //   --browse --viewer=HEX [--note=TEXT] --practice=HEX --guided=HEX --sheet=FILE
-//   --album --album-exams --album-page=HEX --kept-exam=N --stats [--scroll=PX]
+//   --album --album-exams --album-page=HEX --kept-exam=N --stats [--scroll=PX] (also Settings')
 //   --exam --exam-start --vocab[=N] --vocab-sample --word-exam[=STAGE] --word-card=TEXT
 //   [--word-sentence=JA|TRANSLATION]   the word card's word as met in that sentence
 //   --word-translate=MEANING   the word card, MEANING into Japanese (Translate with Google, made up)
@@ -416,5 +416,6 @@ void fude_study_look_frame(fude_app* _app) {
         _study->album->scroller.offset      = fude_study_look.scroll;
         _study->album->page_scroller.offset = fude_study_look.scroll;
         _study->scan->taps.offset           = fude_study_look.scroll;   // the panel of translations
+        rde_ui_scroll_area_set_scroll(_app->ui->side.settings_body, (rde_vec_2F){ 0.0f, fude_study_look.scroll });   // Settings, on a phone
     }
 }

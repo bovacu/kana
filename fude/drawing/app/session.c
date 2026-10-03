@@ -79,6 +79,7 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
     _s.finger_writes     = _app->finger_writes;
     _s.pen_ever          = _app->pen_ever;
     _s.cards_read        = _app->cards_read;
+    _s.ui_size           = _app->ui_size;
     if(fude_app_ext(_app)->settings_gather != NULL) {
         fude_app_ext(_app)->settings_gather(_app, &_s);   // the app's own (Kana: ML Kit on or off)
     }
@@ -106,6 +107,8 @@ RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
     _app->finger_writes          = _s->finger_writes;
     _app->pen_ever               = _s->pen_ever;
     _app->cards_read             = _s->cards_read;
+    _app->ui_size                = _s->ui_size;
+    fude_app_apply_ui_size(_app);   // laid out for it from the first frame
     if(fude_session_language != 0 && (RDE_LANGUAGE_)fude_session_language != fude_text_language()) {
         fude_text_set_language((RDE_LANGUAGE_)fude_session_language);   // the UI follows next frame
     }
