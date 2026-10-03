@@ -7,6 +7,7 @@
 #include "study/widgets/wordcard.h"
 #include "study/models/sheet.h"
 #include "study/models/select.h"
+#include "study/app/welcome.h"
 #include "study/chars/kanji.h"
 #include "study/chars/catalog.h"
 #include "study/screens/viewer.h"
@@ -55,6 +56,7 @@ typedef struct fude_study {
     fude_wordexam*   wordexam;
     fude_translator* translator;     // Into Japanese (the Vocabulary's Translate with Google)
     fude_selection*  selection;
+    fude_welcome*    welcome;        // the shell's (its readcard): the voice card (welcome.h)
 
     fude_pagetext  text;             // the page read as text (pagetext.h)
     fude_wordcard  word;             // a word into the vocabulary, over everything (wordcard.h)
@@ -165,6 +167,9 @@ void fude_study_demo(struct fude_app* _app, const c8* _lang);
 extern const fude_extension_section FUDE_STUDY_HANDWRITING;
 // The toolbar's camera: Text from a photo with the camera live (extension.h: a tool).
 extern const fude_extension_tool FUDE_STUDY_CAMERA;
+// The side panel's Set up the voice, while the device has no voice for the
+// language (speech.h): the voice card (welcome.h).
+extern const fude_extension_side_button FUDE_STUDY_VOICE_BUTTON;
 
 // The study's part of a study app's extension (extension.h), first in its
 // initializer; the app adds its own (its side panel, its tutorial, its first
@@ -174,7 +179,7 @@ extern const fude_extension_tool FUDE_STUDY_CAMERA;
     .tools = &FUDE_STUDY_CAMERA, .tool_count = 1u,                                                                                \
     .selection_row = &FUDE_PAGETEXT_SELECTION_ROW, .context_row = &FUDE_PAGETEXT_CONTEXT_ROW, .text_row = &FUDE_PAGETEXT_TEXT_ROW, \
     .menu_update = fude_study_menu_update, .selection_faces = fude_study_selection_faces, .context_faces = fude_study_context_faces, \
-    .sections = &FUDE_STUDY_HANDWRITING, .section_count = 1u,                                                                     \
+    .sections = &FUDE_STUDY_HANDWRITING, .section_count = 1u, .side_button = &FUDE_STUDY_VOICE_BUTTON,                            \
     .ui_build = fude_study_ui_build, .ui_update = fude_study_ui_update, .ui_restyle = fude_study_ui_restyle,                       \
     .ui_hit = fude_study_ui_hit, .page_render = fude_study_page_render, .page_press = fude_study_page_press,                       \
     .session_open = fude_study_session_open, .settings_gather = fude_study_settings_gather,                                         \

@@ -236,6 +236,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 #endif
     fude_screens_place();
     welcome.card       = &readcard;          // closed, the welcome opens it the first time
+    hangul.study.welcome  = &welcome;           // and the voice card, from the side panel (study.h)
     welcome.cards_read = &app->cards_read;
     fude_study_init(&hangul.study);
     fude_page_init(&page, app);

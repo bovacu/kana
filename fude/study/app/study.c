@@ -8,6 +8,7 @@
 #include "study/services/mlkit.h"
 #include "study/services/textscan.h"
 #include "study/services/speech.h"
+#include "study/app/welcome.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/widgets/icons.h"
 #include "drawing/doc/doc.h"
@@ -54,7 +55,23 @@ void fude_study_update(fude_app* _app) {
     if(fude_speech_take_hint()) {
         fude_notice_show(fude_text(FUDE_TEXT_SPEECH_BETTER_VOICE));   // the basic voice spoke: where better ones are
     }
+    fude_welcome_update(_study->welcome);   // the voice card, once, after the offline one
 }
+
+// --- the voice missing: the side panel's button -------------------------------------------
+
+RDE_INTERNAL b8 fude_study_voice_shown(fude_app* _app) {
+    RDE_UNUSED(_app);
+    return fude_speech_state() == FUDE_SPEECH_MISSING;
+}
+
+RDE_INTERNAL void fude_study_voice_press(fude_app* _app) {
+    if(FUDE_STUDY(_app)->welcome != NULL) {
+        fude_welcome_voice(FUDE_STUDY(_app)->welcome);
+    }
+}
+
+const fude_extension_side_button FUDE_STUDY_VOICE_BUTTON = { FUDE_TEXT_VOICE_BUTTON, FUDE_ICON_SPEAK, fude_study_voice_shown, fude_study_voice_press };
 
 // --- the page read as text ------------------------------------------------------------------
 

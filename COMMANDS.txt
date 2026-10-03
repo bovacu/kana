@@ -417,6 +417,11 @@ a window unit at 0.8, 1, 1.15 of a point/dp — RDE's rde_window_set_ui_scale) i
 Small on a phone until one is chosen, Medium on anything bigger (app.h,
 FUDE_UI_SIZE_). --size is the device's size in points, the scale on top;
 --ui-size=N looks at another (1 Small, 2 Medium, 3 Large, 0 the device's).
+--voice-card[=android] shows the voice card (how to add a voice: the iPhone and
+iPad's steps, or Android's with Open settings); --voice-missing makes a
+computer's voice count as missing (the side panel's Set up the voice, and the
+card once after the offline one); --note-card=folder|canvas|rename adds a note
+and opens its card at frame 15 (it changes the saves: use scratch ones).
 
 On the device (a build that takes arguments, as for --perf):
 --translate-probe=xx tries ML Kit's translator — Japanese into xx (en, es, pt,

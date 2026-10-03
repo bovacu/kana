@@ -663,6 +663,11 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
     _toolbar->panel = rde_ui_image_create(NULL);
     rde_ui_node* _panel = rde_ui_image_as_node(_toolbar->panel);
     rde_ui_node_set_blocks_input(_panel, true);
+    // Near the left or right edge it is inside Android's back-swipe strip, where
+    // RDE drops a press as the start of a gesture: the whole bar claimed back,
+    // so its tools answer wherever it is dragged (the OS keeps 200dp of it at most;
+    // RDE lets every press on it through).
+    rde_ui_node_set_gesture_exclusive(_panel, true);
     rde_ui_node_add_child(_root, _panel);
 
     // The grip's end of the bar takes the drags and the taps, not the handle drawn
@@ -750,6 +755,7 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
     // The palette is its own panel under the root, so it can sit outside the bar.
     _toolbar->palette = rde_ui_image_create(NULL);
     rde_ui_node_set_blocks_input(rde_ui_image_as_node(_toolbar->palette), true);
+    rde_ui_node_set_gesture_exclusive(rde_ui_image_as_node(_toolbar->palette), true);   // beside a bar at the edge: at the edge too
     rde_ui_node_add_child(_root, rde_ui_image_as_node(_toolbar->palette));
     for(u32 _i = 0; _i < FUDE_TOOLBAR_PALETTE_COUNT; _i++) {
         _toolbar->swatch_refs[_i] = (fude_toolbar_ref){ _toolbar, _i };
@@ -761,6 +767,7 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
     // The paper panel, the same way.
     _toolbar->paper_panel = rde_ui_image_create(NULL);
     rde_ui_node_set_blocks_input(rde_ui_image_as_node(_toolbar->paper_panel), true);
+    rde_ui_node_set_gesture_exclusive(rde_ui_image_as_node(_toolbar->paper_panel), true);
     rde_ui_node_add_child(_root, rde_ui_image_as_node(_toolbar->paper_panel));
     static const FUDE_TEXT_ _names[FUDE_PAPER_COUNT] = { FUDE_TEXT_PAPER_DOTS, FUDE_TEXT_PAPER_SQUARES, FUDE_TEXT_PAPER_LINES, FUDE_TEXT_PAPER_NONE };   // FUDE_PAPER_ order
     static const c8* const  _icons[FUDE_PAPER_COUNT] = { FUDE_ICON_PAPER_DOTS, FUDE_ICON_PAPER_SQUARES, FUDE_ICON_PAPER_LINES, FUDE_ICON_PAPER_NONE };

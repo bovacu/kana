@@ -69,6 +69,16 @@ typedef struct {
 
 #define FUDE_EXTENSION_SECTIONS 2u
 
+// A button of the app's in the side panel, over the tutorial's: its words and
+// icon, shown while shown() says so (asked each frame), and what a press does
+// (the panel closes first). Study apps: Set up the voice, while there is none.
+typedef struct fude_extension_side_button {
+    u32       text;   // FUDE_TEXT_ id
+    const c8* icon;   // icons.h
+    b8      (*shown)(struct fude_app* _app);
+    void    (*press)(struct fude_app* _app);
+} fude_extension_side_button;
+
 typedef struct fude_extension {
     // The toolbar: the app's tools.
     const fude_extension_tool* tools;
@@ -96,6 +106,7 @@ typedef struct fude_extension {
     const fude_extension_section* sections;
     u32                           section_count;   // at most FUDE_EXTENSION_SECTIONS
     void (*tutorial)(struct fude_app* _app);
+    const fude_extension_side_button* side_button;   // NULL: none
 
     // Its own widgets on the UI canvas (ui.h), over the core's: built (and again
     // when the language changes), let go before the canvas goes, once a frame

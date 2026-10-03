@@ -1,4 +1,5 @@
 #include "study/app/study.h"
+#include "study/services/speech.h"
 #include "drawing/widgets/notice.h"
 #include "lang/lang.h"
 #include "drawing/app/look.h"
@@ -43,6 +44,8 @@ RDE_INTERNAL struct {
     i32       argc;
     c8**      argv;
     b8        stats, vocab_sample, save_sel, translate_sel, scan_live, scan_rows, scan_translate;
+    b8        voice_card;   // --voice-card[=android]: the voice card at frame 12 (--voice-missing: a computer's voice as missing)
+    b8        voice_android;
     i32       vocab, word_exam;
     i64       kept_exam;
     f32       scroll, scan_turn;
@@ -100,6 +103,9 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--word-exam")) != NULL)      { fude_study_look.word_exam = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--kept-exam")) != NULL)      { fude_study_look.kept_exam = (i64)strtoul(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--scroll")) != NULL)         { fude_study_look.scroll = strtof(_v, NULL); }
+        if(fude_look_is(_a, "--voice-card"))                       { fude_study_look.voice_card = true; }
+        if((_v = fude_look_value(_a, "--voice-card")) != NULL)     { fude_study_look.voice_card = true; fude_study_look.voice_android = strcmp(_v, "android") == 0; }
+        if(fude_look_is(_a, "--voice-missing"))                    { fude_speech_look_missing(); }
         if((_v = fude_look_value(_a, "--scan-demo-turn")) != NULL) { fude_study_look.scan_turn = strtof(_v, NULL); }
         if((_v = fude_look_value(_a, "--note")) != NULL)           { fude_study_look.note = _v; }
         if((_v = fude_look_value(_a, "--word-card")) != NULL)      { fude_study_look.word_card = _v; }
@@ -381,6 +387,9 @@ void fude_study_look_frame(fude_app* _app) {
     }
     fude_study_look_samples(_app);
     const u32 _frame = fude_look_shot_frame();
+    if(_frame == 12u && fude_study_look.voice_card && _study->welcome != NULL) {
+        fude_welcome_voice_as(_study->welcome, fude_study_look.voice_android);
+    }
     if(_frame == 20u && fude_study_look.paste_text != NULL) {
         fude_study_write_text(_app, fude_study_look.paste_text, fude_canvas_from_screen(_app->canvas, (rde_vec_2F){ 0.0f, 0.0f }));
     }

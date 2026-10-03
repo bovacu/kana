@@ -398,7 +398,7 @@ void fude_viewer_pointer_up(fude_viewer* _viewer, f64 _time) {
             fude_speak(_s.japanese);
         }
     } else if(_viewer->sentence_pressed >= 3u && _viewer->sentence_at < _viewer->sentence_count) {
-        const u32           _k = _viewer->sentence_pressed - 3u;
+        const u32           _k = _viewer->sentence_pressed - 3u < _viewer->word_shown ? _viewer->word_of[_viewer->sentence_pressed - 3u] : UINT32_MAX;
         fude_kanji_word     _w;
         fude_kanji_sentence _s = { "", "" };
         if(_k < _viewer->sentence_word_n[_viewer->sentence_at] && fude_kanji_word_at(_viewer->db, _viewer->sentence_words[_viewer->sentence_at][_k], &_w)) {
@@ -654,13 +654,34 @@ RDE_INTERNAL f32 fude_viewer_word_chips(fude_viewer* _viewer, rde_font* _font, f
     if(_draw) {
         _viewer->word_shown = 0;
     }
-    for(u32 _k = 0; _k < _viewer->sentence_word_n[_i]; _k++) {
+    for(u32 _k = 0; _k < _viewer->sentence_word_n[_i];) {
         fude_kanji_word _w;
         if(!fude_kanji_word_at(_viewer->db, _viewer->sentence_words[_i][_k], &_w)) {
+            _k++;
             continue;
         }
+        // The same word read more ways, one after another (wordsplit.h: 人 じん, にん,
+        // ひと — the data cannot tell which): one chip, its readings joined. A tap
+        // takes the one saved, else the commonest (the first).
+        c8  _readings[96];
+        snprintf(_readings, sizeof(_readings), "%s", _w.reading);
+        b8  _saved = fude_vocab_find(_w.written, _w.reading) != 0u;
+        u32 _pick  = _k;
+        u32 _next  = _k + 1u;
+        for(; _next < _viewer->sentence_word_n[_i]; _next++) {
+            fude_kanji_word _o;
+            if(!fude_kanji_word_at(_viewer->db, _viewer->sentence_words[_i][_next], &_o) || strcmp(_o.written, _w.written) != 0) {
+                break;
+            }
+            const usize _len = strlen(_readings);
+            snprintf(_readings + _len, sizeof(_readings) - _len, "・%s", _o.reading);
+            if(!_saved && fude_vocab_find(_o.written, _o.reading) != 0u) {
+                _saved = true;
+                _pick  = _next;
+            }
+        }
         const f32 _ww = fude_draw_text_width(_font, _font_px, _w.written, 14.0f);
-        const f32 _rw = fude_draw_text_width(_font, _font_px, _w.reading, 11.0f);
+        const f32 _rw = fude_draw_text_width(_font, _font_px, _readings, 11.0f);
         const f32 _cw = fminf(_x1 - _x0, _ww + _rw + 34.0f);
         if(_rows == 0u || (_x > _x0 && _x + _cw > _x1)) {
             _x = _x0;
@@ -668,7 +689,6 @@ RDE_INTERNAL f32 fude_viewer_word_chips(fude_viewer* _viewer, rde_font* _font, f
         }
         if(_draw) {
             const f32  _cy    = _top - (f32)(_rows - 1u) * (FUDE_VIEWER_CHIP_H + FUDE_VIEWER_CHIP_GAP) - FUDE_VIEWER_CHIP_H * 0.5f;
-            const b8   _saved = fude_vocab_find(_w.written, _w.reading) != 0u;
             const b8   _down  = _viewer->sentence_pressed == 3u + _viewer->word_shown;
             rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _cw * 0.5f, _cy }, (rde_vec_2F){ _cw, FUDE_VIEWER_CHIP_H }, 1.0f, 8,
                                                     _down ? _theme->select_fill : _saved ? _theme->tint : _theme->surface_2, NULL);
@@ -676,12 +696,14 @@ RDE_INTERNAL f32 fude_viewer_word_chips(fude_viewer* _viewer, rde_font* _font, f
                 fude_draw_icon_fill(FUDE_ICON_BOOKMARK, (rde_vec_2F){ _x + 11.0f, _cy }, 11.0f, _theme->accent);
             }
             fude_draw_text(_font, _font_px, _w.written, _x + 18.0f, _cy - 14.0f * 0.38f, 14.0f, _saved ? _theme->accent : _theme->ink);
-            fude_draw_text(_font, _font_px, _w.reading, _x + 22.0f + _ww, _cy - 11.0f * 0.38f, 11.0f, _theme->text_soft);
+            fude_draw_text(_font, _font_px, _readings, _x + 22.0f + _ww, _cy - 11.0f * 0.38f, 11.0f, _theme->text_soft);
+            _viewer->word_of[_viewer->word_shown]  = (u8)_pick;
             _viewer->word_min[_viewer->word_shown] = (rde_vec_2F){ _x, _cy - FUDE_VIEWER_CHIP_H * 0.5f };
             _viewer->word_max[_viewer->word_shown] = (rde_vec_2F){ _x + _cw, _cy + FUDE_VIEWER_CHIP_H * 0.5f };
             _viewer->word_shown++;
         }
         _x += _cw + FUDE_VIEWER_CHIP_GAP;
+        _k  = _next;
     }
     return _rows > 0u ? 6.0f + (f32)_rows * FUDE_VIEWER_CHIP_H + (f32)(_rows - 1u) * FUDE_VIEWER_CHIP_GAP : 0.0f;
 }
@@ -949,16 +971,15 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         // moves the character once at most, never back and forth.
         const f32 _room = (_top - 48.0f) - (_bottom + _details);
         // A phone has less room for all of it: the character smaller before the
-        // example sentence goes.
+        // words go under two rows or the example sentence goes.
         const b8  _phone         = fude_kit_compact(_window);
-        const f32 _min_char      = _phone ? 210.0f : FUDE_VIEWER_MIN_CHAR;
-        const f32 _min_char_sent = _phone ? 170.0f : FUDE_VIEWER_MIN_CHAR_SENT;
+        const f32 _min_char      = _phone ? 180.0f : FUDE_VIEWER_MIN_CHAR;
+        const f32 _min_char_sent = _phone ? 115.0f : FUDE_VIEWER_MIN_CHAR_SENT;
         #define FUDE_VIEWER_WORDS_H(n) ((n) > 0u ? 8.0f + FUDE_VIEWER_TITLE + (f32)(n) * FUDE_VIEWER_ROW + FUDE_VIEWER_CARD_PAD : 0.0f)
         _viewer->sentence_room = _plain ? 0.0f : fmaxf(_viewer->sentence_room, fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, false));
         _sent_h = _viewer->sentence_room;
         u32 _fits = _visible;
-        const u32 _fewest = _phone ? 1u : 2u;   // the words' rows kept beside a sentence (a phone's: one, the rest scroll)
-        while(_fits > _fewest && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < _min_char) {
+        while(_fits > 2u && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < _min_char) {
             _fits--;
         }
         if(_sent_h > 0.0f && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < _min_char_sent) {
@@ -969,7 +990,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
             }
         }
         _visible = _fits;
-        if(_room - _sent_h - FUDE_VIEWER_WORDS_H(_visible) < 160.0f) {
+        if(_room - _sent_h - FUDE_VIEWER_WORDS_H(_visible) < (_phone ? 110.0f : 160.0f)) {
             _visible = 0;   // a small screen: the character first
             _sent_h  = 0.0f;
         }

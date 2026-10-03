@@ -27,6 +27,7 @@ RDE_INTERNAL struct {
     b8        paper, deselect, trim_fonts, data, data_replace;
     b8        stay;       // --stay: a shot's sequence without the shot, and no quitting (a screenshot taken from outside: the Simulator's)
     i32       theme;
+    const c8* note_card;  // --note-card=folder|canvas|rename: a new note's card at frame 15 (in the saves: a look for scratch saves)
     i32       ui_size;    // --ui-size=N: the interface's (FUDE_UI_SIZE_, app.h: 1 Small, 2 Medium, 3 Large; 0 the device's)
     const c8* data_export;
     const c8* data_import;
@@ -81,6 +82,7 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--stay"))                { fude_look.stay = true; }
         if((_v = fude_look_value(_a, "--theme")) != NULL)          { fude_look.theme = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--ui-size")) != NULL)        { fude_look.ui_size = (i32)strtol(_v, NULL, 10); }
+        if((_v = fude_look_value(_a, "--note-card")) != NULL)      { fude_look.note_card = _v; }
         if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; }
         if((_v = fude_look_value(_a, "--data-export")) != NULL)    { fude_look.data_export = _v; }
         if((_v = fude_look_value(_a, "--data-import")) != NULL)    { fude_look.data_import = _v; }
@@ -199,6 +201,11 @@ void fude_look_frame(fude_app* _app) {
         if(_frame == 30u)      { _top->vt->pointer_down(_top->self, _at, false, _now); }
         else if(_frame <= 36u) { _top->vt->pointer_moved(_top->self, _at, _now); }
         else                   { _top->vt->pointer_up(_top->self, _at, _now); }
+    }
+    if(_frame == 15u && fude_look.note_card != NULL) {
+        const b8  _canvas = strcmp(fude_look.note_card, "canvas") == 0;
+        const u32 _note   = fude_notes_add(_app->notes, _canvas ? FUDE_NOTE_CANVAS : FUDE_NOTE_FOLDER, 0u, _canvas ? "Canvas 2" : "Folder 1");
+        fude_side_look_card(_app->ui, _note, strcmp(fude_look.note_card, "rename") == 0 ? FUDE_SIDE_CARD_RENAME : FUDE_SIDE_CARD_ACTIONS);
     }
     if(_frame == 15u && fude_look.data) {
         fude_side_open_settings(_app->ui, -1);

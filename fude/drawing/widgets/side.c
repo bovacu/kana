@@ -252,6 +252,15 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_rate(rde_ui_node* _node, const rd
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// The app's own button (Set up the voice): the panel closes, then it does its thing.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_app_button(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    fude_ui* _ui = (fude_ui*)_user_data;
+    _ui->side.open = false;
+    fude_app_ext(_ui->app)->side_button->press(_ui->app);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
 // The tutorial again (the app's: Kana's welcome): the panel closes.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_tutorial(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -648,9 +657,15 @@ RDE_INTERNAL void fude_side_on_field_submit(rde_ui_node* _node, any _user_data) 
 }
 
 // The card's buttons for its mode, in a row from the right.
+// The note card's size: narrower on a screen narrower than it (a phone).
+RDE_INTERNAL rde_vec_2F fude_side_note_card_size(fude_ui* _ui) {
+    const rde_vec_2F _screen = fude_kit_screen_size(_ui->window);
+    return (rde_vec_2F){ fminf(FUDE_SIDE_NOTE_CARD.x, _screen.x - 2.0f * FUDE_SIDE_MARGIN), FUDE_SIDE_NOTE_CARD.y };
+}
+
 RDE_INTERNAL void fude_side_card_layout(fude_ui* _ui) {
     fude_side*       _side = &_ui->side;
-    const rde_vec_2F _size = FUDE_SIDE_NOTE_CARD;
+    const rde_vec_2F _size = fude_side_note_card_size(_ui);
     const b8         _folder = fude_notes_find(_ui->app->notes, _side->card_note) != NULL &&
                                fude_notes_find(_ui->app->notes, _side->card_note)->kind == FUDE_NOTE_FOLDER;
 
@@ -687,12 +702,37 @@ RDE_INTERNAL void fude_side_card_layout(fude_ui* _ui) {
         _total += _w[_k];
     }
     const f32 _room    = _size.x - 2.0f * FUDE_SIDE_CARD_PAD;
-    const f32 _squeeze = _total > _room ? (_room - FUDE_SIDE_GAP * (f32)(_count - 1u)) / (_total - FUDE_SIDE_GAP * (f32)(_count - 1u)) : 1.0f;
-    f32 _x = _size.x - FUDE_SIDE_CARD_PAD;
-    for(u32 _k = 0; _k < _count; _k++) {
-        const f32 _bw = _w[_k] * _squeeze;
-        fude_kit_place(rde_ui_button_as_node(_row[_k]), (rde_vec_2F){ _x - _bw * 0.5f, FUDE_SIDE_CARD_PAD + 20.0f }, (rde_vec_2F){ _bw, 40.0f });
-        _x -= _bw + FUDE_SIDE_GAP;
+    // Too many for one row on a narrow card (a phone, a folder's five): Cancel and
+    // Delete stay at the bottom, the others go on a row of their own over them.
+    const u32 _first   = _total > _room && _count > 3u ? 2u : _count;   // the bottom row's
+
+    // The card: a title, a line (or the name field), the buttons at the bottom —
+    // a row taller with two rows of them.
+    const rde_vec_2F _screen = fude_kit_screen_size(_ui->window);
+    const rde_vec_2F _nc     = { _size.x, _size.y + (_first < _count ? 40.0f + FUDE_SIDE_GAP : 0.0f) };
+    fude_kit_modal_place(&_side->note, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.6f }, _nc);
+    fude_kit_place(rde_ui_label_as_node(_side->note_title), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 14.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 32.0f });
+    fude_kit_place(rde_ui_label_as_node(_side->note_body), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 54.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
+    fude_kit_place(fude_kit_field_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 62.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
+    for(u32 _part = 0; _part < 2u; _part++) {
+        const u32 _from = _part == 0u ? 0u : _first;
+        const u32 _to   = _part == 0u ? _first : _count;
+        if(_from >= _to) {
+            continue;
+        }
+        f32 _sum = FUDE_SIDE_GAP * (f32)(_to - _from - 1u);
+        for(u32 _k = _from; _k < _to; _k++) {
+            _sum += _w[_k];
+        }
+        const f32 _gaps    = FUDE_SIDE_GAP * (f32)(_to - _from - 1u);
+        const f32 _squeeze = _sum > _room ? (_room - _gaps) / (_sum - _gaps) : 1.0f;
+        f32       _x       = _size.x - FUDE_SIDE_CARD_PAD;
+        for(u32 _k = _from; _k < _to; _k++) {
+            const f32 _bw = _w[_k] * _squeeze;
+            fude_kit_place(rde_ui_button_as_node(_row[_k]), (rde_vec_2F){ _x - _bw * 0.5f, FUDE_SIDE_CARD_PAD + 20.0f + (f32)_part * (40.0f + FUDE_SIDE_GAP) },
+                           (rde_vec_2F){ _bw, 40.0f });
+            _x -= _bw + FUDE_SIDE_GAP;
+        }
     }
     rde_ui_node_set_active(fude_kit_field_node(_side->note_field), _side->card_mode == FUDE_SIDE_CARD_RENAME);
     rde_ui_node_set_active(rde_ui_label_as_node(_side->note_body), _side->card_mode != FUDE_SIDE_CARD_RENAME);
@@ -1145,7 +1185,8 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     const f32 _foot_h   = 40.0f;
     const f32 _vy       = (f32)_insets.w + FUDE_SIDE_MARGIN * 0.5f + 9.0f;   // the version's middle
     const f32 _first    = _vy + 9.0f + FUDE_SIDE_GAP + _foot_h * 0.5f;          // the lowest row's middle
-    const u32 _stacked  = 1u + (_side->tutorial != NULL ? 1u : 0u) + (_rate ? 1u : 0u);
+    const b8  _app_b    = _side->app_button != NULL && _side->_app_button_shown;
+    const u32 _stacked  = 1u + (_side->tutorial != NULL ? 1u : 0u) + (_rate ? 1u : 0u) + (_app_b ? 1u : 0u);
     const f32 _room     = _y - (_first + (f32)(_stacked - 1u) * (_foot_h + FUDE_SIDE_GAP) + _foot_h * 0.5f + FUDE_SIDE_MARGIN);
     const b8  _compact  = _side->tutorial != NULL && _room < 2.0f * FUDE_SIDE_NOTE_H;
     f32       _top      = _first;   // the highest row's middle
@@ -1164,6 +1205,10 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     if(_rate) {
         _top += _foot_h + FUDE_SIDE_GAP;
         fude_kit_place(rde_ui_button_as_node(_side->rate), (rde_vec_2F){ _x0 + _cw * 0.5f, _top }, (rde_vec_2F){ _cw, _foot_h });
+    }
+    if(_app_b) {
+        _top += _foot_h + FUDE_SIDE_GAP;
+        fude_kit_place(rde_ui_button_as_node(_side->app_button), (rde_vec_2F){ _x0 + _cw * 0.5f, _top }, (rde_vec_2F){ _cw, _foot_h });
     }
     #undef FUDE_SIDE_FOOT_W
     fude_kit_place(rde_ui_label_as_node(_side->version), (rde_vec_2F){ _x0 + 10.0f + (_cw - 10.0f) * 0.5f, _vy }, (rde_vec_2F){ _cw - 10.0f, 18.0f });   // under the icons
@@ -1251,15 +1296,8 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
         fude_side_licence_load(_ui, _side->licences_doc);   // new width: the lines again
     }
 
-    // The note card: a title, a line (or the name field), buttons at the bottom.
-    const rde_vec_2F _nc = FUDE_SIDE_NOTE_CARD;
-    fude_kit_modal_place(&_side->note, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.6f }, _nc);
-    fude_kit_place(rde_ui_label_as_node(_side->note_title), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 14.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 32.0f });
-    fude_kit_place(rde_ui_label_as_node(_side->note_body), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 54.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
-    fude_kit_place(fude_kit_field_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 62.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
-    if(_side->card_mode != FUDE_SIDE_CARD_NONE) {
-        fude_side_card_layout(_ui);
-    }
+    // The note card (its own layout: its height follows its buttons' rows).
+    fude_side_card_layout(_ui);
 }
 
 // --- lifetime ---------------------------------------------------------------------------
@@ -1291,6 +1329,11 @@ RDE_INTERNAL void fude_side_flag(rde_ui_button* _button, u32 _language) {
         rde_ui_node_set_offsets(_t, (rde_vec_2F){ 3.0f, 6.0f }, (rde_vec_2F){ -3.0f, 24.0f });
         rde_ui_label_set_font_scale(_button->internal_label, 11.0f / (f32)FUDE_KIT_FONT_SIZE);
     }
+}
+
+void fude_side_look_card(fude_ui* _ui, u32 _note, FUDE_SIDE_CARD_ _mode) {
+    _ui->side.open = true;
+    fude_side_card(_ui, _mode, _note);
 }
 
 void fude_side_relayout(fude_ui* _ui) {
@@ -1368,6 +1411,12 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
 #if !defined(RDE_PLATFORM_MOBILE)
     rde_ui_node_set_active(rde_ui_button_as_node(_side->rate), false);   // no store here
 #endif
+    if(fude_app_ext(_ui->app)->side_button != NULL) {
+        const fude_extension_side_button* _b = fude_app_ext(_ui->app)->side_button;
+        _side->app_button = fude_kit_button(_panel, fude_text((FUDE_TEXT_)_b->text), fude_side_on_app_button, _ui);
+        fude_kit_icon(_side->app_button, _b->icon, FUDE_KIT_ICON_LEFT, 15.0f);
+        rde_ui_node_set_active(rde_ui_button_as_node(_side->app_button), false);   // until it is wanted (fude_side_update)
+    }
 
     // The menu button: an icon on a small card of its own, over the page.
     _side->menu_button = fude_kit_button(_root, fude_text(FUDE_TEXT_MENU), fude_side_on_menu, _ui);
@@ -1525,6 +1574,15 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
     if(_side->panel.card == NULL) {
         return;
     }
+    // The app's button comes and goes (the voice installed): the panel laid out again for it.
+    if(_side->app_button != NULL) {
+        const b8 _wanted = fude_app_ext(_ui->app)->side_button->shown(_ui->app);
+        if(_wanted != _side->_app_button_shown) {
+            _side->_app_button_shown = _wanted;
+            rde_ui_node_set_active(rde_ui_button_as_node(_side->app_button), _wanted);
+            fude_side_relayout(_ui);
+        }
+    }
 
     // Laid out again when the screen rotates — and when the safe area changes:
     // at start iOS reports none (SDL has the whole window until the view is laid
@@ -1649,7 +1707,7 @@ void fude_side_apply_theme(fude_ui* _ui) {
         fude_kit_restyle_quiet(_side->nav[_i]);
         fude_kit_icon_color(_side->nav[_i], _t->accent);
     }
-    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button, _side->tutorial, _side->rate };
+    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button, _side->tutorial, _side->rate, _side->app_button };
     for(u32 _i = 0; _i < sizeof(_quiet) / sizeof(_quiet[0]); _i++) {
         if(_quiet[_i] != NULL) {
             fude_kit_restyle_quiet(_quiet[_i]);

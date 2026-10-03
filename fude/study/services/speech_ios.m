@@ -55,6 +55,15 @@ b8 fude_speech_available(void) {
     return [AVSpeechSynthesisVoice voiceWithLanguage:fude_speech_language()] != nil;
 }
 
+// Asked each time: a voice downloaded in Settings shows as the app comes back.
+FUDE_SPEECH_ fude_speech_state(void) {
+    return fude_speech_available() ? FUDE_SPEECH_READY : FUDE_SPEECH_MISSING;
+}
+
+b8 fude_speech_open_settings(void) {
+    return false;   // no way into Settings' voices from an app: the card says where
+}
+
 void fude_speak(const c8* _text) {
     if(_text == NULL || _text[0] == 0) {
         return;

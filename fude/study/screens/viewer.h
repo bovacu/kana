@@ -119,6 +119,7 @@ RDE_STRUCT {
     rde_vec_2F           word_min[FUDE_VIEWER_SENTENCE_WORDS];   // the shown one's words, as laid out last frame
     rde_vec_2F           word_max[FUDE_VIEWER_SENTENCE_WORDS];
     u32                  word_shown;
+    u8                   word_of[FUDE_VIEWER_SENTENCE_WORDS];    // each chip's word (a chip can stand for the same word read several ways)
     f32                  sentence_room;     // stacked: the tallest sentence card shown for this character (it only grows)
     // Look-alikes (似): code points, the learner's mix-ups first.
     u32                  similar[FUDE_VIEWER_SIMILAR];

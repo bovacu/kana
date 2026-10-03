@@ -175,6 +175,8 @@ RDE_STRUCT {
 
     rde_ui_button*      tutorial;             // in the panel, over Settings: the app's tutorial again (NULL: it has none)
     rde_ui_button*      rate;                 // over it, on a phone or tablet: the store's review page
+    rde_ui_button*      app_button;           // over all, while it is wanted: the app's own (extension.h's side_button)
+    b8                  _app_button_shown;
 
     // Your data: a card over Settings — Kana is offline, the platform's own
     // backup, Export and Import (backup.h). kana.c does the work (it owns the
@@ -222,6 +224,8 @@ void fude_side_relayout(struct fude_ui* _ui);
 // is open, everywhere is.
 b8   fude_side_hit(const struct fude_ui* _ui, rde_vec_2F _at);
 void fude_side_close(struct fude_ui* _ui);
+// A look's: the panel open and the note card for _note — its actions, or (_mode) renaming it.
+void fude_side_look_card(struct fude_ui* _ui, u32 _note, FUDE_SIDE_CARD_ _mode);
 // Back (Android's, Escape): the topmost of the panel's cards — Licences, Your
 // data, a note's card, Settings — or the panel, closed as its own Close or
 // Cancel does. False: none was open.

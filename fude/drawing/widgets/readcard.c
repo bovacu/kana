@@ -32,6 +32,22 @@ void fude_readcard_open(fude_readcard* _card, u32 _title, u32 _body, f32 _second
     _card->content_h = 0.0f;
     fude_scroller_stop(&_card->scroller);
     _card->scroller.offset = 0.0f;
+    _card->action          = FUDE_TEXT_COUNT;
+    _card->on_action       = NULL;
+    _card->pressing_action = false;
+}
+
+void fude_readcard_set_action(fude_readcard* _card, u32 _text, void (*_on)(void)) {
+    _card->action    = _text;
+    _card->on_action = _on;
+}
+
+// Closed by Close (or Back, or its action): read.
+RDE_INTERNAL void fude_readcard_done(fude_readcard* _card) {
+    _card->open = false;
+    if(_card->read != NULL) {
+        *_card->read |= _card->bit;   // read: the settings save it
+    }
 }
 
 u32 fude_readcard_wait(const fude_readcard* _card) {
@@ -50,8 +66,11 @@ RDE_INTERNAL b8 fude_readcard_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F 
 // --- the pointer: Close, or the text's scroll; anywhere else nothing --------------------------
 
 void fude_readcard_pointer_down(fude_readcard* _card, rde_vec_2F _screen, f64 _now) {
-    _card->pressing = false;
-    if(fude_readcard_inside(_screen, _card->close_min, _card->close_max)) {
+    _card->pressing        = false;
+    _card->pressing_action = false;
+    if(_card->action != FUDE_TEXT_COUNT && fude_readcard_inside(_screen, _card->action_min, _card->action_max)) {
+        _card->pressing_action = fude_readcard_ready(_card);
+    } else if(fude_readcard_inside(_screen, _card->close_min, _card->close_max)) {
         _card->pressing = fude_readcard_ready(_card);
     } else if(fude_readcard_inside(_screen, _card->text_min, _card->text_max)) {
         fude_scroller_down(&_card->scroller, _screen, _now);
@@ -68,12 +87,17 @@ void fude_readcard_pointer_up(fude_readcard* _card, rde_vec_2F _screen, f64 _now
     if(_card->scroller.pressing) {
         fude_scroller_up(&_card->scroller, _now);
     }
-    const b8 _was = _card->pressing;
-    _card->pressing = false;
+    const b8 _was        = _card->pressing;
+    const b8 _was_action = _card->pressing_action;
+    _card->pressing        = false;
+    _card->pressing_action = false;
     if(_was && fude_readcard_ready(_card) && fude_readcard_inside(_screen, _card->close_min, _card->close_max)) {
-        _card->open = false;
-        if(_card->read != NULL) {
-            *_card->read |= _card->bit;   // read: the settings save it
+        fude_readcard_done(_card);
+    } else if(_was_action && fude_readcard_ready(_card) && fude_readcard_inside(_screen, _card->action_min, _card->action_max)) {
+        void (*_on)(void) = _card->on_action;
+        fude_readcard_done(_card);
+        if(_on != NULL) {
+            _on();
         }
     }
 }
@@ -127,7 +151,9 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     const f32 _tpx    = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_READCARD_TITLE, _inner, 0.6f);
     const u32 _lines  = fude_draw_text_wrap_lines(_font, _font_px, _body, FUDE_READCARD_BODY, _text_w);
     _card->content_h  = (f32)_lines * FUDE_READCARD_LINE + 2.0f * FUDE_READCARD_INSET;
-    const rde_vec_2F _b      = FUDE_READCARD_BUTTON;
+    // Close alone at the right; with a second button, both as wide as halves of the card allow.
+    const rde_vec_2F _b      = { _card->action != FUDE_TEXT_COUNT ? fminf(FUDE_READCARD_BUTTON.x, (_inner - 12.0f) * 0.5f) : FUDE_READCARD_BUTTON.x,
+                                 FUDE_READCARD_BUTTON.y };
     const f32        _fixed  = FUDE_READCARD_PAD + _tpx * 1.3f + 18.0f + 22.0f + _b.y + FUDE_READCARD_PAD;
     const f32        _room   = _sh - (f32)(_insets.y + _insets.w) - 48.0f;
     const f32        _view_h = fmaxf(FUDE_READCARD_LINE * 3.0f, fminf(_card->content_h, _room - _fixed));
@@ -191,11 +217,30 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     const f32 _lp = fude_draw_text_px_to_fit(_font, _font_px, _label, 17.0f, _b.x - 24.0f, 0.6f);
     const f32 _lw = fude_draw_text_width(_font, _font_px, _label, _lp);
     fude_draw_text(_font, _font_px, _label, _bx - _lw * 0.5f, _by - _lp * 0.36f, _lp, _wait > 0u ? _t->text_soft : _t->on_accent);
+
+    // The second button, at Close's left: a plain one.
+    if(_card->action != FUDE_TEXT_COUNT) {
+        const f32 _ax = _bx - _b.x - 12.0f;
+        _card->action_min = (rde_vec_2F){ _ax - _b.x * 0.5f, _by - _b.y * 0.5f };
+        _card->action_max = (rde_vec_2F){ _ax + _b.x * 0.5f, _by + _b.y * 0.5f };
+        fude_draw_card(_card->action_min, _card->action_max, 14.0f, _card->pressing_action ? _t->select_fill : _t->surface_2, _t->surface_2);
+        const c8* _action = fude_text((FUDE_TEXT_)_card->action);
+        const f32 _ap     = fude_draw_text_px_to_fit(_font, _font_px, _action, 17.0f, _b.x - 24.0f, 0.6f);
+        const f32 _aw     = fude_draw_text_width(_font, _font_px, _action, _ap);
+        fude_draw_text(_font, _font_px, _action, _ax - _aw * 0.5f, _by - _ap * 0.36f, _ap, _t->accent);
+    }
 }
 
 // --- the screen (screen.h) ----------------------------------------------------------------
 
 RDE_INTERNAL b8   fude_readcard_screen_is_open(const void* _self) { return ((const fude_readcard*)_self)->open; }
+// Back: a plain card (no wait) closes; a must-read one does not.
+RDE_INTERNAL void fude_readcard_screen_close(void* _self) {
+    fude_readcard* _card = (fude_readcard*)_self;
+    if(_card->seconds <= 0.0f) {
+        fude_readcard_done(_card);
+    }
+}
 RDE_INTERNAL void fude_readcard_screen_update(struct fude_app* _app, void* _self, f32 _dt) { RDE_UNUSED(_app); fude_readcard_update((fude_readcard*)_self, _dt); }
 RDE_INTERNAL void fude_readcard_screen_down(void* _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); fude_readcard_pointer_down((fude_readcard*)_self, _at, _now); }
 RDE_INTERNAL void fude_readcard_screen_moved(void* _self, rde_vec_2F _at, f64 _now) { fude_readcard_pointer_moved((fude_readcard*)_self, _at, _now); }
@@ -204,10 +249,11 @@ RDE_INTERNAL void fude_readcard_screen_render(void* _self, const fude_screen_fra
     fude_readcard_render((fude_readcard*)_self, _f->window, _f->font, _f->font_px);
 }
 
-// Over everything; no Escape (close is NULL: only Close closes it), no row of its own.
+// Over everything, no row of its own; Escape and Back close only a plain card.
 const fude_screen FUDE_READCARD_SCREEN = {
     .name = "readcard", .input = FUDE_SCREEN_INPUT_POINT, .overlay = true,
     .is_open = fude_readcard_screen_is_open,
+    .close = fude_readcard_screen_close,
     .update = fude_readcard_screen_update,
     .render = fude_readcard_screen_render,
     .pointer_down = fude_readcard_screen_down, .pointer_moved = fude_readcard_screen_moved, .pointer_up = fude_readcard_screen_up,

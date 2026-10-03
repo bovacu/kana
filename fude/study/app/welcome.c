@@ -5,6 +5,7 @@
 #include "drawing/widgets/kit.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
+#include "study/services/speech.h"
 
 #include <math.h>
 
@@ -40,6 +41,46 @@ void fude_welcome_offline(fude_welcome* _welcome) {
     if(_welcome->card != NULL) {
         fude_readcard_open(_welcome->card, FUDE_TEXT_OFFLINE_TITLE, FUDE_TEXT_OFFLINE, FUDE_WELCOME_CARD_SECONDS, _welcome->cards_read,
                            FUDE_WELCOME_CARD_OFFLINE);
+    }
+}
+
+// Open settings: the device's text-to-speech (Android).
+RDE_INTERNAL void fude_welcome_on_voice_settings(void) {
+    fude_speech_open_settings();
+}
+
+void fude_welcome_voice_as(fude_welcome* _welcome, b8 _android) {
+    if(_welcome->card == NULL) {
+        return;
+    }
+    if(_android) {
+        fude_readcard_open(_welcome->card, FUDE_TEXT_VOICE_TITLE, FUDE_TEXT_VOICE_STEPS_ANDROID, 0.0f, _welcome->cards_read, FUDE_WELCOME_CARD_VOICE);
+        fude_readcard_set_action(_welcome->card, FUDE_TEXT_VOICE_OPEN, fude_welcome_on_voice_settings);
+    } else {
+        fude_readcard_open(_welcome->card, FUDE_TEXT_VOICE_TITLE, FUDE_TEXT_VOICE_STEPS_IOS, 0.0f, _welcome->cards_read, FUDE_WELCOME_CARD_VOICE);
+    }
+}
+
+void fude_welcome_voice(fude_welcome* _welcome) {
+#if defined(RDE_PLATFORM_ANDROID)
+    fude_welcome_voice_as(_welcome, true);
+#else
+    fude_welcome_voice_as(_welcome, false);
+#endif
+}
+
+void fude_welcome_update(fude_welcome* _welcome) {
+    if(_welcome == NULL || _welcome->cards_read == NULL) {
+        return;
+    }
+    const FUDE_SPEECH_ _voice = fude_speech_state();   // each frame: Android's engine starts, and is asked again coming back
+    const u8           _read  = *_welcome->cards_read;
+    if(_welcome->open || (_welcome->card != NULL && _welcome->card->open) || (_read & FUDE_WELCOME_CARD_OFFLINE) == 0u ||
+       (_read & FUDE_WELCOME_CARD_VOICE) != 0u) {
+        return;
+    }
+    if(_voice == FUDE_SPEECH_MISSING) {
+        fude_welcome_voice(_welcome);   // after the tutorial and the offline card, once
     }
 }
 

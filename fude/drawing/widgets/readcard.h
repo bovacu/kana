@@ -14,6 +14,10 @@
 // Once read it can stay read: the owner gives a bit of fude_app.cards_read
 // (saved with the settings) and Close sets it, so the owner opens it only while
 // the bit is clear.
+//
+// One with no wait (0 seconds) is a plain card: Back closes it too. It can have a
+// second button, at Close's left, that does something (the voice card's Open
+// settings) and closes it.
 // ===========================================================================
 
 RDE_STRUCT {
@@ -30,11 +34,17 @@ RDE_STRUCT {
     rde_vec_2F    close_min, close_max;
     f32           content_h;   // the text's whole height
     b8            pressing;    // on Close
+    u32           action;      // the second button's words (FUDE_TEXT_ id; FUDE_TEXT_COUNT: none)
+    void        (*on_action)(void);
+    rde_vec_2F    action_min, action_max;
+    b8            pressing_action;
 } fude_readcard;
 
 // Opened with its words (FUDE_TEXT_ ids), Close's wait, and the bit Close sets in
 // *_read (NULL: none).
 void fude_readcard_open(fude_readcard* _card, u32 _title, u32 _body, f32 _seconds, u8* _read, u8 _bit);
+// After opening: the second button, _text (FUDE_TEXT_ id), _on its press (then it closes).
+void fude_readcard_set_action(fude_readcard* _card, u32 _text, void (*_on)(void));
 // Close can close it now (its wait is over).
 b8   fude_readcard_ready(const fude_readcard* _card);
 // Seconds still to wait, rounded up (0: ready).
