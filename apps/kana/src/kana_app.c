@@ -15,7 +15,7 @@
 // full); in full they are Settings › Licences (Data: the attribution KanjiVG and
 // EDRDG require; ML Kit: Google's terms and notices).
 const fude_app_info KANA_INFO = {
-    .name = KANA_NAME, .version = KANA_VERSION, .store_id = KANA_APP_STORE_ID,
+    .name = KANA_NAME, .id = KANA_ID, .version = KANA_VERSION, .store_id = KANA_APP_STORE_ID,
     .script_font = "assets/fonts/NotoSansJP-Regular.otf", .credits = FUDE_TEXT_CREDITS,
     .licences = {
         { FUDE_TEXT_LICENCE_DATA,      { "assets/data/LICENSE-data.txt", NULL, NULL } },
@@ -30,8 +30,8 @@ const fude_app_info KANA_INFO = {
 // --- the lectures (the Library's books: doc.h) ------------------------------------------------
 // Free to share and change, also in an app that is sold: each one's licence and
 // what Kana changed are in assets/lectures/LICENSE-lectures.txt (Settings ›
-// Licences › Lectures), and how it was made in tools/lectures/. Ids are never
-// reused: a canvas keeps its book's.
+// Licences › Lectures), and how it was made in tools/lectures/ (Kana's own
+// apps/kana/tools/lectures/: jpn101). Ids are never reused: a canvas keeps its book's.
 static const fude_doc_book KANA_LIBRARY[] = {
     { 2u, "assets/lectures/jpn101.pdf", FUDE_TEXT_LECTURE_JPN101, FUDE_TEXT_LECTURE_JPN101_ABOUT,
       "Yoko Sato, Mt Hood Community College \xC2\xB7 CC BY 4.0 \xC2\xB7 Kana edition: pages 1, 2 and 21 left out", "assets/lectures/jpn101.png", NULL },
@@ -96,12 +96,12 @@ static const fude_extension_nav KANA_NAV = { FUDE_TEXT_SIDE_STUDY, KANA_NAV_ENTR
 
 // The very first launch: what Kana is, and its gestures.
 RDE_INTERNAL void kana_first_launch(fude_app* _app) {
-    kana_welcome_open(KANA_APP(_app)->welcome);
+    fude_welcome_open(KANA_APP(_app)->welcome);
 }
 
 // The side panel's Tutorial: the welcome again.
 RDE_INTERNAL void kana_tutorial(fude_app* _app) {
-    kana_welcome_open(KANA_APP(_app)->welcome);
+    fude_welcome_open(KANA_APP(_app)->welcome);
 }
 
 // --- a developer's launch flags ---------------------------------------------------------------
@@ -143,8 +143,8 @@ void kana_look_loaded(fude_app* _app) {
 void kana_look_frame(fude_app* _app) {
     fude_study_look_frame(_app);
     if(fude_look_shot_frame() == 10u && kana_look.welcome >= 0) {
-        kana_welcome_open(KANA_APP(_app)->welcome);
-        KANA_APP(_app)->welcome->page = (u32)kana_look.welcome < KANA_WELCOME_PAGES ? (u32)kana_look.welcome : 0u;
+        fude_welcome_open(KANA_APP(_app)->welcome);
+        KANA_APP(_app)->welcome->page = (u32)kana_look.welcome < FUDE_WELCOME_PAGES ? (u32)kana_look.welcome : 0u;
     }
 }
 

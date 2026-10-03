@@ -1,0 +1,161 @@
+Character data (characters.kana)
+================================
+
+characters.kana is baked from the works below and is a derived work of them.
+It is distributed under their licences, and this attribution must be shown to
+the app's users (Settings › Licences).
+
+
+Hangul's strokes
+----------------
+The strokes of the jamo and of every syllable, in writing order: drawn for
+Hangul (apps/hangul/tools/strokes/), the syllables composed from the jamo by
+rule. No outside data.
+
+
+KanjiVG
+-------
+Stroke data: the strokes of the hanja, in writing order.
+
+  Copyright (C) 2009-2025 Ulrich Apel.
+  KanjiVG is distributed under the Creative Commons Attribution-Share Alike 3.0
+  licence: https://creativecommons.org/licenses/by-sa/3.0/
+  Website: https://kanjivg.tagaini.net
+  Source used: release r20250816 (kanjivg-20250816.xml.gz). Hangul keeps the
+  hanja Korean learners meet, unchanged.
+
+
+한국어기초사전 (Basic Korean Dictionary)
+--------------------------------------
+Words: their levels (beginner, intermediate, advanced), pronunciation, hanja
+origin, and meanings in English, Spanish, French and Japanese.
+
+  국립국어원 한국어기초사전 (National Institute of Korean Language, Basic Korean
+  Dictionary, https://krdict.korean.go.kr), licensed under the Creative Commons
+  Attribution-ShareAlike 2.0 Korea licence (CC BY-SA 2.0 KR):
+  https://creativecommons.org/licenses/by-sa/2.0/kr/
+  Hangul keeps its words (not its phrases, grammar patterns, sounds or
+  pictures), with their first meanings shortened, their pronunciation
+  written in the Revised Romanization of Korean, and the words whose hanja
+  origin has a character listed under that character.
+  Source used: its full download (JSON), dated 2026-09-19.
+
+
+Unihan
+------
+The hanja's Korean readings, English meanings, radicals and stroke counts, and
+which are the 1,800 hanja taught in Korean schools.
+
+  From the Unicode Character Database's Unihan files (Unicode 18.0.0,
+  https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip), under the Unicode
+  License v3, whose notice follows:
+
+  UNICODE LICENSE V3
+
+  COPYRIGHT AND PERMISSION NOTICE
+
+  Copyright © 1991-2026 Unicode, Inc.
+
+  NOTICE TO USER: Carefully read the following legal agreement. BY
+  DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+  SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+  TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+  DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of data files and any associated documentation (the "Data Files") or
+  software and any associated documentation (the "Software") to deal in the
+  Data Files or Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, and/or sell
+  copies of the Data Files or Software, and to permit persons to whom the
+  Data Files or Software are furnished to do so, provided that either (a)
+  this copyright and permission notice appear with all copies of the Data
+  Files or Software, or (b) this copyright and permission notice appear in
+  associated Documentation.
+
+  THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+  KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+  THIRD PARTY RIGHTS.
+
+  IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+  BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+  OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+  WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+  ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+  FILES OR SOFTWARE.
+
+  Except as contained in this notice, the name of a copyright holder shall
+  not be used in advertising or otherwise to promote the sale, use or other
+  dealings in these Data Files or Software without prior written
+  authorization of the copyright holder.
+
+
+libhangul
+---------
+The hanja's meaning words (훈) and sounds (음): 하늘 천 for 天.
+
+  From libhangul's hanja.txt (https://github.com/libhangul/libhangul), whose
+  notice follows:
+
+  Copyright (c) 2005,2006 Choe Hwanjin
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+  2. Redistributions in binary form must reproduce the above copyright notice,
+     this list of conditions and the following disclaimer in the documentation
+     and/or other materials provided with the distribution.
+  3. Neither the name of the author nor the names of its contributors
+     may be used to endorse or promote products derived from this software
+     without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
+
+KANJIDIC2
+---------
+The hanja's meanings in Spanish, Portuguese and French.
+
+  This app uses the KANJIDIC2 dictionary file. This file is the property of the
+  Electronic Dictionary Research and Development Group (EDRDG), and is used in
+  conformance with the Group's licence: Creative Commons Attribution-ShareAlike
+  4.0 International, https://creativecommons.org/licenses/by-sa/4.0/
+  Licence details: https://www.edrdg.org/edrdg/licence.html
+  Project page: https://www.edrdg.org/wiki/index.php/KANJIDIC_Project
+
+
+wordfreq
+--------
+How common each word is.
+
+  wordfreq by Robyn Speer (https://github.com/rspeer/wordfreq), whose data is
+  licensed under Creative Commons Attribution-ShareAlike 4.0 International
+  (https://creativecommons.org/licenses/by-sa/4.0/).
+
+
+Tatoeba
+-------
+Example sentences: a Korean sentence for a word, and its English, Spanish,
+French and Portuguese translations.
+
+  Sentences from Tatoeba (https://tatoeba.org), the work of its contributors,
+  used under the Creative Commons Attribution 2.0 France licence:
+  https://creativecommons.org/licenses/by/2.0/fr/
+  Hangul keeps a selection of them (one for each word, chosen by length) and
+  changes none.
+  Source used: Tatoeba's per-language exports
+  (https://downloads.tatoeba.org/exports/per_language/), downloaded 2026-10-03.

@@ -13,6 +13,8 @@
 // _text with its first line's baseline starting at (_x, _y), _px tall; _font was
 // loaded at _font_px (text scales from there).
 void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color);
+// A developer's check (--text-check): texts drawn past the screen's sides, on the log.
+void fude_draw_text_check(rde_window* _window);   // NULL: off
 
 // From _a to _b, _radius wide on each side.
 void fude_draw_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color);
@@ -51,6 +53,9 @@ f32  fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _p
 u32  fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color);
 // How many lines fude_draw_text_wrap would draw, drawing nothing.
 u32  fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
+// The narrowest width wrapping _text in as many lines as _width does: a short
+// text's lines even (no word alone on the last). For labels and captions.
+f32  fude_draw_text_balanced_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
 // The size to draw _text at so it fits _width: _px, or smaller (down to
 // _min_scale of it) when it would not fit.
 f32  fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);

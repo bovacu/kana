@@ -1,0 +1,3 @@
+/* The camera prompt (Text from a photo, Scan pages), in en. UTF-8. */
+"NSCameraUsageDescription" = "Hanzi Learn! reads the Chinese text the camera sees, so you can write it on the page, and scans pages to read and write on.";
+"CFBundleDisplayName" = "Hanzi Learn!";

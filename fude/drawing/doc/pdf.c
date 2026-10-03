@@ -7,8 +7,8 @@
 
 // ===========================================================================
 // See pdf.h. Apple's: Core Graphics' CGPDFDocument (reading and drawing) and
-// PDF context (writing), ImageIO for the images — all plain C. Elsewhere: not
-// yet.
+// PDF context (writing), ImageIO for the images — all plain C. Android's:
+// pdf_android.c. Elsewhere: not yet.
 // ===========================================================================
 
 #if defined(__APPLE__)
@@ -295,6 +295,10 @@ RDE_INTERNAL CGAffineTransform fude_pdf_reading(CGPDFPageRef _p) {
     }
 }
 
+b8 fude_pdf_write_available(void) {
+    return true;
+}
+
 fude_pdf_writer* fude_pdf_write_begin(const c8* _out) {
     CFURLRef _url = _out != NULL ? fude_pdf_url(_out) : NULL;
     if(_url == NULL) {
@@ -496,9 +500,13 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
     return true;
 }
 
-#else   // not yet: Android (PdfRenderer), Windows
+#elif !defined(RDE_PLATFORM_ANDROID)   // Android: pdf_android.c; not yet: Windows
 
 b8 fude_pdf_text_available(void) {
+    return false;
+}
+
+b8 fude_pdf_write_available(void) {
     return false;
 }
 

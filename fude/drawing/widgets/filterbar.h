@@ -22,7 +22,8 @@ struct fude_app;
 #define FUDE_FILTERBAR_TOGGLES       3u
 
 typedef struct {
-    u32         count;
+    u32         count;                             // how many (0: count_of's)
+    u32       (*count_of)(void);                   // how many, known only at run time (the language's levels)
     const c8* (*label)(u32 _chip);                 // each chip's label (in the language now)
     u32       (*chosen)(const void* _self);        // the chip on
     void      (*choose)(void* _self, u32 _chip);

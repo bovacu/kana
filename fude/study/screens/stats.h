@@ -2,6 +2,7 @@
 #define FUDE_STATS
 
 #include "rde.h"
+#include "lang/lang.h"
 #include "study/chars/kanji.h"
 #include "study/chars/catalog.h"
 #include "study/chars/glyph.h"
@@ -28,16 +29,11 @@
 #define FUDE_STATS_RECENT   30                         // days that are "recent"
 #define FUDE_STATS_POOR_SHAPE 60.0f                    // a square's shape under this counts as a shape mistake
 
-typedef enum {
-    FUDE_STATS_GROUP_HIRAGANA = 0,
-    FUDE_STATS_GROUP_KATAKANA,
-    FUDE_STATS_GROUP_N5,
-    FUDE_STATS_GROUP_N4,
-    FUDE_STATS_GROUP_N3,
-    FUDE_STATS_GROUP_N2,
-    FUDE_STATS_GROUP_N1,
-    FUDE_STATS_GROUP_COUNT
-} FUDE_STATS_GROUP_;
+// The Levels card's rows: each of the language's sets (lang.h: the groups learnt
+// whole, their core characters — Japanese hiragana, katakana), then each of its
+// levels (N5..N1).
+#define FUDE_STATS_GROUP_MAX (FUDE_LANG_GROUPS + FUDE_LANG_LEVELS)
+u32 fude_stats_group_count(void);
 
 typedef enum {
     FUDE_STATS_MISTAKE_ORDER = 0,   // strokes out of order
@@ -106,7 +102,7 @@ RDE_STRUCT {
     u32                 known_before;
     u32                 mark_changes;    // changes kept (0: nothing to show)
     u32                 words_added;     // the learner's vocabulary (vocab.h)
-    fude_stats_coverage coverage[FUDE_STATS_GROUP_COUNT];
+    fude_stats_coverage coverage[FUDE_STATS_GROUP_MAX];
 
     // Characters (records): the weakest by their latest session, and the most
     // improved from their first session to their latest.

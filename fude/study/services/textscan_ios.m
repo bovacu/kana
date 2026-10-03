@@ -7,11 +7,11 @@
 #import <QuartzCore/QuartzCore.h>
 #import <MLKitVision/MLKitVision.h>
 #import <MLKitTextRecognitionCommon/MLKitTextRecognitionCommon.h>
-#import <MLKitTextRecognitionJapanese/MLKitTextRecognitionJapanese.h>
 #endif
 
 #include "study/services/textscan.h"
 #include "study/services/mlkit.h"
+#include "lang/lang.h"
 
 // ===========================================================================
 // See textscan.h. The iOS side: the system's photo library picker
@@ -119,7 +119,7 @@ static u32 fude_textscan_collect(MLKText* _text, fude_textscan_line* _out) {
 
 static MLKTextRecognizer* fude_textscan_reader(void) {
     if(fude_textscan_recognizer == nil) {
-        fude_textscan_recognizer = [MLKTextRecognizer textRecognizerWithOptions:[[MLKJapaneseTextRecognizerOptions alloc] init]];
+        fude_textscan_recognizer = [MLKTextRecognizer textRecognizerWithOptions:fude_lang_text_options()];
     }
     return fude_textscan_recognizer;
 }
@@ -270,7 +270,7 @@ b8 fude_textscan_read_frame(const u8* _rgba, u32 _width, u32 _height, f32 _rotat
     static MLKTextRecognizer* _frames_reader;
     if(_queue == nil) {
         _queue         = dispatch_queue_create("kana.textscan.frames", DISPATCH_QUEUE_SERIAL);
-        _frames_reader = [MLKTextRecognizer textRecognizerWithOptions:[[MLKJapaneseTextRecognizerOptions alloc] init]];
+        _frames_reader = [MLKTextRecognizer textRecognizerWithOptions:fude_lang_text_options()];
     }
     NSData*             _data   = [NSData dataWithBytes:_rgba length:(NSUInteger)_width * _height * 4u];
     MLKTextRecognizer*  _reader = _frames_reader;
@@ -328,7 +328,7 @@ b8 fude_textscan_read_page(const u8* _rgba, u32 _width, u32 _height) {
     static MLKTextRecognizer* _pages_reader;
     if(_queue == nil) {
         _queue        = dispatch_queue_create("kana.textscan.pages", DISPATCH_QUEUE_SERIAL);
-        _pages_reader = [MLKTextRecognizer textRecognizerWithOptions:[[MLKJapaneseTextRecognizerOptions alloc] init]];
+        _pages_reader = [MLKTextRecognizer textRecognizerWithOptions:fude_lang_text_options()];
     }
     NSData*            _data   = [NSData dataWithBytes:_rgba length:(NSUInteger)_width * _height * 4u];
     MLKTextRecognizer* _reader = _pages_reader;

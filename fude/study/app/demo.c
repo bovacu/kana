@@ -171,7 +171,7 @@ RDE_INTERNAL void fude_demo_add_n5(fude_demo* _demo, u32 _max) {
     u32 _n = 0;
     for(u32 _r = 0; _r < _demo->db->count && _n < 512u; _r++) {
         fude_kanji_info _info;
-        if(fude_kanji_at(_demo->db, _r, &_info) && _info.jlpt_n == 5u && _info.codepoint >= 0x4E00u) {
+        if(fude_kanji_at(_demo->db, _r, &_info) && _info.level == 5u && _info.codepoint >= 0x4E00u) {
             _cps[_n]  = _info.codepoint;
             _freq[_n] = _info.frequency != 0 ? _info.frequency : 9999u;
             _n++;
@@ -494,9 +494,9 @@ void fude_study_demo(fude_app* _app, const c8* _lang) {
 
         // An exam every few days, of what is there by then; the reviews due, but today's.
         if(_day % 3u == 1u) {
-            if(_day < 9u)        { fude_demo_exam(&_demo, _hira, _hira_n, FUDE_EXAM_SOURCE_HIRAGANA, 10u, _day); }
-            else if(_day % 2u)   { fude_demo_exam(&_demo, _kanji, _kanji_n, FUDE_EXAM_SOURCE_N5, 10u, _day); }
-            else if(_day >= 20u) { fude_demo_exam(&_demo, _kata, _kata_n, FUDE_EXAM_SOURCE_KATAKANA, 10u, _day); }
+            if(_day < 9u)        { fude_demo_exam(&_demo, _hira, _hira_n, fude_exam_source_set(0u), 10u, _day); }
+            else if(_day % 2u)   { fude_demo_exam(&_demo, _kanji, _kanji_n, fude_exam_source_level(0u), 10u, _day); }
+            else if(_day >= 20u) { fude_demo_exam(&_demo, _kata, _kata_n, fude_exam_source_set(1u), 10u, _day); }
             else                 { fude_demo_exam(&_demo, _kanji, _kanji_n, FUDE_EXAM_SOURCE_STUDYING, 10u, _day); }
         }
         fude_demo_reviews(&_demo, _day == FUDE_DEMO_DAYS - 1u ? 12u : 0u);   // today's: a dozen left (Reviews · 12)

@@ -1,4 +1,5 @@
 #include "study/services/mlkit.h"
+#include "lang/lang.h"
 
 // ===========================================================================
 // See mlkit.h. The iOS side: ML Kit's Objective-C API behind mlkit.h's C one
@@ -45,9 +46,9 @@ void fude_mlkit_prepare(void) {
     }
     @autoreleasepool {
         if(fude_mlkit_model == nil) {
-            MLKDigitalInkRecognitionModelIdentifier* _id = [MLKDigitalInkRecognitionModelIdentifier modelIdentifierForLanguageTag:@"ja"];
+            MLKDigitalInkRecognitionModelIdentifier* _id = [MLKDigitalInkRecognitionModelIdentifier modelIdentifierForLanguageTag:[NSString stringWithUTF8String:fude_lang_ink_model()]];
             if(_id == nil) {
-                rde_log_level(RDE_LOG_LEVEL_ERROR, "ML Kit: no Japanese model");
+                rde_log_level(RDE_LOG_LEVEL_ERROR, "ML Kit: no handwriting model for %s", fude_lang_ink_model());
                 fude_mlkit_now = FUDE_MLKIT_FAILED;
                 return;
             }
@@ -67,7 +68,7 @@ void fude_mlkit_prepare(void) {
             fude_mlkit_on_success = [_center addObserverForName:MLKModelDownloadDidSucceedNotification object:nil queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(NSNotification* _note) {
                 RDE_UNUSED(_note);
-                rde_log_level(RDE_LOG_LEVEL_INFO, "ML Kit: the Japanese model is downloaded");
+                rde_log_level(RDE_LOG_LEVEL_INFO, "ML Kit: the handwriting model is downloaded");
                 fude_mlkit_make_recognizer();
             }];
             fude_mlkit_on_failure = [_center addObserverForName:MLKModelDownloadDidFailNotification object:nil queue:[NSOperationQueue mainQueue]

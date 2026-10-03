@@ -25,9 +25,10 @@
 //             u32 codepoint, u32 geometry offset, u32 text offset (or UINT32_MAX),
 //             u16 frequency rank (0: none), u8 stroke count, u8 school grade (0),
 //             u8 old JLPT level 4..1 (0), u8 classical radical (0),
-//             u8 JLPT N-level 5..1 (0: not on the lists), 1 reserved
-//           (The N-level took a byte that was reserved and zero: files baked
-//           before it simply read as "not on the lists".)
+//             u8 level (0: none), 1 reserved — the language's levels (lang.h:
+//             fude_lang_level_value; Japanese the JLPT's N5..N1 as 5..1)
+//           (The level took a byte that was reserved and zero: files baked
+//           before it simply read as "no level".)
 //   'GEOM'  the strokes, back to back. Per stroke:
 //             u8 segment count, u8 type, u8 type variant, u8 alternative type,
 //             i16 start x, y, then per segment i16 c1x c1y c2x c2y x y
@@ -35,9 +36,9 @@
 //           FUDE_KANJI_FIXED. Types: the CJK Strokes block (U+31C0..U+31EF) as
 //           code - 0x31C0 + 1, 0 when none; the variant is KanjiVG's letter
 //           ('a', 'b', ...) or 0; the alternative is the type after a '/'.
-//   'TEXT'  per character with text: three NUL-terminated UTF-8 strings — on
-//           readings joined by "、", kun readings joined by "、", English
-//           meanings joined by ", ".
+//   'TEXT'  per character with text: three NUL-terminated UTF-8 strings — the
+//           readings of the language's two kinds (lang.h; Japanese on, then
+//           kun), each joined by "、", and English meanings joined by ", ".
 //   'PART'  (optional: files baked before it have none) u32 count (the CHRS
 //           count), then count u32 offsets into the lists after them (UINT32_MAX:
 //           none), then the lists: u8 n, then n u32 code points — the PARTS a
@@ -76,6 +77,11 @@
 //           first — the common characters whose strokes the matcher (match.h)
 //           finds closest to its own (未 末, 土 士, シ ツ). Baked after the rest
 //           (the matcher reads the file).
+//
+// THE STROKES IN A FILE OF THEIR OWN: a file without 'GEOM' has its strokes in
+// FUDE_KANJI_STROKES_FILE beside it (kind 'STRK': a 'NOTE' chunk — how and when
+// they were changed, as their licence asks — then 'GEOM'). Hanzi's are: Make Me a
+// Hanzi's, under the Arphic Public License, which wants them kept apart.
 // ===========================================================================
 
 #define FUDE_KANJI_VERSION      1u
@@ -86,6 +92,9 @@
 #define FUDE_KANJI_STROKE_BASE  0x31C0u    // the CJK Strokes block
 
 #define FUDE_KANJI_KIND         FUDE_TAG('C', 'H', 'A', 'R')
+#define FUDE_KANJI_STROKES_KIND FUDE_TAG('S', 'T', 'R', 'K')
+#define FUDE_KANJI_STROKES_FILE "strokes.kana"   // beside the character data, when its strokes are apart
+#define FUDE_KANJI_CHUNK_NOTE   FUDE_TAG('N', 'O', 'T', 'E')
 #define FUDE_KANJI_CHUNK_CHARS  FUDE_TAG('C', 'H', 'R', 'S')
 #define FUDE_KANJI_CHUNK_GEOM   FUDE_TAG('G', 'E', 'O', 'M')
 #define FUDE_KANJI_CHUNK_TEXT   FUDE_TAG('T', 'E', 'X', 'T')
@@ -120,8 +129,8 @@ RDE_STRUCT {
     u8  grade;          // 1..6 Kyouiku, 8 = rest of Jouyou, 9/10 = Jinmeiyou; 0 = none
     u8  jlpt;           // the OLD 4..1 levels; 0 = none
     u8  radical;        // classical (Kangxi) radical number; 0 = none
-    u8  jlpt_n;         // N5..N1 as 5..1 (Waller's community lists; since 2010 the
-                        // JLPT publishes no official kanji lists); 0 = not listed
+    u8  level;          // the language's level (lang.h); Japanese N5..N1 as 5..1 (Waller's
+                        // community lists: since 2010 the JLPT publishes none); 0 = none
 } fude_kanji_info;
 
 // One stroke, as stored (units: KanjiVG's box, Y down).
@@ -138,6 +147,7 @@ RDE_STRUCT {
 RDE_STRUCT {
     u8*       _file;
     u32       _file_size;
+    u8*       _strokes_file;   // the strokes' own file, when they are apart (NULL: in _file)
     const u8* _records;
     u32       count;
     const u8* _geometry;
@@ -205,8 +215,8 @@ b8   fude_kanji_word_at(const fude_kanji_db* _db, u32 _word, fude_kanji_word* _o
 
 // The character's text, "" when there is none. Meanings in the language set
 // (fude_kanji_set_language) when the file has them, in English otherwise.
-const c8* fude_kanji_on(const fude_kanji_db* _db, const fude_kanji_info* _info);
-const c8* fude_kanji_kun(const fude_kanji_db* _db, const fude_kanji_info* _info);
+// Its readings of kind _kind (0 or 1: the language's, lang.h; Japanese on, kun).
+const c8* fude_kanji_reading(const fude_kanji_db* _db, const fude_kanji_info* _info, u32 _kind);
 const c8* fude_kanji_meanings(const fude_kanji_db* _db, const fude_kanji_info* _info);
 const c8* fude_kanji_meanings_english(const fude_kanji_db* _db, const fude_kanji_info* _info);
 

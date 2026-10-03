@@ -25,12 +25,12 @@
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>CFBundleDisplayName</key>
-    <string>Kana</string>
+    <string>Kana Learn!</string>
     <!-- Text from a photo (scan.h): the live camera, asked for the first time it
          is used. The photo library needs nothing: its picker hands over only the
          photo chosen. -->
     <key>NSCameraUsageDescription</key>
-    <string>Kana reads the Japanese text the camera sees, so you can write it on the page, and scans pages to read and write on.</string>
+    <string>Kana Learn! reads the Japanese text the camera sees, so you can write it on the page, and scans pages to read and write on.</string>
     <!-- Kana's languages (text.h): iOS shows the camera prompt in the device's
          language from platform/ios/localized/<language>.lproj/InfoPlist.strings
          (copied into the app with --ios_bundle), and the App Store lists these

@@ -1,5 +1,5 @@
 #include "study/widgets/header.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "study/screens/check.h"
 #include "drawing/base/text.h"
 #include "drawing/widgets/draw.h"
@@ -222,7 +222,7 @@ void fude_check_read_as(fude_check* _check, const c8* _text) {
             }
             _run[_len] = 0;
             c8 _kana[512];
-            fude_romaji_to_hiragana(_run, _kana, sizeof(_kana));
+            fude_lang_reading_from_latin(_run, _kana, sizeof(_kana));
             const c8* _k = _kana;
             for(u32 _cp = fude_utf8_next(&_k); _cp != 0 && _check->meant_count < FUDE_CHECK_MEANT; _cp = fude_utf8_next(&_k)) {
                 if(_upper && !_lower && _cp >= 0x3041 && _cp <= 0x3096) {

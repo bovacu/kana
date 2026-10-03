@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
       CHECK(fude_marks_history()[0].codepoint == 0x6728 && fude_marks_history()[0].time == 1000u && fude_marks_history()[1].codepoint == 0x3042);
       fude_marks_close(); fude_marks_open("saves/marks.kana"); }
     // The catalog's filters follow them.
-    u32 ki; CHECK(fude_kanji_find_index(&db, 0x6728, &ki) && fude_catalog_passes(&cat, ki, FUDE_FILTER_STUDYING) && !fude_catalog_passes(&cat, ki, FUDE_FILTER_KNOWN));
+    u32 ki; CHECK(fude_kanji_find_index(&db, 0x6728, &ki) && fude_catalog_passes(&cat, ki, fude_filter_studying()) && !fude_catalog_passes(&cat, ki, fude_filter_known()));
     fude_marks_set_many(many, 3, FUDE_MARK_NONE); fude_marks_set(0x6728, FUDE_MARK_NONE);
 
     // --- the learner's vocabulary (vocab.h, vocabtest has the rest): a kanji's words --
@@ -122,18 +122,18 @@ int main(int argc, char** argv) {
     fude_exam e; fude_exam_init(&e, &db, &cat);
     fude_exam_open(&e); frame(&e);
     CHECK(e.open && e.stage == FUDE_EXAM_SETUP && e.chip_count >= 9);
-    printf("sources: N5 %u, hiragana %u, katakana %u, studying %u\n", fude_exam_source_size(&e, FUDE_EXAM_SOURCE_N5),
-           fude_exam_source_size(&e, FUDE_EXAM_SOURCE_HIRAGANA), fude_exam_source_size(&e, FUDE_EXAM_SOURCE_KATAKANA), fude_exam_source_size(&e, FUDE_EXAM_SOURCE_STUDYING));
-    CHECK(fude_exam_source_size(&e, FUDE_EXAM_SOURCE_N5) > 50 && fude_exam_source_size(&e, FUDE_EXAM_SOURCE_HIRAGANA) > 40);
+    printf("sources: N5 %u, hiragana %u, katakana %u, studying %u\n", fude_exam_source_size(&e, fude_exam_source_level(0u)),
+           fude_exam_source_size(&e, fude_exam_source_set(0u)), fude_exam_source_size(&e, fude_exam_source_set(1u)), fude_exam_source_size(&e, FUDE_EXAM_SOURCE_STUDYING));
+    CHECK(fude_exam_source_size(&e, fude_exam_source_level(0u)) > 50 && fude_exam_source_size(&e, fude_exam_source_set(0u)) > 40);
     CHECK(fude_exam_source_size(&e, FUDE_EXAM_SOURCE_STUDYING) == 0);
     // The kana sources: the gojūon and its voiced forms, 71 each — no small or old ones.
-    CHECK(fude_exam_source_size(&e, FUDE_EXAM_SOURCE_HIRAGANA) == 71 && fude_exam_source_size(&e, FUDE_EXAM_SOURCE_KATAKANA) == 71);
+    CHECK(fude_exam_source_size(&e, fude_exam_source_set(0u)) == 71 && fude_exam_source_size(&e, fude_exam_source_set(1u)) == 71);
     { const u32 out[] = { 0x3041, 0x3063, 0x3090, 0x30F4 };   // ぁ っ ゐ ヴ
       for(u32 i = 0; i < 4; i++) { u32 r; CHECK(fude_kanji_find_index(&db, out[i], &r));
-          fude_exam_open_with(&e, &r, 1); e.source = i < 3 ? FUDE_EXAM_SOURCE_HIRAGANA : FUDE_EXAM_SOURCE_KATAKANA; rde_arr_clear(&e.selection);
+          fude_exam_open_with(&e, &r, 1); e.source = i < 3 ? fude_exam_source_set(0u) : fude_exam_source_set(1u); rde_arr_clear(&e.selection);
           e.length = 3; fude_exam_preview(&e); for(u32 j = 0; j < e.count; j++) CHECK(e.items[j].record != r); }
       fude_exam_open(&e); }
-    e.source = FUDE_EXAM_SOURCE_N5; e.length = 0;   // 10
+    e.source = fude_exam_source_level(0u); e.length = 0;   // 10
     CHECK(fude_exam_planned(&e) == 10);
     fude_exam_preview(&e); frame(&e);
     CHECK(e.stage == FUDE_EXAM_PREVIEW && e.count == 10 && fude_exam_included(&e) == 10);
@@ -210,16 +210,16 @@ int main(int argc, char** argv) {
     // empty once, the list it was given never read. And the Exam opened after one
     // is back on a source of its own, not the review's list.
     fude_exam_open_review(&e, keep, 3);
-    CHECK(e.source == FUDE_EXAM_SOURCE_REVIEW && e.stage == FUDE_EXAM_WRITING && e.count == 3 && e.asked == 3);
+    CHECK(e.source == fude_exam_source_review() && e.stage == FUDE_EXAM_WRITING && e.count == 3 && e.asked == 3);
     { b8 all_kept = true; for(u32 i = 0; i < e.asked; i++) { const u32 rec = e.items[e.order[i]].record; all_kept &= rec == keep[0] || rec == keep[1] || rec == keep[2]; }
       CHECK(all_kept); }
     fude_exam_close(&e);
     fude_exam_open(&e);
-    CHECK(e.source != FUDE_EXAM_SOURCE_REVIEW && e.stage == FUDE_EXAM_SETUP);
+    CHECK(e.source != fude_exam_source_review() && e.stage == FUDE_EXAM_SETUP);
     fude_exam_close(&e);
 
     // A kana exam: hiragana, prompt romaji; written right.
-    fude_exam_open(&e); e.source = FUDE_EXAM_SOURCE_HIRAGANA; e.length = 0; fude_exam_preview(&e);
+    fude_exam_open(&e); e.source = fude_exam_source_set(0u); e.length = 0; fude_exam_preview(&e);
     CHECK(e.count == 10);
     printf("hiragana exam: %u of 10 right\n", take(&e, &db, -1, 0));
 

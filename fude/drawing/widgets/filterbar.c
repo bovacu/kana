@@ -19,6 +19,12 @@
 #define FUDE_FILTERBAR_GAP      4.0f
 #define FUDE_FILTERBAR_FIELD_PX 14u
 
+// A row's chips: as many as it says, at most FUDE_FILTERBAR_CHIPS.
+RDE_INTERNAL u32 fude_filterbar_chip_count(const fude_filterbar_chips* _chips) {
+    const u32 _n = _chips->count != 0u || _chips->count_of == NULL ? _chips->count : _chips->count_of();
+    return _n < FUDE_FILTERBAR_CHIPS ? _n : FUDE_FILTERBAR_CHIPS;
+}
+
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_filterbar_on_chip(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const fude_filterbar_ref* _ref = (const fude_filterbar_ref*)_user_data;
@@ -63,7 +69,7 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     rde_ui_node_add_child(_root, _node);
 
     for(u32 _r = 0; _r < _def->chip_rows && _r < FUDE_FILTERBAR_CHIP_ROWS; _r++) {
-        for(u32 _i = 0; _i < _def->chips[_r].count && _i < FUDE_FILTERBAR_CHIPS; _i++) {
+        for(u32 _i = 0; _i < fude_filterbar_chip_count(&_def->chips[_r]); _i++) {
             _bar->chip_refs[_r][_i] = (fude_filterbar_ref){ _bar, _r, _i };
             _bar->chips[_r][_i]     = fude_kit_button(_node, _def->chips[_r].label(_i), fude_filterbar_on_chip, &_bar->chip_refs[_r][_i]);
         }
@@ -96,25 +102,28 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     rde_ui_node_set_active(_node, false);
 }
 
-// A row of chips from _left, each as wide as its label (and padding), centred
-// on _y; squeezed together when they would pass _width (the labels shrink to
-// fit their chips).
-RDE_INTERNAL void fude_filterbar_chip_row(fude_filterbar* _bar, u32 _r, f32 _left, f32 _width, f32 _y) {
+// A row of chips from _left, each as wide as its label (and padding), the
+// first line's centred on _y; one that would pass _width starts another line
+// below (a language's many levels: HSK 1 ... HSK 7–9). Placed only when _place;
+// how many lines it takes.
+RDE_INTERNAL u32 fude_filterbar_chip_row(fude_filterbar* _bar, u32 _r, f32 _left, f32 _width, f32 _y, b8 _place) {
     const fude_filterbar_chips* _chips = &_bar->def->chips[_r];
-    const u32 _count = _chips->count < FUDE_FILTERBAR_CHIPS ? _chips->count : FUDE_FILTERBAR_CHIPS;
-    f32       _w[FUDE_FILTERBAR_CHIPS];
-    f32       _total = FUDE_FILTERBAR_GAP * (f32)(_count - 1u);
+    const u32 _count = fude_filterbar_chip_count(_chips);
+    u32       _lines = 1u;
+    f32       _x     = _left;
     for(u32 _i = 0; _i < _count; _i++) {
-        _w[_i]  = fmaxf(48.0f, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _chips->label(_i), FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 26.0f);
-        _total += _w[_i];
-    }
-    const f32 _squeeze = _total > _width ? (_width - FUDE_FILTERBAR_GAP * (f32)(_count - 1u)) / (_total - FUDE_FILTERBAR_GAP * (f32)(_count - 1u)) : 1.0f;
-    f32 _x = _left;
-    for(u32 _i = 0; _i < _count; _i++) {
-        const f32 _cw = _w[_i] * _squeeze;
-        fude_kit_place(rde_ui_button_as_node(_bar->chips[_r][_i]), (rde_vec_2F){ _x + _cw * 0.5f, _y }, (rde_vec_2F){ _cw, FUDE_FILTERBAR_ROW_H });
+        const f32 _cw = fmaxf(48.0f, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _chips->label(_i), FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 26.0f);
+        if(_x > _left && _x + _cw > _left + _width) {
+            _x  = _left;
+            _y -= FUDE_FILTERBAR_ROW_H + FUDE_FILTERBAR_GAP;
+            _lines++;
+        }
+        if(_place) {
+            fude_kit_place(rde_ui_button_as_node(_bar->chips[_r][_i]), (rde_vec_2F){ _x + _cw * 0.5f, _y }, (rde_vec_2F){ _cw, FUDE_FILTERBAR_ROW_H });
+        }
         _x += _cw + FUDE_FILTERBAR_GAP;
     }
+    return _lines;
 }
 
 // Across the top, the status-bar strip included: the chip rows, then the field
@@ -127,7 +136,11 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     const f32        _left   = (f32)_insets.x + _pad;
     const f32        _width  = _screen.x - (f32)(_insets.x + _insets.z) - 2.0f * _pad;
     const u32        _rows   = _bar->def->chip_rows;
-    const f32        _height = (f32)_insets.y + _pad + (f32)_rows * (FUDE_FILTERBAR_ROW_H + _gap) + FUDE_FILTERBAR_FIELD_H + _pad;
+    u32              _lines  = 0;   // the chip rows' lines, wrapped
+    for(u32 _r = 0; _r < _rows; _r++) {
+        _lines += fude_filterbar_chip_row(_bar, _r, _left, _width, 0.0f, false);
+    }
+    const f32        _height = (f32)_insets.y + _pad + (f32)_lines * (FUDE_FILTERBAR_ROW_H + _gap) + FUDE_FILTERBAR_FIELD_H + _pad;
 
     _bar->_laid_out   = _screen;
     _bar->_insets_for = _insets;
@@ -137,8 +150,8 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     // Rows, top to bottom (panel-local: bottom-left origin).
     f32 _y = _height - (f32)_insets.y - _pad - FUDE_FILTERBAR_ROW_H * 0.5f;
     for(u32 _r = 0; _r < _rows; _r++) {
-        fude_filterbar_chip_row(_bar, _r, _left, _width, _y);
-        _y -= _r + 1u < _rows ? FUDE_FILTERBAR_ROW_H + _gap : 0.0f;
+        const u32 _n = fude_filterbar_chip_row(_bar, _r, _left, _width, _y, true);
+        _y -= (f32)(_n - 1u) * (FUDE_FILTERBAR_ROW_H + _gap) + (_r + 1u < _rows ? FUDE_FILTERBAR_ROW_H + _gap : 0.0f);
     }
 
     _y -= (FUDE_FILTERBAR_ROW_H + FUDE_FILTERBAR_FIELD_H) * 0.5f + _gap;
@@ -161,7 +174,7 @@ RDE_INTERNAL void fude_filterbar_refresh(fude_filterbar* _bar, b8 _force) {
             continue;
         }
         _bar->_chosen_shown[_r] = _chosen;
-        for(u32 _i = 0; _i < _bar->def->chips[_r].count && _i < FUDE_FILTERBAR_CHIPS; _i++) {
+        for(u32 _i = 0; _i < fude_filterbar_chip_count(&_bar->def->chips[_r]); _i++) {
             fude_kit_button_chip(_bar->chips[_r][_i], _i == _chosen);
         }
     }

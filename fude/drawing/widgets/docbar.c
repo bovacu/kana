@@ -8,6 +8,7 @@
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 #include "drawing/doc/doc.h"
+#include "drawing/doc/pdf.h"
 #include "drawing/widgets/icons.h"
 #include "drawing/widgets/kit.h"
 
@@ -188,9 +189,12 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
     _bar->_insets_for = _insets;
     const b8 _idle   = _mode == FUDE_DOCBAR_IDLE;
     const b8 _search = _mode == FUDE_DOCBAR_SEARCH;
-    rde_ui_node_set_active(rde_ui_button_as_node(_bar->search), _idle);
+    // Search and Export only where the platform reads a PDF's text and writes one (not yet Android).
+    const b8 _finds  = fude_pdf_text_available();
+    const b8 _writes = fude_pdf_write_available();
+    rde_ui_node_set_active(rde_ui_button_as_node(_bar->search), _idle && _finds);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->page), _idle);
-    rde_ui_node_set_active(rde_ui_button_as_node(_bar->share), _idle);
+    rde_ui_node_set_active(rde_ui_button_as_node(_bar->share), _idle && _writes);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->turn), _idle);
     rde_ui_node_set_active(fude_kit_field_node(_bar->field), !_idle);
     rde_ui_node_set_active(rde_ui_label_as_node(_bar->count), !_idle);
@@ -200,10 +204,14 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
 
     f32 _x = FUDE_DOCBAR_PAD;
     if(_idle) {
-        _x = fude_docbar_put(rde_ui_button_as_node(_bar->search), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
+        if(_finds) {
+            _x = fude_docbar_put(rde_ui_button_as_node(_bar->search), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
+        }
         _x = fude_docbar_put(rde_ui_button_as_node(_bar->page), _x, FUDE_DOCBAR_PAGE_W, FUDE_DOCBAR_BUTTON);
         _x = fude_docbar_put(rde_ui_button_as_node(_bar->turn), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
-        _x = fude_docbar_put(rde_ui_button_as_node(_bar->share), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
+        if(_writes) {
+            _x = fude_docbar_put(rde_ui_button_as_node(_bar->share), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
+        }
     } else {
         // The words' field as wide as the screen allows (a phone's is narrow).
         const f32 _rest  = (_search ? 3.0f : 1.0f) * (FUDE_DOCBAR_BUTTON + FUDE_DOCBAR_PAD) + FUDE_DOCBAR_COUNT_W + 3.0f * FUDE_DOCBAR_PAD;

@@ -7,3 +7,5 @@ rde_vec_2F rde_rich_text_measure(const c8* m, rde_font* f, f32 s, f32 w, b8 wrap
 __attribute__((weak)) void rde_rendering_2d_draw_rounded_rectangle(const rde_vec_2F c, const rde_vec_2F s, f32 r, u32 p, const rde_color col, rde_shader* sh) { (void)c; (void)s; (void)r; (void)p; (void)col; (void)sh; }
 __attribute__((weak)) void rde_rendering_2d_draw_rounded_rectangle_with_border(const rde_vec_2F c, const rde_vec_2F s, f32 r, u32 p, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)c; (void)s; (void)r; (void)p; (void)f; (void)t; (void)b; (void)sh; }
 __attribute__((weak)) void rde_rendering_2d_draw_circle_with_border(const rde_vec_2F c, f32 r, u32 n, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)c; (void)r; (void)n; (void)f; (void)t; (void)b; (void)sh; }
+// The window (draw.c's --text-check measures against it): a tablet's, in a test.
+__attribute__((weak)) rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }

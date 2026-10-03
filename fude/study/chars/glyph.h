@@ -44,6 +44,8 @@ u32  fude_glyph_stroke_points(const fude_kanji_stroke* _stroke, rde_vec_2F* _out
 rde_vec_2F fude_glyph_stroke(fude_glyph* _glyph, const fude_kanji_stroke* _stroke, rde_vec_2F _origin,
                              f32 _scale, f32 _radius, f32 _fraction, rde_color _color);
 
+// The font for what the data has no strokes for (the app's, once loaded).
+void fude_glyph_set_text_font(rde_font* _font, f32 _font_px);
 // A whole character, _size screen units square. False when the data has none.
 b8   fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, f32 _size, rde_color _color);
 
@@ -57,9 +59,11 @@ void fude_glyph_box(rde_vec_2F _tl, f32 _size);
 b8   fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _size, f64 _elapsed,
                         rde_font* _font, f32 _font_px, f32 _number_px);
 
-// A reading as KANJIDIC2 writes it — kana, "、" between readings, '.' before
-// okurigana (drawn in _soft), '-' for an affix. Stops before passing _max_x.
-// Returns the x where it ended.
+// A reading as the data writes it — kana, "、" between readings, '.' before
+// okurigana (drawn in _soft), '-' for an affix — its characters from their
+// strokes, and those the data has none for (pinyin's letters) in the text font
+// (fude_glyph_set_text_font). Stops before passing _max_x. Returns the x where
+// it ended.
 f32  fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, f32 _size, f32 _max_x, rde_color _ink, rde_color _soft);
 
 #endif

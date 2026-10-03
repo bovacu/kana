@@ -1,4 +1,4 @@
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "study/widgets/wordcard.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/notice.h"
@@ -8,7 +8,7 @@
 #include "drawing/widgets/icons.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 #include "study/models/charnote.h"
 #include "study/app/study.h"
 #include "study/services/translate.h"
@@ -221,6 +221,29 @@ RDE_INTERNAL b8 fude_wordcard_all_kana(const c8* _text) {
         _any = true;
     }
     return _any;
+}
+
+// A word read in Latin letters (lang.h): its letters' Latin names, joined; what
+// has none (a space, a digit) as it is.
+RDE_INTERNAL void fude_wordcard_latin_names(const c8* _written, c8* _out, usize _size) {
+    usize     _n = 0;
+    const c8* _p = _written;
+    _out[0] = 0;
+    for(u32 _cp = fude_utf8_next(&_p); _cp != 0u; _cp = fude_utf8_next(&_p)) {
+        const c8* _latin = fude_lang_latin(_cp);
+        c8        _one[5];
+        if(_latin == NULL) {
+            fude_utf8_put(_cp, _one);
+            _latin = _one;
+        }
+        const usize _len = strlen(_latin);
+        if(_n + _len >= _size) {
+            break;
+        }
+        memcpy(_out + _n, _latin, _len);
+        _n += _len;
+        _out[_n] = 0;
+    }
 }
 
 // The dictionary's word written exactly _written (Kana's dictionary has words with
@@ -700,15 +723,15 @@ RDE_INTERNAL void fude_wordcard_translated(fude_ui* _ui, c8* _japanese) {
 RDE_INTERNAL void fude_wordcard_translate_step(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     if(_card->translating == FUDE_WORDCARD_TRANSLATE_WAITING) {
-        const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_card->translate_lang, "ja");
+        const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_card->translate_lang, fude_lang_code());
         if(_state == FUDE_TRANSLATE_READY) {
-            _card->ticket = fude_translate_text(_card->translate_from, _card->translate_lang, "ja");
+            _card->ticket = fude_translate_text(_card->translate_from, _card->translate_lang, fude_lang_code());
             fude_wordcard_translating(_ui, _card->ticket != 0u ? FUDE_WORDCARD_TRANSLATE_ASKED : FUDE_WORDCARD_TRANSLATE_FAILED,
                                       _card->ticket != 0u ? FUDE_TEXT_SCAN_TRANSLATING : FUDE_TEXT_SEL_TRANSLATION_NONE);
         } else if(_state == FUDE_TRANSLATE_MISSING || _state == FUDE_TRANSLATE_DOWNLOADING || (_state == FUDE_TRANSLATE_FAILED && !_card->translate_prepared)) {
             if(!_card->translate_prepared && _state != FUDE_TRANSLATE_DOWNLOADING) {
                 _card->translate_prepared = true;
-                fude_translate_prepare(_card->translate_lang, "ja");
+                fude_translate_prepare(_card->translate_lang, fude_lang_code());
             }
             fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_WAITING, FUDE_TEXT_SCAN_TRANSLATE_GETTING);
         } else {
@@ -785,6 +808,9 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
     if(_reading[0] == 0 && fude_wordcard_all_kana(_written)) {
         snprintf(_reading, sizeof(_reading), "%s", _written);   // a kana word reads as it is written
     }
+    if(_reading[0] == 0 && fude_lang_word_reading_latin()) {
+        fude_wordcard_latin_names(_written, _reading, sizeof(_reading));   // 학교: hakgyo
+    }
     b8 _ascii = _reading[0] != 0;
     for(const c8* _c = _reading; *_c != 0; _c++) {
         _ascii = _ascii && (u8)*_c < 0x80u;
@@ -794,9 +820,13 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         _error = fude_text(FUDE_TEXT_WORD_ERR_EMPTY);
     } else if(_reading[0] == 0) {
         _error = fude_text(FUDE_TEXT_WORD_ERR_READING);
+    } else if(_ascii && fude_lang_word_reading_latin()) {
+        for(c8* _c = _reading; *_c != 0; _c++) {
+            *_c = (*_c >= 'A' && *_c <= 'Z') ? (c8)(*_c + ('a' - 'A')) : *_c;   // as the data writes romanization
+        }
     } else if(_ascii) {
         c8 _kana[FUDE_USERWORD_READING];
-        if(fude_romaji_to_hiragana(_reading, _kana, sizeof(_kana))) {
+        if(fude_lang_reading_from_latin(_reading, _kana, sizeof(_kana))) {
             snprintf(_reading, sizeof(_reading), "%s", _kana);
         } else {
             _error = fude_text(FUDE_TEXT_WORD_ERR_ROMAJI);

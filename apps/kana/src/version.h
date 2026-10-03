@@ -3,10 +3,13 @@
 
 // The app's name: the window's title, the side panel's version line, Your
 // data's file, and in its words where the strings say {APP}
-// (apps/kana/tools/strings.py reads it here). Its id (info.h) comes from it:
-// the save folder on a device, the backup's extension — they must not change,
-// so a rename sets the id to "kana".
-#define KANA_NAME "Kana"
+// (apps/kana/tools/strings.py reads it here). The home screen's is the
+// platform's (platform/ios: CFBundleDisplayName).
+#define KANA_NAME "Kana Learn!"
+
+// Its id (info.h): the save folder on a device, the backup's extension. Never
+// changes: it was the name's before the name was "Kana Learn!".
+#define KANA_ID "kana"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
 // Minor: the milestone being worked on (docs/design.md); patch: builds handed

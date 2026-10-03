@@ -1,6 +1,7 @@
 #include "study/chars/kanji.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 // ===========================================================================
@@ -15,6 +16,7 @@ void fude_kanji_unload(fude_kanji_db* _db) {
     rde_free(_db->_word_text);
     rde_free((any)_db->_sentences);
     fude_file_free(_db->_file);
+    fude_file_free(_db->_strokes_file);
     memset(_db, 0, sizeof(*_db));
 }
 
@@ -218,6 +220,24 @@ b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
         }
     }
 
+    // No strokes in it: they are in their own file beside it (kanji.h).
+    if(_r.ok && _db->_geometry == NULL) {
+        c8 _strokes[RDE_MAX_PATH];
+        const c8* _slash = strrchr(_path, '/');
+        snprintf(_strokes, sizeof(_strokes), "%.*s%s", _slash != NULL ? (int)(_slash - _path + 1) : 0, _path, FUDE_KANJI_STROKES_FILE);
+        u32 _size = 0;
+        _db->_strokes_file = rde_file_exists(_strokes) ? fude_file_read(_strokes, &_size) : NULL;
+        fude_reader _s = fude_reader_make(_db->_strokes_file, _size);
+        if(_db->_strokes_file != NULL && fude_read_header(&_s, FUDE_KANJI_VERSION, FUDE_KANJI_STROKES_KIND)) {
+            while(fude_next_chunk(&_s, &_tag, &_chunk)) {
+                if(_tag == FUDE_KANJI_CHUNK_GEOM) {
+                    _db->_geometry      = _chunk.data;
+                    _db->_geometry_size = _chunk.size;
+                }
+            }
+        }
+    }
+
     if(!_r.ok || _db->_records == NULL || _db->_geometry == NULL) {
         rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s is damaged", _path);
         fude_kanji_unload(_db);
@@ -385,7 +405,7 @@ RDE_INTERNAL void fude_kanji_decode(const u8* _record, fude_kanji_info* _out) {
     _out->grade     = fude_get_u8(&_r);
     _out->jlpt      = fude_get_u8(&_r);
     _out->radical   = fude_get_u8(&_r);
-    _out->jlpt_n    = fude_get_u8(&_r);
+    _out->level    = fude_get_u8(&_r);
 }
 
 b8 fude_kanji_at(const fude_kanji_db* _db, u32 _index, fude_kanji_info* _out) {
@@ -566,8 +586,7 @@ RDE_INTERNAL const c8* fude_kanji_text(const fude_kanji_db* _db, const fude_kanj
     return memchr(&_db->_text[_at], 0, _db->_text_size - _at) != NULL ? &_db->_text[_at] : "";
 }
 
-const c8* fude_kanji_on(const fude_kanji_db* _db, const fude_kanji_info* _info)       { return fude_kanji_text(_db, _info, 0); }
-const c8* fude_kanji_kun(const fude_kanji_db* _db, const fude_kanji_info* _info)      { return fude_kanji_text(_db, _info, 1); }
+const c8* fude_kanji_reading(const fude_kanji_db* _db, const fude_kanji_info* _info, u32 _kind) { return _kind < 2u ? fude_kanji_text(_db, _info, _kind) : ""; }
 const c8* fude_kanji_meanings_english(const fude_kanji_db* _db, const fude_kanji_info* _info) { return fude_kanji_text(_db, _info, 2); }
 
 const c8* fude_kanji_meanings(const fude_kanji_db* _db, const fude_kanji_info* _info) {

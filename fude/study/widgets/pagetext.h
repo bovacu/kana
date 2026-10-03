@@ -6,7 +6,7 @@
 #include "drawing/ink/lasso.h"
 #include "study/handwriting/textink.h"
 #include "study/services/translate.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 
 // ===========================================================================
 // The page read as text — the study layer's buttons in the page's menus

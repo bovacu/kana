@@ -1,4 +1,5 @@
 #include "study/screens/practice.h"
+#include "lang/lang.h"
 #include "drawing/base/text.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/base/theme.h"
@@ -20,7 +21,7 @@
 #define FUDE_PRACTICE_DEMO_MAX   190.0f
 #define FUDE_PRACTICE_DEMO_REST  1.5       // seconds the finished demo rests before writing again
 #define FUDE_PRACTICE_GUIDED_MAX 620.0f    // guided: the one square's size at most
-#define FUDE_PRACTICE_GUIDED_TEXT 64.0f    // ...and the room under it for the step and what the stroke got
+#define FUDE_PRACTICE_GUIDED_TEXT 86.0f    // ...and the room under it for the step (two lines, wrapped) and what the stroke got
 
 // The width of the pen in a square's units: the reference's own stroke width.
 #define FUDE_PRACTICE_PEN_RADIUS (FUDE_PRACTICE_UNITS * FUDE_GLYPH_WIDTH / FUDE_KANJI_BOX * 0.5f)
@@ -520,16 +521,18 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     }
     c8 _strokes[48];
     FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_info->strokes));
-    if(_info->jlpt_n != 0) {
-        FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HEADER_JLPT, FUDE_TS(_where), FUDE_TS(_strokes), FUDE_TN(_info->jlpt_n));
+    if(_info->level != 0) {
+        c8 _level[32];
+        fude_lang_level_name(_info->level, true, _level, sizeof(_level));
+        FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HEADER_LEVEL, FUDE_TS(_where), FUDE_TS(_strokes), FUDE_TS(_level));
     } else {
         FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HEADER, FUDE_TS(_where), FUDE_TS(_strokes));
     }
     fude_draw_text(_font, _font_px, _line, _tx, _ty, 22.0f, fude_theme_active()->text);
 
     _ty -= 38.0f;
-    const c8* _on  = fude_kanji_on(_practice->db, _info);
-    const c8* _kun = fude_kanji_kun(_practice->db, _info);
+    const c8* _on  = fude_kanji_reading(_practice->db, _info, 0u);
+    const c8* _kun = fude_kanji_reading(_practice->db, _info, 1u);
     if(_on[0] != 0 || _kun[0] != 0) {
         const f32 _x = fude_glyph_reading(&_practice->glyph, _on, (rde_vec_2F){ _tx, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
         fude_glyph_reading(&_practice->glyph, _kun, (rde_vec_2F){ _x + 18.0f, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
@@ -582,13 +585,18 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
             fude_draw_text(_font, _font_px, _line, _tl.x + _square - 52.0f, _tl.y - 40.0f, 32.0f, fude_theme_grade(_practice->scores[0].score));
         }
 
+        // The step, then what went wrong (or what to do again), wrapped from the
+        // square's left to the screen's right margin.
+        const f32 _tw = _right - _tl.x;
         fude_guide_prompt(&_practice->guide, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _tl.x, _tl.y - _square - 26.0f, 16.0f, _theme->text);
+        const u32 _step = fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _tl.y - _square - 26.0f, 16.0f,
+                                              fude_draw_text_balanced_width(_font, _font_px, _line, 16.0f, _tw), 21.0f, _theme->text);
+        const f32 _next = _tl.y - _square - 52.0f - (f32)(_step > 1u ? _step - 1u : 0u) * 21.0f;
         if(_practice->guide.message[0] != 0) {
-            fude_draw_text(_font, _font_px, _practice->guide.message, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->score_poor);
+            fude_draw_text_wrap(_font, _font_px, _practice->guide.message, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->score_poor);
         } else if(_shown) {
             FUDE_TEXTF(_line, FUDE_TEXT_WRITE_AGAIN, FUDE_TS(_practice->feedback));
-            fude_draw_text(_font, _font_px, _line, _tl.x, _tl.y - _square - 52.0f, 16.0f, _theme->text_soft);
+            fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->text_soft);
         }
         return;
     }

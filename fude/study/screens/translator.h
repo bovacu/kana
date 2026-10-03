@@ -6,7 +6,7 @@
 #include "study/chars/glyph.h"
 #include "study/services/translate.h"
 #include "drawing/widgets/scroll.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 
 // ===========================================================================
 // Into Japanese (the Vocabulary's Translate with Google): a word or a sentence

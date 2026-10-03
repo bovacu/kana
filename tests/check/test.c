@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
         CHECK(n == 5 && cp_of(&db, out[0].record) == 0x65E5 && cp_of(&db, out[1].record) == 0x76EE && out[0].cost == 0.0f && cp_of(&db, out[2].record) == 0x6728);
         n = fude_recognize_candidates(&db, &r, 1, 2, NULL, FUDE_FILTER_ALL, matched, 3, out, 8);   // 本 once, then 木 (line 3 and the matcher's, once)
         CHECK(n == 4 && cp_of(&db, out[0].record) == 0x672C && cp_of(&db, out[1].record) == 0x6728 && cp_of(&db, out[2].record) == 0x3072);
-        n = fude_recognize_candidates(&db, &r, 0, 2, &cat, FUDE_FILTER_HIRAGANA, matched, 3, out, 8); // the filter: kana only
+        n = fude_recognize_candidates(&db, &r, 0, 2, &cat, fude_filter_group(0u), matched, 3, out, 8); // the filter: kana only
         CHECK(n == 2 && cp_of(&db, out[0].record) == 0x3072 && cp_of(&db, out[1].record) == 0x304B);
         u32 recs[8]; CHECK(fude_recognize_records(&db, "日 本　語", recs, 8) == 3);                 // spaces skipped
         CHECK(!fude_recognize_available() && !fude_recognize_start(&r, &ink) && !fude_recognize_poll(&r));   // no ML Kit here

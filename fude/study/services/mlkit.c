@@ -1,8 +1,8 @@
 #include "study/services/mlkit.h"
 
 // ===========================================================================
-// See mlkit.h. The switch, everywhere; and every platform but iOS: no ML Kit
-// (src/mlkit_ios.m is the iOS one, in the iOS build only).
+// See mlkit.h. The switch, everywhere; and every platform but iOS and Android:
+// no ML Kit (mlkit_ios.m and mlkit_android.c, in those builds only).
 // ===========================================================================
 
 static b8 fude_mlkit_on = true;
@@ -15,7 +15,7 @@ b8 fude_mlkit_enabled(void) {
     return fude_mlkit_on;
 }
 
-#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
+#if (!defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)) && !defined(RDE_PLATFORM_ANDROID)   // ML Kit: a device's (iOS, Android: *_android.c), not the Simulator's
 
 FUDE_MLKIT_ fude_mlkit_state(void) {
     return FUDE_MLKIT_UNAVAILABLE;

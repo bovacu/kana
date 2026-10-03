@@ -43,5 +43,9 @@ b8   fude_import_platform_photos(void);
 b8   fude_import_platform_camera(void);
 void fude_import_platform_pick_photos(void);
 void fude_import_platform_scan(void);
+// Android's too (import_android.c): Files through the system's picker, and what
+// came in, looked for (each fude_import_update).
+void fude_import_platform_pick_files(void);
+void fude_import_platform_poll(void);
 
 #endif

@@ -1,4 +1,6 @@
 #include "study/app/study.h"
+#include "drawing/widgets/notice.h"
+#include "lang/lang.h"
 #include "drawing/app/look.h"
 #include "drawing/app/ui.h"
 #include "drawing/base/save.h"
@@ -10,7 +12,7 @@
 #include "study/services/translate.h"
 #include "study/services/textscan.h"
 #include "study/widgets/wordcard.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -145,6 +147,8 @@ void fude_study_look_start(fude_app* _app) {
         u32       _record = 0;
         if(fude_look_is(_a, "--album"))      { fude_album_open(_study->album); }
         if(fude_look_is(_a, "--browse"))     { fude_browse_open(_study->browse); }
+        if(fude_look_is(_a, "--notice"))     { fude_notice_show(fude_text(FUDE_TEXT_REVIEWS_NONE)); }   // the longest notice, at the bottom
+        if((_v = fude_look_value(_a, "--browse-sort")) != NULL) { fude_browse_open(_study->browse); fude_browse_set_sort(_study->browse, (FUDE_SORT_)strtoul(_v, NULL, 10)); }
         if(fude_look_is(_a, "--album-exams")) { fude_album_open(_study->album); fude_album_set_view(_study->album, FUDE_ALBUM_VIEW_EXAMS); }
         if((_v = fude_look_value(_a, "--album-page")) != NULL) { fude_album_open(_study->album); fude_album_open_page(_study->album, (u32)strtoul(_v, NULL, 16)); }
         if(fude_look_value(_a, "--kept-exam") != NULL)         { fude_album_open(_study->album); fude_album_set_view(_study->album, FUDE_ALBUM_VIEW_EXAMS); }
@@ -157,7 +161,7 @@ void fude_study_look_start(fude_app* _app) {
         if(fude_look_is(_a, "--exam") || fude_look_is(_a, "--exam-start")) {
             fude_exam_open(_study->exam);
             if(fude_look_is(_a, "--exam-start")) {
-                _study->exam->source = FUDE_EXAM_SOURCE_N5;
+                _study->exam->source = fude_exam_source_level(0u);
                 fude_exam_preview(_study->exam);
                 fude_exam_start(_study->exam);
             }
@@ -338,14 +342,14 @@ RDE_INTERNAL void fude_study_look_translate_probe(void) {
     const f64  _now = rde_engine_get_time_now();
     if(_start == 0.0) {
         _start = _now;
-        fude_translate_prepare("ja", _to);
+        fude_translate_prepare(fude_lang_code(), _to);
     }
-    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state("ja", _to);
+    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(fude_lang_code(), _to);
     if(_state == FUDE_TRANSLATE_READY && !_sent) {
         _sent     = true;
         _ready_at = _sent_at = _now;
         for(u32 _i = 0; _i < 4u; _i++) {
-            _tickets[_i] = fude_translate_text(_sentences[_i], "ja", _to);
+            _tickets[_i] = fude_translate_text(_sentences[_i], fude_lang_code(), _to);
         }
     }
     for(u32 _i = 0; _i < 4u; _i++) {

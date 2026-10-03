@@ -6,7 +6,7 @@
 #include "study/services/textscan.h"
 #include "study/services/translate.h"
 #include "study/chars/kanji.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 
 // ===========================================================================
 // Text from a photo: a screen over the page, opened from its long-press menu.

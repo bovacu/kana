@@ -1,7 +1,7 @@
 #include "study/models/vocab.h"
 #include "drawing/base/kfile.h"
 #include "drawing/base/text.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -626,13 +626,15 @@ u32 fude_vocab_add_characters(const fude_kanji_db* _db, const u32* _records, u32
         fude_utf8_put(_ch.codepoint, _written);
         c8        _reading[FUDE_USERWORD_READING] = "";
         const c8* _meaning = fude_kanji_meanings(_db, &_ch);
-        const c8* _romaji  = fude_romaji(_ch.codepoint);
+        const c8* _romaji  = fude_lang_latin(_ch.codepoint);
         if(_romaji != NULL && _ch.text == UINT32_MAX) {
-            snprintf(_reading, sizeof(_reading), "%s", _written);   // a kana
+            snprintf(_reading, sizeof(_reading), "%s", _written);   // a script's letter (a kana): itself
             _meaning = _romaji;
         } else {
-            // The first reading: kun (up to its okurigana mark) else on, without - marks.
-            const c8* _from = fude_kanji_kun(_db, &_ch)[0] != 0 ? fude_kanji_kun(_db, &_ch) : fude_kanji_on(_db, &_ch);
+            // The first reading of the kind a one-character word is read by (lang.h;
+            // Japanese: kun, else on), up to its stem mark, without - marks.
+            const c8* _try  = fude_kanji_reading(_db, &_ch, fude_lang_word_reading_kind(0u));
+            const c8* _from = _try[0] != 0 ? _try : fude_kanji_reading(_db, &_ch, fude_lang_word_reading_kind(1u));
             usize     _k    = 0;
             for(const c8* _c = _from; *_c != 0 && *_c != '.' && _k + 1u < sizeof(_reading);) {
                 if(_c[0] == '\xE3' && _c[1] == '\x80' && _c[2] == '\x81') {

@@ -72,6 +72,11 @@ void fude_import_files(fude_app* _app) {
         fude_notice_show(fude_text(FUDE_TEXT_DOC_NOT_HERE));
         return;
     }
+#if defined(RDE_PLATFORM_ANDROID)
+    RDE_UNUSED(fude_import_on_files);
+    fude_import_platform_pick_files();   // the system's document picker: copies, as the photos'
+    return;
+#endif
     // A PDF, or pictures (many at once: a page each).
     static const rde_dialog_filter _filters[] = { { "PDF", "pdf" }, { "Pictures", "jpg;jpeg;png;heic;heif;tif;tiff" } };
     rde_dialog_open_file(_app->window, _filters, 2u, NULL, true, fude_import_on_files, _app);
@@ -111,6 +116,9 @@ RDE_INTERNAL void fude_import_stem(const c8* _path, c8* _out, usize _size) {
 }
 
 b8 fude_import_update(fude_app* _app) {
+#if defined(RDE_PLATFORM_ANDROID)
+    fude_import_platform_poll();
+#endif
     if(!fude_import_in.waiting) {
         return false;
     }
@@ -175,9 +183,9 @@ b8 fude_import_update(fude_app* _app) {
 }
 
 // --- not here -------------------------------------------------------------------------------
-// Every platform but iOS (import_ios.m): Files only.
+// Every platform but iOS (import_ios.m) and Android (import_android.c): Files only.
 
-#if !defined(RDE_PLATFORM_IOS)
+#if !defined(RDE_PLATFORM_IOS) && !defined(RDE_PLATFORM_ANDROID)
 
 b8 fude_import_platform_photos(void) {
     return false;

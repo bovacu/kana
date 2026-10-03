@@ -6,6 +6,7 @@
 #endif
 
 #include "study/services/speech.h"
+#include "lang/lang.h"
 
 // ===========================================================================
 // See speech.h. The iOS side: AVSpeechSynthesizer with the best Japanese voice
@@ -25,12 +26,17 @@ static AVSpeechSynthesizer* fude_speech_synth;
 static b8                   fude_speech_hint_due  = false;   // a basic voice spoke: say where better ones are...
 static b8                   fude_speech_hint_said = false;   // ...once a run
 
-// The best Japanese voice there is: Premium, then Enhanced, then the basic one
+// The language's voice (lang.h: "ja-JP").
+static NSString* fude_speech_language(void) {
+    return [NSString stringWithUTF8String:fude_lang_voice()];
+}
+
+// The best voice there is for it: Premium, then Enhanced, then the basic one
 // (never a Personal Voice — the learner's own, for their own use).
 static AVSpeechSynthesisVoice* fude_speech_voice(void) {
     AVSpeechSynthesisVoice* _best = nil;
     for(AVSpeechSynthesisVoice* _v in [AVSpeechSynthesisVoice speechVoices]) {
-        if(![_v.language isEqualToString:@"ja-JP"]) {
+        if(![_v.language isEqualToString:fude_speech_language()]) {
             continue;
         }
         if(@available(iOS 17.0, *)) {
@@ -42,11 +48,11 @@ static AVSpeechSynthesisVoice* fude_speech_voice(void) {
             _best = _v;
         }
     }
-    return _best != nil ? _best : [AVSpeechSynthesisVoice voiceWithLanguage:@"ja-JP"];
+    return _best != nil ? _best : [AVSpeechSynthesisVoice voiceWithLanguage:fude_speech_language()];
 }
 
 b8 fude_speech_available(void) {
-    return [AVSpeechSynthesisVoice voiceWithLanguage:@"ja-JP"] != nil;
+    return [AVSpeechSynthesisVoice voiceWithLanguage:fude_speech_language()] != nil;
 }
 
 void fude_speak(const c8* _text) {

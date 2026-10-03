@@ -29,13 +29,13 @@ int main(int argc, char** argv) {
 
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "");  show(&c, "all/default", 12);
     CHECK(cp_at(&c, 0) == 0x3041);   // ぁ first: hiragana first
-    fude_catalog_query(&c, FUDE_FILTER_HIRAGANA, FUDE_SORT_DEFAULT, ""); show(&c, "hiragana", 10); CHECK(fude_catalog_result_count(&c) == 86);
-    fude_catalog_query(&c, FUDE_FILTER_KATAKANA, FUDE_SORT_DEFAULT, ""); show(&c, "katakana", 10); CHECK(fude_catalog_result_count(&c) == 90);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_DEFAULT, "");    show(&c, "kanji/default", 12);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_STROKES, "");    show(&c, "kanji/strokes", 12);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_ON, "");         show(&c, "kanji/on", 12);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_KUN, "");        show(&c, "kanji/kun", 12);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_MEANING, "");    show(&c, "kanji/meaning", 12);
+    fude_catalog_query(&c, fude_filter_group(0u), FUDE_SORT_DEFAULT, ""); show(&c, "hiragana", 10); CHECK(fude_catalog_result_count(&c) == 86);
+    fude_catalog_query(&c, fude_filter_group(1u), FUDE_SORT_DEFAULT, ""); show(&c, "katakana", 10); CHECK(fude_catalog_result_count(&c) == 90);
+    fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_DEFAULT, "");    show(&c, "kanji/default", 12);
+    fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_STROKES, "");    show(&c, "kanji/strokes", 12);
+    fude_catalog_query(&c, fude_filter_group(2u), fude_sort_reading(0u), "");         show(&c, "kanji/on", 12);
+    fude_catalog_query(&c, fude_filter_group(2u), fude_sort_reading(1u), "");        show(&c, "kanji/kun", 12);
+    fude_catalog_query(&c, fude_filter_group(2u), fude_sort_meaning(), "");    show(&c, "kanji/meaning", 12);
 
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "tree");  show(&c, "search 'tree'", 10); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "Tree "); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
@@ -44,20 +44,20 @@ int main(int argc, char** argv) {
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "モク");  CHECK(rank_of(&c, 0x6728) >= 0);
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "ki");    show(&c, "search 'ki'", 10); CHECK(rank_of(&c, 0x304D) == 0); CHECK(rank_of(&c, 0x6728) >= 0);
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "ka");    CHECK(rank_of(&c, 0x304B) >= 0 && rank_of(&c, 0x30AB) >= 0);   // か and カ
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_DEFAULT, "a");   show(&c, "kanji 'a' (stem)", 10); CHECK(rank_of(&c, 0x4E0A) >= 0);   // 上 (あ.げる)
+    fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_DEFAULT, "a");   show(&c, "kanji 'a' (stem)", 10); CHECK(rank_of(&c, 0x4E0A) >= 0);   // 上 (あ.げる)
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "sun");   show(&c, "search 'sun'", 10); CHECK(rank_of(&c, 0x65E5) >= 0 && rank_of(&c, 0x65E5) < 3);
     fude_catalog_query(&c, FUDE_FILTER_ALL, FUDE_SORT_DEFAULT, "zzzq");  CHECK(fude_catalog_result_count(&c) == 0);
-    fude_catalog_query(&c, FUDE_FILTER_HIRAGANA, FUDE_SORT_DEFAULT, "tree"); CHECK(fude_catalog_result_count(&c) == 0);
+    fude_catalog_query(&c, fude_filter_group(0u), FUDE_SORT_DEFAULT, "tree"); CHECK(fude_catalog_result_count(&c) == 0);
 
-    fude_catalog_query(&c, FUDE_FILTER_N5, FUDE_SORT_DEFAULT, ""); show(&c, "N5", 12); CHECK(fude_catalog_result_count(&c) == 79);
-    fude_catalog_query(&c, FUDE_FILTER_N1, FUDE_SORT_STROKES, ""); show(&c, "N1 by strokes", 8); CHECK(fude_catalog_result_count(&c) == 1232);
-    fude_catalog_query(&c, FUDE_FILTER_N5, FUDE_SORT_DEFAULT, "water"); show(&c, "N5 'water'", 5); CHECK(rank_of(&c, 0x6C34) == 0);
+    fude_catalog_query(&c, fude_filter_level(0u), FUDE_SORT_DEFAULT, ""); show(&c, "N5", 12); CHECK(fude_catalog_result_count(&c) == 79);
+    fude_catalog_query(&c, fude_filter_level(4u), FUDE_SORT_STROKES, ""); show(&c, "N1 by strokes", 8); CHECK(fude_catalog_result_count(&c) == 1232);
+    fude_catalog_query(&c, fude_filter_level(0u), FUDE_SORT_DEFAULT, "water"); show(&c, "N5 'water'", 5); CHECK(rank_of(&c, 0x6C34) == 0);
     fude_catalog_destroy(&c);
     // Spanish: meanings in it, searched without accents; English still finds them.
     fude_kanji_set_language(&db, "es"); fude_catalog_init(&c, &db);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_DEFAULT, "arbol"); show(&c, "es 'arbol'", 5); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
-    fude_catalog_query(&c, FUDE_FILTER_KANJI, FUDE_SORT_DEFAULT, "Árbol"); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
-    fude_catalog_query(&c, FUDE_FILTER_N5, FUDE_SORT_DEFAULT, "water"); CHECK(rank_of(&c, 0x6C34) == 0);
+    fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_DEFAULT, "arbol"); show(&c, "es 'arbol'", 5); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
+    fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_DEFAULT, "Árbol"); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
+    fude_catalog_query(&c, fude_filter_level(0u), FUDE_SORT_DEFAULT, "water"); CHECK(rank_of(&c, 0x6C34) == 0);
     { char f[64]; fude_catalog_fold("Été, Ñandú, straße", f, sizeof f); CHECK(strcmp(f, "ete, nandu, strasse") == 0); }
     fude_catalog_destroy(&c); fude_kanji_unload(&db);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);

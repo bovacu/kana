@@ -1,4 +1,5 @@
 #include "study/screens/translator.h"
+#include "lang/lang.h"
 #include "study/widgets/header.h"
 #include "study/widgets/wordcard.h"
 #include "study/services/mlkit.h"
@@ -44,7 +45,7 @@ void fude_translator_ask(fude_translator* _tr, const c8* _text) {
     if(*_text == 0) {
         return;
     }
-    if(!fude_mlkit_enabled() && fude_translate_state(_tr->from, "ja") == FUDE_TRANSLATE_UNAVAILABLE) {
+    if(!fude_mlkit_enabled() && fude_translate_state(_tr->from, fude_lang_code()) == FUDE_TRANSLATE_UNAVAILABLE) {
         fude_notice_show(fude_text(FUDE_TEXT_SEL_TRANSLATE_MLKIT_OFF));
         return;
     }
@@ -74,19 +75,19 @@ const fude_translator_card* fude_translator_chosen(const fude_translator* _tr) {
 // The models asked for once a visit; what waits sent when they are there; the
 // answers taken.
 RDE_INTERNAL void fude_translator_translate(fude_translator* _tr) {
-    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_tr->from, "ja");
+    const FUDE_TRANSLATE_STATE_ _state = fude_translate_state(_tr->from, fude_lang_code());
     for(u32 _i = 0; _i < _tr->count; _i++) {
         fude_translator_card* _card = &_tr->cards[_i];
         if(_card->state != FUDE_TRANSLATOR_WAITING) {
             continue;
         }
         if(_state == FUDE_TRANSLATE_READY) {
-            _card->ticket = fude_translate_text(_card->from, _tr->from, "ja");
+            _card->ticket = fude_translate_text(_card->from, _tr->from, fude_lang_code());
             _card->state  = _card->ticket != 0u ? FUDE_TRANSLATOR_ASKED : FUDE_TRANSLATOR_DONE;
         } else if(_state == FUDE_TRANSLATE_MISSING || (_state == FUDE_TRANSLATE_FAILED && !_tr->prepared)) {
             if(!_tr->prepared) {
                 _tr->prepared = true;
-                fude_translate_prepare(_tr->from, "ja");
+                fude_translate_prepare(_tr->from, fude_lang_code());
             }
         } else if(_state == FUDE_TRANSLATE_FAILED || _state == FUDE_TRANSLATE_UNAVAILABLE) {
             _card->state = FUDE_TRANSLATOR_FAILED;
@@ -219,7 +220,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
         rde_color _ja_c  = _t->ink;
         f32       _ja_px = FUDE_TRANSLATOR_JA_PX;
         if(_card->state == FUDE_TRANSLATOR_WAITING) {
-            _ja   = fude_text(fude_translate_state(_tr->from, "ja") == FUDE_TRANSLATE_DOWNLOADING ? FUDE_TEXT_SCAN_TRANSLATE_GETTING : FUDE_TEXT_SCAN_TRANSLATING);
+            _ja   = fude_text(fude_translate_state(_tr->from, fude_lang_code()) == FUDE_TRANSLATE_DOWNLOADING ? FUDE_TEXT_SCAN_TRANSLATE_GETTING : FUDE_TEXT_SCAN_TRANSLATING);
             _ja_c = _t->text_soft;
         } else if(_card->state == FUDE_TRANSLATOR_ASKED) {
             _ja   = fude_text(FUDE_TEXT_SCAN_TRANSLATING);

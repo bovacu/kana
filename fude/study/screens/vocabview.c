@@ -8,7 +8,7 @@
 #include "drawing/base/theme.h"
 #include "study/widgets/wordcard.h"
 #include "drawing/base/utf8.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -66,16 +66,16 @@ void fude_vocabview_show_list(fude_vocabview* _view, u32 _list) {
 
 // --- the search ------------------------------------------------------------------------
 
-// _text as a search compares it: A-Z as a-z, katakana as hiragana (エキ finds
-// えき). Never longer than _text.
+// _text as a search compares it: A-Z as a-z, and readings' characters as the
+// language compares them (lang.h; Japanese: エキ finds えき). Never longer than _text.
 RDE_INTERNAL void fude_vocabview_fold(const c8* _text, c8* _out, usize _size) {
     usize _n = 0;
     for(const c8* _p = _text; *_p != 0;) {
         u32 _cp = fude_utf8_next(&_p);
         if(_cp >= 'A' && _cp <= 'Z') {
             _cp += 'a' - 'A';
-        } else if(_cp >= 0x30A1u && _cp <= 0x30F6u) {
-            _cp -= FUDE_ROMAJI_KATAKANA_SHIFT;
+        } else {
+            _cp = fude_lang_reading_fold(_cp);
         }
         c8 _one[5];
         fude_utf8_put(_cp, _one);
@@ -110,7 +110,7 @@ void fude_vocabview_search(fude_vocabview* _view, const c8* _query) {
     for(const c8* _c = _view->query; *_c != 0 && _letters; _c++) {
         _letters = (*_c >= 'a' && *_c <= 'z') || (*_c >= 'A' && *_c <= 'Z') || *_c == '-' || *_c == '\'';
     }
-    if(!_letters || !fude_romaji_to_hiragana(_view->_query_fold, _view->_query_kana, sizeof(_view->_query_kana))) {
+    if(!_letters || !fude_lang_reading_from_latin(_view->_query_fold, _view->_query_kana, sizeof(_view->_query_kana))) {
         _view->_query_kana[0] = 0;
     }
     _view->_listed_at = UINT32_MAX;
@@ -357,7 +357,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
         FUDE_TEXTF(_words, FUDE_TEXT_VOCAB_WORDS_N, FUDE_TN(fude_vocab_count()));
         FUDE_TEXTF(_lists, FUDE_TEXT_VOCAB_LISTS_N, FUDE_TN(fude_vocab_list_count()));
         snprintf(_line, sizeof(_line), "%s \xC2\xB7 %s", _words, _lists);   // ·
-        fude_header_draw(&_view->glyph, 0x8A9Eu, _font, _font_px, _left, _right, _top, fude_text(FUDE_TEXT_VOCAB), _line, NULL);   // 語
+        fude_header_draw(&_view->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, fude_text(FUDE_TEXT_VOCAB), _line, NULL);   // 語
     }
 
     // The lists: All, each list, + New list; the one shown in the accent.

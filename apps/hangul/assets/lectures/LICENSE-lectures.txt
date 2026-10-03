@@ -1,0 +1,31 @@
+LECTURES
+
+Korean phrasebook, from Wikivoyage (lectures/phrasebook_en.pdf, _es, _fr, _pt, _ja)
+
+Wikivoyage's Korean phrasebook, one for each language Hangul speaks, by
+Wikivoyage's contributors, licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+
+  English    "Korean phrasebook", revision 5301909 (2026-07-01)
+             https://en.wikivoyage.org/wiki/Korean_phrasebook
+  Spanish    "Guía de coreano" (Wikiviajes), revision 208402 (2023-12-19)
+             https://es.wikivoyage.org/wiki/Gu%C3%ADa_de_coreano
+  French     "Guide linguistique coréen", revision 597256 (2025-07-27)
+             https://fr.wikivoyage.org/wiki/Guide_linguistique_cor%C3%A9en
+  Portuguese "Guia de conversação coreano", revision 144704 (2025-08-27)
+             https://pt.wikivoyage.org/wiki/Guia_de_conversa%C3%A7%C3%A3o_coreano
+  Japanese   "朝鮮語会話集", revision 40710 (2023-09-19)
+             https://ja.wikivoyage.org/wiki/%E6%9C%9D%E9%AE%AE%E8%AA%9E%E4%BC%9A%E8%A9%B1%E9%9B%86
+
+Who wrote each: its page's history (the link on its first page).
+
+Changes made for Hangul: each page's text only, as the wiki had it at that
+revision — its pictures (each under a licence of its own), its links, the boxes
+for editors and its sections of further links ("Learning more", "External
+links", "Approfondir", "Aprendendo mais", "Ligações externas", "もっとよく知る")
+left out, and headings with nothing under them; laid out as an A4 PDF with a
+title page giving the credit, the licence and these changes. Hangul's editions
+are under CC BY-SA 4.0 too: anyone may share and adapt them, crediting
+Wikivoyage, under the same licence. How they were made:
+tools/lectures/phrasebook.py.

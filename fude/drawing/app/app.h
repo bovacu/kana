@@ -71,6 +71,11 @@ typedef struct fude_app {
 // folder on a device (its id), the window's title. The shell calls it as soon as
 // the app's fields are filled.
 void                  fude_app_start(fude_app* _app);
+// The window as the apps lay out in it, before anything reads its size (the
+// camera, the UI): on Android in dp, as iOS's points — an iPad's sizes on an
+// Android tablet, not half of them (rde_window_set_density_scaling). The shell
+// calls it first thing.
+void                  fude_app_window(rde_window* _window);
 // What the app adds (extension.h): its own, or nothing.
 const fude_extension* fude_app_ext(const fude_app* _app);
 // Its id (info.h): its own, or its name in lowercase (letters and digits).

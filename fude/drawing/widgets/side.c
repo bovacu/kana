@@ -1015,27 +1015,49 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     #undef FUDE_SIDE_ROW
     #undef FUDE_SIDE_HEADER
 
-    // The bottom: the version on the left, Settings on the right; the tutorial
-    // (the app's, if it has one) over them, and Rate over that where there is a store.
-    const f32 _by  = (f32)_insets.w + FUDE_SIDE_MARGIN + 20.0f;
-    f32       _top = _by;   // the highest of them
-    if(_side->tutorial != NULL) {
-        _top += 20.0f + FUDE_SIDE_GAP + 20.0f;
-        fude_kit_place(rde_ui_button_as_node(_side->tutorial), (rde_vec_2F){ _x0 + _cw - 60.0f, _top }, (rde_vec_2F){ 120.0f, 40.0f });
-    }
+    // The bottom: the version, small, at the very bottom; over it Settings, the
+    // tutorial (the app's, if it has one) and Rate (where there is a store), rows
+    // like the Study ones, their icons in the same column. Where the screen is too
+    // short for that and two rows of notes (landscape), the tutorial and Settings
+    // share a row. The notes' list ends above the highest, whatever is left.
+    #define FUDE_SIDE_FOOT_W(_label) fminf(_cw, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, (_label), FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 15.0f * FUDE_KIT_EM + 40.0f)
 #if defined(RDE_PLATFORM_MOBILE)
-    _top += 20.0f + FUDE_SIDE_GAP + 20.0f;
-    fude_kit_place(rde_ui_button_as_node(_side->rate), (rde_vec_2F){ _x0 + _cw - 60.0f, _top }, (rde_vec_2F){ 120.0f, 40.0f });
+    const b8  _rate     = true;
+#else
+    const b8  _rate     = false;
 #endif
-    const f32 _list_bottom = _top + 20.0f + FUDE_SIDE_MARGIN;
-    const f32 _list_h      = fmaxf(FUDE_SIDE_NOTE_H, _y - _list_bottom);
-    fude_kit_place(rde_ui_scroll_area_as_node(_side->notes_list), (rde_vec_2F){ _x0 + _cw * 0.5f, _list_bottom + _list_h * 0.5f }, (rde_vec_2F){ _cw, _list_h });
+    const f32 _foot_h   = 40.0f;
+    const f32 _vy       = (f32)_insets.w + FUDE_SIDE_MARGIN * 0.5f + 9.0f;   // the version's middle
+    const f32 _first    = _vy + 9.0f + FUDE_SIDE_GAP + _foot_h * 0.5f;          // the lowest row's middle
+    const u32 _stacked  = 1u + (_side->tutorial != NULL ? 1u : 0u) + (_rate ? 1u : 0u);
+    const f32 _room     = _y - (_first + (f32)(_stacked - 1u) * (_foot_h + FUDE_SIDE_GAP) + _foot_h * 0.5f + FUDE_SIDE_MARGIN);
+    const b8  _compact  = _side->tutorial != NULL && _room < 2.0f * FUDE_SIDE_NOTE_H;
+    f32       _top      = _first;   // the highest row's middle
+    if(_compact) {
+        const f32 _tw = FUDE_SIDE_FOOT_W(fude_text(FUDE_TEXT_TUTORIAL));
+        const f32 _sw = FUDE_SIDE_FOOT_W(fude_text(FUDE_TEXT_SETTINGS));
+        fude_kit_place(rde_ui_button_as_node(_side->tutorial), (rde_vec_2F){ _x0 + _tw * 0.5f, _top }, (rde_vec_2F){ _tw, _foot_h });
+        fude_kit_place(rde_ui_button_as_node(_side->settings_button), (rde_vec_2F){ _x0 + _tw + FUDE_SIDE_GAP + _sw * 0.5f, _top }, (rde_vec_2F){ _sw, _foot_h });
+    } else {
+        fude_kit_place(rde_ui_button_as_node(_side->settings_button), (rde_vec_2F){ _x0 + _cw * 0.5f, _top }, (rde_vec_2F){ _cw, _foot_h });
+        if(_side->tutorial != NULL) {
+            _top += _foot_h + FUDE_SIDE_GAP;
+            fude_kit_place(rde_ui_button_as_node(_side->tutorial), (rde_vec_2F){ _x0 + _cw * 0.5f, _top }, (rde_vec_2F){ _cw, _foot_h });
+        }
+    }
+    if(_rate) {
+        _top += _foot_h + FUDE_SIDE_GAP;
+        fude_kit_place(rde_ui_button_as_node(_side->rate), (rde_vec_2F){ _x0 + _cw * 0.5f, _top }, (rde_vec_2F){ _cw, _foot_h });
+    }
+    #undef FUDE_SIDE_FOOT_W
+    fude_kit_place(rde_ui_label_as_node(_side->version), (rde_vec_2F){ _x0 + 10.0f + (_cw - 10.0f) * 0.5f, _vy }, (rde_vec_2F){ _cw - 10.0f, 18.0f });   // under the icons
+    const f32 _list_bottom = _top + _foot_h * 0.5f + FUDE_SIDE_MARGIN;
+    const f32 _list_h      = fmaxf(0.0f, _y - _list_bottom);   // never over the rows under it
+    fude_kit_place(rde_ui_scroll_area_as_node(_side->notes_list), (rde_vec_2F){ _x0 + _cw * 0.5f, _list_bottom + _list_h * 0.5f }, (rde_vec_2F){ _cw, fmaxf(1.0f, _list_h) });
     _side->_list_bl   = (rde_vec_2F){ _x0, _list_bottom };
     _side->_list_size = (rde_vec_2F){ _cw, _list_h };
     _side->_list_width  = _cw;
     _side->_notes_built = false;   // rows are laid out for the list's width
-    fude_kit_place(rde_ui_button_as_node(_side->settings_button), (rde_vec_2F){ _x0 + _cw - 60.0f, _by }, (rde_vec_2F){ 120.0f, 40.0f });
-    fude_kit_place(rde_ui_label_as_node(_side->version), (rde_vec_2F){ _x0 + (_cw - 130.0f) * 0.5f, _by }, (rde_vec_2F){ _cw - 130.0f, 40.0f });
 
     // Settings: a card in the middle.
     const f32 _kw = fminf(FUDE_SIDE_CARD_W, _screen.x - 2.0f * FUDE_SIDE_MARGIN);
@@ -1249,6 +1271,9 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     // The menu button: an icon on a small card of its own, over the page.
     _side->menu_button = fude_kit_button(_root, fude_text(FUDE_TEXT_MENU), fude_side_on_menu, _ui);
     fude_kit_icon(_side->menu_button, FUDE_ICON_MENU, FUDE_KIT_ICON_ONLY, 17.0f);
+    // At the left edge: inside Android's back-swipe strip, where RDE drops a press
+    // as the start of a gesture. Claimed back (the OS leaves its rect alone).
+    rde_ui_node_set_gesture_exclusive(rde_ui_button_as_node(_side->menu_button), true);
 
     // Settings, over everything.
     fude_kit_modal_create(&_side->settings, _root, fude_side_on_settings_close, _ui);

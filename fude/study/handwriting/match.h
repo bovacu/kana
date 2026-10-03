@@ -38,7 +38,7 @@
 
 // A filter for reading free writing (segment.h): the catalog's characters and
 // the marks written in text that it leaves out — 、。ー々・！？ and the digits.
-#define FUDE_MATCH_TEXT ((FUDE_FILTER_)FUDE_FILTER_COUNT)
+#define FUDE_MATCH_TEXT ((FUDE_FILTER_)0xFFFFu)   // beyond any filter (catalog.h)
 
 RDE_STRUCT {
     u32 record;

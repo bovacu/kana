@@ -164,6 +164,14 @@ b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_
     return true;
 }
 
+static rde_font* fude_glyph_text_font    = NULL;
+static f32       fude_glyph_text_font_px = 14.0f;
+
+void fude_glyph_set_text_font(rde_font* _font, f32 _font_px) {
+    fude_glyph_text_font    = _font;
+    fude_glyph_text_font_px = _font_px;
+}
+
 f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, f32 _size, f32 _max_x, rde_color _ink, rde_color _soft) {
     rde_color _color = _ink;
     f32       _x     = _origin.x;
@@ -181,7 +189,15 @@ f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, 
         if(_cp == 0x3001u) {   // 、 — a new reading starts
             _color = _ink;
         }
-        fude_glyph_character(_glyph, _cp, (rde_vec_2F){ _x, _origin.y }, _size, _color);
+        if(!fude_glyph_character(_glyph, _cp, (rde_vec_2F){ _x, _origin.y }, _size, _color) && fude_glyph_text_font != NULL && _cp != 0x3001u) {
+            // No strokes for it (a letter of pinyin): the text font, centred on the line.
+            c8 _one[5];
+            fude_utf8_put(_cp, _one);
+            const f32 _px = _size * 0.8f;
+            fude_draw_text(fude_glyph_text_font, fude_glyph_text_font_px, _one, _x, _origin.y - _size * 0.5f - _px * 0.36f, _px, _color);
+            _x += fude_draw_text_width(fude_glyph_text_font, fude_glyph_text_font_px, _one, _px);
+            continue;
+        }
         _x += _cp == 0x3001u ? _size * 0.7f : _size * 0.95f;
     }
 

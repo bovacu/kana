@@ -417,7 +417,7 @@ RDE_INTERNAL void fude_album_render_overview(fude_album* _album, rde_font* _font
         FUDE_TEXTF(_sessions_n, FUDE_TEXT_SESSIONS_N, FUDE_TN(_album->sessions));
         FUDE_TEXTF(_line, FUDE_TEXT_ALBUM_COUNTS, FUDE_TS(_chars), FUDE_TS(_sessions_n));
     }
-    fude_draw_text(_font, _font_px, _line, _left, FUDE_ALBUM_SY(0.0f) - 60.0f, 17.0f, _theme->text_soft);
+    fude_draw_text_wrap(_font, _font_px, _line, _left, FUDE_ALBUM_SY(0.0f) - 60.0f, 17.0f, _right - _left, 23.0f, _theme->text_soft);   // the empty one's two lines on a narrow screen
 
     const f32 _width   = _right - _left;
     const u32 _columns = (u32)fmaxf(1.0f, floorf(_width / FUDE_ALBUM_CELL_MIN));

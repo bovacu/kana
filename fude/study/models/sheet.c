@@ -1,4 +1,5 @@
 #include "study/models/sheet.h"
+#include "lang/lang.h"
 #include "drawing/base/kfile.h"
 #include "drawing/base/text.h"
 
@@ -270,8 +271,10 @@ RDE_INTERNAL void fude_sheet_boxes(fude_sheet_pdf* _pdf, f32 _x, f32 _y, f32 _si
     }
 }
 
+// A script's letter (lang.h; Japanese: a kana): no readings or meanings, its group's name instead.
 RDE_INTERNAL b8 fude_sheet_is_kana(u32 _cp) {
-    return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu);
+    const u8 _group = fude_lang_group(_cp);
+    return _group != FUDE_LANG_NO_GROUP && (fude_lang_group_flags(_group) & FUDE_LANG_GROUP_SCRIPT) != 0u;
 }
 
 // Shortens a list ("a, b, c") from its end, at its commas, until it fits _width
@@ -296,12 +299,14 @@ RDE_INTERNAL void fude_sheet_block(fude_sheet_pdf* _pdf, const fude_kanji_info* 
     const f32 _right = FUDE_SHEET_PAGE_W - FUDE_SHEET_MARGIN;
     const f32 _width = _right - _left;
 
-    // The line: meanings, then readings; JLPT and strokes at the right.
+    // The line: meanings, then readings; the level and strokes at the right.
     c8 _label[96];
     c8 _strokes[64];
     FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_info->strokes));
-    if(_info->jlpt_n != 0u) {
-        snprintf(_label, sizeof(_label), "N%u \xC2\xB7 %s", _info->jlpt_n, _strokes);   // ·
+    if(_info->level != 0u) {
+        c8 _level[32];
+        fude_lang_level_name(_info->level, false, _level, sizeof(_level));
+        snprintf(_label, sizeof(_label), "%s \xC2\xB7 %s", _level, _strokes);   // ·
     } else {
         snprintf(_label, sizeof(_label), "%s", _strokes);
     }
@@ -312,12 +317,12 @@ RDE_INTERNAL void fude_sheet_block(fude_sheet_pdf* _pdf, const fude_kanji_info* 
     c8 _meanings[512];
     c8 _readings[512];
     if(fude_sheet_is_kana(_info->codepoint)) {
-        snprintf(_meanings, sizeof(_meanings), "%s", fude_text(_info->codepoint < 0x30A0u ? FUDE_TEXT_HIRAGANA : FUDE_TEXT_KATAKANA));
+        snprintf(_meanings, sizeof(_meanings), "%s", fude_text((FUDE_TEXT_)fude_lang_group_name(fude_lang_group(_info->codepoint))));
         _readings[0] = 0;
     } else {
         snprintf(_meanings, sizeof(_meanings), "%s", fude_kanji_meanings(_pdf->db, _info));
-        const c8* _on  = fude_kanji_on(_pdf->db, _info);
-        const c8* _kun = fude_kanji_kun(_pdf->db, _info);
+        const c8* _on  = fude_kanji_reading(_pdf->db, _info, 0u);
+        const c8* _kun = fude_kanji_reading(_pdf->db, _info, 1u);
         snprintf(_readings, sizeof(_readings), "%s%s%s", _on, _on[0] != 0 && _kun[0] != 0 ? "\xE3\x80\x80" : "", _kun);   // an ideographic space between
     }
     const f32 _room = _width - _lw - 16.0f;

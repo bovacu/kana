@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     fude_stats_data d; fude_stats_compute(&d, &db, &cat);
     CHECK(d.sessions == 0 && d.squares == 0 && d.average < 0.0f && d.exams == 0 && d.streak == 0 && d.weakest_count == 0 && d.first_time == 0);
     CHECK(d.mark_changes == 0 && d.week_known[FUDE_STATS_WEEKS - 1] == 0);
-    CHECK(d.coverage[FUDE_STATS_GROUP_HIRAGANA].total == 71 && d.coverage[FUDE_STATS_GROUP_N5].total > 50 && d.coverage[FUDE_STATS_GROUP_N5].practised == 0);
+    CHECK(d.coverage[0u].total == 71 && d.coverage[2u].total > 50 && d.coverage[2u].practised == 0);
 
     // 木: three days in a row up to today, getting better; 日: 40 days ago, then yesterday, worse;
     // 人: once, 10 days ago, backwards and poor.
@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
       CHECK(d.week_known[WEEK_OF(40)] == 0 && d.week_studying[WEEK_OF(40)] == 1);     // 木
       #undef WEEK_OF
     }
-    const fude_stats_coverage* n5 = &d.coverage[FUDE_STATS_GROUP_N5];
+    const fude_stats_coverage* n5 = &d.coverage[2u];
     CHECK(n5->practised == 3 && n5->known == 1 && n5->studying == 1);
     u32 r_ki, r_hi, r_hito; fude_kanji_find_index(&db, 0x6728, &r_ki); fude_kanji_find_index(&db, 0x65E5, &r_hi); fude_kanji_find_index(&db, 0x4EBA, &r_hito);
     CHECK(d.weakest_count == 3 && d.weakest[0] == r_hito && d.weakest[1] == r_hi && d.weakest[2] == r_ki);

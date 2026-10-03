@@ -13,9 +13,46 @@
 
 #define FUDE_DRAW_CHUNK 1024u   // points a stroke is drawn in at a time (the radii for them)
 
+// --text-check (a developer's, look.h): every text drawn past the screen's sides,
+// on the log once — a label that does not fit, cut at the edge.
+RDE_INTERNAL rde_window* fude_draw_checking = NULL;   // the window checked against (NULL: off)
+RDE_INTERNAL u64         fude_draw_checked[256];
+
+void fude_draw_text_check(rde_window* _window) {
+    fude_draw_checking = _window;
+}
+
+RDE_INTERNAL u64 fude_draw_hash(const c8* _text, usize _len);
+
+RDE_INTERNAL void fude_draw_check(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _px) {
+    if(_text[0] == 0) {
+        return;
+    }
+    const f32 _half = (f32)rde_window_get_size(fude_draw_checking).x * 0.5f;
+    const f32 _w    = fude_draw_text_width(_font, _font_px, _text, _px);
+    if(_x >= -_half - 0.5f && _x + _w <= _half + 0.5f) {
+        return;
+    }
+    const u64 _hash = fude_draw_hash(_text, strlen(_text));
+    for(u32 _i = 0; _i < 256u; _i++) {
+        if(fude_draw_checked[_i] == _hash) {
+            return;
+        }
+        if(fude_draw_checked[_i] == 0) {
+            fude_draw_checked[_i] = _hash;
+            break;
+        }
+    }
+    rde_log_level(RDE_LOG_LEVEL_WARNING, "text-check: past the screen by %.0f: \"%s\" (x %.0f, width %.0f, %.0f px)",
+                  fmaxf(-_half - _x, _x + _w - _half), _text, _x, _w, _px);
+}
+
 void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
     if(_font == NULL || _text == NULL) {
         return;
+    }
+    if(fude_draw_checking != NULL) {
+        fude_draw_check(_font, _font_px, _text, _x, _px);
     }
     const f32 _scale = _px / _font_px;
     rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
@@ -135,36 +172,39 @@ RDE_INTERNAL f32 fude_draw_advance(rde_font* _font, f32 _font_px, u32 _cp) {
     return _cp >= 0x2E80u ? _japanese : _latin;
 }
 
-// Short texts (labels, chips, titles) are measured for real — laid out once by
-// the engine, then kept: an estimate from average advances is off by a third
-// for capitals and digits ("N5"), which puts a chip's text off centre. Longer
-// ones (meanings, sentences) are estimated.
-#define FUDE_DRAW_EXACT_BYTES 48u
-#define FUDE_DRAW_EXACT_SLOTS 512u
+// Every text is measured for real — laid out once by the engine, then kept (by
+// a 64-bit hash of it and its length): an estimate from average advances runs
+// short on real sentences (a notice wider than its pill, a wrapped line past its
+// card) and is off by a third for capitals and digits ("N5").
+#define FUDE_DRAW_EXACT_SLOTS 2048u
 
 typedef struct {
     const rde_font* font;
-    u32             hash;
+    u64             hash;
+    u32             length;
     f32             width;     // per unit of size
-    c8              text[FUDE_DRAW_EXACT_BYTES];
 } fude_draw_exact;
 
 RDE_INTERNAL fude_draw_exact fude_draw_exact_cache[FUDE_DRAW_EXACT_SLOTS];
 RDE_INTERNAL u32             fude_draw_exact_used = 0;
 
-RDE_INTERNAL f32 fude_draw_exact_width(rde_font* _font, f32 _font_px, const c8* _text, usize _len) {
-    u32 _hash = 2166136261u;
+RDE_INTERNAL u64 fude_draw_hash(const c8* _text, usize _len) {
+    u64 _hash = 14695981039346656037ull;
     for(usize _i = 0; _i < _len; _i++) {
-        _hash = (_hash ^ (u8)_text[_i]) * 16777619u;
+        _hash = (_hash ^ (u8)_text[_i]) * 1099511628211ull;
     }
-    _hash ^= (u32)(uintptr_t)_font;
-    u32 _slot = _hash % FUDE_DRAW_EXACT_SLOTS;
+    return _hash;
+}
+
+RDE_INTERNAL f32 fude_draw_exact_width(rde_font* _font, f32 _font_px, const c8* _text, usize _len) {
+    const u64 _hash = fude_draw_hash(_text, _len) ^ (u64)(uintptr_t)_font;
+    u32 _slot = (u32)(_hash % FUDE_DRAW_EXACT_SLOTS);
     for(u32 _probe = 0; _probe < FUDE_DRAW_EXACT_SLOTS; _probe++, _slot = (_slot + 1u) % FUDE_DRAW_EXACT_SLOTS) {
         fude_draw_exact* _e = &fude_draw_exact_cache[_slot];
         if(_e->font == NULL) {
             break;
         }
-        if(_e->font == _font && _e->hash == _hash && strcmp(_e->text, _text) == 0) {
+        if(_e->font == _font && _e->hash == _hash && _e->length == (u32)_len) {
             return _e->width;
         }
     }
@@ -173,20 +213,20 @@ RDE_INTERNAL f32 fude_draw_exact_width(rde_font* _font, f32 _font_px, const c8* 
     if(fude_draw_exact_used >= FUDE_DRAW_EXACT_SLOTS * 3u / 4u) {
         memset(fude_draw_exact_cache, 0, sizeof(fude_draw_exact_cache));   // full: start again
         fude_draw_exact_used = 0;
-        _slot = _hash % FUDE_DRAW_EXACT_SLOTS;
+        _slot = (u32)(_hash % FUDE_DRAW_EXACT_SLOTS);
     }
     fude_draw_exact* _e = &fude_draw_exact_cache[_slot];
-    _e->font  = _font;
-    _e->hash  = _hash;
-    _e->width = _w;
-    memcpy(_e->text, _text, _len + 1u);
+    _e->font   = _font;
+    _e->hash   = _hash;
+    _e->length = (u32)_len;
+    _e->width  = _w;
     fude_draw_exact_used++;
     return _w;
 }
 
 f32 fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px) {
     const usize _len = strlen(_text);
-    if(_font != NULL && _len > 0 && _len < FUDE_DRAW_EXACT_BYTES && strchr(_text, '[') == NULL) {
+    if(_font != NULL && _len > 0 && strchr(_text, '[') == NULL) {   // [ is the engine's markup: estimated
         const f32 _w = fude_draw_exact_width(_font, _font_px, _text, _len);
         if(_w > 0.0f) {
             return _w * _px;
@@ -199,64 +239,163 @@ f32 fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px
     return _w;
 }
 
-// fude_draw_text_wrap, drawing or (_draw false) only counting the lines.
-RDE_INTERNAL u32 fude_draw_text_wrap_do(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color, b8 _draw) {
-    u32       _lines = 0;
-    const c8* _s     = _text;
-    c8        _row[512];
-    while(*_s != 0) {
-        while(*_s == ' ') {
+// --- wrapping -------------------------------------------------------------------
+
+// A text's lines for a width and size, kept: laid out once (each candidate line
+// measured where a line may break), then drawn from where each line starts and
+// ends, every frame.
+#define FUDE_DRAW_WRAP_SLOTS 64u
+#define FUDE_DRAW_WRAP_LINES 32u
+
+typedef struct {
+    const rde_font* font;
+    u64             hash;
+    u32             length;
+    f32             width, px;
+    u32             lines;
+    u16             from[FUDE_DRAW_WRAP_LINES], to[FUDE_DRAW_WRAP_LINES];   // each line's bytes
+} fude_draw_wrapped;
+
+RDE_INTERNAL fude_draw_wrapped fude_draw_wrap_cache[FUDE_DRAW_WRAP_SLOTS];
+RDE_INTERNAL u32               fude_draw_wrap_next = 0;
+
+// _text[_from.._to), as wide as it draws.
+RDE_INTERNAL f32 fude_draw_span_width(rde_font* _font, f32 _font_px, const c8* _text, usize _from, usize _to, f32 _px) {
+    c8          _row[512];
+    const usize _n = _to - _from < sizeof(_row) - 1u ? _to - _from : sizeof(_row) - 1u;
+    memcpy(_row, _text + _from, _n);
+    _row[_n] = 0;
+    return fude_draw_text_width(_font, _font_px, _row, _px);
+}
+
+RDE_INTERNAL const fude_draw_wrapped* fude_draw_wrap_layout(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
+    const usize _len  = strlen(_text);
+    const u64   _hash = fude_draw_hash(_text, _len);
+    for(u32 _i = 0; _i < FUDE_DRAW_WRAP_SLOTS; _i++) {
+        const fude_draw_wrapped* _w = &fude_draw_wrap_cache[_i];
+        if(_w->font == _font && _w->hash == _hash && _w->length == (u32)_len && _w->width == _width && _w->px == _px) {
+            return _w;
+        }
+    }
+    fude_draw_wrapped* _w = &fude_draw_wrap_cache[fude_draw_wrap_next];
+    fude_draw_wrap_next = (fude_draw_wrap_next + 1u) % FUDE_DRAW_WRAP_SLOTS;
+    *_w = (fude_draw_wrapped){ .font = _font, .hash = _hash, .length = (u32)_len, .width = _width, .px = _px };
+
+    usize _s = 0;   // the line's start
+    while(_s < _len && _len < 0xFFFFu && _w->lines < FUDE_DRAW_WRAP_LINES) {
+        while(_s < _len && _text[_s] == ' ') {
             _s++;
         }
-        if(*_s == 0) {
+        if(_s >= _len) {
             break;
         }
-        // As far as fits: back to the last place a line may break when it does not.
-        const c8* _p     = _s;
-        const c8* _fit   = _s;
-        const c8* _next  = _s;
-        const c8* _break = NULL;
+        // Each place the line may end (before a space, after a CJK character, at a
+        // line break or the end), measured; the last that fits ends it.
+        usize     _end  = _s;   // the line so far: _text[_s.._end)
+        usize     _next = _s;   // where the next line starts
+        const c8* _p    = _text + _s;
         for(;;) {
-            const c8* _at = _p;
-            const u32 _cp = fude_utf8_next(&_p);
-            if(_cp == 0 || (usize)(_p - _s) >= sizeof(_row)) {
-                _fit = _next = _at;
+            const usize _here = (usize)(_p - _text);
+            const u32   _cp   = fude_utf8_next(&_p);
+            const usize _past = (usize)(_p - _text);
+            const b8    _gap  = _cp == ' ' || _cp == '\n' || _cp == 0;
+            if(!_gap && _cp < 0x2E80u) {
+                continue;   // inside a word
+            }
+            const usize _try = _gap ? _here : _past;
+            if(_try > _s && fude_draw_span_width(_font, _font_px, _text, _s, _try, _px) > _width) {
+                if(_end == _s) {
+                    // Not one place fits (a word wider than the line): as many characters as do, one at least.
+                    const c8* _q = _text + _s;
+                    while((usize)(_q - _text) < _try) {
+                        const c8* _was = _q;
+                        fude_utf8_next(&_q);
+                        if(_end > _s && fude_draw_span_width(_font, _font_px, _text, _s, (usize)(_q - _text), _px) > _width) {
+                            _q = _was;
+                            break;
+                        }
+                        _end = (usize)(_q - _text);
+                    }
+                    _next = _end;
+                }
                 break;
             }
-            if(_cp == '\n') {
-                _fit  = _at;
-                _next = _p;
+            _end  = _try;
+            _next = _cp == 0 ? _here : _past;
+            if(_cp == 0 || _cp == '\n') {
                 break;
             }
-            const usize _n = (usize)(_p - _s);
-            memcpy(_row, _s, _n);
-            _row[_n] = 0;
-            if(_at > _s && fude_draw_text_width(_font, _font_px, _row, _px) > _width) {
-                _fit = _next = _break != NULL ? _break : _at;
-                break;
-            }
-            if(_cp == ' ') {
-                _break = _at;    // before a space
-            } else if(_cp >= 0x2E80u) {
-                _break = _p;     // after a Japanese character
-            }
         }
-        usize _n = (usize)(_fit - _s);
-        while(_n > 0 && _s[_n - 1] == ' ') {
-            _n--;
+        while(_end > _s && _text[_end - 1u] == ' ') {
+            _end--;
         }
-        memcpy(_row, _s, _n);
-        _row[_n] = 0;
-        if(_draw) {
-            fude_draw_text(_font, _font_px, _row, _x, _y - (f32)_lines * _line, _px, _color);
-        }
-        _lines++;
-        if(_next == _s) {
+        _w->from[_w->lines] = (u16)_s;
+        _w->to[_w->lines]   = (u16)_end;
+        _w->lines++;
+        if(_next <= _s) {
             break;   // nothing would fit: stop rather than loop
         }
         _s = _next;
     }
-    return _lines;
+    return _w;
+}
+
+// fude_draw_text_wrap, drawing or (_draw false) only counting the lines.
+RDE_INTERNAL u32 fude_draw_text_wrap_do(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color, b8 _draw) {
+    if(_text == NULL || _text[0] == 0) {
+        return 0;
+    }
+    const fude_draw_wrapped* _w = fude_draw_wrap_layout(_font, _font_px, _text, _px, _width);
+    if(_draw) {
+        c8 _row[512];
+        for(u32 _i = 0; _i < _w->lines; _i++) {
+            const usize _n = (usize)(_w->to[_i] - _w->from[_i]) < sizeof(_row) - 1u ? (usize)(_w->to[_i] - _w->from[_i]) : sizeof(_row) - 1u;
+            memcpy(_row, _text + _w->from[_i], _n);
+            _row[_n] = 0;
+            fude_draw_text(_font, _font_px, _row, _x, _y - (f32)_i * _line, _px, _color);
+        }
+    }
+    return _w->lines;
+}
+
+// The narrowest width that wraps _text in as few lines as _width does — its
+// lines even, no word left alone on the last (kept: a search of a dozen layouts).
+#define FUDE_DRAW_BALANCE_SLOTS 32u
+RDE_INTERNAL struct { const rde_font* font; u64 hash; u32 length; f32 width, px, balanced; } fude_draw_balance_cache[FUDE_DRAW_BALANCE_SLOTS];
+RDE_INTERNAL u32 fude_draw_balance_next = 0;
+
+f32 fude_draw_text_balanced_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
+    if(_font == NULL || _text == NULL || _text[0] == 0) {
+        return _width;
+    }
+    const usize _len  = strlen(_text);
+    const u64   _hash = fude_draw_hash(_text, _len);
+    for(u32 _i = 0; _i < FUDE_DRAW_BALANCE_SLOTS; _i++) {
+        if(fude_draw_balance_cache[_i].font == _font && fude_draw_balance_cache[_i].hash == _hash && fude_draw_balance_cache[_i].length == (u32)_len &&
+           fude_draw_balance_cache[_i].width == _width && fude_draw_balance_cache[_i].px == _px) {
+            return fude_draw_balance_cache[_i].balanced;
+        }
+    }
+    const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, _text, _px, _width);
+    f32       _best  = _width;
+    if(_lines > 1u) {
+        f32 _lo = _width / (f32)_lines * 0.9f;
+        f32 _hi = _width;
+        for(u32 _step = 0; _step < 12u; _step++) {
+            const f32 _mid = (_lo + _hi) * 0.5f;
+            if(fude_draw_text_wrap_lines(_font, _font_px, _text, _px, _mid) <= _lines) { _hi = _mid; _best = _mid; }
+            else                                                                     { _lo = _mid; }
+        }
+        _best = fminf(_width, _best + 1.0f);
+    }
+    fude_draw_balance_cache[fude_draw_balance_next].font     = _font;
+    fude_draw_balance_cache[fude_draw_balance_next].hash     = _hash;
+    fude_draw_balance_cache[fude_draw_balance_next].length   = (u32)_len;
+    fude_draw_balance_cache[fude_draw_balance_next].width    = _width;
+    fude_draw_balance_cache[fude_draw_balance_next].px       = _px;
+    fude_draw_balance_cache[fude_draw_balance_next].balanced = _best;
+    fude_draw_balance_next = (fude_draw_balance_next + 1u) % FUDE_DRAW_BALANCE_SLOTS;
+    return _best;
 }
 
 u32 fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) {

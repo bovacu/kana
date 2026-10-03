@@ -1,8 +1,7 @@
 #include "study/screens/exam.h"
 #include "study/widgets/header.h"
 #include "study/models/review.h"
-#include "lang/ja/chart.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "drawing/widgets/draw.h"
 #include "study/models/examlog.h"
 #include "study/models/marks.h"
@@ -38,18 +37,51 @@
 
 static const u32       FUDE_EXAM_LENGTH_VALUES[FUDE_EXAM_LENGTHS] = { 10u, 20u, 50u, 0u };   // 0: all
 static const c8* const FUDE_EXAM_LENGTH_NAMES[FUDE_EXAM_LENGTHS]  = { "10", "20", "50", NULL };   // NULL: All (text.h)
-// The sources' names (text.h); the JLPT levels are the same in every language.
-static const FUDE_TEXT_ FUDE_EXAM_SOURCE_TEXTS[FUDE_EXAM_SOURCE_COUNT] = {
-    FUDE_TEXT_STUDYING, FUDE_TEXT_KNOWN, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT,
-    FUDE_TEXT_HIRAGANA, FUDE_TEXT_KATAKANA, FUDE_TEXT_EXAM_SELECTION, FUDE_TEXT_REVIEWS
-};
-static const c8* const FUDE_EXAM_SOURCE_LEVELS[FUDE_EXAM_SOURCE_COUNT] = { NULL, NULL, "N5", "N4", "N3", "N2", "N1", NULL, NULL, NULL, NULL };
+// --- the sources, numbered from the language's levels and sets (exam.h) -------------
 
+// How many groups are sets, and the _set-th's group (FUDE_LANG_NO_GROUP: none).
+RDE_INTERNAL u32 fude_exam_set_count(void) {
+    u32 _n = 0;
+    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
+        _n += (fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u ? 1u : 0u;
+    }
+    return _n;
+}
+
+RDE_INTERNAL u32 fude_exam_set_group(u32 _set) {
+    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
+        if((fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u && _set-- == 0u) {
+            return _g;
+        }
+    }
+    return FUDE_LANG_NO_GROUP;
+}
+
+FUDE_EXAM_SOURCE_ fude_exam_source_level(u32 _level) { return 2u + _level; }
+FUDE_EXAM_SOURCE_ fude_exam_source_set(u32 _set)     { return 2u + fude_lang_level_count() + _set; }
+FUDE_EXAM_SOURCE_ fude_exam_source_selection(void)  { return 2u + fude_lang_level_count() + fude_exam_set_count(); }
+FUDE_EXAM_SOURCE_ fude_exam_source_review(void)     { return fude_exam_source_selection() + 1u; }
+u32               fude_exam_source_count(void)      { return fude_exam_source_review() + 1u; }
+
+// A source's name: Studying, Known, a level's short name (the same in every
+// language: "N5"), a set's group name, Selection, Reviews.
 const c8* fude_exam_source_name(FUDE_EXAM_SOURCE_ _source) {
-    if(_source >= FUDE_EXAM_SOURCE_COUNT) {
+    static c8 _levels[FUDE_LANG_LEVELS][16];
+    const u32 _level_count = fude_lang_level_count();
+    if(_source >= fude_exam_source_count()) {
         return "";
     }
-    return FUDE_EXAM_SOURCE_LEVELS[_source] != NULL ? FUDE_EXAM_SOURCE_LEVELS[_source] : fude_text(FUDE_EXAM_SOURCE_TEXTS[_source]);
+    if(_source == FUDE_EXAM_SOURCE_STUDYING) { return fude_text(FUDE_TEXT_STUDYING); }
+    if(_source == FUDE_EXAM_SOURCE_KNOWN)    { return fude_text(FUDE_TEXT_KNOWN); }
+    if(_source < 2u + _level_count) {
+        const u32 _level = _source - 2u;
+        fude_lang_level_name(fude_lang_level_value(_level), false, _levels[_level], sizeof(_levels[_level]));
+        return _levels[_level];
+    }
+    if(_source < fude_exam_source_selection()) {
+        return fude_text((FUDE_TEXT_)fude_lang_group_name(fude_exam_set_group(_source - 2u - _level_count)));
+    }
+    return fude_text(_source == fude_exam_source_selection() ? FUDE_TEXT_EXAM_SELECTION : FUDE_TEXT_REVIEWS);
 }
 
 RDE_INTERNAL void fude_exam_fresh_ink(fude_ink* _ink) {
@@ -89,26 +121,23 @@ RDE_INTERNAL b8 fude_exam_in_source(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _s
         return false;   // kana and kanji only
     }
     fude_kanji_info _info;
-    switch(_source) {
-        case FUDE_EXAM_SOURCE_STUDYING:
-        case FUDE_EXAM_SOURCE_KNOWN:
-            return fude_kanji_at(_exam->db, _record, &_info) &&
-                   fude_marks_get(_info.codepoint) == (_source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_MARK_STUDYING : FUDE_MARK_KNOWN);
-        case FUDE_EXAM_SOURCE_N5: return fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_N5);
-        case FUDE_EXAM_SOURCE_N4: return fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_N4);
-        case FUDE_EXAM_SOURCE_N3: return fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_N3);
-        case FUDE_EXAM_SOURCE_N2: return fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_N2);
-        case FUDE_EXAM_SOURCE_N1: return fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_N1);
-        case FUDE_EXAM_SOURCE_HIRAGANA:
-        case FUDE_EXAM_SOURCE_KATAKANA:
-            return fude_catalog_passes(_exam->catalog, _record, _source == FUDE_EXAM_SOURCE_HIRAGANA ? FUDE_FILTER_HIRAGANA : FUDE_FILTER_KATAKANA) &&
-                   fude_kanji_at(_exam->db, _record, &_info) && fude_romaji_core(_info.codepoint);
-        default: return false;
+    const u32       _levels = fude_lang_level_count();
+    if(_source == FUDE_EXAM_SOURCE_STUDYING || _source == FUDE_EXAM_SOURCE_KNOWN) {
+        return fude_kanji_at(_exam->db, _record, &_info) &&
+               fude_marks_get(_info.codepoint) == (_source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_MARK_STUDYING : FUDE_MARK_KNOWN);
     }
+    if(_source < 2u + _levels) {
+        return fude_catalog_passes(_exam->catalog, _record, fude_filter_level(_source - 2u));
+    }
+    if(_source < fude_exam_source_selection()) {   // a set: its core characters
+        return fude_catalog_passes(_exam->catalog, _record, fude_filter_group(fude_exam_set_group(_source - 2u - _levels))) &&
+               fude_kanji_at(_exam->db, _record, &_info) && fude_lang_core(_info.codepoint);
+    }
+    return false;
 }
 
 u32 fude_exam_source_size(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _source) {
-    if(_source == FUDE_EXAM_SOURCE_SELECTION || _source == FUDE_EXAM_SOURCE_REVIEW) {
+    if(_source == fude_exam_source_selection() || _source == fude_exam_source_review()) {
         return (u32)rde_arr_length(&_exam->selection);
     }
     u32 _n = 0;
@@ -171,7 +200,7 @@ RDE_INTERNAL void fude_exam_set_items(fude_exam* _exam, const u32* _records, u32
 
 void fude_exam_open(fude_exam* _exam) {
     rde_arr_clear(&_exam->selection);
-    if(_exam->source == FUDE_EXAM_SOURCE_SELECTION || _exam->source == FUDE_EXAM_SOURCE_REVIEW) {
+    if(_exam->source == fude_exam_source_selection() || _exam->source == fude_exam_source_review()) {
         _exam->source = FUDE_EXAM_SOURCE_STUDYING;   // those were a list given: gone with it
     }
     _exam->rng   = (u32)time(NULL) | 1u;
@@ -185,14 +214,14 @@ void fude_exam_open_with(fude_exam* _exam, const u32* _records, u32 _count) {
     if(_count > 0) {
         rde_memcpy(rde_arr_add_n(&_exam->selection, _count), (any)_records, sizeof(u32) * _count);
     }
-    _exam->source = FUDE_EXAM_SOURCE_SELECTION;
+    _exam->source = fude_exam_source_selection();
     _exam->length = FUDE_EXAM_LENGTHS - 1u;   // all of them
     fude_exam_preview(_exam);
 }
 
 void fude_exam_open_review(fude_exam* _exam, const u32* _records, u32 _count) {
     fude_exam_open_with(_exam, _records, _count);
-    _exam->source = FUDE_EXAM_SOURCE_REVIEW;
+    _exam->source = fude_exam_source_review();
     fude_exam_preview(_exam);
     fude_exam_start(_exam);   // no preview: what is due is what is asked
 }
@@ -263,7 +292,7 @@ b8 fude_exam_open_kept(fude_exam* _exam, u32 _index) {
     rde_arr_free(&_points);
     rde_arr_free(&_ink);
 
-    _exam->source = _kept->source < FUDE_EXAM_SOURCE_COUNT ? (FUDE_EXAM_SOURCE_)_kept->source : FUDE_EXAM_SOURCE_STUDYING;
+    _exam->source = _kept->source < fude_exam_source_count() ? (FUDE_EXAM_SOURCE_)_kept->source : FUDE_EXAM_SOURCE_STUDYING;
     _exam->asked  = _n;
     _exam->saved  = true;   // already kept
     _exam->kept   = _index;
@@ -283,7 +312,7 @@ void fude_exam_close(fude_exam* _exam) {
 void fude_exam_preview(fude_exam* _exam) {
     static u32 _records[16384];
     u32        _n = 0;
-    if(_exam->source == FUDE_EXAM_SOURCE_SELECTION || _exam->source == FUDE_EXAM_SOURCE_REVIEW) {
+    if(_exam->source == fude_exam_source_selection() || _exam->source == fude_exam_source_review()) {
         const u32* _sel = (const u32*)_exam->selection.memory;
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_exam->selection) && _n < 16384u; _i++) {
             _records[_n++] = _sel[_i];
@@ -653,11 +682,11 @@ RDE_INTERNAL void fude_exam_chip_draw(rde_font* _font, f32 _font_px, rde_vec_2F 
                    !_usable ? _theme->button_text_disabled : _chosen ? _theme->on_accent : _theme->text);
 }
 
-// A label that is a Japanese character (試, 音, 訓), written from its strokes in
+// A label that is one of the language's characters (試, 音, 訓), written from its strokes in
 // the accent on its tint, _box square, its top-left at _tl.
 RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top) {
     const fude_theme* _theme = fude_theme_active();
-    fude_header_draw(&_exam->glyph, 0x8A66u, _font, _font_px, _left, _right, _top, fude_text(FUDE_TEXT_EXAM), fude_text(FUDE_TEXT_EXAM_INTRO), NULL);
+    fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, fude_text(FUDE_TEXT_EXAM), fude_text(FUDE_TEXT_EXAM_INTRO), NULL);
     f32 _y = _top - 56.0f;
 
     // What it is of, and how many.
@@ -668,12 +697,12 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
         fude_draw_text(_font, _font_px, fude_text(_group == 0 ? FUDE_TEXT_EXAM_WHAT : FUDE_TEXT_EXAM_HOW_MANY), _left, _y, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
         _y -= 12.0f;
         f32       _x   = _left;
-        const u32 _n   = _group == 0 ? (u32)FUDE_EXAM_SOURCE_COUNT : FUDE_EXAM_LENGTHS;
+        const u32 _n   = _group == 0 ? fude_exam_source_count() : FUDE_EXAM_LENGTHS;
         for(u32 _i = 0; _i < _n; _i++) {
             b8 _usable = true;
             b8 _chosen;
             if(_group == 0) {
-                if((_i == FUDE_EXAM_SOURCE_SELECTION && rde_arr_length(&_exam->selection) == 0) || _i == FUDE_EXAM_SOURCE_REVIEW) {
+                if((_i == fude_exam_source_selection() && rde_arr_length(&_exam->selection) == 0) || _i == fude_exam_source_review()) {
                     continue;   // only when opened from Select mode; Reviews has its own way in
                 }
                 const u32 _size = fude_exam_source_size(_exam, (FUDE_EXAM_SOURCE_)_i);
@@ -702,21 +731,28 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
     _y -= 24.0f;
     const u32 _size    = fude_exam_source_size(_exam, _exam->source);
     const u32 _planned = fude_exam_planned(_exam);
-    fude_draw_card((rde_vec_2F){ _left, _y - 76.0f }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
+    // Its two texts wrap to the card's width; it is as tall as they are.
+    c8 _first[160], _second[256];
     if(_size == 0) {
-        snprintf(_label, sizeof(_label), "%s", fude_text(_exam->source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_TEXT_EXAM_NOTHING_STUDYING : FUDE_TEXT_EXAM_NOTHING));
-        fude_draw_text(_font, _font_px, _label, _left + 18.0f, _y - 32.0f, 15.0f, _theme->text);
-        fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_EXAM_MARK_HINT), _left + 18.0f, _y - 56.0f, 12.0f, _theme->text_soft);
+        snprintf(_first, sizeof(_first), "%s", fude_text(_exam->source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_TEXT_EXAM_NOTHING_STUDYING : FUDE_TEXT_EXAM_NOTHING));
+        snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_MARK_HINT));
     } else {
-        c8 _line[160];
-        FUDE_TEXTF(_line, FUDE_TEXT_EXAM_PLAN, FUDE_TN(_planned), FUDE_TN(_size), FUDE_TS(fude_exam_source_name(_exam->source)));
-        fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 32.0f, 15.0f, _theme->text);
-        snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_EXAM_RULE));
+        FUDE_TEXTF(_first, FUDE_TEXT_EXAM_PLAN, FUDE_TN(_planned), FUDE_TN(_size), FUDE_TS(fude_exam_source_name(_exam->source)));
+        snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_RULE));
         if(_size > FUDE_EXAM_MAX && FUDE_EXAM_LENGTH_VALUES[_exam->length] == 0u) {
-            FUDE_TEXTF(_line, FUDE_TEXT_EXAM_MAX, FUDE_TN(FUDE_EXAM_MAX));
+            FUDE_TEXTF(_second, FUDE_TEXT_EXAM_MAX, FUDE_TN(FUDE_EXAM_MAX));
         }
-        fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 56.0f, 12.0f, _theme->text_soft);
     }
+    const f32 _tw  = _right - _left - 36.0f;
+    const f32 _tw1 = fude_draw_text_balanced_width(_font, _font_px, _first, 15.0f, _tw);
+    const f32 _tw2 = fude_draw_text_balanced_width(_font, _font_px, _second, 12.0f, _tw);
+    const u32 _l1  = fude_draw_text_wrap_lines(_font, _font_px, _first, 15.0f, _tw1);
+    const u32 _l2  = fude_draw_text_wrap_lines(_font, _font_px, _second, 12.0f, _tw2);
+    const f32 _more1 = (f32)(_l1 > 1u ? _l1 - 1u : 0u) * 19.0f;
+    const f32 _more2 = (f32)(_l2 > 1u ? _l2 - 1u : 0u) * 16.0f;
+    fude_draw_card((rde_vec_2F){ _left, _y - 76.0f - _more1 - _more2 }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
+    fude_draw_text_wrap(_font, _font_px, _first, _left + 18.0f, _y - 32.0f, 15.0f, _tw1, 19.0f, _theme->text);
+    fude_draw_text_wrap(_font, _font_px, _second, _left + 18.0f, _y - 56.0f - _more1, 12.0f, _tw2, 16.0f, _theme->text_soft);
 }
 
 // A grid below _top: cells for _count things, scrolled; the layout kept for taps.
@@ -735,7 +771,7 @@ RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(fude_exam_included(_exam)), FUDE_TN(_exam->count));
     c8 _title[96];
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
-    fude_header_draw(&_exam->glyph, 0x8A66u, _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_TAP_TO_LEAVE), _line);
+    fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_TAP_TO_LEAVE), _line);
     RDE_UNUSED(_theme);
 
     const f32 _grid_top = _top - 60.0f;
@@ -795,8 +831,9 @@ RDE_INTERNAL b8 fude_exam_blanked_word(fude_exam* _exam, const fude_kanji_info* 
     return false;
 }
 
-// The prompt, in a card from _y down: for a kanji its meaning, its readings (音,
-// 訓) and a word with it blanked out; for a kana its romaji. Returns the y below it.
+// The prompt, in a card from _y down: for a character with readings (a kanji) its
+// meaning, its readings (behind the language's badges: 音, 訓) and a word with it
+// blanked out; for a script's letter (a kana) its Latin name. Returns the y below it.
 RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info, u32 _record, b8 _kana, rde_font* _font, f32 _font_px,
                                   f32 _left, f32 _right, f32 _y) {
     const fude_theme* _theme = fude_theme_active();
@@ -805,8 +842,8 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
     c8                _line[256];
 
     // How tall it is: the caption and the big line, then a line a reading, and the word.
-    const c8* _on  = _kana ? "" : fude_kanji_on(_exam->db, _info);
-    const c8* _kun = _kana ? "" : fude_kanji_kun(_exam->db, _info);
+    const c8* _on  = _kana ? "" : fude_kanji_reading(_exam->db, _info, 0u);   // the language's first kind...
+    const c8* _kun = _kana ? "" : fude_kanji_reading(_exam->db, _info, 1u);   // ...and second
     c8              _blanked[96];
     fude_kanji_word _word;
     const b8        _has_word = !_kana && fude_exam_blanked_word(_exam, _info, _record, _blanked, sizeof(_blanked), &_word);
@@ -816,12 +853,11 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
 
     f32 _cy = _y - _pad - 10.0f;
     if(_kana) {
-        const b8 _katakana = _info->codepoint >= 0x30A0u && _info->codepoint <= 0x30FFu;
-        fude_draw_text(_font, _font_px, fude_text(_katakana ? FUDE_TEXT_EXAM_WRITE_KATAKANA : FUDE_TEXT_EXAM_WRITE_HIRAGANA), _x, _cy, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
-        fude_draw_text(_font, _font_px, fude_romaji(_info->codepoint), _x, _cy - 54.0f, 40.0f, _theme->text);
+        fude_draw_text(_font, _font_px, fude_text((FUDE_TEXT_)fude_lang_group_prompt(fude_lang_group(_info->codepoint))), _x, _cy, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
+        fude_draw_text(_font, _font_px, fude_lang_latin(_info->codepoint), _x, _cy - 54.0f, 40.0f, _theme->text);
         return _y - _h;
     }
-    fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_EXAM_WRITE_KANJI), _x, _cy, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
+    fude_draw_text(_font, _font_px, fude_text((FUDE_TEXT_)fude_lang_group_prompt(fude_lang_group(_info->codepoint))), _x, _cy, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
     const c8* _meaning = fude_kanji_meanings(_exam->db, _info);
     fude_draw_text_fit(_font, _font_px, _meaning[0] != 0 ? _meaning : fude_text(FUDE_TEXT_NO_MEANING), FUDE_EXAM_MEANING_PX, _right - _pad - _x, _line, sizeof(_line));
     fude_draw_text(_font, _font_px, _line, _x, _cy - 34.0f, FUDE_EXAM_MEANING_PX, _theme->text);
@@ -831,12 +867,12 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
     if(_readings > 0) {
         const f32 _mid = _cy - 24.0f;
         f32       _rx  = _x;
-        for(u32 _k = 0; _k < 2u; _k++) {
+        for(u32 _k = 0; _k < fude_lang_reading_kinds() && _k < 2u; _k++) {
             const c8* _text = _k == 0u ? _on : _kun;
             if(_text[0] == 0 || _rx > _right - 80.0f) {
                 continue;
             }
-            fude_header_badge(&_exam->glyph, _k == 0u ? 0x97F3u : 0x8A13u, (rde_vec_2F){ _rx, _mid + 15.0f }, 30.0f);   // 音, 訓
+            fude_header_badge(&_exam->glyph, fude_lang_badge(_k == 0u ? FUDE_LANG_BADGE_READING_0 : FUDE_LANG_BADGE_READING_1), (rde_vec_2F){ _rx, _mid + 15.0f }, 30.0f);   // 音, 訓
             const f32 _end = fude_glyph_reading(&_exam->glyph, _text, (rde_vec_2F){ _rx + 42.0f, _mid + 12.0f }, 24.0f,
                                                 _k == 0u && _kun[0] != 0 ? (_left + _right) * 0.5f + 40.0f : _right - _pad, _theme->ink, _theme->text_soft);
             _rx = fmaxf(_end + 28.0f, _k == 0u ? _x : _rx);
@@ -872,7 +908,7 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
     c8 _line[64];
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_exam->current + 1u), FUDE_TN(_exam->asked));
-    fude_header_draw(&_exam->glyph, 0x8A66u, _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_ONCE_EACH), _line);
+    fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_ONCE_EACH), _line);
     const f32 _py = _top - 54.0f;
     if(_exam->asked > 0 && _exam->asked <= 30u) {
         const f32 _gap = 3.0f;
@@ -890,7 +926,7 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
     }
 
     // What to write.
-    const b8 _kana = fude_romaji(_info.codepoint) != NULL && _info.text == UINT32_MAX;
+    const b8 _kana = fude_lang_latin(_info.codepoint) != NULL && _info.text == UINT32_MAX;
     const f32 _y   = fude_exam_prompt(_exam, &_info, _it->record, _kana, _font, _font_px, _left, _right, _py - 16.0f);
 
     // The square.

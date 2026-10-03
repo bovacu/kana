@@ -52,9 +52,12 @@ static void fude_translate_copy(c8* _dst, usize _size, const c8* _src) {
     _dst[_n] = 0;
 }
 
-// ML Kit's name for a language Kana translates between (NULL: not one of them).
+// ML Kit's name for a language the apps translate between (NULL: not one of them):
+// the one each teaches (lang.h), and the readers'.
 static MLKTranslateLanguage fude_translate_language(const c8* _code) {
     if(strcmp(_code, "ja") == 0) { return MLKTranslateLanguageJapanese; }
+    if(strcmp(_code, "zh") == 0) { return MLKTranslateLanguageChinese; }
+    if(strcmp(_code, "ko") == 0) { return MLKTranslateLanguageKorean; }
     if(strcmp(_code, "en") == 0) { return MLKTranslateLanguageEnglish; }
     if(strcmp(_code, "es") == 0) { return MLKTranslateLanguageSpanish; }
     if(strcmp(_code, "pt") == 0) { return MLKTranslateLanguagePortuguese; }

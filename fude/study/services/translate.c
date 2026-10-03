@@ -1,4 +1,5 @@
 #include "study/services/translate.h"
+#include "lang/lang.h"
 #include "drawing/base/text.h"
 #include "study/services/mlkit.h"
 
@@ -17,7 +18,7 @@ RDE_INTERNAL b8  fude_translate_demo_on = false;
 RDE_INTERNAL u32 fude_translate_demo_next = 1u;
 RDE_INTERNAL u32 fude_translate_demo_head = 0u;
 RDE_INTERNAL u32 fude_translate_demo_count = 0u;
-RDE_INTERNAL struct { u32 ticket; b8 into_japanese; c8 text[256]; } fude_translate_demo_queue[FUDE_TRANSLATE_DEMO_QUEUE];
+RDE_INTERNAL struct { u32 ticket; b8 into_studied; c8 text[256]; } fude_translate_demo_queue[FUDE_TRANSLATE_DEMO_QUEUE];
 #endif
 
 void fude_translate_demo(b8 _on) {
@@ -63,12 +64,15 @@ b8 fude_translate_available(void) {
 }
 
 const c8* fude_translate_target(void) {
+    const c8* _ui;
     switch(fude_text_language()) {
-        case RDE_LANGUAGE_ES_ES: return "es";
-        case RDE_LANGUAGE_PT_BR: return "pt";
-        case RDE_LANGUAGE_FR_FR: return "fr";
-        default:                 return "en";   // English, and Japanese's readers
+        case RDE_LANGUAGE_ES_ES: _ui = "es"; break;
+        case RDE_LANGUAGE_PT_BR: _ui = "pt"; break;
+        case RDE_LANGUAGE_FR_FR: _ui = "fr"; break;
+        case RDE_LANGUAGE_JA_JP: _ui = "ja"; break;
+        default:                 _ui = "en"; break;
     }
+    return strcmp(_ui, fude_lang_code()) == 0 ? "en" : _ui;   // the app in the language it teaches: English
 }
 
 FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to) {
@@ -98,7 +102,7 @@ u32 fude_translate_text(const c8* _text, const c8* _from, const c8* _to) {
         }
         const u32 _at = (fude_translate_demo_head + fude_translate_demo_count++) % FUDE_TRANSLATE_DEMO_QUEUE;
         fude_translate_demo_queue[_at].ticket        = fude_translate_demo_next++;
-        fude_translate_demo_queue[_at].into_japanese = strcmp(_to, "ja") == 0;
+        fude_translate_demo_queue[_at].into_studied = strcmp(_to, fude_lang_code()) == 0;
         snprintf(fude_translate_demo_queue[_at].text, sizeof(fude_translate_demo_queue[_at].text), "%s", _text);
         return fude_translate_demo_queue[_at].ticket;
     }
@@ -123,7 +127,7 @@ RDE_INTERNAL b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
         // line that could not be translated).
         if(*_ticket % 5u == 0u) {
             _out[0] = 0;
-        } else if(fude_translate_demo_queue[_at].into_japanese) {
+        } else if(fude_translate_demo_queue[_at].into_studied) {
             snprintf(_out, _size, "\xE3\x80\x8C%s\xE3\x80\x8D\xE3\x81\xAE\xE8\xA8\xB3\xE3\x81\xA7\xE3\x81\x99\xE3\x80\x82", fude_translate_demo_queue[_at].text);   // 「…」の訳です。
         } else {
             snprintf(_out, _size, "A stand-in translation of %s (%zu bytes of Japanese), long enough to need a second line.",
@@ -168,9 +172,9 @@ b8 fude_translate_take(u32 _ticket, c8* _out, usize _size) {
 }
 
 // --- not here ---------------------------------------------------------------------------
-// Every platform but iOS (src/translate_ios.m): no translator yet.
+// Every platform but iOS (translate_ios.m) and Android (translate_android.c): no translator yet.
 
-#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
+#if (!defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)) && !defined(RDE_PLATFORM_ANDROID)   // ML Kit: a device's (iOS, Android: *_android.c), not the Simulator's
 
 b8 fude_translate_platform_available(void) {
     return false;

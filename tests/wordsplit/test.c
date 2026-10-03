@@ -1,5 +1,5 @@
 // wordsplit.h against the real character data (argv[1]).
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 #include <stdio.h>
 #include <string.h>
 static int fails = 0;

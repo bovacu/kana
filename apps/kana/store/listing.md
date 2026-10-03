@@ -2,8 +2,9 @@
 
 What goes into App Store Connect, in Kana's five languages (App Store
 localizations: English (U.S.), Spanish (Spain), Portuguese (Brazil), Japanese,
-French). Every field fits App Store Connect's limits: name and subtitle 30
-characters, promotional text 170, keywords 100, description 4,000. The
+French). The name is the app's, "Kana Learn!" (its home-screen name too),
+then what it does; the descriptions call it Kana for short. Every field fits
+App Store Connect's limits: name and subtitle 30 characters, promotional text 170, keywords 100, description 4,000. The
 keywords leave out the words already in the name and subtitle, because the
 App Store indexes those anyway.
 
@@ -73,7 +74,7 @@ support pages are in `../site/` (`tools/store/site.py`).
 
 ## English (U.S.)
 
-**Name** (30): Kana: Write Japanese
+**Name** (30): Kana Learn!: Write Japanese
 
 **Subtitle** (30): Kanji & kana, stroke by stroke
 
@@ -131,7 +132,7 @@ Best with an Apple Pencil, and your finger works too.
 
 ## Spanish (Spain)
 
-**Nombre** (30): Kana: escribe japonés
+**Nombre** (30): Kana Learn!: escribe japonés
 
 **Subtítulo** (30): Kanji y kana, trazo a trazo
 
@@ -189,7 +190,7 @@ Mejor con el Apple Pencil, y también con el dedo.
 
 ## Portuguese (Brazil)
 
-**Nome** (30): Kana: escreva japonês
+**Nome** (30): Kana Learn!: escreva japonês
 
 **Subtítulo** (30): Kanji e kana, traço a traço
 
@@ -247,7 +248,7 @@ Melhor com o Apple Pencil, e o dedo também funciona.
 
 ## Japanese
 
-**名前** (30): Kana: 手で書く日本語
+**名前** (30): Kana Learn!: 手で書く日本語
 
 **サブタイトル** (30): 漢字とかなを一画ずつ
 
@@ -305,7 +306,7 @@ Apple Pencilがおすすめ。指でも書けます。
 
 ## French
 
-**Nom** (30): Kana : écrire le japonais
+**Nom** (30): Kana Learn! Écrire le japonais
 
 **Sous-titre** (30): Kanji et kana, trait par trait
 

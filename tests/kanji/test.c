@@ -13,9 +13,9 @@ int main(int argc, char** argv) {
     fude_kanji_info ki;
     CHECK(fude_kanji_find(&db, 0x6728, &ki));   // 木
     printf("木: strokes %u grade %u jlpt %u freq %u radical %u\n  on [%s] kun [%s] meanings [%s]\n",
-           ki.strokes, ki.grade, ki.jlpt, ki.frequency, ki.radical, fude_kanji_on(&db, &ki), fude_kanji_kun(&db, &ki), fude_kanji_meanings(&db, &ki));
+           ki.strokes, ki.grade, ki.jlpt, ki.frequency, ki.radical, fude_kanji_reading(&db, &ki, 0u), fude_kanji_reading(&db, &ki, 1u), fude_kanji_meanings(&db, &ki));
     CHECK(ki.strokes == 4 && ki.grade == 1 && ki.radical == 75 && strcmp(fude_kanji_meanings(&db, &ki), "tree, wood") == 0);
-    CHECK(strcmp(fude_kanji_on(&db, &ki), "ボク、モク") == 0);
+    CHECK(strcmp(fude_kanji_reading(&db, &ki, 0u), "ボク、モク") == 0);
     const u32 types[4] = { 0x31D0, 0x31D1, 0x31D2, 0x31CF };   // ㇐ ㇑ ㇒ ㇏
     for(u32 s = 0; s < ki.strokes; s++) {
         fude_kanji_stroke st; CHECK(fude_kanji_stroke_at(&db, &ki, s, &st));

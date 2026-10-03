@@ -1,4 +1,5 @@
 #include "drawing/app/look.h"
+#include "drawing/widgets/draw.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
 #include "drawing/app/page.h"
@@ -111,6 +112,7 @@ void fude_look_start(fude_app* _app) {
         const c8* _v;
         if(fude_look_is(_a, "--settings"))   { fude_side_open_settings(_app->ui, -1); }
         if(fude_look_is(_a, "--side"))       { _app->ui->side.open = true; }
+        if(fude_look_is(_a, "--text-check")) { fude_draw_text_check(_app->window); }
         if((_v = fude_look_value(_a, "--licences")) != NULL)   { fude_side_open_settings(_app->ui, (i32)strtol(_v, NULL, 10)); }
         if((_v = fude_look_value(_a, "--size")) != NULL) {
             c8*       _end = NULL;

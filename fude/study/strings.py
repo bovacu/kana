@@ -1,6 +1,7 @@
-# A study app's UI strings: the study layer's (fude/study) and Japanese's
-# (fude/lang/ja), read after the core's (tools/strings/build.py). {APP} is the
-# app's name (its src/version.h).
+# A study app's UI strings: the study layer's (fude/study), read after the
+# core's (tools/strings/build.py) and before the language's (fude/lang/<code>/
+# strings.py, which has the ones that name the language). {APP} is the app's
+# name (its src/version.h).
 #
 #   t('ID', English, Spanish, Portuguese (Brazil), Japanese, French)
 
@@ -28,9 +29,6 @@ t('QUIT', 'Quit', 'Salir', 'Sair', 'やめる', 'Quitter')
 t('START_N', 'Start {0}', 'Empezar {0}', 'Começar {0}', '開始 {0}', 'Commencer {0}')
 t('EXAM', 'Exam', 'Examen', 'Teste', 'テスト', 'Examen')
 t('STROKE_ORDER', 'Stroke order', 'Orden de trazos', 'Ordem dos traços', '書き順', 'Ordre des traits')
-t('HIRAGANA', 'Hiragana', 'Hiragana', 'Hiragana', 'ひらがな', 'Hiragana')
-t('KATAKANA', 'Katakana', 'Katakana', 'Katakana', 'カタカナ', 'Katakana')
-t('KANJI', 'Kanji', 'Kanji', 'Kanji', '漢字', 'Kanji')
 t('ON', 'On', 'Sí', 'Sim', 'オン', 'Oui')
 t('OFF', 'Off', 'No', 'Não', 'オフ', 'Non')
 t('RETRY', 'Retry', 'Reintentar', 'Tentar de novo', '再試行', 'Réessayer')
@@ -51,12 +49,9 @@ t('SCAN_CAMERA', 'Camera', 'Cámara', 'Câmera', 'カメラ', 'Appareil photo')
 t('SCAN_PHOTOS', 'Photos', 'Fotos', 'Fotos', '写真', 'Photos')
 t('SCAN_WRITE_N', '{0,plural, one{Write # line} other{Write # lines}}', '{0,plural, one{Escribir # línea} other{Escribir # líneas}}', '{0,plural, one{Escrever # linha} other{Escrever # linhas}}', '{0}行を書く', '{0,plural, one{Écrire # ligne} other{Écrire # lignes}}')
 t('SCAN_WRITE', 'Write', 'Escribir', 'Escrever', '書く', 'Écrire')
-t('SCAN_HINT', 'Point the camera at Japanese text, or choose a photo: what is read is boxed, and the lines you keep are written on the page.', 'Apunta la cámara a un texto en japonés o elige una foto: lo que se lee aparece enmarcado y las líneas que elijas se escriben en la página.', 'Aponte a câmera para um texto em japonês ou escolha uma foto: o que é lido fica destacado, e as linhas que você escolher são escritas na página.', 'カメラを日本語に向けるか、写真を選んでください。読み取った行に枠が付き、選んだ行をページに書きます。', 'Pointez l’appareil photo vers un texte japonais ou choisissez une photo : ce qui est lu est encadré, et les lignes gardées sont écrites sur la page.')
 t('SCAN_HOLD', 'Hold', 'Congelar', 'Congelar', '固定', 'Figer')
 t('SCAN_LIVE', '{0,plural, one{# line in view: Hold to keep it} other{# lines in view: Hold to keep them}}', '{0,plural, one{# línea a la vista: Congelar para quedártela} other{# líneas a la vista: Congelar para quedártelas}}', '{0,plural, one{# linha à vista: Congelar para mantê-la} other{# linhas à vista: Congelar para mantê-las}}', '{0}行が見えています。「固定」で残せます', '{0,plural, one{# ligne visible : Figer pour la garder} other{# lignes visibles : Figer pour les garder}}')
-t('SCAN_LIVE_NONE', 'Point the camera at Japanese text', 'Apunta la cámara a un texto en japonés', 'Aponte a câmera para um texto em japonês', 'カメラを日本語に向けてください', 'Pointez l’appareil photo vers un texte japonais')
 t('SCAN_FOUND', '{0,plural, one{# line found: tap it to leave it out} other{# lines found: tap one to leave it out}}', '{0,plural, one{# línea encontrada: tócala para dejarla fuera} other{# líneas encontradas: toca una para dejarla fuera}}', '{0,plural, one{# linha encontrada: toque nela para deixá-la de fora} other{# linhas encontradas: toque em uma para deixá-la de fora}}', '{0}行見つかりました。タップすると外せます', '{0,plural, one{# ligne trouvée : touchez-la pour l’exclure} other{# lignes trouvées : touchez-en une pour l’exclure}}')
-t('SCAN_NONE', 'No Japanese text found in this photo.', 'No se encontró texto japonés en esta foto.', 'Nenhum texto em japonês encontrado nesta foto.', 'この写真に日本語は見つかりませんでした。', 'Aucun texte japonais trouvé sur cette photo.')
 t('SCAN_FAILED', 'The photo could not be read.', 'No se pudo leer la foto.', 'Não foi possível ler a foto.', '写真を読み取れませんでした。', 'La photo n’a pas pu être lue.')
 t('SCAN_NO_CAMERA', 'The camera could not be opened.', 'No se pudo abrir la cámara.', 'Não foi possível abrir a câmera.', 'カメラを開けませんでした。', 'L’appareil photo n’a pas pu être ouvert.')
 t('SCAN_CAMERA_DENIED', '{APP} may not use the camera: allow it in Settings › {APP}.', '{APP} no puede usar la cámara: permítelo en Ajustes › {APP}.', 'O {APP} não pode usar a câmera: permita em Ajustes › {APP}.', 'カメラが許可されていません。設定 › {APP} で許可してください。', '{APP} ne peut pas utiliser l’appareil photo : autorisez-le dans Réglages › {APP}.')
@@ -71,14 +66,9 @@ t('SCAN_TRANSLATION_NONE', 'This line could not be translated.', 'No se pudo tra
 t('SEL_TRANSLATION_NONE', 'It could not be translated.', 'No se pudo traducir.', 'Não foi possível traduzir.', '翻訳できませんでした。', 'La traduction a échoué.')
 t('SEL_TRANSLATE_MLKIT_OFF', 'Translating uses Google ML Kit: turn it on in Settings.', 'La traducción usa Google ML Kit: actívalo en Ajustes.', 'A tradução usa o Google ML Kit: ative-o em Ajustes.', '翻訳はGoogle ML Kitを使います。設定でオンにしてください。', 'La traduction utilise Google ML Kit : activez-le dans les Réglages.')
 
-# Into Japanese (translator.h): the Vocabulary's Translate with Google, from the reader's language.
-t('TRANSLATOR_TITLE', 'Into Japanese', 'Al japonés', 'Para o japonês', '日本語に翻訳', 'Vers le japonais')
+# Into the language taught (translator.h): the Vocabulary's Translate with Google, from the reader's language
+# (its title and how-to: the language's strings).
 t('TRANSLATOR_HINT', 'A word or a sentence', 'Una palabra o una frase', 'Uma palavra ou uma frase', '単語や文', 'Un mot ou une phrase')
-t('TRANSLATOR_EMPTY', 'Type a word or a sentence in your language in the field at the top right, then Return: Google translates it into Japanese, with the words in it — tap one to save it. Then save the whole of it, write it on the page or practise its characters.',
-  'Escribe una palabra o una frase en tu idioma en el campo de arriba a la derecha y pulsa Intro: Google la traduce al japonés, con las palabras que contiene; toca una para guardarla. Después guárdala entera, escríbela en la página o practica sus caracteres.',
-  'Digite uma palavra ou uma frase no seu idioma no campo no canto superior direito e toque em Retorno: o Google a traduz para o japonês, com as palavras que ela contém — toque em uma para salvá-la. Depois salve-a inteira, escreva-a na página ou pratique seus caracteres.',
-  '右上の欄に単語や文を入力して改行すると、Googleが日本語に翻訳し、含まれる単語も表示します（タップで保存）。そのまま保存したり、ページに書いたり、字を練習したりできます。',
-  'Écrivez un mot ou une phrase dans votre langue dans le champ en haut à droite, puis Entrée : Google le traduit en japonais, avec les mots qu’il contient — touchez-en un pour l’enregistrer. Ensuite, enregistrez-le en entier, écrivez-le sur la page ou entraînez-vous à ses caractères.')
 t('TRANSLATOR_NONE', 'It could not be translated.', 'No se pudo traducir.', 'Não foi possível traduzir.', '翻訳できませんでした。', 'La traduction n’a pas pu se faire.')
 t('TRANSLATOR_NOTHING', 'Nothing in it to practise', 'No hay nada que practicar', 'Não há nada para praticar', '練習できる字がありません', 'Rien à pratiquer')
 t('SEL_COPY_TEXT', 'Copy as text', 'Copiar como texto', 'Copiar como texto', 'テキストでコピー', 'Copier en texte')
@@ -87,7 +77,6 @@ t('NOTICE_COPIED_TEXT', 'Copied: {0}', 'Copiado: {0}', 'Copiado: {0}', 'コピ�
 t('NOTICE_COPIED_N', '{0,plural, one{Copied # character as text} other{Copied # characters as text}}', '{0,plural, one{# carácter copiado como texto} other{# caracteres copiados como texto}}', '{0,plural, one{# caractere copiado como texto} other{# caracteres copiados como texto}}', '{0}文字をテキストでコピーしました', '{0,plural, one{# caractère copié en texte} other{# caractères copiés en texte}}')
 t('NOTICE_NOTHING_READ', 'Nothing could be read there', 'No se pudo leer nada ahí', 'Não foi possível ler nada aí', '読み取れませんでした', 'Rien n’a pu être lu')
 t('NOTICE_NO_TEXT', 'The clipboard has no text', 'El portapapeles no tiene texto', 'A área de transferência não tem texto', 'クリップボードにテキストがありません', 'Le presse-papiers ne contient pas de texte')
-t('NOTICE_NOTHING_TO_WRITE', 'No Japanese in the clipboard to write', 'No hay japonés en el portapapeles para escribir', 'Não há japonês na área de transferência para escrever', '書ける日本語がクリップボードにありません', 'Aucun japonais à écrire dans le presse-papiers')
 t('NOTICE_LEFT_OUT', '{0,plural, one{# character left out: {APP} does not have it} other{# characters left out: {APP} does not have them}}', '{0,plural, one{Se omitió # carácter: {APP} no lo tiene} other{Se omitieron # caracteres: {APP} no los tiene}}', '{0,plural, one{# caractere omitido: o {APP} não o tem} other{# caracteres omitidos: o {APP} não os tem}}', '{APP}にない{0}文字は省きました', '{0,plural, one{# caractère omis : {APP} ne l’a pas} other{# caractères omis : {APP} ne les a pas}}')
 
 # --- the screens' rows ------------------------------------------------------------------------
@@ -101,7 +90,6 @@ t('WEAKEST_AGAIN', 'Weakest again', 'Repetir los flojos', 'Refazer os fracos', '
 
 # --- Check ------------------------------------------------------------------------------------
 t('CHECK_TITLE', 'Check', 'Revisar', 'Verificar', 'チェック', 'Vérifier')
-t('CHECK_FIELD', 'I meant… (kyou wa, or Japanese)', 'Quise decir… (kyou wa, o japonés)', 'Eu quis dizer… (kyou wa, ou japonês)', '書きたかった言葉…（kyou wa、または日本語）', 'Je voulais écrire… (kyou wa, ou en japonais)')
 t('CHECK_READING', 'Reading…', 'Leyendo…', 'Lendo…', '読み取り中…', 'Lecture…')
 t('CHECK_NOTHING', 'Nothing to read here.', 'Aquí no hay nada que leer.', 'Não há nada para ler aqui.', '読み取れるものがありません。', 'Rien à lire ici.')
 t('CHECK_MEANT_OK', 'Checked as what you meant.', 'Revisado como lo que querías decir.', 'Verificado como o que você quis dizer.', '書きたかった言葉としてチェックしました。', 'Vérifié selon ce que vous vouliez écrire.')
@@ -116,18 +104,14 @@ t('CHECK_TOO_FEW', 'Fewer strokes than the characters meant: read freely instead
 # --- the viewer's Add and the word form ---------------------------------------------------------
 t('WORD_TITLE', 'Your word with {0}', 'Tu palabra con {0}', 'Sua palavra com {0}', '「{0}」を使った言葉', 'Votre mot avec {0}')
 t('WORD_FIELD_WORD', 'Word, with {0} in it', 'Palabra, con {0}', 'Palavra, com {0}', '言葉（「{0}」を含む）', 'Mot, avec {0}')
-t('WORD_FIELD_READING', 'Reading: kana, or romaji (megusuri)', 'Lectura: kana o rōmaji (megusuri)', 'Leitura: kana ou romaji (megusuri)', '読み：かな、またはローマ字（megusuri）', 'Lecture : kana ou rōmaji (megusuri)')
 t('WORD_FIELD_MEANING', 'Meaning (optional)', 'Significado (opcional)', 'Significado (opcional)', '意味（任意）', 'Sens (facultatif)')
 t('WORD_ERR_KANJI', 'The word has to have {0} in it', 'La palabra tiene que llevar {0}', 'A palavra precisa ter {0}', '言葉に「{0}」を含めてください', 'Le mot doit contenir {0}')
-t('WORD_ERR_READING', 'Its reading, in kana or romaji', 'Falta su lectura, en kana o rōmaji', 'Falta a leitura, em kana ou romaji', '読みを、かなかローマ字で', 'Sa lecture, en kana ou en rōmaji')
-t('WORD_ERR_ROMAJI', 'That reading is not romaji {APP} knows', '{APP} no reconoce esa lectura en rōmaji', 'O {APP} não reconhece essa leitura em romaji', 'そのローマ字は読み取れません', '{APP} ne reconnaît pas cette lecture en rōmaji')
 t('SEL_SAVE_WORD', 'Save word', 'Guardar palabra', 'Salvar palavra', '単語を保存', 'Enregistrer')
 t('VOCAB', 'Vocabulary', 'Vocabulario', 'Vocabulário', '単語帳', 'Vocabulaire')
 t('VOCAB_WORDS_N', P('# word', '# words'), P('# palabra', '# palabras'), P('# palavra', '# palavras'), '{0}語', P('# mot', '# mots'))
 t('VOCAB_LISTS_N', P('# list', '# lists'), P('# lista', '# listas'), P('# lista', '# listas'), 'リスト{0}', P('# liste', '# listes'))
 t('VOCAB_EMPTY', 'No words yet. Save them from a character’s examples, an example sentence, a photo or the lasso (Save word), or type one in with + Word.', 'Aún no hay palabras. Guárdalas desde los ejemplos de un carácter, una frase de ejemplo, una foto o el lazo (Guardar palabra), o escribe una con + Palabra.', 'Ainda não há palavras. Salve-as dos exemplos de um caractere, de uma frase de exemplo, de uma foto ou do laço (Salvar palavra), ou digite uma com + Palavra.', 'まだ言葉がありません。文字の例語、例文、写真、なげなわ（単語を保存）から保存するか、「＋言葉」で入力しましょう。', 'Pas encore de mots. Enregistrez-les depuis les exemples d’un caractère, une phrase d’exemple, une photo ou le lasso (Enregistrer), ou saisissez-en un avec + Mot.')
 t('VOCAB_LIST_EMPTY', 'This list has no words yet. Add some with + Word, or tick this list on a word’s card.', 'Esta lista aún no tiene palabras. Añade alguna con + Palabra, o marca esta lista en la ficha de una palabra.', 'Esta lista ainda não tem palavras. Adicione com + Palavra, ou marque esta lista no cartão de uma palavra.', 'このリストにはまだ言葉がありません。「＋言葉」で追加するか、言葉のカードでこのリストを選びましょう。', 'Cette liste n’a pas encore de mots. Ajoutez-en avec + Mot, ou cochez cette liste sur la fiche d’un mot.')
-t('VOCAB_SEARCH_HINT', 'Find: kanji, kana, romaji or meaning', 'Buscar: kanji, kana, romaji o significado', 'Buscar: kanji, kana, romaji ou significado', '検索：漢字、かな、ローマ字、意味', 'Chercher : kanji, kana, romaji ou sens')
 t('VOCAB_SEARCH_NONE', 'No words match “{0}”.', 'Ninguna palabra coincide con «{0}».', 'Nenhuma palavra corresponde a “{0}”.', '「{0}」に合う単語はありません。', 'Aucun mot ne correspond à « {0} ».')
 t('VOCAB_ADD_WORD', 'Word', 'Palabra', 'Palavra', '言葉', 'Mot')
 t('VOCAB_REVIEW_N', 'Review {0}', 'Repasar {0}', 'Revisar {0}', '復習 {0}', 'Réviser {0}')
@@ -166,7 +150,6 @@ t('WORD_LIST_NAME', 'List name (Lesson 3, Food…)', 'Nombre de la lista (Lecci�
 t('WORD_REMOVE', 'Remove', 'Quitar', 'Remover', '削除', 'Retirer')
 t('WORD_ERR_EMPTY', 'Write the word first', 'Escribe primero la palabra', 'Escreva a palavra primeiro', 'まず言葉を入力してください', 'Écrivez d’abord le mot')
 t('WORD_ERR_SAVED', 'That word is in your vocabulary already', 'Esa palabra ya está en tu vocabulario', 'Essa palavra já está no seu vocabulário', 'その言葉はもう単語帳にあります', 'Ce mot est déjà dans votre vocabulaire')
-t('WORD_TRANSLATE_HINT', 'Your meaning, into Japanese', 'Tu significado, al japonés', 'O seu significado, para o japonês', '意味（英語）を日本語に', 'Votre sens, en japonais')
 t('WORD_TRANSLATE_EMPTY', 'Type the meaning first, in your language', 'Escribe primero el significado, en tu idioma', 'Escreva primeiro o significado, no seu idioma', 'まず意味を英語で入力してください', 'Écrivez d’abord le sens, dans votre langue')
 t('WORD_SENTENCE', 'From the sentence', 'De la frase', 'Da frase', '出てきた文', 'De la phrase')
 t('VOCAB_SAVED', '{0} is in your vocabulary', '{0} está en tu vocabulario', '{0} está no seu vocabulário', '「{0}」を単語帳に保存しました', '{0} est dans votre vocabulaire')
@@ -184,7 +167,6 @@ t('WORDS', 'Words', 'Palabras', 'Palavras', '言葉', 'Mots')
 t('VOCAB_LIST_N', 'List {0}', 'Lista {0}', 'Lista {0}', 'リスト{0}', 'Liste {0}')
 t('SHEET', 'Sheet', 'Hoja', 'Folha', '練習シート', 'Feuille')
 t('SHEET_TITLE', 'Writing practice', 'Práctica de escritura', 'Prática de escrita', '書き取り練習', 'Entraînement à l’écriture')
-t('SHEET_CREDIT', 'Stroke order from KanjiVG (Ulrich Apel), CC BY-SA 3.0. Made with {APP}.', 'Orden de trazos de KanjiVG (Ulrich Apel), CC BY-SA 3.0. Hecho con {APP}.', 'Ordem dos traços do KanjiVG (Ulrich Apel), CC BY-SA 3.0. Feito com o {APP}.', '書き順: KanjiVG (Ulrich Apel), CC BY-SA 3.0。{APP}で作成。', 'Ordre des traits : KanjiVG (Ulrich Apel), CC BY-SA 3.0. Fait avec {APP}.')
 t('SHEET_FAILED', 'The practice sheet could not be made.', 'No se pudo crear la hoja de práctica.', 'Não foi possível criar a folha de prática.', '練習シートを作成できませんでした。', 'Impossible de créer la feuille d’entraînement.')
 t('SHEET_SAVED', 'Practice sheet saved: {0}', 'Hoja de práctica guardada: {0}', 'Folha de prática salva: {0}', '練習シートを保存しました: {0}', 'Feuille d’entraînement enregistrée : {0}')
 t('SHEET_FIRST_N', P('A sheet takes up to # character: the first went in.', 'A sheet takes up to # characters: the first # went in.'), P('Una hoja admite hasta # carácter: entró el primero.', 'Una hoja admite hasta # caracteres: entraron los primeros #.'), P('Uma folha aceita até # caractere: entrou o primeiro.', 'Uma folha aceita até # caracteres: entraram os primeiros #.'), '1枚のシートには{0}字まで入ります。最初の{0}字を入れました。', P('Une feuille prend jusqu’à # caractère : le premier y est.', 'Une feuille prend jusqu’à # caractères : les # premiers y sont.'))
@@ -199,8 +181,6 @@ t('BROWSE_DRAW', 'Draw', 'Dibujar', 'Desenhar', '手書き', 'Dessiner')
 t('BROWSE_PARTS', 'Parts', 'Partes', 'Partes', '部品', 'Clés')
 t('SORT_DEFAULT', 'Default', 'Por defecto', 'Padrão', '標準', 'Défaut')
 t('SORT_STROKES', 'Strokes', 'Trazos', 'Traços', '画数', 'Traits')
-t('SORT_ON', 'On', 'On', 'On', '音読み', 'On')
-t('SORT_KUN', 'Kun', 'Kun', 'Kun', '訓読み', 'Kun')
 t('SORT_MEANING', 'Meaning', 'Significado', 'Significado', '意味', 'Sens')
 t('BROWSE_BEST', 'Best matches for your drawing: {0}', 'Lo más parecido a tu dibujo: {0}', 'O mais parecido com o seu desenho: {0}', '手書きに近い文字：{0}', 'Au plus proche de votre dessin : {0}')
 t('BROWSE_PARTS_ONE', P('# character with the picked part', '# characters with the picked part'), P('# carácter con la parte elegida', '# caracteres con la parte elegida'), P('# caractere com a parte escolhida', '# caracteres com a parte escolhida'), '選んだ部品を含む字：{0}', P('# caractère avec la clé choisie', '# caractères avec la clé choisie'))
@@ -208,8 +188,6 @@ t('BROWSE_PARTS_MANY', P('# character with the picked parts', '# characters with
 t('BROWSE_PARTS_HINT', 'Tap parts: only characters that have all of them stay (dimmed parts: none left has them)', 'Toca partes: solo quedan los caracteres que las tienen todas (las atenuadas no están en ninguno de los que quedan)', 'Toque nas partes: só ficam os caracteres que têm todas (as esmaecidas não estão em nenhum dos que sobram)', '部品をタップ：すべてを含む字だけが残ります（薄い部品は残りの字にありません）', 'Touchez des clés : seuls restent les caractères qui les ont toutes (clés estompées : aucun restant ne les a)')
 t('BROWSE_DRAW_HINT', 'Write a character in the box with the pen: every stroke re-ranks the list', 'Escribe un carácter en el recuadro con el lápiz: cada trazo reordena la lista', 'Escreva um caractere no quadro com a caneta: cada traço reordena a lista', 'ペンで枠に字を書くと、一画ごとに一覧が並び替わります', 'Écrivez un caractère dans le cadre avec le stylet : chaque trait réordonne la liste')
 
-# --- the chart ------------------------------------------------------------------------------------
-t('CHART_VOICED', 'Voiced (dakuten, handakuten) and small kana', 'Sonoras (dakuten, handakuten) y kana pequeños', 'Sonoras (dakuten, handakuten) e kana pequenos', '濁音・半濁音と小書き文字', 'Sonores (dakuten, handakuten) et petits kana')
 
 # --- the side panel and Settings ---------------------------------------------------------------
 t('SIDE_STUDY', 'STUDY', 'ESTUDIO', 'ESTUDO', '学習', 'ÉTUDE')
@@ -220,13 +198,7 @@ t('SETTINGS_HANDWRITING', 'HANDWRITING', 'ESCRITURA', 'ESCRITA', '手書き認�
 t('SETTINGS_MLKIT', 'Read with Google ML Kit', 'Leer con Google ML Kit', 'Ler com o Google ML Kit', 'Google ML Kitで読み取る', 'Lire avec Google ML Kit')
 t('MLKIT_UNAVAILABLE', 'Not on this device: {APP} reads handwriting on its own.', 'No está en este dispositivo: {APP} lee la escritura por su cuenta.', 'Não está neste dispositivo: o {APP} lê a escrita por conta própria.', 'この端末では使えません。{APP}が自分で読み取ります。', 'Indisponible sur cet appareil : {APP} lit l’écriture seul.')
 t('MLKIT_OFF', 'Off: {APP} reads handwriting on its own, and nothing is sent to Google.', 'Desactivado: {APP} lee la escritura por su cuenta y no se envía nada a Google.', 'Desligado: o {APP} lê a escrita por conta própria e nada é enviado ao Google.', 'オフ：{APP}が自分で読み取り、Googleには何も送信されません。', 'Désactivé : {APP} lit l’écriture seul et rien n’est envoyé à Google.')
-t('MLKIT_READY', 'Ready: the Japanese model is on this device.', 'Listo: el modelo japonés está en este dispositivo.', 'Pronto: o modelo japonês está neste dispositivo.', '準備完了：日本語モデルはこの端末にあります。', 'Prêt : le modèle japonais est sur cet appareil.')
-t('MLKIT_DOWNLOADING', 'Downloading the Japanese model (about 20 MB)...', 'Descargando el modelo japonés (unos 20 MB)...', 'Baixando o modelo japonês (cerca de 20 MB)...', '日本語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle japonais (environ 20 Mo)...')
-t('MLKIT_FAILED', 'The Japanese model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo japonés. ¿Hay conexión?', 'Não foi possível baixar o modelo japonês. O dispositivo está conectado?', '日本語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle japonais. L’appareil est-il connecté ?')
-t('MLKIT_MISSING', 'The Japanese model (about 20 MB) is not downloaded yet.', 'El modelo japonés (unos 20 MB) aún no está descargado.', 'O modelo japonês (cerca de 20 MB) ainda não foi baixado.', '日本語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle japonais (environ 20 Mo) n’est pas encore téléchargé.')
 
-# Read aloud (speech.h): the device's basic Japanese voice spoke.
-t('SPEECH_BETTER_VOICE', 'For a clearer voice, download a Japanese one in Settings › Accessibility › Spoken Content › Voices.', 'Para una voz más clara, descarga una japonesa en Ajustes › Accesibilidad › Contenido leído › Voces.', 'Para uma voz mais clara, baixe uma japonesa em Ajustes › Acessibilidade › Conteúdo Falado › Vozes.', 'よりきれいな音声は、設定 › アクセシビリティ › 読み上げコンテンツ › 声 から日本語の声をダウンロードできます。', 'Pour une voix plus claire, téléchargez-en une japonaise dans Réglages › Accessibilité › Contenu énoncé › Voix.')
 
 # Reviews (review.h): spaced repetition of the characters being learnt.
 t('REVIEWS', 'Reviews', 'Repasos', 'Revisões', '復習', 'Révisions')
@@ -242,21 +214,17 @@ o('DATA_OFFLINE', '{APP} works offline. Your pages, marks, exams, words and prac
 
 # --- the exam ------------------------------------------------------------------------------------
 t('EXAM_SELECTION', 'Selection', 'Selección', 'Seleção', '選択した字', 'Sélection')
-t('EXAM_INTRO', 'Each character once, from memory: a kanji from its meaning and readings, a kana from its romaji.', 'Cada carácter una vez, de memoria: un kanji a partir de su significado y lecturas; un kana, de su rōmaji.', 'Cada caractere uma vez, de memória: um kanji a partir do significado e das leituras; um kana, do romaji.', '各字を1回ずつ、何も見ずに：漢字は意味と読みから、かなはローマ字から書きます。', 'Chaque caractère une fois, de mémoire : un kanji d’après son sens et ses lectures, un kana d’après son rōmaji.')
 t('EXAM_WHAT', 'WHAT', 'QUÉ', 'O QUÊ', '出題範囲', 'QUOI')
 t('EXAM_HOW_MANY', 'HOW MANY', 'CUÁNTOS', 'QUANTOS', '問題数', 'COMBIEN')
 t('EXAM_NOTHING_STUDYING', 'Nothing marked Studying yet', 'Aún no hay nada marcado como Estudiando', 'Ainda não há nada marcado como Estudando', '「学習中」の字はまだありません', 'Rien n’est encore marqué En cours')
 t('EXAM_NOTHING', 'Nothing to ask here yet', 'Aún no hay nada que preguntar aquí', 'Ainda não há nada para perguntar aqui', 'ここにはまだ出題できる字がありません', 'Rien à demander ici pour l’instant')
-t('EXAM_MARK_HINT', 'Mark characters with Study in the viewer, or in Browse’s Select mode.', 'Marca caracteres con Estudiar en el visor, o en el modo Seleccionar de Kanji.', 'Marque caracteres com Estudar no visualizador ou no modo Selecionar de Kanji.', '字の表示画面の「学習する」か、漢字一覧の選択モードで印を付けられます。', 'Marquez des caractères avec Étudier dans la fiche, ou dans le mode Sélectionner des kanji.')
+t('EXAM_MARK_HINT', 'Mark characters with Study in the viewer, or in the character list’s Select mode.', 'Marca caracteres con Estudiar en el visor, o en el modo Seleccionar de la lista de caracteres.', 'Marque caracteres com Estudar no visualizador ou no modo Selecionar da lista de caracteres.', '字の表示画面の「学習する」か、文字一覧の選択モードで印を付けられます。', 'Marquez des caractères avec Étudier dans la fiche, ou dans le mode Sélectionner de la liste des caractères.')
 t('EXAM_PLAN', '{0} of the {1} {2} characters, shuffled', '{0} de los {1} caracteres de {2}, al azar', '{0} dos {1} caracteres de {2}, embaralhados', '{2}の{1}字から{0}字、ランダムに出題', '{0} des {1} caractères {2}, mélangés')
 t('EXAM_RULE', 'Right when it reads as the character (among its first three guesses); points for how well it is written.', 'Correcto si se lee como el carácter (entre sus tres primeras opciones); los puntos, por lo bien escrito que está.', 'Certo quando é lido como o caractere (entre os três primeiros palpites); os pontos, por quão bem está escrito.', '候補の上位3つに入れば正解。点数は字のきれいさです。', 'Juste s’il est lu comme le caractère (parmi ses trois premières propositions) ; les points, selon la qualité de l’écriture.')
 t('EXAM_MAX', 'An exam asks {0} at most.', 'Un examen pregunta {0} como máximo.', 'Um teste pergunta no máximo {0}.', '1回のテストは最大{0}問です。', 'Un examen demande {0} caractères au plus.')
 t('EXAM_TITLE_SOURCE', 'Exam · {0}', 'Examen · {0}', 'Teste · {0}', 'テスト・{0}', 'Examen · {0}')
 t('EXAM_TAP_TO_LEAVE', 'Tap one to leave it out', 'Toca uno para dejarlo fuera', 'Toque em um para deixá-lo de fora', 'タップすると出題から外せます', 'Touchez-en un pour l’exclure')
 t('EXAM_ONCE_EACH', 'Once each, from memory', 'Una vez cada uno, de memoria', 'Uma vez cada, de memória', '1回ずつ、何も見ずに', 'Une fois chacun, de mémoire')
-t('EXAM_WRITE_KATAKANA', 'WRITE IN KATAKANA', 'ESCRIBE EN KATAKANA', 'ESCREVA EM KATAKANA', 'カタカナで書く', 'ÉCRIVEZ EN KATAKANA')
-t('EXAM_WRITE_HIRAGANA', 'WRITE IN HIRAGANA', 'ESCRIBE EN HIRAGANA', 'ESCREVA EM HIRAGANA', 'ひらがなで書く', 'ÉCRIVEZ EN HIRAGANA')
-t('EXAM_WRITE_KANJI', 'WRITE THE KANJI FOR', 'ESCRIBE EL KANJI DE', 'ESCREVA O KANJI DE', 'この意味の漢字を書く', 'ÉCRIVEZ LE KANJI DE')
 t('EXAM_THEN_FINISH', 'Write it once, then Finish', 'Escríbelo una vez y pulsa Terminar', 'Escreva uma vez e toque em Concluir', '1回書いて「終了」', 'Écrivez-le une fois, puis Terminer')
 t('EXAM_THEN_NEXT', 'Write it once, then Next', 'Escríbelo una vez y pulsa Siguiente', 'Escreva uma vez e toque em Próximo', '1回書いて「次へ」', 'Écrivez-le une fois, puis Suivant')
 t('EXAM_READING_ANSWERS', 'Reading your answers... {0} of {1}', 'Leyendo tus respuestas... {0} de {1}', 'Lendo suas respostas... {0} de {1}', '答えを読み取り中… {0} / {1}', 'Lecture de vos réponses... {0} sur {1}')
@@ -328,7 +296,6 @@ t('ALBUM_EXAMS_COUNTS', '{0,plural, one{# exam} other{# exams}}, {1} passed', '{
 t('EXAM_KEPT', '{0} · {1}', '{0} · {1}', '{0} · {1}', '{0}・{1}', '{0} · {1}')
 
 # --- the album -------------------------------------------------------------------------------------
-t('ALBUM_EMPTY', 'Nothing practised yet: open a character (Kanji or Kana), then Practice, then Score.', 'Aún no hay nada practicado: abre un carácter (Kanji o Kana), luego Practicar y luego Puntuar.', 'Ainda não há nada praticado: abra um caractere (Kanji ou Kana), depois Praticar e depois Avaliar.', 'まだ練習がありません。字を開いて（漢字かかな）、「練習」、「採点」の順に。', 'Rien de pratiqué pour l’instant : ouvrez un caractère (Kanji ou Kana), puis S’entraîner, puis Noter.')
 t('ALBUM_COUNTS', '{0} practised, {1}', '{0} practicados, {1}', '{0} praticados, {1}', '練習した字 {0}・{1}', '{0} pratiqués, {1}')
 t('ALBUM_SINCE', '{0} since {1}', '{0} desde el {1}', '{0} desde {1}', '{1}から{0}', '{0} depuis le {1}')
 t('ALBUM_FIRST_BEST_LAST', 'First {0}, best {1}, last {2}', 'Primera {0}, mejor {1}, última {2}', 'Primeira {0}, melhor {1}, última {2}', '最初 {0}・最高 {1}・最新 {2}', 'Première {0}, meilleure {1}, dernière {2}')
@@ -347,7 +314,7 @@ t('SET_NOTHING', 'Nothing was practised in this set', 'No se practicó nada en e
 t('SET_WEAK', '{0} under {1}: “Weakest again” practises them, weakest first', '{0} por debajo de {1}: «Repetir los flojos» los practica, del más flojo al menos', '{0} abaixo de {1}: “Refazer os fracos” pratica esses, do mais fraco ao menos', '{1}点未満が{0}字：「苦手をもう一度」で苦手な順に練習できます', '{0} sous {1} : « Revoir les faibles » les reprend, du plus faible au moins faible')
 t('SET_ALL_GOOD', 'All good this run', 'Todo bien esta vez', 'Tudo certo desta vez', '今回はすべて良好', 'Tout est bon cette fois')
 t('PRACTICE_HEADER', '{0}   {1}', '{0}   {1}', '{0}   {1}', '{0}　{1}', '{0}   {1}')
-t('PRACTICE_HEADER_JLPT', '{0}   {1}   JLPT N{2}', '{0}   {1}   JLPT N{2}', '{0}   {1}   JLPT N{2}', '{0}　{1}　JLPT N{2}', '{0}   {1}   JLPT N{2}')
+t('PRACTICE_HEADER_LEVEL', '{0}   {1}   {2}', '{0}   {1}   {2}', '{0}   {1}   {2}', '{0}　{1}　{2}', '{0}   {1}   {2}')   # {2}: the level's long name (lang.h: "JLPT N5")
 t('PRACTICE_HISTORY', '{0}   best {1}   last {2}   first {3}', '{0}   mejor {1}   última {2}   primera {3}', '{0}   melhor {1}   última {2}   primeira {3}', '{0}　最高 {1}　最新 {2}　最初 {3}', '{0}   meilleure {1}   dernière {2}   première {3}')
 t('NOT_PRACTISED', 'Not practised yet', 'Aún sin practicar', 'Ainda não praticado', 'まだ練習していません', 'Pas encore pratiqué')
 t('WRITE_AGAIN', '{0} · write again for another try', '{0} · vuelve a escribir para otro intento', '{0} · escreva de novo para outra tentativa', '{0}・もう一度書いて再挑戦', '{0} · réécrivez pour un nouvel essai')

@@ -1,4 +1,5 @@
 #include "study/screens/wordexam.h"
+#include "lang/lang.h"
 #include "study/widgets/header.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/widgets/icons.h"
@@ -554,7 +555,7 @@ RDE_INTERNAL void fude_wordexam_render_setup(fude_wordexam* _exam, rde_font* _fo
     const fude_theme* _theme = fude_theme_active();
     c8 _title[128];
     FUDE_TEXTF(_title, FUDE_TEXT_WORDEXAM_TITLE_OF, FUDE_TS(_exam->title));
-    fude_header_draw(&_exam->glyph, 0x8A9Eu, _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), NULL);
+    fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), NULL);
     f32 _y = _top - 56.0f;
     _exam->chip_count = 0;
     const u32 _size   = fude_wordexam_askable(_exam);
@@ -648,7 +649,7 @@ RDE_INTERNAL void fude_wordexam_render_writing(fude_wordexam* _exam, rde_window*
     c8 _title[128], _line[64];
     FUDE_TEXTF(_title, FUDE_TEXT_WORDEXAM_TITLE_OF, FUDE_TS(_exam->title));
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_exam->current + 1u), FUDE_TN(_exam->count));
-    fude_header_draw(&_exam->glyph, 0x8A9Eu, _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), _line);
+    fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), _line);
     // Progress: a segment per word.
     const f32 _py  = _top - 54.0f;
     const f32 _gap = 3.0f;
@@ -705,7 +706,7 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
             _graded += _exam->items[_i].graded ? 1u : 0u;
         }
         FUDE_TEXTF(_line, FUDE_TEXT_EXAM_READING_ANSWERS, FUDE_TN(_graded), FUDE_TN(_exam->count));
-        fude_header_draw(&_exam->glyph, 0x8A9Eu, _font, _font_px, _left, _right, _top, _title, _line, NULL);
+        fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, _line, NULL);
     } else {
         u32 _right_n = 0;
         f32 _points  = 0.0f;
@@ -714,7 +715,7 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
             _points  += _exam->items[_i].correct ? _exam->items[_i].points : 0.0f;
         }
         FUDE_TEXTF(_line, FUDE_TEXT_EXAM_RESULT, FUDE_TN(_right_n), FUDE_TN(_exam->count), FUDE_TN(lroundf(_points / (f32)_exam->count)));
-        fude_header_draw(&_exam->glyph, 0x8A9Eu, _font, _font_px, _left, _right, _top, _title, _line, NULL);
+        fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, _line, NULL);
         const b8 _passed = (f32)_right_n >= FUDE_WORDEXAM_PASS * (f32)_exam->count;
         const c8* _verdict = fude_text(_passed ? FUDE_TEXT_EXAM_PASSED : FUDE_TEXT_EXAM_NOT_PASSED);
         const f32 _vw = fude_draw_text_width(_font, _font_px, _verdict, 12.0f) + 22.0f;

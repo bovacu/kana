@@ -1,4 +1,4 @@
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 
 #include <stdio.h>
 #include <stdlib.h>

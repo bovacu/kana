@@ -71,7 +71,8 @@ Translate with Google say they need it.
   out as PDFs; the Library shows the one in the app's language. ShareAlike
   covers these PDFs, not the app (they are bundled beside it). Their credits,
   revisions and changes: their first pages and `LICENSE-lectures.txt`. How they
-  were made: `tools/lectures/phrasebook.py` (and `html2pdf.swift`).
+  were made: the repository's `tools/lectures/phrasebook.py` (and
+  `html2pdf.swift`), which Hanzi's and Hangul's phrasebooks are made with too.
 - No microphone, location, contacts or tracking (`NSPrivacyTracking` is false
   everywhere, so no App Tracking Transparency prompt).
 

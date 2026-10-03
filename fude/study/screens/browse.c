@@ -2,8 +2,7 @@
 #include "drawing/base/text.h"
 #include "study/models/marks.h"
 #include "drawing/widgets/draw.h"
-#include "lang/ja/chart.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "drawing/base/theme.h"
 
 #include <math.h>
@@ -382,7 +381,7 @@ void fude_browse_update(fude_browse* _browse, f32 _dt) {
     // Marks changed (the viewer's Study, an exam): the Studying and Known lists with them.
     if(fude_marks_revision() != _browse->_marks_seen) {
         _browse->_marks_seen = fude_marks_revision();
-        _browse->dirty       = _browse->dirty || _browse->filter == FUDE_FILTER_STUDYING || _browse->filter == FUDE_FILTER_KNOWN;
+        _browse->dirty       = _browse->dirty || _browse->filter == fude_filter_studying() || _browse->filter == fude_filter_known();
     }
     // ML Kit on the pad: asked once a stroke ends; its answer ranks the list again.
     if(_browse->_recognize_wanted) {
@@ -488,22 +487,31 @@ RDE_INTERNAL void fude_browse_caption(fude_browse* _browse, const fude_kanji_inf
         return;
     }
 
-    const b8        _by_reading = _browse->sort == FUDE_SORT_ON || _browse->sort == FUDE_SORT_KUN;
-    const c8* const _romaji     = fude_romaji(_info->codepoint);
+    const b8        _by_reading = _browse->sort >= fude_sort_reading(0u) && _browse->sort < fude_sort_meaning();
+    const c8* const _romaji     = fude_lang_latin(_info->codepoint);
 
     if(_by_reading && _romaji == NULL) {
-        // The reading it is sorted by, drawn in kana (first reading only). A kanji
-        // without one — 校 has no kun, 込 no on — shows its other reading instead:
-        // on readings are katakana and kun hiragana, so they never read as each other.
-        const c8* _on  = fude_kanji_on(_browse->db, _info);
-        const c8* _kun = fude_kanji_kun(_browse->db, _info);
-        const c8* _all = _browse->sort == FUDE_SORT_ON ? (_on[0] != 0 ? _on : _kun) : (_kun[0] != 0 ? _kun : _on);
+        // The reading it is sorted by (first reading only). One without — 校 has
+        // no kun, 込 no on — shows its other kind instead (Japanese writes on in
+        // katakana and kun in hiragana, so they never read as each other).
+        const u32 _kind  = _browse->sort - fude_sort_reading(0u);
+        const c8* _this  = fude_kanji_reading(_browse->db, _info, _kind);
+        const c8* _other = fude_kanji_reading(_browse->db, _info, 1u - _kind);
+        const c8* _all   = _this[0] != 0 ? _this : _other;
         if(_all[0] != 0) {
             c8 _first[64];
             const c8* _sep = strstr(_all, "、");
             const usize _n = _sep != NULL ? (usize)(_sep - _all) : strlen(_all);
             snprintf(_first, sizeof(_first), "%.*s", (int)(_n < sizeof(_first) - 1 ? _n : sizeof(_first) - 1), _all);
-            fude_glyph_reading(&_browse->glyph, _first, (rde_vec_2F){ _x + 6.0f, _y + 10.0f }, 14.0f, _x + _cell - 4.0f, fude_theme_active()->text_soft, fude_theme_active()->text_soft);
+            // Hangul packs its letters in one square, too small written from its
+            // strokes at a caption's size: in the text font, as the captions beside it.
+            const c8* _p  = _first;
+            const u32 _cp = fude_utf8_next(&_p);
+            if(_cp >= 0xAC00u && _cp <= 0xD7A3u) {
+                fude_draw_text(_font, _font_px, _first, _x + 6.0f, _y, FUDE_BROWSE_CAPTION_PX, fude_theme_active()->text_soft);
+            } else {
+                fude_glyph_reading(&_browse->glyph, _first, (rde_vec_2F){ _x + 6.0f, _y + 10.0f }, 14.0f, _x + _cell - 4.0f, fude_theme_active()->text_soft, fude_theme_active()->text_soft);
+            }
             return;
         }
         // No reading at all: its meaning, below.
@@ -512,15 +520,15 @@ RDE_INTERNAL void fude_browse_caption(fude_browse* _browse, const fude_kanji_inf
     if(_browse->sort == FUDE_SORT_STROKES) {
         snprintf(_line, sizeof(_line), "%u", _info->strokes);
     } else if(_romaji != NULL) {
-        snprintf(_line, sizeof(_line), "%s", _romaji);   // kana have no readings or meanings: their romaji
-    } else if(_by_reading || _browse->sort == FUDE_SORT_MEANING || _browse->search[0] != 0) {
+        snprintf(_line, sizeof(_line), "%s", _romaji);   // a script's letters have no readings or meanings: their Latin names
+    } else if(_by_reading || _browse->sort == fude_sort_meaning() || _browse->search[0] != 0) {
         const c8* _m = fude_kanji_meanings(_browse->db, _info);
         const c8* _comma = strstr(_m, ", ");
         const usize _n = _comma != NULL ? (usize)(_comma - _m) : strlen(_m);
         const usize _fit = (usize)(_cell / (FUDE_BROWSE_CAPTION_PX * 0.6f));   // roughly what fits
         snprintf(_line, sizeof(_line), "%.*s%s", (int)(_n < _fit ? _n : _fit), _m, _n > _fit ? "." : "");
-    } else if(_info->jlpt_n != 0) {
-        snprintf(_line, sizeof(_line), "N%u", _info->jlpt_n);
+    } else if(_info->level != 0) {
+        fude_lang_level_name(_info->level, false, _line, sizeof(_line));
     }
 
     if(_line[0] != 0) {
@@ -671,16 +679,31 @@ RDE_INTERNAL u32 fude_browse_screen_in_view(void* _self, const u32** _records) {
 
 // --- its bar (filterbar.h) ---
 
-// The filters' chips (text.h); the JLPT levels are the same in every language.
-static const FUDE_TEXT_ FUDE_BROWSE_FILTER_TEXTS[FUDE_FILTER_COUNT] = { FUDE_TEXT_ALL, FUDE_TEXT_HIRAGANA, FUDE_TEXT_KATAKANA, FUDE_TEXT_KANJI, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT,
-                                                                        FUDE_TEXT_COUNT, FUDE_TEXT_COUNT, FUDE_TEXT_COUNT, FUDE_TEXT_STUDYING, FUDE_TEXT_KNOWN };
-static const c8* const  FUDE_BROWSE_FILTER_LEVELS[FUDE_FILTER_COUNT] = { NULL, NULL, NULL, NULL, "N5", "N4", "N3", "N2", "N1", NULL, NULL };
-static const FUDE_TEXT_ FUDE_BROWSE_SORT_TEXTS[FUDE_SORT_COUNT]     = { FUDE_TEXT_SORT_DEFAULT, FUDE_TEXT_SORT_STROKES, FUDE_TEXT_SORT_ON, FUDE_TEXT_SORT_KUN, FUDE_TEXT_SORT_MEANING };
-
+// The filters' chips (catalog.h's order): All, the language's groups, its levels
+// (their short names, the same in every language: "N5"), Studying, Known.
 RDE_INTERNAL const c8* fude_browse_filter_label(u32 _i) {
-    return FUDE_BROWSE_FILTER_LEVELS[_i] != NULL ? FUDE_BROWSE_FILTER_LEVELS[_i] : fude_text(FUDE_BROWSE_FILTER_TEXTS[_i]);
+    static c8 _levels[FUDE_LANG_LEVELS][16];
+    const u32 _groups = fude_lang_group_count();
+    if(_i == FUDE_FILTER_ALL) {
+        return fude_text(FUDE_TEXT_ALL);
+    }
+    if(_i <= _groups) {
+        return fude_text((FUDE_TEXT_)fude_lang_group_name(_i - 1u));
+    }
+    if(_i < fude_filter_studying()) {
+        const u32 _level = _i - 1u - _groups;
+        fude_lang_level_name(fude_lang_level_value(_level), false, _levels[_level], sizeof(_levels[_level]));
+        return _levels[_level];
+    }
+    return fude_text(_i == fude_filter_studying() ? FUDE_TEXT_STUDYING : FUDE_TEXT_KNOWN);
 }
-RDE_INTERNAL const c8* fude_browse_sort_label(u32 _i)                 { return fude_text(FUDE_BROWSE_SORT_TEXTS[_i]); }
+// The sorts' chips: Default, Strokes, each of the language's readings, Meaning.
+RDE_INTERNAL const c8* fude_browse_sort_label(u32 _i) {
+    if(_i == FUDE_SORT_DEFAULT)  { return fude_text(FUDE_TEXT_SORT_DEFAULT); }
+    if(_i == FUDE_SORT_STROKES)  { return fude_text(FUDE_TEXT_SORT_STROKES); }
+    if(_i < fude_sort_meaning()) { return fude_text((FUDE_TEXT_)fude_lang_reading_name(_i - fude_sort_reading(0u))); }
+    return fude_text(FUDE_TEXT_SORT_MEANING);
+}
 RDE_INTERNAL u32       fude_browse_filter_chosen(const void* _self)   { return (u32)((const fude_browse*)_self)->filter; }
 RDE_INTERNAL u32       fude_browse_sort_chosen(const void* _self)     { return (u32)((const fude_browse*)_self)->sort; }
 RDE_INTERNAL void      fude_browse_filter_choose(void* _self, u32 _i) { fude_browse_set_filter((fude_browse*)_self, (FUDE_FILTER_)_i); }
@@ -701,8 +724,8 @@ RDE_INTERNAL void fude_browse_clear_all(void* _self) {
 }
 
 static const fude_filterbar_def FUDE_BROWSE_BAR = {
-    .chips = { { FUDE_FILTER_COUNT, fude_browse_filter_label, fude_browse_filter_chosen, fude_browse_filter_choose },
-               { FUDE_SORT_COUNT,   fude_browse_sort_label,   fude_browse_sort_chosen,   fude_browse_sort_choose } },
+    .chips = { { 0u, fude_filter_count, fude_browse_filter_label, fude_browse_filter_chosen, fude_browse_filter_choose },
+               { 0u, fude_sort_count,   fude_browse_sort_label,   fude_browse_sort_chosen,   fude_browse_sort_choose } },
     .chip_rows   = 2u,
     .search_hint = FUDE_TEXT_SEARCH_HINT,
     .search      = fude_browse_search,

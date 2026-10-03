@@ -4,6 +4,7 @@
 #include "drawing/base/text.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/base/save.h"
+#include "drawing/base/android.h"
 
 #include <string.h>
 
@@ -19,10 +20,21 @@ const fude_extension* fude_app_ext(const fude_app* _app) {
 }
 
 void fude_app_start(fude_app* _app) {
+#if defined(RDE_PLATFORM_ANDROID)
+    fude_android_init();   // the apps' Java (android.h): found on this, the engine's, thread
+#endif
     fude_save_set_folder(fude_app_id(_app));
     if(_app->info != NULL && _app->info->name != NULL) {
         rde_window_set_title(_app->window, _app->info->name);   // a computer's window: the app's name
     }
+}
+
+void fude_app_window(rde_window* _window) {
+#if defined(RDE_PLATFORM_ANDROID)
+    rde_window_set_density_scaling(_window, true);
+#else
+    RDE_UNUSED(_window);
+#endif
 }
 
 const c8* fude_app_id(const fude_app* _app) {

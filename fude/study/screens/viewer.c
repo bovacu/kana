@@ -1,8 +1,9 @@
 #include "study/screens/viewer.h"
+#include "lang/lang.h"
 #include "study/widgets/header.h"
 #include "study/services/speech.h"
 #include "study/widgets/wordcard.h"
-#include "lang/ja/wordsplit.h"
+#include "lang/wordsplit.h"
 #include "study/models/examlog.h"
 #include "study/models/charnote.h"
 #include "drawing/widgets/draw.h"
@@ -79,6 +80,12 @@ RDE_INTERNAL b8 fude_viewer_is_kanji(u32 _cp) {
     return (_cp >= 0x4E00u && _cp <= 0x9FFFu) || (_cp >= 0x3400u && _cp <= 0x4DBFu);
 }
 
+// A character with words: in the data (a kanji's, a Korean syllable's), or the learner's.
+RDE_INTERNAL b8 fude_viewer_has_words(const fude_viewer* _viewer, u32 _record, u32 _codepoint) {
+    u32 _one[1];
+    return fude_kanji_words(_viewer->db, _record, _one, 1u, NULL) > 0u || fude_vocab_kanji_count(_codepoint) > 0u;
+}
+
 u32 fude_viewer_codepoint(const fude_viewer* _viewer) {
     fude_kanji_info _info;
     if(!_viewer->open || rde_arr_length(&_viewer->list) == 0 ||
@@ -111,7 +118,7 @@ RDE_INTERNAL void fude_viewer_list_rows(fude_viewer* _viewer, u32 _record, u32 _
         fude_scroller_stop(&_viewer->scroll);
         _viewer->scroll.offset = 0.0f;
     }
-    if(!fude_viewer_is_kanji(_codepoint)) {
+    if(!fude_viewer_is_kanji(_codepoint) && !fude_viewer_has_words(_viewer, _record, _codepoint)) {
         return;
     }
 
@@ -258,7 +265,7 @@ RDE_INTERNAL void fude_viewer_speak_readings(fude_viewer* _viewer) {
     }
     c8        _say[512];
     usize     _n     = 0;
-    const c8* _parts[2] = { fude_kanji_on(_viewer->db, &_info), fude_kanji_kun(_viewer->db, &_info) };
+    const c8* _parts[2] = { fude_kanji_reading(_viewer->db, &_info, 0u), fude_kanji_reading(_viewer->db, &_info, 1u) };
     for(u32 _k = 0; _k < 2u; _k++) {
         if(_parts[_k][0] == 0) {
             continue;
@@ -274,6 +281,9 @@ RDE_INTERNAL void fude_viewer_speak_readings(fude_viewer* _viewer) {
         }
     }
     _say[_n] = 0;
+    if(_n == 0) {
+        fude_utf8_put(_info.codepoint, _say);   // a letter (a Korean syllable): itself
+    }
     if(_n == 0) {
         fude_utf8_put(fude_viewer_codepoint(_viewer), _say);   // a kana: itself
     }
@@ -541,10 +551,6 @@ void fude_viewer_prev(fude_viewer* _viewer) {
 
 // --- the page ----------------------------------------------------------------------
 
-RDE_INTERNAL b8 fude_viewer_is_kana(u32 _cp) {
-    return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu);
-}
-
 // The words' rows, _visible of them from _top down between _x0 and _right,
 // scrolled; each written, reading and meaning — then › (tap: practise) or, in
 // Add, a tick. The area is kept for the pointer.
@@ -607,8 +613,10 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
         }
         fude_draw_text_fit(_font, _font_px, _r->reading, FUDE_VIEWER_SMALL_PX, _reading_w, _line, sizeof(_line));
         fude_draw_text(_font, _font_px, _line, _reading_x, _baseline, FUDE_VIEWER_SMALL_PX, _theme->text_soft);
-        fude_draw_text_fit(_font, _font_px, _r->meaning, FUDE_VIEWER_SMALL_PX, _end - _meaning_x, _line, sizeof(_line));
-        fude_draw_text(_font, _font_px, _line, _meaning_x, _baseline, FUDE_VIEWER_SMALL_PX, _theme->text);
+        // A long meaning: smaller, to fit whole (cut short only past that).
+        const f32 _meaning_px = fude_draw_text_px_to_fit(_font, _font_px, _r->meaning, FUDE_VIEWER_SMALL_PX, _end - _meaning_x, 0.78f);
+        fude_draw_text_fit(_font, _font_px, _r->meaning, _meaning_px, _end - _meaning_x, _line, sizeof(_line));
+        fude_draw_text(_font, _font_px, _line, _meaning_x, _baseline, _meaning_px, _theme->text);
         if(_r->kind == FUDE_VIEWER_ROW_TO_ADD || _r->kind == FUDE_VIEWER_ROW_TYPED) {
             // A tick: on, the learner's; off, one to add.
             const rde_vec_2F _c = { _right - 20.0f, _mid };
@@ -817,16 +825,23 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
 
     // --- header: what it is, as chips; where it is in the list at the right ---------
     const b8          _kana  = !fude_viewer_is_kanji(_info.codepoint);
+    // A letter with words of its own (Korean's syllables: 한 → 한국, 한글) shows as a
+    // character does — its Latin name for a meaning, no readings; the others
+    // (kana, jamo) alone.
+    const b8          _letter = _kana && fude_viewer_has_words(_viewer, _record, _info.codepoint);
+    const b8          _plain  = _kana && !_letter;
+    const u32         _kinds  = _letter ? 0u : fude_lang_reading_kinds();
     const fude_theme* _theme = fude_theme_active();
     c8 _line[256];
     {
-        const b8  _is_kana = fude_viewer_is_kana(_info.codepoint);
+        const u8  _group   = fude_lang_group(_info.codepoint);
         const f32 _mid     = _top - 14.0f;
         f32       _x       = _left;
-        _x += fude_draw_chip(_font, _font_px, fude_text(_is_kana ? (_info.codepoint < 0x30A0u ? FUDE_TEXT_HIRAGANA : FUDE_TEXT_KATAKANA) : FUDE_TEXT_KANJI), _x, _mid, FUDE_VIEWER_CHIP_PX,
+        // Its group (one outside them all, as the language names it: 々 a kanji).
+        _x += fude_draw_chip(_font, _font_px, fude_text((FUDE_TEXT_)fude_lang_group_name(_group)), _x, _mid, FUDE_VIEWER_CHIP_PX,
                              _theme->surface_2, _theme->text) + 6.0f;
-        if(_info.jlpt_n != 0) {
-            snprintf(_line, sizeof(_line), "N%u", _info.jlpt_n);
+        if(_info.level != 0) {
+            fude_lang_level_name(_info.level, false, _line, sizeof(_line));
             _x += fude_draw_chip(_font, _font_px, _line, _x, _mid, FUDE_VIEWER_CHIP_PX, _theme->accent, _theme->on_accent) + 6.0f;
         }
         FUDE_TEXTF(_line, FUDE_TEXT_STROKES_N, FUDE_TN(_info.strokes));
@@ -856,7 +871,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         }
     }
 
-    if(_viewer->adding && !_kana) {
+    if(_viewer->adding && !_plain) {
         fude_viewer_render_adding(_viewer, _window, _font, _font_px, &_info, _left, _right, _top, _bottom);
         return;
     }
@@ -864,7 +879,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     // The parts it is built from, those that can be drawn.
     u32 _parts[FUDE_KANJI_MAX_PARTS];
     u32 _part_count = 0;
-    if(!_kana) {
+    if(!_plain) {
         u32 _all[FUDE_KANJI_MAX_PARTS];
         const u32 _n = fude_kanji_parts(_viewer->db, _record, _all, FUDE_KANJI_MAX_PARTS);
         for(u32 _i = 0; _i < _n; _i++) {
@@ -878,19 +893,20 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     // --- the character, and where its details go --------------------------------------
     // The words show as many rows as fit (they scroll); at least one, for "none yet".
     const u32 _rows    = _viewer->row_count > 0u ? _viewer->row_count : 1u;
-    u32       _visible = _kana ? 0u : (_rows < 6u ? _rows : 6u);
+    u32       _visible = _plain ? 0u : (_rows < 6u ? _rows : 6u);
     const b8  _similar = _viewer->similar_count > 0u;
     const c8* _note    = fude_charnote_get(_info.codepoint);
-    const b8  _noted   = !_kana && _note[0] != 0;
-    const b8  _wide    = !_kana && (_right - _left) > (_top - _bottom) * 1.25f;
+    const b8  _noted   = !_plain && _note[0] != 0;
+    const b8  _wide    = !_plain && (_right - _left) > (_top - _bottom) * 1.25f;
     // 部 and 似 share a line when the column (beside the character: under 55%
     // of the width) has room for both.
     const f32 _parts_w = _part_count > 0 ? 46.0f + (f32)_part_count * FUDE_VIEWER_KANA_SIZE * 1.3f : 0.0f;
     const f32 _sim_w   = 46.0f + (f32)_viewer->similar_count * FUDE_VIEWER_KANA_SIZE * 1.6f;
     const f32 _column  = _wide ? (_right - _left) * 0.55f - FUDE_VIEWER_GUTTER : _right - _left;
-    const b8  _shared  = !_kana && _similar && _part_count > 0 && _parts_w + 24.0f + _sim_w <= _column;
-    const f32 _details = (_kana ? 0.0f : (_part_count > 0 ? 4.0f : 3.0f) * FUDE_VIEWER_LINE) + (_similar && !_shared ? FUDE_VIEWER_LINE : 0.0f) +
-                         (_noted ? FUDE_VIEWER_LINE : 0.0f);   // meaning, On, Kun, parts; 似 (beside the parts, or its own); 記
+    const b8  _shared  = !_plain && _similar && _part_count > 0 && _parts_w + 24.0f + _sim_w <= _column;
+    const u32 _lines   = 1u + _kinds + (_part_count > 0 ? 1u : 0u);   // meaning, each reading's kind (On, Kun), parts
+    const f32 _details = (_plain ? 0.0f : (f32)_lines * FUDE_VIEWER_LINE) + (_similar && !_shared ? FUDE_VIEWER_LINE : 0.0f) +
+                         (_noted ? FUDE_VIEWER_LINE : 0.0f);   // ...; 似 (beside the parts, or its own); 記
     f32        _size;
     rde_vec_2F _tl;
     f32        _x0;   // the details' left
@@ -905,13 +921,13 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         _y0   = _tl.y - 8.0f;
         // The sentence shown's height (beside the character, › changes only how
         // many words show); the words down to two rows for it.
-        _sent_h = _kana ? 0.0f : fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _x0, false);
+        _sent_h = _plain ? 0.0f : fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _x0, false);
         f32 _fit = floorf((_y0 - _details - 8.0f - FUDE_VIEWER_TITLE - FUDE_VIEWER_CARD_PAD - _sent_h - _bottom) / FUDE_VIEWER_ROW);
         if(_sent_h > 0.0f && _fit < fminf(2.0f, (f32)_rows)) {
             _sent_h = 0.0f;   // a short column: the words before the sentence
             _fit    = floorf((_y0 - _details - 8.0f - FUDE_VIEWER_TITLE - FUDE_VIEWER_CARD_PAD - _bottom) / FUDE_VIEWER_ROW);
         }
-        _visible = _kana || _fit < 1.0f ? 0u : (u32)fminf((f32)_rows, _fit);
+        _visible = _plain || _fit < 1.0f ? 0u : (u32)fminf((f32)_rows, _fit);
     } else {
         // Under it: rows go, down to three (two, to make room for a sentence),
         // before the character gets small; then the sentence goes. The room kept
@@ -919,7 +935,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         // moves the character once at most, never back and forth.
         const f32 _room = (_top - 48.0f) - (_bottom + _details);
         #define FUDE_VIEWER_WORDS_H(n) ((n) > 0u ? 8.0f + FUDE_VIEWER_TITLE + (f32)(n) * FUDE_VIEWER_ROW + FUDE_VIEWER_CARD_PAD : 0.0f)
-        _viewer->sentence_room = _kana ? 0.0f : fmaxf(_viewer->sentence_room, fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, false));
+        _viewer->sentence_room = _plain ? 0.0f : fmaxf(_viewer->sentence_room, fude_viewer_sentence_height(_viewer, _font, _font_px, _right - _left, false));
         _sent_h = _viewer->sentence_room;
         u32 _fits = _visible;
         while(_fits > 2u && _room - _sent_h - FUDE_VIEWER_WORDS_H(_fits) < FUDE_VIEWER_MIN_CHAR) {
@@ -948,13 +964,13 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     fude_glyph_writing(&_viewer->glyph, &_info, _tl, _size, rde_engine_get_time_now() - _viewer->started, _font, _font_px, 18.0f);
     fude_selection_draw_mark(fude_marks_get(_info.codepoint), _tl, _size, false);
     // 似: the look-alikes (a kana's under it alone; a kanji's after its parts, below).
-    const u32 _similar_line = _kana ? 0u : _shared ? 3u : (_part_count > 0 ? 4u : 3u);
+    const u32 _similar_line = _plain ? 0u : _shared ? 1u + _kinds : 1u + _kinds + (_part_count > 0 ? 1u : 0u);
     if(_similar) {
         const f32 _ly  = _y0 - (f32)_similar_line * FUDE_VIEWER_LINE;   // the line's top
         const f32 _mid = _ly - FUDE_VIEWER_LINE * 0.5f;
         const f32 _box = FUDE_HEADER_LABEL;
         const f32 _lx  = _shared ? _x0 + _parts_w + 24.0f : _x0;   // beside the parts, or at the start of its own line
-        fude_header_label(&_viewer->glyph, 0x4F3Cu, _lx, _mid);   // 似
+        fude_header_label(&_viewer->glyph, fude_lang_badge(FUDE_LANG_BADGE_LOOKALIKES), _lx, _mid);   // 似
         f32 _x = _lx + _box + 14.0f;
         for(u32 _i = 0; _i < _viewer->similar_count && _x + FUDE_VIEWER_KANA_SIZE <= _right; _i++) {
             const f32 _s = FUDE_VIEWER_KANA_SIZE;
@@ -970,10 +986,10 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     }
     // 記: the learner's note (a kanji's), under 似.
     if(_noted) {
-        const f32 _ly  = _y0 - (f32)((_part_count > 0 ? 4u : 3u) + (_similar && !_shared ? 1u : 0u)) * FUDE_VIEWER_LINE;
+        const f32 _ly  = _y0 - (f32)(1u + _kinds + (_part_count > 0 ? 1u : 0u) + (_similar && !_shared ? 1u : 0u)) * FUDE_VIEWER_LINE;
         const f32 _mid = _ly - FUDE_VIEWER_LINE * 0.5f;
         const f32 _box = FUDE_HEADER_LABEL;
-        fude_header_label(&_viewer->glyph, 0x8A18u, _x0, _mid);   // 記
+        fude_header_label(&_viewer->glyph, fude_lang_badge(FUDE_LANG_BADGE_NOTE), _x0, _mid);   // 記
         // Two lines at most: smaller when it needs more.
         const f32 _tx = _x0 + _box + 14.0f;
         const f32 _tw = _right - _tx;
@@ -992,34 +1008,35 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         _viewer->note_line_min = (rde_vec_2F){ _x0, _ly - FUDE_VIEWER_LINE };
         _viewer->note_line_max = (rde_vec_2F){ _right, _ly };
     }
-    if(_kana) {
+    if(_plain) {
         return;
     }
 
     // --- meaning, readings, parts -------------------------------------------------------
     // The meaning first, as the title; then each reading and the parts behind a
-    // label that is itself Japanese — 音, 訓, 部 — written from its strokes.
-    const c8* _meanings = fude_kanji_meanings(_viewer->db, &_info);
+    // label that is one of the language's characters (lang.h's badges: 音, 訓, 部), written from its strokes.
+    const c8* _meanings = _letter ? fude_lang_latin(_info.codepoint) : fude_kanji_meanings(_viewer->db, &_info);
     fude_draw_text_fit(_font, _font_px, _meanings[0] != 0 ? _meanings : fude_text(FUDE_TEXT_NO_MEANING), FUDE_VIEWER_MEANING_PX, _right - _x0, _line, sizeof(_line));
     fude_draw_text(_font, _font_px, _line, _x0, _y0 - FUDE_VIEWER_LINE * 0.5f - FUDE_VIEWER_MEANING_PX * 0.42f, FUDE_VIEWER_MEANING_PX, _theme->text);
 
-    const u32 _labels[3] = { 0x97F3u, 0x8A13u, 0x90E8u };   // 音 訓 部
-    // With a voice: the two reading lines say themselves when tapped (a speaker at their end).
+    // With a voice: the reading lines say themselves when tapped (a speaker at their
+    // end); a letter's line, the letter.
     if(fude_speech_available()) {
-        _viewer->readings_min = (rde_vec_2F){ _x0, _y0 - 3.0f * FUDE_VIEWER_LINE };
-        _viewer->readings_max = (rde_vec_2F){ _right, _y0 - FUDE_VIEWER_LINE };
-        fude_draw_icon(_font, _font_px, FUDE_ICON_SPEAK, (rde_vec_2F){ _right - 12.0f, _y0 - 1.5f * FUDE_VIEWER_LINE }, 18.0f, _theme->accent);
+        const u32 _from = _letter ? 0u : 1u;
+        _viewer->readings_min = (rde_vec_2F){ _x0, _y0 - (f32)(_from + (_letter ? 1u : _kinds)) * FUDE_VIEWER_LINE };
+        _viewer->readings_max = (rde_vec_2F){ _right, _y0 - (f32)_from * FUDE_VIEWER_LINE };
+        fude_draw_icon(_font, _font_px, FUDE_ICON_SPEAK, (rde_vec_2F){ _right - 12.0f, _y0 - ((f32)_from + 0.5f) * FUDE_VIEWER_LINE }, 18.0f, _theme->accent);
     } else {
         _viewer->readings_min = _viewer->readings_max = (rde_vec_2F){ 0.0f, 0.0f };
     }
-    for(u32 _k = 0; _k < (_part_count > 0 ? 3u : 2u); _k++) {
+    for(u32 _k = 0; _k < _kinds + (_part_count > 0 ? 1u : 0u); _k++) {
         const f32 _ly = _y0 - (f32)(_k + 1u) * FUDE_VIEWER_LINE;   // the line's top
         const f32 _mid = _ly - FUDE_VIEWER_LINE * 0.5f;
         const f32 _box = FUDE_HEADER_LABEL;
-        fude_header_label(&_viewer->glyph, _labels[_k], _x0, _mid);
+        fude_header_label(&_viewer->glyph, fude_lang_badge(_k < _kinds ? (FUDE_LANG_BADGE_)(FUDE_LANG_BADGE_READING_0 + _k) : FUDE_LANG_BADGE_PARTS), _x0, _mid);   // 音 訓 部
         const f32 _tx = _x0 + _box + 14.0f;
-        if(_k < 2u) {
-            fude_glyph_reading(&_viewer->glyph, _k == 0u ? fude_kanji_on(_viewer->db, &_info) : fude_kanji_kun(_viewer->db, &_info),
+        if(_k < _kinds) {
+            fude_glyph_reading(&_viewer->glyph, fude_kanji_reading(_viewer->db, &_info, _k),
                                (rde_vec_2F){ _tx, _mid + FUDE_VIEWER_KANA_SIZE * 0.5f }, FUDE_VIEWER_KANA_SIZE,
                                fude_speech_available() ? _right - 32.0f : _right, _theme->ink, _theme->text_soft);   // clear of the speaker
         } else {

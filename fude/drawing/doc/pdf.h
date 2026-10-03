@@ -55,6 +55,8 @@ b8         fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* 
 
 typedef struct fude_pdf_writer fude_pdf_writer;
 
+// Can this platform write one (Apple's: yes; Android's: not yet)?
+b8               fude_pdf_write_available(void);
 fude_pdf_writer* fude_pdf_write_begin(const c8* _out);
 // A page: page _page of _pdf, as large, drawn as it is read.
 void             fude_pdf_write_page(fude_pdf_writer* _w, fude_pdf* _pdf, u32 _page);

@@ -4,7 +4,7 @@
 #include "rde.h"
 #include "study/app/study.h"
 #include "lang/ja/chart.h"
-#include "welcome.h"
+#include "study/app/welcome.h"
 #include "drawing/doc/library.h"
 
 // ===========================================================================
@@ -39,7 +39,7 @@ typedef enum {
 typedef struct kana_app {
     fude_study    study;
     fude_chart*   chart;
-    kana_welcome* welcome;
+    fude_welcome* welcome;
     fude_library* library;
 } kana_app;
 

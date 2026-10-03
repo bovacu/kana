@@ -54,6 +54,7 @@
 
 RDE_INTERNAL rde_window*    window;
 RDE_INTERNAL rde_camera     camera;
+RDE_INTERNAL void fude_render_top(rde_window* _window, f32 _dt);   // the notice, after the UI (below)
 RDE_INTERNAL fude_kanji_db  kanji_db;
 RDE_INTERNAL fude_ink       ink;
 RDE_INTERNAL fude_canvas    canvas;
@@ -72,7 +73,7 @@ RDE_INTERNAL fude_scan      scan;
 RDE_INTERNAL fude_vocabview vocabview;
 RDE_INTERNAL fude_wordexam  wordexam;
 RDE_INTERNAL fude_translator translator;
-RDE_INTERNAL kana_welcome   welcome;
+RDE_INTERNAL fude_welcome   welcome;
 RDE_INTERNAL fude_library   library;
 RDE_INTERNAL fude_page_input page;
 RDE_INTERNAL fude_ui        ui;
@@ -135,7 +136,7 @@ RDE_INTERNAL void fude_hud_render(rde_window* _window) {
 // The screens, in the order they stack (kana_app.h: KANA_SCREEN_).
 RDE_INTERNAL void fude_screens_place(void) {
     const struct { KANA_SCREEN_ id; const fude_screen* vt; void* self; } _screens[] = {
-        { KANA_SCREEN_WELCOME,  &KANA_WELCOME_SCREEN,  &welcome },
+        { KANA_SCREEN_WELCOME,  &FUDE_WELCOME_SCREEN,  &welcome },
         { KANA_SCREEN_PRACTICE, &FUDE_PRACTICE_SCREEN, &practice },
         { KANA_SCREEN_VIEWER,   &FUDE_VIEWER_SCREEN,   &viewer },
         { KANA_SCREEN_SCAN,     &FUDE_SCAN_SCREEN,     &scan },
@@ -167,10 +168,12 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     window = _window;
+    fude_app_window(_window);    // its units (dp on Android): before anything reads its size
     // The words first: the UI is built in them. The device's language when Kana
     // speaks it; a saved choice replaces it (session.h).
     fude_text_set_language(fude_text_default_language());
     camera = rde_camera_create(_window, RDE_CAMERA_TYPE_ORTHOGRAPHIC);
+    rde_engine_set_top_overlay_render(fude_render_top);
     fude_look_args(_argc, _argv);
     kana_look_args(_argc, _argv);
 
@@ -230,6 +233,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
         app->font    = ui.font;   // the screens' text: the UI font, in screen units, scaled from the size it was loaded at
         app->font_px = (f32)FUDE_KIT_FONT_SIZE;
     }
+    fude_glyph_set_text_font(app->font, app->font_px);   // what the data has no strokes for (pinyin's letters)
 
     fude_look_start(app);
     kana_look_start(app);
@@ -335,7 +339,17 @@ RDE_INTERNAL void fude_render(rde_window* _window, f32 _dt) {
         }
     }
     fude_app_render_overlays(app);   // the welcome, over everything
-    // The notice: over the page's bottom, or over a screen's row.
+    rde_rendering_2d_end_drawing();
+}
+
+// After every UI canvas too (the side panel is the engine's UI): the notice, over
+// the page's bottom or a screen's row, on top of all.
+RDE_INTERNAL void fude_render_top(rde_window* _window, f32 _dt) {
+    RDE_UNUSED(_dt);
+    if(baking || app->font == NULL) {
+        return;
+    }
+    rde_rendering_2d_begin_drawing(_window, &camera);
     fude_notice_render(_window, app->font, app->font_px, fude_app_top(app) == NULL ? 72.0f : 8.0f + fude_row_height() + 16.0f);
     rde_rendering_2d_end_drawing();
 }
@@ -399,5 +413,8 @@ int main(i32 _argc, c8* _argv[]) {
     // (which reads arguments as config overrides). Only the program's name.
     _argc = _argc > 1 ? 1 : _argc;
 #endif
-    return rde_run(_argc, _argv, KANA_CONFIG_PATH, init_func, on_event, on_fixed_update, on_update, on_late_update, on_render, on_crash, end_func);
+    // The bake runs from the project root (its sources are data/raw/...), where the
+    // app's config is under apps/kana/: its memory sizes hold the data files whole.
+    const c8* _config = fude_bake_requested(_argc, _argv) ? "apps/kana/assets/config.rdef" : KANA_CONFIG_PATH;
+    return rde_run(_argc, _argv, _config, init_func, on_event, on_fixed_update, on_update, on_late_update, on_render, on_crash, end_func);
 }

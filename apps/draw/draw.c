@@ -46,6 +46,7 @@ RDE_INTERNAL const fude_app_info DRAW_INFO = {
 
 RDE_INTERNAL rde_window*     window;
 RDE_INTERNAL rde_camera      camera;
+RDE_INTERNAL void draw_render_top(rde_window* _window, f32 _dt);   // the notice, after the UI (below)
 RDE_INTERNAL fude_ink        ink;
 RDE_INTERNAL fude_canvas     canvas;
 RDE_INTERNAL fude_lasso      lasso;
@@ -58,10 +59,12 @@ RDE_INTERNAL fude_app        app;
 
 void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     window = _window;
+    fude_app_window(_window);    // its units (dp on Android): before anything reads its size
     // The words first: the UI is built in them. The device's language when Draw
     // speaks it; a saved choice replaces it (session.h).
     fude_text_set_language(fude_text_default_language());
     camera = rde_camera_create(_window, RDE_CAMERA_TYPE_ORTHOGRAPHIC);
+    rde_engine_set_top_overlay_render(draw_render_top);
     fude_look_args(_argc, _argv);
 
     // The page.
@@ -141,6 +144,16 @@ RDE_INTERNAL void draw_render(rde_window* _window, f32 _dt) {
         fude_page_render(&page, _window);
     }
     fude_app_render_overlays(&app);
+    rde_rendering_2d_end_drawing();
+}
+
+// After every UI canvas too (the side panel is the engine's UI): the notice, on top of all.
+RDE_INTERNAL void draw_render_top(rde_window* _window, f32 _dt) {
+    RDE_UNUSED(_dt);
+    if(app.font == NULL) {
+        return;
+    }
+    rde_rendering_2d_begin_drawing(_window, &camera);
     fude_notice_render(_window, app.font, app.font_px, fude_app_top(&app) == NULL ? 72.0f : 8.0f + fude_row_height() + 16.0f);
     rde_rendering_2d_end_drawing();
 }

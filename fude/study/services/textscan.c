@@ -1,11 +1,11 @@
 #include "study/services/textscan.h"
 
 // ===========================================================================
-// See textscan.h. Every platform but iOS (src/textscan_ios.m, in the iOS build
-// only): no text in photos yet.
+// See textscan.h. Every platform but iOS and Android (textscan_ios.m and
+// textscan_android.c, in those builds only): no text in photos yet.
 // ===========================================================================
 
-#if !defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)   // ML Kit: a device's, not the Simulator's
+#if (!defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)) && !defined(RDE_PLATFORM_ANDROID)   // ML Kit: a device's (iOS, Android: *_android.c), not the Simulator's
 
 b8 fude_textscan_available(void) {
     return false;

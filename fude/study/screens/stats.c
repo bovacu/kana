@@ -1,8 +1,7 @@
 #include "study/widgets/header.h"
 #include "study/screens/stats.h"
 #include "drawing/base/text.h"
-#include "lang/ja/chart.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "drawing/widgets/draw.h"
 #include "study/screens/exam.h"
 #include "study/models/examlog.h"
@@ -24,6 +23,50 @@
 // --- the numbers ---------------------------------------------------------------------
 
 // Seconds to add to UTC for local time, now (portable: no tm_gmtoff on Windows).
+// --- the Levels card's rows (stats.h): the language's sets, then its levels ---------
+
+RDE_INTERNAL u32 fude_stats_set_count(void) {
+    u32 _n = 0;
+    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
+        _n += (fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u ? 1u : 0u;
+    }
+    return _n;
+}
+
+RDE_INTERNAL u32 fude_stats_set_group(u32 _set) {
+    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
+        if((fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u && _set-- == 0u) {
+            return _g;
+        }
+    }
+    return FUDE_LANG_NO_GROUP;
+}
+
+u32 fude_stats_group_count(void) {
+    return fude_stats_set_count() + fude_lang_level_count();
+}
+
+// A character's row: its set's (if it is one of the set's core), else its
+// level's; -1 when none.
+RDE_INTERNAL i32 fude_stats_group_of(const fude_kanji_info* _info) {
+    const u8  _group = fude_lang_group(_info->codepoint);
+    const u32 _sets  = fude_stats_set_count();
+    if(_group != FUDE_LANG_NO_GROUP && (fude_lang_group_flags(_group) & FUDE_LANG_GROUP_SET) != 0u) {
+        for(u32 _s = 0; _s < _sets; _s++) {
+            if(fude_stats_set_group(_s) == _group) {
+                return fude_lang_core(_info->codepoint) ? (i32)_s : -1;
+            }
+        }
+        return -1;
+    }
+    for(u32 _l = 0; _info->level != 0u && _l < fude_lang_level_count(); _l++) {
+        if(fude_lang_level_value(_l) == _info->level) {
+            return (i32)(_sets + _l);
+        }
+    }
+    return -1;
+}
+
 RDE_INTERNAL i64 fude_stats_local_offset(void) {
     const time_t _now = time(NULL);
     struct tm    _utc = *gmtime(&_now);
@@ -274,10 +317,7 @@ void fude_stats_compute(fude_stats_data* _d, const fude_kanji_db* _db, const fud
         if(!fude_catalog_passes(_catalog, _r, FUDE_FILTER_ALL) || !fude_kanji_at(_db, _r, &_info)) {
             continue;
         }
-        i32 _group = -1;
-        if(fude_catalog_passes(_catalog, _r, FUDE_FILTER_HIRAGANA))      { _group = fude_romaji_core(_info.codepoint) ? FUDE_STATS_GROUP_HIRAGANA : -1; }
-        else if(fude_catalog_passes(_catalog, _r, FUDE_FILTER_KATAKANA)) { _group = fude_romaji_core(_info.codepoint) ? FUDE_STATS_GROUP_KATAKANA : -1; }
-        else if(_info.jlpt_n >= 1 && _info.jlpt_n <= 5)                  { _group = FUDE_STATS_GROUP_N5 + (5 - (i32)_info.jlpt_n); }
+        const i32 _group = fude_stats_group_of(&_info);
         if(_group < 0) {
             continue;
         }
@@ -338,15 +378,19 @@ static const FUDE_TEXT_ FUDE_STATS_CARD_TITLES[FUDE_STATS_CARD_COUNT] = {
     FUDE_TEXT_STATS_OVERVIEW, FUDE_TEXT_STATS_ACTIVITY, FUDE_TEXT_STATS_SCORES, FUDE_TEXT_EXAMS, FUDE_TEXT_STATS_MARKS, FUDE_TEXT_STATS_LEVELS, FUDE_TEXT_STATS_MISTAKES,
     FUDE_TEXT_STATS_CHARACTERS, FUDE_TEXT_STATS_WHEN
 };
-static const c8* const FUDE_STATS_GROUP_NAMES[FUDE_STATS_GROUP_COUNT]      = { NULL, NULL, "N5", "N4", "N3", "N2", "N1" };   // NULL: the kana (text.h)
 static const FUDE_TEXT_ FUDE_STATS_MISTAKE_NAMES[FUDE_STATS_MISTAKE_COUNT] = { FUDE_TEXT_MISTAKE_ORDER, FUDE_TEXT_MISTAKE_DIRECTION, FUDE_TEXT_MISTAKE_MISSING,
                                                                                FUDE_TEXT_MISTAKE_EXTRA, FUDE_TEXT_MISTAKE_SHAPE };
 
-RDE_INTERNAL const c8* fude_stats_group_name(u32 _group) {
-    if(FUDE_STATS_GROUP_NAMES[_group] != NULL) {
-        return FUDE_STATS_GROUP_NAMES[_group];
+// A row's name: its set's group name, or its level's short name ("N5").
+RDE_INTERNAL const c8* fude_stats_group_name(u32 _row) {
+    static c8 _levels[FUDE_LANG_LEVELS][16];
+    const u32 _sets = fude_stats_set_count();
+    if(_row < _sets) {
+        return fude_text((FUDE_TEXT_)fude_lang_group_name(fude_stats_set_group(_row)));
     }
-    return fude_text(_group == FUDE_STATS_GROUP_HIRAGANA ? FUDE_TEXT_HIRAGANA : FUDE_TEXT_KATAKANA);
+    const u32 _level = _row - _sets;
+    fude_lang_level_name(fude_lang_level_value(_level), false, _levels[_level], sizeof(_levels[_level]));
+    return _levels[_level];
 }
 
 void fude_stats_init(fude_stats* _stats, const fude_kanji_db* _db, const fude_catalog* _catalog) {
@@ -411,6 +455,19 @@ void fude_stats_update(fude_stats* _stats, f32 _dt) {
     }
 }
 
+// A card's message when it has nothing to show, wrapped to its width: the font
+// it was last drawn in (the card's height counts its lines before the first
+// frame draws it: one).
+#define FUDE_STATS_EMPTY_PX   16.0f
+#define FUDE_STATS_EMPTY_LINE 21.0f
+RDE_INTERNAL rde_font* fude_stats_font    = NULL;
+RDE_INTERNAL f32       fude_stats_font_px = 14.0f;
+
+RDE_INTERNAL f32 fude_stats_empty_height(FUDE_TEXT_ _text, f32 _inner) {
+    const u32 _lines = fude_stats_font != NULL ? fude_draw_text_wrap_lines(fude_stats_font, fude_stats_font_px, fude_text(_text), FUDE_STATS_EMPTY_PX, _inner) : 1u;
+    return 30.0f + (f32)(_lines > 1u ? _lines - 1u : 0u) * FUDE_STATS_EMPTY_LINE;
+}
+
 // How tall a card is at _width.
 RDE_INTERNAL f32 fude_stats_card_height(const fude_stats* _stats, FUDE_STATS_CARD_ _card, f32 _width) {
     const f32 _inner = _width - 2.0f * FUDE_STATS_PAD;
@@ -424,13 +481,13 @@ RDE_INTERNAL f32 fude_stats_card_height(const fude_stats* _stats, FUDE_STATS_CAR
             const f32 _cell = fminf(20.0f, (_inner - 34.0f) / (f32)FUDE_STATS_WEEKS);
             return _frame + 7.0f * _cell + 34.0f;
         }
-        case FUDE_STATS_CARD_SCORES:     return _frame + 220.0f;
-        case FUDE_STATS_CARD_EXAMS:      return _frame + (_stats->data.exams > 0 ? 222.0f : 30.0f);
+        case FUDE_STATS_CARD_SCORES:     return _frame + (_stats->data.squares > 0 ? 220.0f : fmaxf(220.0f, fude_stats_empty_height(FUDE_TEXT_STATS_NO_SCORES, _inner)));
+        case FUDE_STATS_CARD_EXAMS:      return _frame + (_stats->data.exams > 0 ? 222.0f : fude_stats_empty_height(FUDE_TEXT_STATS_NO_EXAMS, _inner));
         case FUDE_STATS_CARD_MARKS:      return _frame + (_stats->data.mark_changes > 0 ? 242.0f : 52.0f);
-        case FUDE_STATS_CARD_COVERAGE:   return _frame + (f32)FUDE_STATS_GROUP_COUNT * FUDE_STATS_ROW + 28.0f;
-        case FUDE_STATS_CARD_MISTAKES:   return _frame + (_stats->data.squares > 0 ? (f32)FUDE_STATS_MISTAKE_COUNT * FUDE_STATS_ROW + 28.0f : 30.0f);
-        case FUDE_STATS_CARD_CHARACTERS: return _frame + (_stats->data.weakest_count > 0 ? 2.0f * (26.0f + FUDE_STATS_GLYPH + 26.0f) : 30.0f);
-        case FUDE_STATS_CARD_WHEN:       return _frame + (_stats->data.squares > 0 ? 2.0f * 130.0f : 30.0f);
+        case FUDE_STATS_CARD_COVERAGE:   return _frame + (f32)fude_stats_group_count() * FUDE_STATS_ROW + 28.0f;
+        case FUDE_STATS_CARD_MISTAKES:   return _frame + (_stats->data.squares > 0 ? (f32)FUDE_STATS_MISTAKE_COUNT * FUDE_STATS_ROW + 28.0f : fude_stats_empty_height(FUDE_TEXT_STATS_NO_PRACTICE, _inner));
+        case FUDE_STATS_CARD_CHARACTERS: return _frame + (_stats->data.weakest_count > 0 ? 2.0f * (26.0f + FUDE_STATS_GLYPH + 26.0f) : fude_stats_empty_height(FUDE_TEXT_STATS_NO_PRACTICE, _inner));
+        case FUDE_STATS_CARD_WHEN:       return _frame + (_stats->data.squares > 0 ? 2.0f * 130.0f : fude_stats_empty_height(FUDE_TEXT_STATS_NO_PRACTICE, _inner));
         default:                         return _frame;
     }
 }
@@ -445,6 +502,11 @@ typedef struct {
     f32         top;       // inner top (below the title), screen
     f32         content_y; // the inner top in content space (for taps)
 } fude_stats_box;
+
+// A card's message when it has nothing to show (fude_stats_empty_height).
+RDE_INTERNAL void fude_stats_draw_empty(const fude_stats_box* _b, FUDE_TEXT_ _text) {
+    fude_draw_text_wrap(_b->font, _b->font_px, fude_text(_text), _b->left, _b->top - 20.0f, FUDE_STATS_EMPTY_PX, _b->width, FUDE_STATS_EMPTY_LINE, fude_theme_active()->text_soft);
+}
 
 RDE_INTERNAL rde_color fude_stats_alpha(rde_color _c, f32 _a) {
     _c.a = (u8)fmaxf(0.0f, fminf(255.0f, (f32)_c.a * _a));
@@ -561,7 +623,7 @@ RDE_INTERNAL void fude_stats_draw_scores(const fude_stats_box* _b) {
     const fude_theme*      _theme = fude_theme_active();
     c8 _line[160];
     if(_d->squares == 0) {
-        fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_SCORES), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_SCORES);
         return;
     }
     // The last 30 days against the 30 before, and all of it.
@@ -604,7 +666,7 @@ RDE_INTERNAL void fude_stats_draw_exams(const fude_stats_box* _b) {
     const fude_theme*      _theme = fude_theme_active();
     c8 _line[160];
     if(_d->exams == 0) {
-        fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_EXAMS), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_EXAMS);
         return;
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_EXAMS_LINE, FUDE_TN(_d->exams), FUDE_TN(_d->exams_passed), FUDE_TN(_d->exam_right), FUDE_TN(_d->exam_items),
@@ -732,7 +794,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
     c8  _line[96];
     f32 _label = 0.0f;
     f32 _count = 0.0f;
-    for(u32 _g = 0; _g < FUDE_STATS_GROUP_COUNT; _g++) {
+    for(u32 _g = 0; _g < fude_stats_group_count(); _g++) {
         const fude_stats_coverage* _c = &_d->coverage[_g];
         FUDE_TEXTF(_line, FUDE_TEXT_STATS_LEVEL_LINE, FUDE_TN(_c->known), FUDE_TN(_c->practised), FUDE_TN(_c->total));
         _label = fmaxf(_label, fude_draw_text_width(_b->font, _b->font_px, fude_stats_group_name(_g), 16.0f));
@@ -741,7 +803,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
     _label += 14.0f;
     _count += 14.0f;
     const f32 _bar = fmaxf(40.0f, _b->width - _label - _count);
-    for(u32 _g = 0; _g < FUDE_STATS_GROUP_COUNT; _g++) {
+    for(u32 _g = 0; _g < fude_stats_group_count(); _g++) {
         const fude_stats_coverage* _c = &_d->coverage[_g];
         const f32 _y = _b->top - (f32)_g * FUDE_STATS_ROW;
         fude_draw_text(_b->font, _b->font_px, fude_stats_group_name(_g), _b->left, _y - 22.0f, 16.0f, _theme->text);
@@ -757,7 +819,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
         FUDE_TEXTF(_line, FUDE_TEXT_STATS_LEVEL_LINE, FUDE_TN(_c->known), FUDE_TN(_c->practised), FUDE_TN(_c->total));
         fude_stats_text_right(_b, _line, _b->left + _b->width, _y - 22.0f, 13.0f, _theme->text_soft);
     }
-    const f32 _ly = _b->top - (f32)FUDE_STATS_GROUP_COUNT * FUDE_STATS_ROW - 14.0f;
+    const f32 _ly = _b->top - (f32)fude_stats_group_count() * FUDE_STATS_ROW - 14.0f;
     // The legend: a swatch and its word, each after the last.
     const struct { FUDE_TEXT_ text; rde_color color; } _legend[3] = {
         { FUDE_TEXT_STATS_LEGEND_KNOWN, _theme->score_good },
@@ -776,7 +838,7 @@ RDE_INTERNAL void fude_stats_draw_mistakes(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
     if(_d->squares == 0) {
-        fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_PRACTICE);
         return;
     }
     c8  _line[80];
@@ -809,7 +871,7 @@ RDE_INTERNAL void fude_stats_draw_characters(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_stats->data;
     const fude_theme*      _theme = fude_theme_active();
     if(_d->weakest_count == 0) {
-        fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_PRACTICE);
         return;
     }
     c8 _line[16];
@@ -847,7 +909,7 @@ RDE_INTERNAL void fude_stats_draw_when(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
     if(_d->squares == 0) {
-        fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_PRACTICE), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
+        fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_PRACTICE);
         return;
     }
     for(u32 _part = 0; _part < 2u; _part++) {
@@ -885,6 +947,8 @@ void fude_stats_render(fude_stats* _stats, rde_window* _window, rde_font* _font,
     if(!_stats->open) {
         return;
     }
+    fude_stats_font    = _font;
+    fude_stats_font_px = _font_px;
     const fude_theme*      _theme  = fude_theme_active();
     const fude_stats_data* _d      = &_stats->data;
     const rde_vec_2I       _size   = rde_window_get_size(_window);

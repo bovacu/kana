@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # ===========================================================================
-# Google ML Kit for Kana's iOS build — without CocoaPods: Digital Ink
-# Recognition (handwriting, recognize.h), Text Recognition with its Japanese
-# model (text in photos, scan.h) and Translation (translate.h).
+# Google ML Kit for the study apps' iOS builds (Kana, Hanzi, Hangul) — without
+# CocoaPods: Digital Ink Recognition (handwriting, recognize.h), Text Recognition
+# with its Japanese, Chinese and Korean models (text in photos, scan.h: each app
+# links and ships only its own language's) and Translation (translate.h).
 #
 # Downloads the pinned pods (what `pod 'GoogleMLKit/DigitalInkRecognition', '9.0.0'`,
 # `pod 'GoogleMLKit/TextRecognitionJapanese', '9.0.0'` and
@@ -19,17 +20,20 @@
 #                PromisesObjC, GoogleToolboxForMac, GoogleUtilities, SSZipArchive
 #   include/     the frameworks' headers as <MLKit.../X.h>, for the builder's -I
 #   bundles/     copied into the .app beside the executable (--ios_bundle=bundles):
-#                MLKitDigitalInkRecognition_resource.bundle, JapaneseOCRResources.bundle
-#                (the Japanese text model, in the app: no download),
+#                MLKitDigitalInkRecognition_resource.bundle,
 #                MLKitTranslate_resource.bundle (the translation models are NOT in
 #                it: ML Kit downloads one per language when first asked), and every
 #                SDK's PRIVACY MANIFEST in a bundle of its own, named as CocoaPods
 #                names them — static code has no framework to carry one, and
 #                Apple's privacy report reads every manifest in the app
+#   ocr/<code>/  a language's text model and its manifest (ja, zh, ko), copied in
+#                beside the others by the app that reads that language
+#                (--ios_bundle=ocr/ja): JapaneseOCRResources.bundle, in the app (no
+#                download)
 #
-# and, into the app's assets (they ship, and Settings > Licences shows them):
-#   apps/kana/assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
-#   apps/kana/assets/licenses/libraries.txt        the source pods' licences
+# and, into each study app's assets (they ship, and Settings > Licences shows them):
+#   apps/<app>/assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
+#   apps/<app>/assets/licenses/libraries.txt        the source pods' licences
 #
 # Run from the project root:  python3 tools/mlkit/setup.py
 # ===========================================================================
@@ -47,6 +51,8 @@ PINS = [
     ("MLKitCommon", "https://dl.google.com/dl/cpdc/00f258dabdb58dfa/MLKitCommon-14.0.0.tar.gz"),
     ("MLKitMDD", "https://dl.google.com/dl/cpdc/b14ff2c7cc91cb0f/MLKitMDD-10.0.0.tar.gz"),
     ("MLKitTextRecognitionJapanese", "https://dl.google.com/dl/cpdc/1855262723e8ed6b/MLKitTextRecognitionJapanese-6.0.0.tar.gz"),
+    ("MLKitTextRecognitionChinese", "https://dl.google.com/dl/cpdc/88856ee0a4da8910/MLKitTextRecognitionChinese-6.0.0.tar.gz"),
+    ("MLKitTextRecognitionKorean", "https://dl.google.com/dl/cpdc/7bfa31d60eef9311/MLKitTextRecognitionKorean-6.0.0.tar.gz"),
     ("MLKitTextRecognitionCommon", "https://dl.google.com/dl/cpdc/ffd1e8a2dd89e128/MLKitTextRecognitionCommon-6.0.0.tar.gz"),
     ("MLKitVision", "https://dl.google.com/dl/cpdc/4e1652530984149e/MLKitVision-10.0.0.tar.gz"),
     ("MLImage", "https://dl.google.com/dl/cpdc/438c904a2516b489/MLImage-1.0.0-beta8.tar.gz"),
@@ -122,9 +128,13 @@ for pod, (globs, arc, defs, mods) in plan.items():
 for d in ("frameworks", "lib", "include"):
     shutil.rmtree(os.path.join(OUT, d), ignore_errors=True); os.makedirs(os.path.join(OUT, d))
 subprocess.check_call(["xcrun", "libtool", "-static", "-o", os.path.join(OUT, "lib", "libmlkit_deps.a")] + objs)
-FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
+FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
               "MLKitTranslate", "MLKitNaturalLanguage")
-for fw in FRAMEWORKS:
+# Each language's text model, and the app that reads it.
+OCR = {"ja": ("MLKitTextRecognitionJapanese", "JapaneseOCRResources", "kana"),
+       "zh": ("MLKitTextRecognitionChinese",  "ChineseOCRResources",  "hanzi"),
+       "ko": ("MLKitTextRecognitionKorean",   "KoreanOCRResources",   "hangul")}
+for fw in FRAMEWORKS + tuple(o[0] for o in OCR.values()):
     src = os.path.join(PODS, fw, "Frameworks", fw + ".framework")
     shutil.copytree(src, os.path.join(OUT, "frameworks", fw + ".framework"), symlinks=True)
     if os.path.isdir(os.path.join(src, "Headers")):
@@ -145,16 +155,23 @@ INFO = """<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>
 """
-def bundle(name, files):
-    d = os.path.join(BUNDLES, name + ".bundle"); os.makedirs(d)
+def bundle(name, files, into=BUNDLES):
+    d = os.path.join(into, name + ".bundle"); os.makedirs(d)
     open(os.path.join(d, "Info.plist"), "w").write(INFO % (name.replace("_", "-"), name))
     for src, dst in files:
         if os.path.isdir(src): shutil.copytree(src, os.path.join(d, dst), dirs_exist_ok=True)
         else: shutil.copy(src, os.path.join(d, dst))
 res = os.path.join(PODS, "MLKitDigitalInkRecognition", "Resources", "MLKitDigitalInkRecognition_resource")
 bundle("MLKitDigitalInkRecognition_resource", [(os.path.join(res, f), f) for f in os.listdir(res)])
-res = os.path.join(PODS, "MLKitTextRecognitionJapanese", "Resources", "JapaneseOCRResources")
-bundle("JapaneseOCRResources", [(os.path.join(res, f), f) for f in os.listdir(res)])
+# Each language's text model, and its manifest, apart (ocr/<code>/).
+shutil.rmtree(os.path.join(OUT, "ocr"), ignore_errors=True)
+for code, (fw, resources, _) in OCR.items():
+    into = os.path.join(OUT, "ocr", code); os.makedirs(into)
+    res = os.path.join(PODS, fw, "Resources", resources)
+    bundle(resources, [(os.path.join(res, f), f) for f in os.listdir(res)], into)
+    manifest = os.path.join(PODS, fw, "Frameworks", fw + ".framework", "PrivacyInfo.xcprivacy")
+    if os.path.isfile(manifest):
+        bundle(fw + "_Privacy", [(manifest, "PrivacyInfo.xcprivacy")], into)
 res = os.path.join(PODS, "MLKitTranslate", "Resources", "MLKitTranslate_resource")
 bundle("MLKitTranslate_resource", [(os.path.join(res, f), f) for f in os.listdir(res)])
 PRIVACY = [   # bundle name, pod, its manifest
@@ -174,44 +191,49 @@ for fw in FRAMEWORKS:
     if os.path.isfile(manifest):
         bundle(fw + "_Privacy", [(manifest, "PrivacyInfo.xcprivacy")])
 
-# The licences, into the app's assets.
-LIC = os.path.join(ROOT, "apps", "kana", "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
-with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
-    out.write("GOOGLE ML KIT (" + ", ".join(FRAMEWORKS) + ")\n"
-              "Used under Google's terms: developers.google.com/ml-kit/terms\n\n"
-              # Google's disclaimer for its translations (Translate with Google),
-              # as its attribution requirements give it for apps:
-              # docs.cloud.google.com/translate/attribution
-              "TRANSLATIONS: THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE. GOOGLE "
-              "DISCLAIMS ALL WARRANTIES RELATED TO THE TRANSLATIONS, EXPRESS OR IMPLIED, INCLUDING "
-              "ANY WARRANTIES OF ACCURACY, RELIABILITY, AND ANY IMPLIED WARRANTIES OF "
-              "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n\n"
-              "Notices for the software it contains, as Google ships them:\n\n")
-    written = set()
-    for fw in ("MLKitDigitalInkRecognition", "MLKitTextRecognitionJapanese", "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
-               "MLKitTranslate", "MLKitNaturalLanguage"):
-        notices = os.path.join(PODS, fw, "NOTICES")
-        if not os.path.isfile(notices):
-            continue
-        text = open(notices, encoding="utf-8", errors="replace").read()
-        if text in written:
-            continue   # the same notices again
-        written.add(text)
-        out.write("-" * 60 + "\n" + fw + "\n" + "-" * 60 + "\n\n" + text + "\n")
-LICENCES = [   # what, pod, its licence files
-    ("GTMSessionFetcher (Google) - Apache License 2.0",   "GTMSessionFetcher",   ["LICENSE"]),
-    ("GoogleDataTransport (Google) - Apache License 2.0", "GoogleDataTransport", ["LICENSE"]),
-    ("GoogleUtilities (Google) - Apache License 2.0",     "GoogleUtilities",     ["LICENSE"]),
-    ("GoogleToolboxForMac (Google) - Apache License 2.0", "GoogleToolboxForMac", ["LICENSE"]),
-    ("Promises (Google) - Apache License 2.0",            "PromisesObjC",        ["LICENSE"]),
-    ("nanopb - zlib License",                             "nanopb",              ["LICENSE.txt"]),
-    ("SSZipArchive - MIT License",                        "SSZipArchive",        ["LICENSE.txt"]),
-    ("minizip-ng (in SSZipArchive) - zlib License",       "SSZipArchive",        ["SSZipArchive/minizip/LICENSE"]),
-]
-with open(os.path.join(LIC, "libraries.txt"), "w") as out:
-    out.write("OPEN-SOURCE LIBRARIES that Google ML Kit uses, built into Kana:\n\n")
-    for what, pod, files in LICENCES:
-        out.write("=" * 60 + "\n" + what + "\n" + "=" * 60 + "\n\n")
-        for f in files:
-            out.write(open(os.path.join(root[pod], f), encoding="utf-8", errors="replace").read().strip() + "\n\n")
-print("ML Kit ready in", OUT, "-", len(objs), "objects in libmlkit_deps.a,", len(os.listdir(BUNDLES)), "bundles; licences in", LIC)
+# The licences, into each study app's assets (an app not made yet is passed over).
+for code, (ocr_fw, _, app) in OCR.items():
+    app_dir = os.path.join(ROOT, "apps", app)
+    if not os.path.isdir(app_dir):
+        continue
+    used = FRAMEWORKS[:3] + (ocr_fw,) + FRAMEWORKS[3:]   # the text model where Kana always listed it
+    LIC = os.path.join(app_dir, "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
+    with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
+        out.write("GOOGLE ML KIT (" + ", ".join(used) + ")\n"
+                  "Used under Google's terms: developers.google.com/ml-kit/terms\n\n"
+                  # Google's disclaimer for its translations (Translate with Google),
+                  # as its attribution requirements give it for apps:
+                  # docs.cloud.google.com/translate/attribution
+                  "TRANSLATIONS: THIS SERVICE MAY CONTAIN TRANSLATIONS POWERED BY GOOGLE. GOOGLE "
+                  "DISCLAIMS ALL WARRANTIES RELATED TO THE TRANSLATIONS, EXPRESS OR IMPLIED, INCLUDING "
+                  "ANY WARRANTIES OF ACCURACY, RELIABILITY, AND ANY IMPLIED WARRANTIES OF "
+                  "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n\n"
+                  "Notices for the software it contains, as Google ships them:\n\n")
+        written = set()
+        for fw in ("MLKitDigitalInkRecognition", ocr_fw, "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
+                   "MLKitTranslate", "MLKitNaturalLanguage"):
+            notices = os.path.join(PODS, fw, "NOTICES")
+            if not os.path.isfile(notices):
+                continue
+            text = open(notices, encoding="utf-8", errors="replace").read()
+            if text in written:
+                continue   # the same notices again
+            written.add(text)
+            out.write("-" * 60 + "\n" + fw + "\n" + "-" * 60 + "\n\n" + text + "\n")
+    LICENCES = [   # what, pod, its licence files
+        ("GTMSessionFetcher (Google) - Apache License 2.0",   "GTMSessionFetcher",   ["LICENSE"]),
+        ("GoogleDataTransport (Google) - Apache License 2.0", "GoogleDataTransport", ["LICENSE"]),
+        ("GoogleUtilities (Google) - Apache License 2.0",     "GoogleUtilities",     ["LICENSE"]),
+        ("GoogleToolboxForMac (Google) - Apache License 2.0", "GoogleToolboxForMac", ["LICENSE"]),
+        ("Promises (Google) - Apache License 2.0",            "PromisesObjC",        ["LICENSE"]),
+        ("nanopb - zlib License",                             "nanopb",              ["LICENSE.txt"]),
+        ("SSZipArchive - MIT License",                        "SSZipArchive",        ["LICENSE.txt"]),
+        ("minizip-ng (in SSZipArchive) - zlib License",       "SSZipArchive",        ["SSZipArchive/minizip/LICENSE"]),
+    ]
+    with open(os.path.join(LIC, "libraries.txt"), "w") as out:
+        out.write("OPEN-SOURCE LIBRARIES that Google ML Kit uses, built into " + app.capitalize() + ":\n\n")
+        for what, pod, files in LICENCES:
+            out.write("=" * 60 + "\n" + what + "\n" + "=" * 60 + "\n\n")
+            for f in files:
+                out.write(open(os.path.join(root[pod], f), encoding="utf-8", errors="replace").read().strip() + "\n\n")
+print("ML Kit ready in", OUT, "-", len(objs), "objects in libmlkit_deps.a,", len(os.listdir(BUNDLES)), "bundles, text models", ", ".join(OCR))

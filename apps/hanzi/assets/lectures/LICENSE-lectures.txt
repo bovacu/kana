@@ -1,0 +1,30 @@
+LECTURES
+
+Chinese phrasebook, from Wikivoyage (lectures/phrasebook_en.pdf, _es, _fr, _pt, _ja)
+
+Wikivoyage's Chinese (Mandarin) phrasebook, one for each language Hanzi speaks,
+by Wikivoyage's contributors, licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+
+  English    "Chinese phrasebook", revision 5308510 (2026-07-12)
+             https://en.wikivoyage.org/wiki/Chinese_phrasebook
+  Spanish    "Guía de chino" (Wikiviajes), revision 208392 (2023-12-19)
+             https://es.wikivoyage.org/wiki/Gu%C3%ADa_de_chino
+  French     "Guide linguistique mandarin", revision 640542 (2026-02-01)
+             https://fr.wikivoyage.org/wiki/Guide_linguistique_mandarin
+  Portuguese "Guia de conversação mandarim padrão", revision 144815 (2025-09-10)
+             https://pt.wikivoyage.org/wiki/Guia_de_conversa%C3%A7%C3%A3o_mandarim_padr%C3%A3o
+  Japanese   "中国語会話集", revision 53243 (2025-07-05)
+             https://ja.wikivoyage.org/wiki/%E4%B8%AD%E5%9B%BD%E8%AA%9E%E4%BC%9A%E8%A9%B1%E9%9B%86
+
+Who wrote each: its page's history (the link on its first page).
+
+Changes made for Hanzi: each page's text only, as the wiki had it at that
+revision — its pictures (each under a licence of its own), its links, the boxes
+for editors and its section of further links ("Learning more", "Approfondir",
+"Aprendendo mais") left out, and headings with nothing under them; laid out as
+an A4 PDF with a title page giving the credit, the licence and these changes.
+Hanzi's editions are under CC BY-SA 4.0 too: anyone may share and adapt them,
+crediting Wikivoyage, under the same licence. How they were made:
+tools/lectures/phrasebook.py.

@@ -1,5 +1,5 @@
 #include "study/chars/catalog.h"
-#include "lang/ja/romaji.h"
+#include "lang/lang.h"
 #include "study/models/marks.h"
 
 #include <ctype.h>
@@ -16,9 +16,17 @@
 
 // --- keys ------------------------------------------------------------------------
 
-RDE_INTERNAL u32 fude_catalog_hiragana(u32 _cp) {
-    return (_cp >= 0x30A1u && _cp <= 0x30F6u) ? _cp - 0x60u : _cp;   // katakana → hiragana
-}
+// --- filters and sorts: numbered from the language's groups, levels and readings ---
+
+FUDE_FILTER_ fude_filter_group(u32 _group)   { return 1u + _group; }
+FUDE_FILTER_ fude_filter_level(u32 _level)   { return 1u + fude_lang_group_count() + _level; }
+FUDE_FILTER_ fude_filter_studying(void)      { return 1u + fude_lang_group_count() + fude_lang_level_count(); }
+FUDE_FILTER_ fude_filter_known(void)         { return fude_filter_studying() + 1u; }
+u32          fude_filter_count(void)         { return fude_filter_known() + 1u; }
+
+FUDE_SORT_ fude_sort_reading(u32 _kind) { return 2u + _kind; }
+FUDE_SORT_ fude_sort_meaning(void)      { return 2u + fude_lang_reading_kinds(); }
+u32        fude_sort_count(void)        { return fude_sort_meaning() + 1u; }
 
 RDE_INTERNAL void fude_catalog_put_cp(rde_arr* _pool, u32 _cp) {
     c8 _utf8[5];
@@ -44,8 +52,9 @@ RDE_INTERNAL b8 fude_catalog_has_okurigana(const c8* _r) {
     return _dot != NULL && (_end == NULL || _dot < _end);
 }
 
-// A reading list as a key: hiragana, marks removed. _stems: only the part before
-// the okurigana mark, and only of readings that have one.
+// A reading list as a key: folded as the language compares readings (lang.h;
+// Japanese: hiragana), marks removed. _stems: only the part before the stem mark
+// ('.', Japanese okurigana), and only of readings that have one.
 RDE_INTERNAL u32 fude_catalog_reading_key(rde_arr* _pool, const c8* _text, b8 _stems) {
     const u32 _at      = fude_catalog_begin_key(_pool);
     b8        _written = false;   // this reading has put something out
@@ -88,7 +97,7 @@ RDE_INTERNAL u32 fude_catalog_reading_key(rde_arr* _pool, const c8* _text, b8 _s
             continue;
         }
 
-        fude_catalog_put_cp(_pool, fude_catalog_hiragana(_cp));
+        fude_catalog_put_cp(_pool, fude_lang_reading_fold(_cp));
         _written = true;
     }
 
@@ -143,16 +152,6 @@ RDE_INTERNAL u32 fude_catalog_meaning_key(rde_arr* _pool, const c8* _text) {
 
 // --- building --------------------------------------------------------------------
 
-RDE_INTERNAL u32 fude_catalog_group(u32 _cp) {
-    if(_cp >= 0x3041u && _cp <= 0x3096u) { return FUDE_GROUP_HIRAGANA; }
-    if(_cp >= 0x30A1u && _cp <= 0x30FAu) { return FUDE_GROUP_KATAKANA; }
-    if((_cp >= 0x4E00u && _cp <= 0x9FFFu) || (_cp >= 0x3400u && _cp <= 0x4DBFu) ||
-       (_cp >= 0xF900u && _cp <= 0xFAFFu) || (_cp >= 0x20000u && _cp <= 0x2FFFFu)) {
-        return FUDE_GROUP_KANJI;
-    }
-    return UINT32_MAX;
-}
-
 typedef struct {
     const fude_catalog_entry* entry;
     const c8*                 key;     // sort key, or NULL
@@ -182,25 +181,28 @@ void fude_catalog_init(fude_catalog* _catalog, const fude_kanji_db* _db) {
         if(!fude_kanji_at(_db, _r, &_info)) {
             continue;
         }
-        const u32 _group = fude_catalog_group(_info.codepoint);
-        if(_group == UINT32_MAX) {
+        const u8 _group = fude_lang_group(_info.codepoint);
+        if(_group == FUDE_LANG_NO_GROUP) {
             continue;   // punctuation, Latin: not something to learn
         }
 
         fude_catalog_entry _e = {
             .record    = _r,
             .codepoint = _info.codepoint,
-            .group     = (u8)_group,
+            .group     = _group,
             .strokes   = _info.strokes,
             .grade     = _info.grade,
-            .jlpt_n    = _info.jlpt_n,
+            .level     = _info.level,
             .frequency = _info.frequency,
         };
 
-        if(_group == FUDE_GROUP_KANJI) {
-            _e.on       = fude_catalog_reading_key(&_catalog->keys, fude_kanji_on(_db, &_info), false);
-            _e.kun      = fude_catalog_reading_key(&_catalog->keys, fude_kanji_kun(_db, &_info), false);
-            _e.kun_stem = fude_catalog_reading_key(&_catalog->keys, fude_kanji_kun(_db, &_info), true);
+        if((fude_lang_group_flags(_group) & FUDE_LANG_GROUP_SCRIPT) == 0u) {
+            c8 _all[1024];
+            snprintf(_all, sizeof(_all), "%s\xE3\x80\x81%s", fude_kanji_reading(_db, &_info, 0u), fude_kanji_reading(_db, &_info, 1u));   // 、
+            for(u32 _k = 0; _k < FUDE_CATALOG_READINGS; _k++) {
+                _e.reading[_k] = fude_catalog_reading_key(&_catalog->keys, fude_kanji_reading(_db, &_info, _k), false);
+            }
+            _e.stem     = fude_catalog_reading_key(&_catalog->keys, _all, true);
             // In the language shown first (it sorts by it), then English: either finds it.
             const c8* _shown   = fude_kanji_meanings(_db, &_info);
             const c8* _english = fude_kanji_meanings_english(_db, &_info);
@@ -208,13 +210,13 @@ void fude_catalog_init(fude_catalog* _catalog, const fude_kanji_db* _db) {
             snprintf(_both, sizeof(_both), _shown != _english ? "%s, %s" : "%s", _shown, _english);
             _e.meaning  = fude_catalog_meaning_key(&_catalog->keys, _both);
         } else {
-            // A kana's reading is itself.
+            // A script letter's reading is itself.
             c8 _self[5];
             fude_utf8_put(_info.codepoint, _self);
-            _e.on       = fude_catalog_reading_key(&_catalog->keys, _self, false);
-            _e.kun      = _e.on;
-            _e.kun_stem = fude_catalog_reading_key(&_catalog->keys, "", false);
-            _e.meaning  = _e.kun_stem;
+            _e.reading[0] = fude_catalog_reading_key(&_catalog->keys, _self, false);
+            _e.reading[1] = _e.reading[0];
+            _e.stem       = fude_catalog_reading_key(&_catalog->keys, "", false);
+            _e.meaning    = _e.stem;
         }
 
         ((u32*)_catalog->_by_record.memory)[_r] = (u32)rde_arr_length(&_catalog->entries);
@@ -255,19 +257,18 @@ u32 fude_catalog_result_count(const fude_catalog* _catalog) {
 // --- filtering -------------------------------------------------------------------
 
 RDE_INTERNAL b8 fude_catalog_entry_passes(const fude_catalog_entry* _e, FUDE_FILTER_ _filter) {
-    switch(_filter) {
-        case FUDE_FILTER_HIRAGANA: return _e->group == FUDE_GROUP_HIRAGANA;
-        case FUDE_FILTER_KATAKANA: return _e->group == FUDE_GROUP_KATAKANA;
-        case FUDE_FILTER_KANJI:    return _e->group == FUDE_GROUP_KANJI;
-        case FUDE_FILTER_N5:       return _e->jlpt_n == 5;
-        case FUDE_FILTER_N4:       return _e->jlpt_n == 4;
-        case FUDE_FILTER_N3:       return _e->jlpt_n == 3;
-        case FUDE_FILTER_N2:       return _e->jlpt_n == 2;
-        case FUDE_FILTER_N1:       return _e->jlpt_n == 1;
-        case FUDE_FILTER_STUDYING: return fude_marks_get(_e->codepoint) == FUDE_MARK_STUDYING;
-        case FUDE_FILTER_KNOWN:    return fude_marks_get(_e->codepoint) == FUDE_MARK_KNOWN;
-        default:                   return true;
+    const u32 _groups = fude_lang_group_count();
+    const u32 _levels = fude_lang_level_count();
+    if(_filter == FUDE_FILTER_ALL || _filter >= fude_filter_count()) {
+        return true;
     }
+    if(_filter <= _groups) {
+        return _e->group == _filter - 1u;
+    }
+    if(_filter <= _groups + _levels) {
+        return _e->level == fude_lang_level_value(_filter - 1u - _groups);
+    }
+    return fude_marks_get(_e->codepoint) == (_filter == fude_filter_studying() ? FUDE_MARK_STUDYING : FUDE_MARK_KNOWN);
 }
 
 b8 fude_catalog_passes(const fude_catalog* _catalog, u32 _record, FUDE_FILTER_ _filter) {
@@ -404,12 +405,12 @@ RDE_INTERNAL u32 fude_catalog_score(const fude_catalog* _catalog, const fude_cat
 
     if(_kana != NULL && _kana[0] != 0) {
         const c8* _sep = "、";
-        u32 _s = fude_catalog_match_list(fude_catalog_key(_catalog, _e->on),  _sep, _kana, 2, 4, true);
-        _best  = _s < _best ? _s : _best;
-        _s     = fude_catalog_match_list(fude_catalog_key(_catalog, _e->kun), _sep, _kana, 2, 4, true);
-        _best  = _s < _best ? _s : _best;
-        _s     = fude_catalog_match_list(fude_catalog_key(_catalog, _e->kun_stem), _sep, _kana, FUDE_CATALOG_NO_MATCH, FUDE_CATALOG_NO_MATCH, false);
-        _best  = (_s == 0 && _best > 1u) ? 1u : _best;   // a stem is almost as good as a reading
+        for(u32 _k = 0; _k < FUDE_CATALOG_READINGS; _k++) {
+            const u32 _s = fude_catalog_match_list(fude_catalog_key(_catalog, _e->reading[_k]), _sep, _kana, 2, 4, true);
+            _best = _s < _best ? _s : _best;
+        }
+        const u32 _s = fude_catalog_match_list(fude_catalog_key(_catalog, _e->stem), _sep, _kana, FUDE_CATALOG_NO_MATCH, FUDE_CATALOG_NO_MATCH, false);
+        _best = (_s == 0 && _best > 1u) ? 1u : _best;   // a stem is almost as good as a reading
     }
 
     if(_english != NULL && _english[0] != 0) {
@@ -420,12 +421,35 @@ RDE_INTERNAL u32 fude_catalog_score(const fude_catalog* _catalog, const fude_cat
     return _best;
 }
 
+// Latin letters as a reading (lang.h: as the language writes readings, then folded
+// as they are compared). False when they do not read as one.
+RDE_INTERNAL b8 fude_catalog_latin_reading(const c8* _latin, c8* _out, usize _size) {
+    c8 _written[256];
+    if(!fude_lang_reading_from_latin(_latin, _written, sizeof(_written))) {
+        return false;
+    }
+    usize _n = 0;
+    for(const c8* _p = _written; *_p != 0;) {
+        c8 _one[5];
+        fude_utf8_put(fude_lang_reading_fold(fude_utf8_next(&_p)), _one);
+        const usize _len = strlen(_one);
+        if(_n + _len >= _size) {
+            break;
+        }
+        memcpy(_out + _n, _one, _len);
+        _n += _len;
+    }
+    _out[_n] = 0;
+    return true;
+}
+
 u32 fude_catalog_query(fude_catalog* _catalog, FUDE_FILTER_ _filter, FUDE_SORT_ _sort, const c8* _search) {
     rde_arr_clear(&_catalog->results);
     rde_arr_clear(&_catalog->_sort);
 
-    // The search, as English (lower case, trimmed) and as kana (hiragana): typed
-    // kana directly, or romaji that converts completely.
+    // The search, as English (lower case, trimmed) and as a reading (folded as
+    // the language compares them): typed in the script, or Latin letters that
+    // read completely as one (lang.h; Japanese: romaji to kana).
     c8 _english[128] = "";
     c8 _kana[256]    = "";
     if(_search != NULL) {
@@ -443,13 +467,13 @@ u32 fude_catalog_query(fude_catalog* _catalog, FUDE_FILTER_ _filter, FUDE_SORT_ 
         _english[_n] = 0;
 
         if(!_ascii) {
-            // Kana typed directly: katakana → hiragana. Not English.
+            // The script typed directly: folded. Not English.
             rde_arr _tmp = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
             const u32 _at = fude_catalog_reading_key(&_tmp, _english, false);
             snprintf(_kana, sizeof(_kana), "%s", &((const c8*)_tmp.memory)[_at]);
             rde_arr_free(&_tmp);
             _english[0] = 0;
-        } else if(_english[0] != 0 && !fude_romaji_to_hiragana(_english, _kana, sizeof(_kana))) {
+        } else if(_english[0] != 0 && !fude_catalog_latin_reading(_english, _kana, sizeof(_kana))) {
             _kana[0] = 0;   // not a reading, only English
         }
     }
@@ -478,20 +502,22 @@ u32 fude_catalog_query(fude_catalog* _catalog, FUDE_FILTER_ _filter, FUDE_SORT_ 
     // Sort keys: the first reading / meaning, copied out (the keys hold lists).
     // They live in a scratch pool that outlives the sort.
     rde_arr _firsts = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
-    if(!_searching && (_sort == FUDE_SORT_ON || _sort == FUDE_SORT_KUN || _sort == FUDE_SORT_MEANING)) {
+    const b8 _by_meaning = _sort == fude_sort_meaning();
+    const b8 _by_reading = _sort >= fude_sort_reading(0u) && _sort < fude_sort_meaning();
+    if(!_searching && (_by_reading || _by_meaning)) {
         rde_arr TYPE(u32) _offsets = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
         for(u32 _i = 0; _i < _count; _i++) {
             const fude_catalog_entry* _e = _items[_i].entry;
-            const u32 _key = _sort == FUDE_SORT_ON ? _e->on : _sort == FUDE_SORT_KUN ? _e->kun : _e->meaning;
+            const u32 _key = _by_reading ? _e->reading[_sort - fude_sort_reading(0u)] : _e->meaning;
             const c8* _list = fude_catalog_key(_catalog, _key);
-            if(_sort == FUDE_SORT_MEANING) {
+            if(_by_meaning) {
                 // "(boiled) rice" sorts under r, not before a.
                 while(*_list != 0 && !isalnum((unsigned char)*_list)) {
                     _list++;
                 }
             }
             c8 _first[128];
-            fude_catalog_first(_list, _sort == FUDE_SORT_MEANING ? ", " : "、", _first, sizeof(_first));
+            fude_catalog_first(_list, _by_meaning ? ", " : "、", _first, sizeof(_first));
             u32 _at = (u32)rde_arr_length(&_firsts);
             rde_arr_add(&_offsets, &_at);
             for(u32 _c = 0; _first[_c] != 0; _c++) {

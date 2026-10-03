@@ -5,9 +5,14 @@ THE SOURCES (docs/architecture.md says what each layer is for):
   fude/drawing/   the drawing core, every app's: app/ (the shell's parts) base/ ink/ widgets/
   fude/study/     a study app's: app/ (its extension, verbs, files, flags) chars/
                   handwriting/ models/ screens/ widgets/ services/
-  fude/lang/ja/   Japanese's own
-  apps/kana/      Kana: kana.c (the shell), src/ (its own: kana_app, welcome,
+  fude/lang/ja/   Japanese's own; fude/lang/zh/ Chinese's, fude/lang/ko/ Korean's (lang.h:
+                  what a language gives)
+  apps/kana/      Kana: kana.c (the shell), src/ (its own: kana_app,
                   version.h, text_ids.h), assets/, platform/ios/, tools/, docs/, site/
+  apps/hanzi/     Hanzi, Kana for Chinese: hanzi.c, src/, assets/, platform/ios/, tools/
+  apps/hangul/    Hangul, Kana for Korean: hangul.c, src/, assets/, platform/ios/, tools/
+  tools/          the apps' shared tools: strings/, mlkit/, lectures/ (the
+                  phrasebooks), icons/
   apps/draw/      Draw, the drawing app: draw.c, src/text_ids.h, assets/, tools/
 Each header is beside its source and is included by its layer's path
 ("drawing/widgets/row.h", "study/app/study.h"); the include paths are
@@ -48,7 +53,7 @@ a tablet's. Use it to iterate on the code, then measure on a device.
   C:/Users/borja/Programming/RDE/builder.exe --project --debug ^
     --assets_path=C:/Users/borja/Programming/Projects/kana/apps/kana/assets/ ^
     --output_path=C:/Users/borja/Programming/Projects/kana/build/kana/ ^
-    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c -IC:/Users/borja/Programming/Projects/kana/fude -IC:/Users/borja/Programming/Projects/kana/apps/kana/src ^
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/lang.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c fude/study/app/welcome.c -IC:/Users/borja/Programming/Projects/kana/fude -IC:/Users/borja/Programming/Projects/kana/apps/kana/src ^
     -Werror -Wall -Wextra
 
   build\windows\debug\project\exe\runnable.exe
@@ -72,11 +77,86 @@ old .so, and the change simply is not in the APK.
     --android_ndk=C:\Users\borja\AppData\Local\Android\Sdk\ndk\30.0.15729638\ ^
     --android_sdk=C:\Users\borja\AppData\Local\Android\Sdk\ ^
     --android_api_level=37 ^
-    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c -Ifude -Iapps/kana/src -Wall -Wextra ^
+    --android_java=./fude/android/java ^
+    --android_deps_file=./apps/kana/platform/android/deps.lock --android_dep_cache=./build/android_deps ^
+    --android_internet --android_network_state --android_wake_lock --android_camera ^
+    --android_query_intent=android.intent.action.TTS_SERVICE ^
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/lang.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c fude/study/app/welcome.c fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c fude/study/services/speech_android.c fude/study/services/mlkit_android.c fude/study/services/translate_android.c fude/study/services/textscan_android.c -Ifude -Iapps/kana/src -Wall -Wextra ^
     --output_path=C:\Users\borja\Programming\Projects\kana\build\kana\
 
-No --android_internet: the spike talks to nothing. Add it only when something
-actually needs the network, and never by default.
+The Android services are the apps' own Java (fude/android/java, com.rde.fude:
+--android_java), reached from C through JNI (fude/drawing/base/android.h and the
+*_android.c sources above). Google's ML Kit comes from Maven, pinned by the app's
+deps.lock (see ANDROID (from the Mac) for regenerating it) and downloaded once into
+build/android_deps. The network: ML Kit downloads its handwriting and translation
+models (--android_internet, --android_network_state; WAKE_LOCK for its WorkManager).
+The camera: the live text recognition (--android_camera). TTS_SERVICE: without it
+API 30+ shows the app no text-to-speech engine. Hanzi and Hangul: their own
+deps.lock, package, sources (COMMANDS' lists) and the same flags.
+
+
+ANDROID (from the Mac) — tools/android/build.sh
+------------------------------------------------
+The same apps, built by one script (it holds the source lists and every flag):
+
+  zsh tools/android/build.sh engine            # RDE for Android: FIRST, after any engine
+                                               # change, and after building the engine for
+                                               # another platform (rde_config.h is per platform)
+  zsh tools/android/build.sh kana              # or hanzi, hangul; --release for a release build
+  adb install -r build/kana-android/Kana.apk   # the tablet, by USB, developer options on
+
+--release (an engine build with --release first): build/<app>-android/<App>-release.apk,
+beside the debug <App>.apk; the same key, so either installs over the other. A
+low-end tablet (Galaxy Tab S6 Lite) is slow with the debug build and smooth with
+the release one: judge speed on release.
+
+GPUs: SDL's Vulkan asks by default for features some Android GPUs lack (the Tab S6
+Lite's Mali-G72: depth clamping, clip distances, anisotropy) and refuses the
+device; RDE then makes it again without them (logged: "GPU device made without
+the optional features"). Nothing to do here; it is in the engine. A device with
+no Vulkan at all cannot run RDE: the manifest requires Vulkan (Play hides the app
+there), and a hand-installed APK shows "Graphics not supported" and closes.
+
+Needs Android Studio (its JDK, the SDK at ~/Library/Android/sdk with platform and
+build-tools 37 and an NDK; the newest NDK installed is used, or ANDROID_NDK=...).
+The JDK is reached through build/jdk, a link without the space Android Studio's
+path has (the builder runs keytool through the shell, unquoted).
+
+THE SIGNING KEY: the first build makes build/<app>-android/com.rde.<app>.keystore
+(alias and passwords: the builder's, "android"). KEEP A COPY of it outside build/:
+an APK signed with another key cannot update the installed app, and Play needs the
+same key for every update. The three made on 2026-10-03 are backed up in
+~/kana-android-keys/ (never commit them). Building with a kept key:
+  zsh tools/android/build.sh kana --android_sign_path=$HOME/kana-android-keys/com.rde.kana.keystore
+
+THE LIBRARIES (ML Kit): apps/<app>/platform/android/deps.lock pins every Maven
+artifact; the build reads it (--android_deps_file) and downloads what is missing
+into build/android_deps (--android_dep_cache). To change a version, resolve again,
+EVERY ROOT IN ONE COMMAND (separate runs would each pin their own tree):
+
+  ~/RDE/builder --android_dep_cache=build/android_deps \
+    --android_dep_resolve=com.google.mlkit:digital-ink-recognition:19.0.0 \
+    --android_dep_resolve=com.google.mlkit:translate:17.0.3 \
+    --android_dep_resolve=com.google.mlkit:text-recognition-japanese:16.0.1 \
+    --android_dep_resolve=com.google.android.gms:play-services-mlkit-document-scanner:16.0.0 \
+    --android_deps_out=apps/kana/platform/android/deps.lock
+
+(text-recognition-chinese for Hanzi, -korean for Hangul.) The libraries' native
+code (jni/<abi>) and model files (assets/) go into the APK with them, and their
+manifests are merged.
+
+Each app build compiles every source afresh (the builder deletes its intermediates
+after packaging): a header change needs nothing special; about a minute an app.
+
+THE EMULATOR (no tablet at hand): an AVD (Device Manager in Android Studio), then
+  adb install -r build/kana-android/Kana.apk
+  adb shell am start -n com.rde.kana/.KanaActivity
+  adb logcat | grep -E "SDL_RDE|Fude"
+Its GPU is software: ~20 frames a second, and a quick tap can begin and end
+between two frames — hold taps (adb shell input swipe x y x y 200).
+
+On Android the window is laid out in dp (rde_window_set_density_scaling, called
+by fude_app_window), as iOS in points: an iPad's sizes on an Android tablet.
 
 
 iOS (from the Mac) — the iPad
@@ -106,11 +186,12 @@ paths are absolute on purpose.
     --ios_framework=PhotosUI --ios_framework=CoreImage --ios_framework=Accelerate \
     --ios_framework=Network --ios_framework=ImageIO --ios_framework=VisionKit --ios_framework=PDFKit --ios_framework=CoreText \
     --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/ocr/ja \
     --ios_bundle=/Users/borjavazquez/kana/apps/kana/platform/ios/localized \
     --ios_assets=/Users/borjavazquez/kana/apps/kana/platform/ios/Assets.xcassets \
     --ios_launch_storyboard=/Users/borjavazquez/kana/apps/kana/platform/ios/LaunchScreen.storyboard \
     --ios_plist=/Users/borjavazquez/kana/apps/kana/platform/ios/Info.plist \
-    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c fude/study/services/mlkit_ios.m fude/study/services/speech_ios.m fude/study/services/textscan_ios.m fude/study/services/translate_ios.m fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/lang.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c fude/study/app/welcome.c fude/study/services/mlkit_ios.m fude/study/services/speech_ios.m fude/study/services/textscan_ios.m fude/lang/ja/lang_ios.m fude/study/services/translate_ios.m fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
     -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/kana/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
     -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
 
@@ -242,7 +323,7 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
     --assets_path=/Users/borjavazquez/kana/apps/kana/assets/ \
     --output_path=/Users/borjavazquez/kana/build/kana/ \
     --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
-    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c apps/kana/src/welcome.c \
+    apps/kana/kana.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/lang.c fude/lang/ja/wordsplit.c apps/kana/src/kana_app.c fude/study/app/welcome.c \
     -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/kana/src -Wall -Wextra
 
   ./build/kana/osx-silicon/debug/project/exe/runnable                  # the app
@@ -251,11 +332,15 @@ the Mac; an iOS build afterwards needs `./builder --engine --ios --debug` again)
 with `clang rde_build.c -o builder` once): the system frameworks the project
 links on the Mac — the documents' PDFs are Core Graphics', pictures ImageIO's
 (fude/drawing/doc/pdf.c), their text PDFKit's (pdf_kit.m: the Mac's and iOS's
-lists have it, Windows' and Android's do not). Windows and Android have no PDF renderer yet: pdf.c's
-stand-ins say so, and Lectures shows nothing to open there.
+lists have it, Windows' and Android's do not). Android's is the system's PdfRenderer (pdf_android.c; no
+text search or export there yet: the doc bar hides them). Windows has no PDF
+renderer yet: pdf.c's stand-ins say so, and Lectures shows nothing to open there.
   ./build/kana/osx-silicon/debug/project/exe/runnable --viewer=6728    # straight into the viewer on 木 (hex code point)
 
-Looks, without the device (debug builds: a release takes no arguments): a screen (--browse, --kana, --stats, --exam,
+Looks, without the device (debug builds: a release takes no arguments): a screen (--browse, --browse-sort=N
+(Browse sorted: 0 default, 1 strokes, then each reading's kind, then meaning), --notice (the longest
+notice), --text-check (every text drawn past the screen's sides, on the log: run it over the
+screens in every --language=N), --kana, --stats, --exam,
 --exam-start, --side, --paper, --album, --album-exams, --album-page=HEX,
 --kept-exam=N, --viewer=HEX; --scan-demo=PNG the Text from a photo screen fed
 that image and some lines, --scan-demo-turn=DEG and --scan-demo-top-first to
@@ -335,6 +420,149 @@ core's — every .c under fude/drawing/, in any order:
 The core's launch flags work the same (--size, --side, --settings, --shot...).
 Its saves are ./saves/ under the folder it runs in on a computer, and draw/ in
 its own storage on a device (fude_save_set_folder).
+
+
+HANZI (Chinese) — on the Mac and the iPad
+-----------------------------------------
+apps/hanzi/ is Kana's shell for Chinese: the same study layer, with fude/lang/zh/
+(lang.c: Simplified and Traditional, HSK 2025's levels, pinyin; wordsplit.c;
+bake.c; lang_ios.m: ML Kit's Chinese text model) instead of fude/lang/ja/, and no
+kana chart. docs/chinese_korean_data.md has its sources and their licences.
+
+THE DATA, once (and again when a source is updated; data/raw/ is not in the
+repository): the sources downloaded, the strokes put in KanjiVG's form, the
+tables prepared, then baked — characters.kana, and strokes.kana apart (the
+Arphic Public License's: kept in a file of its own, with its notice):
+
+  python3 apps/hanzi/tools/data/fetch.py         # data/raw/zh/ (and Tatoeba's Chinese into data/raw/tatoeba/)
+  python3 apps/hanzi/tools/data/strokes.py       # data/raw/zh/hanzivg.xml
+  python3 -m pip install msgpack                 # once (wordfreq's file)
+  python3 apps/hanzi/tools/data/prepare.py       # data/raw/zh/prepared/*.tsv, fude/lang/zh/traditional.h
+  ./build/hanzi/osx-silicon/debug/project/exe/runnable --bake     # with the Mac build below: ~30 s
+
+(Kana's KANJIDIC2 — data/raw/kanjidic2.xml, THE CHARACTER DATA BAKE — gives the
+Spanish, Portuguese and French meanings, and Kana's Tatoeba downloads the other
+languages' sentences.) The converted stroke data must be published under the
+Arphic Public License (docs/chinese_korean_data.md, "The Arphic conditions").
+
+THE STRINGS: python3 apps/hanzi/tools/strings.py (fude/lang/zh/strings.py has
+Chinese's words for the study's strings).
+
+ON THE MAC:
+
+  cd ~/kana
+  ~/RDE/builder --project --debug \
+    --assets_path=/Users/borjavazquez/kana/apps/hanzi/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/hanzi/ \
+    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
+    apps/hanzi/hanzi.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/doc/pdf_kit.m fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/zh/bake.c fude/lang/zh/lang.c fude/lang/zh/wordsplit.c apps/hanzi/src/hanzi_app.c fude/study/app/welcome.c \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/hanzi/src -Wall -Wextra
+
+  ./build/hanzi/osx-silicon/debug/project/exe/runnable --viewer=6C49   # 汉
+
+ON THE iPAD (engine first, as for Kana). It needs its own provisioning profile,
+for com.rde.hanzi — made the way Kana's was:
+
+  ~/RDE/builder --project --debug --ios \
+    --assets_path=/Users/borjavazquez/kana/apps/hanzi/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/hanzi/ \
+    --ios_package_name=com.rde.hanzi --ios_app_name=Hanzi \
+    "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
+    "--ios_provisioning_profile=<the com.rde.hanzi .mobileprovision>" \
+    (every --ios_framework of Kana's, with MLKitTextRecognitionChinese.framework
+     for MLKitTextRecognitionJapanese.framework) \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/ocr/zh \
+    --ios_bundle=/Users/borjavazquez/kana/apps/hanzi/platform/ios/localized \
+    --ios_assets=/Users/borjavazquez/kana/apps/hanzi/platform/ios/Assets.xcassets \
+    --ios_launch_storyboard=/Users/borjavazquez/kana/apps/hanzi/platform/ios/LaunchScreen.storyboard \
+    --ios_plist=/Users/borjavazquez/kana/apps/hanzi/platform/ios/Info.plist \
+    apps/hanzi/hanzi.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/zh/bake.c fude/lang/zh/lang.c fude/lang/zh/wordsplit.c apps/hanzi/src/hanzi_app.c fude/study/app/welcome.c fude/study/services/mlkit_ios.m fude/study/services/speech_ios.m fude/study/services/textscan_ios.m fude/lang/zh/lang_ios.m fude/study/services/translate_ios.m fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/hanzi/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
+
+The Simulator: --ios_simulator for --ios, no signing, no ML Kit (no frameworks,
+bundles, -I/-L of it): as Kana's.
+
+THE LECTURES (assets/lectures/: Wikivoyage's Chinese phrasebook in English,
+Spanish, French, Portuguese and Japanese; their credits in LICENSE-lectures.txt):
+
+  python3 -m pip install pypdf                  # once
+  python3 tools/lectures/phrasebook.py apps/hanzi/assets/lectures --book=zh
+
+THE ICON: apps/hanzi/platform/ios/AppIcon.svg (中文 in KanjiVG's strokes, cut in
+white in a red seal, over Kana's open book), drawn into the asset catalog:
+
+  python3 tools/icons/app_icon.py apps/hanzi/platform/ios
+
+
+HANGUL (Korean) — on the Mac and the iPad
+-----------------------------------------
+apps/hangul/ is Kana's shell for Korean, with fude/lang/ko/ (lang.c: jamo,
+syllables and hanja, the dictionary's three levels, a hanja's 음 and 훈, the
+Revised Romanization; wordsplit.c; bake.c; chart.c: the Hangul chart, 반절표;
+lang_ios.m: ML Kit's Korean text model). Words are read in romanization
+(lang.h: fude_lang_word_reading_latin). docs/chinese_korean_data.md has its
+sources and their licences.
+
+THE DATA, once (and again when a source is updated; data/raw/ is not in the
+repository): the strokes drawn and composed (Hangul's own: README.md there),
+the sources downloaded, the tables prepared — with the hanja's strokes from
+KanjiVG into one file, data/raw/ko/koreanvg.xml — then baked:
+
+  python3 apps/hangul/tools/strokes/compose.py   # data/raw/hangulvg.xml
+  python3 apps/hangul/tools/data/fetch.py        # data/raw/ko/ (krdict, libhangul, wordfreq), Tatoeba's Korean
+  python3 apps/hangul/tools/data/prepare.py      # data/raw/ko/prepared/*.tsv, data/raw/ko/koreanvg.xml
+  ./build/hangul/osx-silicon/debug/project/exe/runnable --bake
+
+(Kana's KanjiVG, KANJIDIC2 and Tatoeba downloads — THE CHARACTER DATA BAKE —
+and Hanzi's Unihan.zip are read too.)
+
+THE STRINGS: python3 apps/hangul/tools/strings.py (fude/lang/ko/strings.py has
+Korean's words for the study's strings).
+
+ON THE MAC:
+
+  cd ~/kana
+  ~/RDE/builder --project --debug \
+    --assets_path=/Users/borjavazquez/kana/apps/hangul/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/hangul/ \
+    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
+    apps/hangul/hangul.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/doc/pdf_kit.m fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ko/bake.c fude/lang/ko/chart.c fude/lang/ko/lang.c fude/lang/ko/wordsplit.c apps/hangul/src/hangul_app.c fude/study/app/welcome.c \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/hangul/src -Wall -Wextra
+
+  ./build/hangul/osx-silicon/debug/project/exe/runnable --chart      # the Hangul chart
+
+ON THE iPAD (engine first). Its own provisioning profile, for com.rde.hangul:
+
+  ~/RDE/builder --project --debug --ios \
+    --assets_path=/Users/borjavazquez/kana/apps/hangul/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/hangul/ \
+    --ios_package_name=com.rde.hangul --ios_app_name=Hangul \
+    "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
+    "--ios_provisioning_profile=<the com.rde.hangul .mobileprovision>" \
+    (every --ios_framework of Kana's, with MLKitTextRecognitionKorean.framework
+     for MLKitTextRecognitionJapanese.framework) \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/ocr/ko \
+    --ios_bundle=/Users/borjavazquez/kana/apps/hangul/platform/ios/localized \
+    --ios_assets=/Users/borjavazquez/kana/apps/hangul/platform/ios/Assets.xcassets \
+    --ios_launch_storyboard=/Users/borjavazquez/kana/apps/hangul/platform/ios/LaunchScreen.storyboard \
+    --ios_plist=/Users/borjavazquez/kana/apps/hangul/platform/ios/Info.plist \
+    apps/hangul/hangul.c fude/drawing/app/app.c fude/drawing/app/look.c fude/drawing/app/page.c fude/drawing/app/session.c fude/drawing/app/ui.c fude/drawing/base/backup.c fude/drawing/base/kfile.c fude/drawing/base/save.c fude/drawing/base/text.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/ink/canvas.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/notes.c fude/drawing/doc/doc.c fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c  fude/study/app/demo.c fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c fude/study/handwriting/recognize.c fude/study/handwriting/score.c fude/study/handwriting/segment.c fude/study/handwriting/textink.c fude/study/models/charnote.c fude/study/models/examlog.c fude/study/models/history.c fude/study/models/marks.c fude/study/models/review.c fude/study/models/select.c fude/study/models/sheet.c fude/study/models/vocab.c fude/study/screens/album.c fude/study/screens/browse.c fude/study/screens/check.c fude/study/screens/exam.c fude/study/screens/practice.c fude/study/screens/scan.c fude/study/screens/stats.c fude/study/screens/viewer.c fude/study/screens/vocabview.c fude/study/screens/translator.c fude/study/screens/wordexam.c fude/study/widgets/header.c fude/study/widgets/pagetext.c fude/study/widgets/wordcard.c fude/study/services/mlkit.c fude/study/services/speech.c fude/study/services/textscan.c fude/study/services/translate.c fude/lang/ko/bake.c fude/lang/ko/chart.c fude/lang/ko/lang.c fude/lang/ko/wordsplit.c apps/hangul/src/hangul_app.c fude/study/app/welcome.c fude/study/services/mlkit_ios.m fude/study/services/speech_ios.m fude/study/services/textscan_ios.m fude/lang/ko/lang_ios.m fude/study/services/translate_ios.m fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/hangul/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
+
+The Simulator: --ios_simulator for --ios, no signing, no ML Kit: as Kana's.
+
+THE LECTURES (Wikivoyage's Korean phrasebook in the five languages):
+
+  python3 tools/lectures/phrasebook.py apps/hangul/assets/lectures --book=ko
+
+THE ICON: apps/hangul/platform/ios/AppIcon.svg (한글 in Hangul's own strokes on
+a moon, over Kana's open book):
+
+  python3 tools/icons/app_icon.py apps/hangul/platform/ios
 
 
 THE CHARACTER DATA BAKE

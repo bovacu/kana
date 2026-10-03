@@ -2,6 +2,7 @@
 #define FUDE_EXAM
 
 #include "rde.h"
+#include "lang/lang.h"
 #include "study/chars/kanji.h"
 #include "study/chars/catalog.h"
 #include "study/chars/glyph.h"
@@ -43,20 +44,21 @@
 #define FUDE_EXAM_KNOWN_STREAK 3u        // exams in a row right: Known
 #define FUDE_EXAM_UNITS        1000.0f   // the answer square's side, in its ink's units
 
-typedef enum {
-    FUDE_EXAM_SOURCE_STUDYING = 0,
-    FUDE_EXAM_SOURCE_KNOWN,
-    FUDE_EXAM_SOURCE_N5,
-    FUDE_EXAM_SOURCE_N4,
-    FUDE_EXAM_SOURCE_N3,
-    FUDE_EXAM_SOURCE_N2,
-    FUDE_EXAM_SOURCE_N1,
-    FUDE_EXAM_SOURCE_HIRAGANA,
-    FUDE_EXAM_SOURCE_KATAKANA,
-    FUDE_EXAM_SOURCE_SELECTION,
-    FUDE_EXAM_SOURCE_REVIEW,       // what review.h has due (the side panel's Reviews; never a chip)
-    FUDE_EXAM_SOURCE_COUNT
-} FUDE_EXAM_SOURCE_;
+// What an exam is of: the learner's marks, each of the language's levels
+// (lang.h, easiest first), each of its sets (the groups learnt whole: Japanese
+// hiragana, katakana — their core characters), a selection given, or the
+// reviews due — numbered in that order. Japanese: 0 studying, 1 known, 2-6
+// N5..N1, 7 hiragana, 8 katakana, 9 selection, 10 review. The exam log keeps
+// these numbers (examlog.h).
+typedef u32 FUDE_EXAM_SOURCE_;
+#define FUDE_EXAM_SOURCE_STUDYING 0u
+#define FUDE_EXAM_SOURCE_KNOWN    1u
+#define FUDE_EXAM_SOURCE_MAX      (4u + FUDE_LANG_LEVELS + FUDE_LANG_GROUPS)   // sources, at most
+FUDE_EXAM_SOURCE_ fude_exam_source_level(u32 _level);
+FUDE_EXAM_SOURCE_ fude_exam_source_set(u32 _set);     // the _set-th set group
+FUDE_EXAM_SOURCE_ fude_exam_source_selection(void);
+FUDE_EXAM_SOURCE_ fude_exam_source_review(void);      // what review.h has due (the side panel's Reviews; never a chip)
+u32               fude_exam_source_count(void);
 
 typedef enum {
     FUDE_EXAM_SETUP = 0,
@@ -113,7 +115,7 @@ RDE_STRUCT {
 
     // Layout of the last frame, and taps (screen space).
     fude_scroller        scroller;    // the preview's and results' grid; the setup's taps
-    fude_exam_chip       chips[FUDE_EXAM_SOURCE_COUNT + FUDE_EXAM_LENGTHS];
+    fude_exam_chip       chips[FUDE_EXAM_SOURCE_MAX + FUDE_EXAM_LENGTHS];
     u32                  chip_count;
     rde_vec_2F           grid_min;
     rde_vec_2F           grid_max;

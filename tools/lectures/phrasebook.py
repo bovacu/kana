@@ -1,7 +1,10 @@
-# Kana's lectures from Wikivoyage's Japanese phrasebooks (CC BY-SA 4.0), one per
-# language the app speaks that has one — English, Spanish, French, Portuguese:
-#   python3 phrasebook.py OUT_DIR [LANG...]
+# The study apps' lectures from Wikivoyage's phrasebooks (CC BY-SA 4.0), one per
+# language the app speaks that has one: Kana's Japanese ones (English, Spanish,
+# French, Portuguese), Hanzi's Chinese and Hangul's Korean ones (those and
+# Japanese):
+#   python3 tools/lectures/phrasebook.py OUT_DIR [--book=ja|zh|ko] [LANG...]
 # writes OUT_DIR/phrasebook_<lang>.pdf and .png (its cover, for the Library).
+# The book is Japanese (Kana's) unless --book says.
 # Needs a Mac (html2pdf.swift lays the pages out with AppKit; sips draws the
 # cover) and pypdf (pip install pypdf), and the network.
 #
@@ -15,37 +18,62 @@ import html, io, json, os, re, subprocess, sys, urllib.parse, urllib.request
 from html.parser import HTMLParser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-AGENT = 'KanaLectures/1.0 (rde.apps.support@gmail.com)'   # Wikimedia asks scripts to say who they are
+AGENT = 'RDELectures/1.0 (rde.apps.support@gmail.com)'   # Wikimedia asks scripts to say who they are
 
-PAGES = {
-    'en': ('Japanese phrasebook', ['Learning more']),
-    'es': ('Guía de japonés', []),
-    'fr': ('Guide linguistique japonais', ['Approfondir']),
-    'pt': ('Guia de conversação japonês', ['Aprenda mais']),
+# Each book: the app it is for, the word its title page shows big, the font for
+# its script, and its page in each language (with the sections of further links
+# left out).
+BOOKS = {
+    'ja': dict(app='Kana', big='日本語', font='Hiragino Sans', pages={
+        'en': ('Japanese phrasebook', ['Learning more']),
+        'es': ('Guía de japonés', []),
+        'fr': ('Guide linguistique japonais', ['Approfondir']),
+        'pt': ('Guia de conversação japonês', ['Aprenda mais']),
+    }),
+    'zh': dict(app='Hanzi', big='中文', font='PingFang SC', pages={
+        'en': ('Chinese phrasebook', ['Learning more']),
+        'es': ('Guía de chino', []),
+        'fr': ('Guide linguistique mandarin', ['Approfondir']),
+        'pt': ('Guia de conversação mandarim padrão', ['Aprendendo mais']),
+        'ja': ('中国語会話集', []),
+    }),
+    'ko': dict(app='Hangul', big='한국어', font='Apple SD Gothic Neo', pages={
+        'en': ('Korean phrasebook', ['Learning more', 'External links']),
+        'es': ('Guía de coreano', []),
+        'fr': ('Guide linguistique coréen', ['Approfondir']),
+        'pt': ('Guia de conversação coreano', ['Aprendendo mais', 'Ligações externas']),
+        'ja': ('朝鮮語会話集', ['もっとよく知る']),
+    }),
 }
+BOOK  = BOOKS['ja']
+PAGES = BOOK['pages']
 
 # The title page, in the book's own language.
 WORDS = {
     'en': dict(site='Wikivoyage', tagline='From Wikivoyage, the free travel guide',
                credit='“{title}” from Wikivoyage ({url}), by its contributors ({history}), revision {rev} of {date}, is licensed under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/',
-               changes='Changes made for Kana: {left} left out; laid out as a PDF. This PDF is under CC BY-SA 4.0 too: you may share and adapt it, crediting Wikivoyage, under the same licence.',
+               changes='Changes made for {app}: {left} left out; laid out as a PDF. This PDF is under CC BY-SA 4.0 too: you may share and adapt it, crediting Wikivoyage, under the same licence.',
                left='the pictures, the links and the section “{sections}”', left_none='the pictures and the links'),
     'es': dict(site='Wikiviajes', tagline='De Wikiviajes, la guía de viajes libre',
                credit='«{title}», de Wikiviajes ({url}), por sus colaboradores ({history}), revisión {rev} del {date}, tiene licencia CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/deed.es',
-               changes='Cambios para Kana: se han quitado {left}; maquetado como PDF. Este PDF también tiene licencia CC BY-SA 4.0: puedes compartirlo y adaptarlo citando a Wikiviajes, con la misma licencia.',
+               changes='Cambios para {app}: se han quitado {left}; maquetado como PDF. Este PDF también tiene licencia CC BY-SA 4.0: puedes compartirlo y adaptarlo citando a Wikiviajes, con la misma licencia.',
                left='las imágenes, los enlaces y la sección «{sections}»', left_none='las imágenes y los enlaces'),
     'fr': dict(site='Wikivoyage', tagline='De Wikivoyage, le guide de voyage libre',
                credit='« {title} », de Wikivoyage ({url}), par ses contributeurs ({history}), révision {rev} du {date}, est sous licence CC BY-SA 4.0 : https://creativecommons.org/licenses/by-sa/4.0/deed.fr',
-               changes='Modifications pour Kana : {left} ont été retirés ; mis en page en PDF. Ce PDF est aussi sous licence CC BY-SA 4.0 : vous pouvez le partager et l’adapter en citant Wikivoyage, sous la même licence.',
+               changes='Modifications pour {app} : {left} ont été retirés ; mis en page en PDF. Ce PDF est aussi sous licence CC BY-SA 4.0 : vous pouvez le partager et l’adapter en citant Wikivoyage, sous la même licence.',
                left='les images, les liens et la section « {sections} »', left_none='les images et les liens'),
     'pt': dict(site='Wikivoyage', tagline='Do Wikivoyage, o guia de viagem livre',
                credit='“{title}”, do Wikivoyage ({url}), por seus colaboradores ({history}), revisão {rev} de {date}, está licenciado sob CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/deed.pt',
-               changes='Alterações para o Kana: {left} foram retirados; diagramado como PDF. Este PDF também está sob CC BY-SA 4.0: você pode compartilhá-lo e adaptá-lo, dando crédito ao Wikivoyage, sob a mesma licença.',
+               changes='Alterações para o {app}: {left} foram retirados; diagramado como PDF. Este PDF também está sob CC BY-SA 4.0: você pode compartilhá-lo e adaptá-lo, dando crédito ao Wikivoyage, sob a mesma licença.',
                left='as imagens, os links e a seção “{sections}”', left_none='as imagens e os links'),
+    'ja': dict(site='ウィキボヤージュ', tagline='自由な旅行ガイド、ウィキボヤージュより',
+               credit='ウィキボヤージュの「{title}」（{url}）は、執筆者たち（{history}）による{date}の版{rev}で、CC BY-SA 4.0 のもとで利用できます：https://creativecommons.org/licenses/by-sa/4.0/deed.ja',
+               changes='{app}のための変更：{left}を除き、PDFとしてレイアウトしました。このPDFも CC BY-SA 4.0 です。ウィキボヤージュをクレジットすれば、同じライセンスのもとで共有・改変できます。',
+               left='画像、リンク、「{sections}」の節', left_none='画像とリンク'),
 }
 
 STYLE = '''<style>
-body { font-family: "Helvetica Neue", "Hiragino Sans"; font-size: 11pt; color: #111; }
+body { font-family: "Helvetica Neue", "{font}"; font-size: 11pt; color: #111; }
 h1 { font-size: 26pt; margin: 0 0 6pt 0; }
 h2 { font-size: 17pt; margin: 18pt 0 6pt 0; color: #1d3b6b; }
 h3 { font-size: 13.5pt; margin: 14pt 0 4pt 0; color: #1d3b6b; }
@@ -56,10 +84,14 @@ dt { font-weight: bold; margin-top: 5pt; }
 dd { margin: 1pt 0 0 18pt; }
 table { border-collapse: collapse; margin: 4pt 0 8pt 0; }
 td, th { border: 0.5pt solid #9aa3b0; padding: 3pt 5pt; vertical-align: top; }
-.big { font-family: "Hiragino Sans"; font-size: 64pt; color: #1d3b6b; margin: 120pt 0 12pt 0; }
+.big { font-family: "{font}"; font-size: 64pt; color: #1d3b6b; margin: 120pt 0 12pt 0; }
 .tag { font-size: 14pt; color: #555; margin-bottom: 140pt; }
 .credit { font-size: 9.5pt; color: #333; line-height: 1.35; }
 </style>'''
+
+
+def style():
+    return STYLE.replace('{font}', BOOK['font'])
 
 
 def get(lang, params):
@@ -159,12 +191,12 @@ def title_page(lang, title, revid, date):
     _, drop = PAGES[lang]
     page   = 'https://%s.wikivoyage.org/wiki/%s' % (lang, urllib.parse.quote(title.replace(' ', '_')))
     hist   = 'https://%s.wikivoyage.org/w/index.php?title=%s&action=history' % (lang, urllib.parse.quote(title.replace(' ', '_')))
-    left   = w['left'].format(sections='”, “'.join(drop)) if drop else w['left_none']
+    left   = w['left'].format(sections=('」「' if lang == 'ja' else '”, “').join(drop)) if drop else w['left_none']
     credit = w['credit'].format(title=title, url=page, history=hist, rev=revid, date=date)
     return ('<html><head><meta charset="utf-8">%s</head><body>'
-            '<p class="big">日本語</p><h1>%s</h1><p class="tag">%s</p>'
+            '<p class="big">%s</p><h1>%s</h1><p class="tag">%s</p>'
             '<p class="credit">%s</p><p class="credit">%s</p></body></html>') % (
-        STYLE, html.escape(title), html.escape(w['tagline']), html.escape(credit), html.escape(w['changes'].format(left=left)))
+        style(), BOOK['big'], html.escape(title), html.escape(w['tagline']), html.escape(credit), html.escape(w['changes'].format(app=BOOK['app'], left=left)))
 
 
 def make(lang, out_dir):
@@ -176,7 +208,7 @@ def make(lang, out_dir):
     with open(os.path.join(work, 'title.html'), 'w') as f:
         f.write(title_page(lang, title, revid, date))
     with open(os.path.join(work, 'body.html'), 'w') as f:
-        f.write('<html><head><meta charset="utf-8">%s</head><body><h1>%s</h1>%s</body></html>' % (STYLE, html.escape(title), body))
+        f.write('<html><head><meta charset="utf-8">%s</head><body><h1>%s</h1>%s</body></html>' % (style(), html.escape(title), body))
     swift = os.path.join(HERE, 'html2pdf.swift')
     subprocess.run(['swift', swift, os.path.join(work, 'title.html'), os.path.join(work, 'title.pdf'), '--no-numbers'], check=True)
     subprocess.run(['swift', swift, os.path.join(work, 'body.html'), os.path.join(work, 'body.pdf')], check=True)
@@ -184,7 +216,7 @@ def make(lang, out_dir):
     writer.add_page(PdfReader(os.path.join(work, 'title.pdf')).pages[0])
     for page in PdfReader(os.path.join(work, 'body.pdf')).pages:
         writer.add_page(page)
-    writer.add_metadata({'/Title': '%s (Wikivoyage, Kana edition)' % title, '/Author': 'Wikivoyage contributors',
+    writer.add_metadata({'/Title': '%s (Wikivoyage, %s edition)' % (title, BOOK['app']), '/Author': 'Wikivoyage contributors',
                          '/Subject': 'CC BY-SA 4.0. From revision %s of %s: pictures and links left out, laid out as a PDF.' % (revid, date)})
     out = os.path.join(out_dir, 'phrasebook_%s.pdf' % lang)
     with open(out, 'wb') as f:
@@ -196,5 +228,12 @@ def make(lang, out_dir):
 
 if __name__ == '__main__':
     out_dir = os.path.abspath(sys.argv[1])
-    for lang in (sys.argv[2:] or list(PAGES)):
+    langs   = []
+    for a in sys.argv[2:]:
+        if a.startswith('--book='):
+            BOOK  = BOOKS[a[len('--book='):]]
+            PAGES = BOOK['pages']
+        else:
+            langs.append(a)
+    for lang in (langs or list(PAGES)):
         make(lang, out_dir)
