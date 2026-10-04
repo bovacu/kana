@@ -39,6 +39,7 @@ typedef struct {
     void      (*press)(void* _self);
     b8        (*available)(const void* _self);     // NULL: always; false: greyed out
     b8          clears_search;                     // it empties the field first (Clear)
+    b8          hide_unavailable;                  // unavailable, not shown at all (Parts, in an app whose script has none)
 } fude_filterbar_toggle;
 
 typedef struct fude_filterbar_def {
@@ -75,6 +76,7 @@ typedef struct fude_filterbar {
     i8                        _compact_for;    // laid out compact (1) or not (0); -1: not yet
     u32                       _chosen_shown[FUDE_FILTERBAR_CHIP_ROWS];
     u8                        _on_shown[FUDE_FILTERBAR_TOGGLES];
+    u8                        _hidden[FUDE_FILTERBAR_TOGGLES];   // laid out hidden (hide_unavailable)
 } fude_filterbar;
 
 // Built under _root (hidden) for _self, its screen. Must not move afterwards.

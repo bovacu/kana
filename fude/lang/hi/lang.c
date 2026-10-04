@@ -268,6 +268,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x0936u,   // श (शब्द: word)
         0x0938u,   // स (समान: alike)
         0x091Fu,   // ट (टिप्पणी: note)
+        0x0905u,   // अ (अनुवाद: translation)
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

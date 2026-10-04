@@ -193,6 +193,7 @@ b8 fude_chart_take_tap(fude_chart* _chart, u32* _position) {
 RDE_INTERNAL void fude_chart_layout(fude_chart* _chart, f32 _left, f32 _width) {
     rde_arr_clear(&_chart->cells);
     _chart->_laid_out_width = _width;
+    _chart->_laid_out_rtl   = fude_draw_is_rtl();
 
     // As many to a line as fit at FUDE_CHART_CELL_MIN at least: a phone's rows wrap.
     const u32      _columns = (u32)fmaxf(1.0f, fminf((f32)FUDE_CHART_COLUMNS, floorf(_width / FUDE_CHART_CELL_MIN)));
@@ -211,7 +212,9 @@ RDE_INTERNAL void fude_chart_layout(fude_chart* _chart, f32 _left, f32 _width) {
             _chart->section_at[_section] = _y;
             _y += FUDE_CHART_TITLE_H;
         }
-        u32 _at = 0;   // the cell's place on the line
+        u32       _at      = 0;   // the cell's place on the line
+        const u32 _first   = (u32)rde_arr_length(&_chart->cells);
+        b8        _wrapped = false;
         for(u32 _c = 0; _c < FUDE_CHART_ROW_MAX; _c++) {
             if(_row.cp[_c] == 0u || _pos >= fude_chart_count(_chart) || _cps[_pos] != _row.cp[_c]) {
                 // Empty (ا has no initial form), or a letter the data lacks: its place
@@ -224,12 +227,25 @@ RDE_INTERNAL void fude_chart_layout(fude_chart* _chart, f32 _left, f32 _width) {
                 continue;
             }
             if(_at >= _columns) {
-                _y += _cell;   // the row goes on on the next line
-                _at = 0;
+                _y      += _cell;   // the row goes on on the next line
+                _at      = 0;
+                _wrapped = true;
             }
             fude_chart_cell _cell_rect = { .x = _left + (f32)_at * _cell, .y = _y, .size = _cell, .position = _pos++ };
             rde_arr_add(&_chart->cells, &_cell_rect);
             _at++;
+        }
+        // A right-to-left screen mirrors the chart (draw.h), and a row of a
+        // letter's forms is already laid out from the right: reversed here, the
+        // mirror puts it back, the letter alone at the right. (A row that
+        // wrapped, on a very narrow screen, stays as it is; so do the vowel
+        // marks and digits, which simply read from the right.)
+        if(_chart->_laid_out_rtl && !_wrapped && (_row.section == FUDE_CHART_LETTERS || _row.section == FUDE_CHART_MORE)) {
+            fude_chart_cell* _cells = (fude_chart_cell*)_chart->cells.memory;
+            for(u32 _k = _first; _k < (u32)rde_arr_length(&_chart->cells); _k++) {
+                const f32 _col  = roundf((_cells[_k].x - _left) / _cell);
+                _cells[_k].x    = _left + ((f32)_at - 1.0f - _col) * _cell;
+            }
         }
         _y += _cell;
     }
@@ -283,8 +299,8 @@ void fude_chart_render(fude_chart* _chart, rde_window* _window, rde_font* _font,
     const f32        _left   = -(f32)_size.x * 0.5f + (f32)_insets.x + FUDE_CHART_MARGIN;
     const f32        _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_CHART_MARGIN;
 
-    if(fabsf(_right - _left - _chart->_laid_out_width) > 0.5f) {
-        fude_chart_layout(_chart, _left, _right - _left);   // first time, or the screen rotated
+    if(fabsf(_right - _left - _chart->_laid_out_width) > 0.5f || _chart->_laid_out_rtl != fude_draw_is_rtl()) {
+        fude_chart_layout(_chart, _left, _right - _left);   // first time, the screen rotated, or the UI's direction changed
     }
     _chart->view_top    = _top;
     _chart->view_bottom = _bottom;
@@ -294,7 +310,7 @@ void fude_chart_render(fude_chart* _chart, rde_window* _window, rde_font* _font,
 
     const f32 _scroll = _chart->scroller.offset;
     rde_rendering_begin_clipping_rect(_window,
-                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
+                                      (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_top - _bottom) });
 
     // The sections' titles.

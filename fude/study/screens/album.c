@@ -361,7 +361,7 @@ RDE_INTERNAL void fude_album_draw_attempt(fude_album* _album, const fude_history
         fude_draw_stroke_even(_pos, _shown, _radius, _theme->ink);
 
         if(_partial) {
-            rde_rendering_2d_draw_circle(_pos[_shown - 1], _radius * 1.35f, 16u, _theme->pen_tip, NULL);
+            rde_rendering_2d_draw_circle(fude_draw_at(_pos[_shown - 1]), _radius * 1.35f, 16u, _theme->pen_tip, NULL);
             return;
         }
         _clock -= (f64)_duration + FUDE_ALBUM_STROKE_GAP;
@@ -395,7 +395,7 @@ RDE_INTERNAL void fude_album_trend(fude_album* _album, rde_vec_2F _tl, f32 _w, f
     }
     for(u32 _i = 0; _i < _count; _i++) {
         const rde_vec_2F _at = ((const rde_vec_2F*)_album->_points.memory)[_i];
-        rde_rendering_2d_draw_circle(_at, _count > 40 ? 2.0f : 3.5f, 12u, fude_theme_grade(_sessions[_i].average), NULL);
+        rde_rendering_2d_draw_circle(fude_draw_at(_at), _count > 40 ? 2.0f : 3.5f, 12u, fude_theme_grade(_sessions[_i].average), NULL);
     }
 }
 
@@ -554,9 +554,11 @@ RDE_INTERNAL f32 fude_album_render_answer(fude_album* _album, rde_font* _font, f
         const fude_album_hit _hit = { _tl.x, _y, _thumb, _thumb + FUDE_ALBUM_LABEL_H, FUDE_ALBUM_EXAM | _index };
         rde_arr_add(&_album->hits, &_hit);
         fude_glyph_box(_tl, _thumb);
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _thumb }, (rde_vec_2F){ _tl.x + _thumb, _tl.y }, false);   // the writing as written (draw.h)
         fude_glyph_character(&_album->glyph, _album->page_codepoint, _tl, _thumb, _theme->reference);
         fude_album_draw_attempt(_album, (const fude_history_stroke*)_album->page_exam_strokes.memory, (const fude_history_point*)_album->page_exam_points.memory,
                                 _answer->first_stroke, _answer->stroke_count, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
+        fude_draw_keep_end();
         if(_is_selected) {
             fude_draw_outline((rde_vec_2F){ _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, (rde_vec_2F){ _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, 1.5f, _theme->select);
         }
@@ -659,9 +661,11 @@ RDE_INTERNAL void fude_album_render_page(fude_album* _album, rde_font* _font, f3
             rde_arr_add(&_album->hits, &_hit);
 
             fude_glyph_box(_tl, _thumb);
+            fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _thumb }, (rde_vec_2F){ _tl.x + _thumb, _tl.y }, false);   // the writing as written (draw.h)
             fude_glyph_character(&_album->glyph, _album->page_codepoint, _tl, _thumb, _theme->reference);
             fude_album_draw_attempt(_album, (const fude_history_stroke*)_album->history.strokes.memory, (const fude_history_point*)_album->history.points.memory,
                                     _square->first_stroke, _square->stroke_count, _tl, _thumb, _is_selected ? _now - _album->replay_start : -1.0);
+            fude_draw_keep_end();
             if(_is_selected) {
                 fude_draw_outline((rde_vec_2F){ _tl.x - 3.0f, _tl.y - _thumb - 3.0f }, (rde_vec_2F){ _tl.x + _thumb + 3.0f, _tl.y + 3.0f }, 1.5f, _theme->select);
             }
@@ -704,7 +708,7 @@ void fude_album_render(fude_album* _album, rde_window* _window, rde_font* _font,
     }
 
     rde_rendering_begin_clipping_rect(_window,
-                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
+                                      (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left + 8.0f), (u32)(_top - _bottom) });
     if(_album->page_open) {
         fude_album_render_page(_album, _font, _font_px, _left, _right, _top, _bottom);

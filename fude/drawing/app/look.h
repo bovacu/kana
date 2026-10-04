@@ -16,6 +16,7 @@
 //   --side --settings --licences=N --data --paper
 //   --data-export=FILE --data-import=FILE [--data-replace] --deselect --trim-fonts
 //   --press=I,J,...  the screen on top's row's buttons, pressed in turn   --language=N
+//   --rtl            the UI right to left, whatever the language
 //   --swipe=DX       a finger dragged DX across the screen on top
 //   --perf=SECONDS
 //
@@ -46,6 +47,8 @@ b8        fude_look_is(const c8* _arg, const c8* _flag);
 // This frame of a shot's sequence (fude_look_frame counts them; 0: no --shot):
 // an app does what its flags ask at the frames they ask.
 u32       fude_look_shot_frame(void);
+// --rtl: the UI laid out right to left whatever the language.
+b8        fude_look_rtl(void);
 // --perf's summary: what the app adds to its line (Kana: the camera's frames).
 void      fude_look_perf_note(void (*_note)(struct fude_app* _app, c8* _out, usize _size));
 

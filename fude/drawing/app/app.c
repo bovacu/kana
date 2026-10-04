@@ -7,6 +7,7 @@
 #include "drawing/base/android.h"
 #include "drawing/ink/lasso.h"
 #include "drawing/widgets/kit.h"
+#include "drawing/widgets/draw.h"
 
 #include <string.h>
 #include <math.h>
@@ -195,7 +196,7 @@ b8 fude_app_update(fude_app* _app, f32 _dt) {
     if(_app->pointer == FUDE_POINTER_MOUSE && _top->vt->pointer_moved != NULL) {
         const rde_vec_2I _m = rde_input_mouse_get_position(_app->window);
         _app->pointer_last  = (rde_vec_2F){ (f32)_m.x, (f32)_m.y };
-        _top->vt->pointer_moved(_top->self, _app->pointer_last, rde_engine_get_time_now());
+        _top->vt->pointer_moved(_top->self, fude_draw_pointer(_app->pointer_last, false), rde_engine_get_time_now());
     }
 #endif
     if(_top->vt->update != NULL) {
@@ -204,14 +205,24 @@ b8 fude_app_update(fude_app* _app, f32 _dt) {
     return true;
 }
 
+// A screen drawn: mirrored about the middle of the window's safe width when the
+// UI is right to left (draw.h: fude_draw_mirror_begin), its pointer mapped back.
+RDE_INTERNAL void fude_app_render_screen(fude_app* _app, const fude_screen_slot* _slot, u32 _s) {
+    fude_screen_frame _frame;
+    fude_ui_frame(_app->ui, _s, &_frame);
+    const f32        _hw     = (f32)rde_window_get_size(_app->window).x * 0.5f;
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_app->window);   // left, top, right, bottom
+    fude_draw_mirror_begin(fude_draw_is_rtl(), -_hw + (f32)_insets.x, _hw - (f32)_insets.z);
+    _slot->vt->render(_slot->self, &_frame);
+    fude_draw_mirror_end();
+}
+
 b8 fude_app_render(fude_app* _app) {
     // The first open screen that is not an overlay: it fills the screen.
     for(u32 _s = 0; _s < _app->screen_count; _s++) {
         const fude_screen_slot* _slot = &_app->screens[_s];
         if(fude_app_slot_open(_slot) && !_slot->vt->overlay) {
-            fude_screen_frame _frame;
-            fude_ui_frame(_app->ui, _s, &_frame);
-            _slot->vt->render(_slot->self, &_frame);
+            fude_app_render_screen(_app, _slot, _s);
             return true;
         }
     }
@@ -222,9 +233,7 @@ void fude_app_render_overlays(fude_app* _app) {
     for(u32 _s = _app->screen_count; _s-- > 0;) {
         const fude_screen_slot* _slot = &_app->screens[_s];
         if(fude_app_slot_open(_slot) && _slot->vt->overlay) {
-            fude_screen_frame _frame;
-            fude_ui_frame(_app->ui, _s, &_frame);
-            _slot->vt->render(_slot->self, &_frame);
+            fude_app_render_screen(_app, _slot, _s);
         }
     }
 }
@@ -250,26 +259,26 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
             const rde_vec_2F _at = fude_app_window_to_screen(_app, _event->data.pen_event_data.position);
             fude_page_pen_came(_app->page);
             if(_write && _app->pointer == FUDE_POINTER_FINGER) {
-                _vt->pointer_up(_self, _app->pointer_last, _now);   // the pen takes over from a writing finger
+                _vt->pointer_up(_self, fude_draw_pointer(_app->pointer_last, false), _now);   // the pen takes over from a writing finger
                 _app->pointer = FUDE_POINTER_NONE;
             }
             if(_app->pointer == FUDE_POINTER_NONE && !fude_ui_hit(_app->ui, _at)) {
                 _app->pointer      = FUDE_POINTER_PEN;
                 _app->pointer_last = _at;
-                _vt->pointer_down(_self, _at, true, _now);
+                _vt->pointer_down(_self, fude_draw_pointer(_at, true), true, _now);
             }
         } break;
 
         case RDE_EVENT_TYPE_PEN_MOVED: {
             if(_app->pointer == FUDE_POINTER_PEN) {
                 _app->pointer_last = fude_app_window_to_screen(_app, _event->data.pen_event_data.position);
-                _vt->pointer_moved(_self, _app->pointer_last, _now);
+                _vt->pointer_moved(_self, fude_draw_pointer(_app->pointer_last, false), _now);
             }
         } break;
 
         case RDE_EVENT_TYPE_PEN_UP: {
             if(_app->pointer == FUDE_POINTER_PEN) {
-                _vt->pointer_up(_self, _app->pointer_last, _now);
+                _vt->pointer_up(_self, fude_draw_pointer(_app->pointer_last, false), _now);
                 _app->pointer = FUDE_POINTER_NONE;
             }
         } break;
@@ -281,7 +290,7 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
                 _app->pointer        = FUDE_POINTER_FINGER;
                 _app->pointer_finger = _touch->finger_id;
                 _app->pointer_last   = _at;
-                _vt->pointer_down(_self, _at, _app->finger_writes, _now);   // the hand on: it writes where a pen would
+                _vt->pointer_down(_self, fude_draw_pointer(_at, true), _app->finger_writes, _now);   // the hand on: it writes where a pen would
             }
         } break;
 
@@ -289,14 +298,14 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
             if(!_touch->from_pen && _app->pointer == FUDE_POINTER_FINGER && _touch->finger_id == _app->pointer_finger) {
                 _app->pointer_last = fude_app_touch_to_screen(_touch->moved_touch_position);
-                _vt->pointer_moved(_self, _app->pointer_last, _now);
+                _vt->pointer_moved(_self, fude_draw_pointer(_app->pointer_last, false), _now);
             }
         } break;
 
         case RDE_EVENT_TYPE_MOBILE_TOUCH_UP: {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
             if(!_touch->from_pen && _app->pointer == FUDE_POINTER_FINGER && _touch->finger_id == _app->pointer_finger) {
-                _vt->pointer_up(_self, _app->pointer_last, _now);
+                _vt->pointer_up(_self, fude_draw_pointer(_app->pointer_last, false), _now);
                 _app->pointer = FUDE_POINTER_NONE;
             }
         } break;
@@ -311,13 +320,13 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
                !fude_ui_hit(_app->ui, _at)) {
                 _app->pointer      = FUDE_POINTER_MOUSE;
                 _app->pointer_last = _at;
-                _vt->pointer_down(_self, _at, true, _now);
+                _vt->pointer_down(_self, fude_draw_pointer(_at, true), true, _now);
             }
         } break;
 
         case RDE_EVENT_TYPE_MOUSE_BUTTON_RELEASED: {
             if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_LEFT && _app->pointer == FUDE_POINTER_MOUSE) {
-                _vt->pointer_up(_self, _app->pointer_last, _now);
+                _vt->pointer_up(_self, fude_draw_pointer(_app->pointer_last, false), _now);
                 _app->pointer = FUDE_POINTER_NONE;
             }
         } break;

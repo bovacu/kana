@@ -591,7 +591,7 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
     _viewer->save_x0     = _save ? _right - 64.0f : _right + 1.0f;
 
     const f32 _bottom = _top - (f32)_visible * _h;
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_x0 + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_x0 + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _x0), (u32)(_top - _bottom) });
     for(u32 _i = 0; _i < _viewer->row_count; _i++) {
         const fude_viewer_row* _r        = &_viewer->rows[_i];
@@ -602,10 +602,10 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
         const f32 _mid      = _row_top - _h * 0.5f;
         const f32 _baseline = _mid - FUDE_VIEWER_SMALL_PX * 0.35f;
         if(_viewer->pressed == (i32)_i) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_x0 + _right) * 0.5f, _mid }, (rde_vec_2F){ _right - _x0, _h }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x((_x0 + _right) * 0.5f), _mid }, (rde_vec_2F){ _right - _x0, _h }, _theme->select_fill);
         }
         if(_r->kind == FUDE_VIEWER_ROW_YOURS || _r->kind == FUDE_VIEWER_ROW_TYPED) {
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x0 + 2.0f, _mid }, (rde_vec_2F){ 4.0f, _h - 14.0f }, 1.0f, 4, _theme->accent, NULL);   // the learner's
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x0 + 2.0f), _mid }, (rde_vec_2F){ 4.0f, _h - 14.0f }, 1.0f, 4, _theme->accent, NULL);   // the learner's
         }
         fude_draw_text_whole(_font, _font_px, _r->written, _x0 + 12.0f, _mid, FUDE_VIEWER_WORD_PX, _written_w, 1u, _theme->ink);
         if(_speak) {
@@ -618,11 +618,11 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
             // A tick: on, the learner's; off, one to add.
             const rde_vec_2F _c = { _right - 20.0f, _mid };
             if(_r->ticked) {
-                rde_rendering_2d_draw_circle(_c, 11.0f, 24, _theme->accent, NULL);
+                rde_rendering_2d_draw_circle(fude_draw_at(_c), 11.0f, 24, _theme->accent, NULL);
                 fude_draw_line((rde_vec_2F){ _c.x - 5.0f, _c.y }, (rde_vec_2F){ _c.x - 1.5f, _c.y - 4.0f }, 1.4f, _theme->on_accent);
                 fude_draw_line((rde_vec_2F){ _c.x - 1.5f, _c.y - 4.0f }, (rde_vec_2F){ _c.x + 5.5f, _c.y + 4.5f }, 1.4f, _theme->on_accent);
             } else {
-                rde_rendering_2d_draw_circle_border(_c, 11.0f, 1.5f, 24, _theme->text_soft, NULL);
+                rde_rendering_2d_draw_circle_border(fude_draw_at(_c), 11.0f, 1.5f, 24, _theme->text_soft, NULL);
             }
         } else {
             fude_draw_icon(_font, _font_px, FUDE_ICON_NEXT, (rde_vec_2F){ _right - 12.0f, _mid }, 16.0f, _theme->text_soft);   // it opens
@@ -690,7 +690,7 @@ RDE_INTERNAL f32 fude_viewer_word_chips(fude_viewer* _viewer, rde_font* _font, f
         if(_draw) {
             const f32  _cy    = _top - (f32)(_rows - 1u) * (FUDE_VIEWER_CHIP_H + FUDE_VIEWER_CHIP_GAP) - FUDE_VIEWER_CHIP_H * 0.5f;
             const b8   _down  = _viewer->sentence_pressed == 3u + _viewer->word_shown;
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _cw * 0.5f, _cy }, (rde_vec_2F){ _cw, FUDE_VIEWER_CHIP_H }, 1.0f, 8,
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _cw * 0.5f), _cy }, (rde_vec_2F){ _cw, FUDE_VIEWER_CHIP_H }, 1.0f, 8,
                                                     _down ? _theme->select_fill : _saved ? _theme->tint : _theme->surface_2, NULL);
             if(_saved) {
                 fude_draw_icon_fill(FUDE_ICON_BOOKMARK, (rde_vec_2F){ _x + 11.0f, _cy }, 11.0f, _theme->accent);
@@ -745,13 +745,17 @@ RDE_INTERNAL void fude_viewer_draw_sentence(fude_viewer* _viewer, rde_font* _fon
     f32       _end   = _right - _inner;
     c8        _line[128];
     if(_viewer->sentence_count > 1u) {
-        snprintf(_line, sizeof(_line), "%u / %u  " FUDE_ICON_NEXT, _viewer->sentence_at + 1u, _viewer->sentence_count);
+        if(fude_draw_is_rtl()) {   // the arrow at the line's end, the left; the numbers read left to right, as the counter's
+            snprintf(_line, sizeof(_line), "%s  %u / %u", fude_draw_icon_dir(FUDE_ICON_NEXT), _viewer->sentence_at + 1u, _viewer->sentence_count);
+        } else {
+            snprintf(_line, sizeof(_line), "%u / %u  " FUDE_ICON_NEXT, _viewer->sentence_at + 1u, _viewer->sentence_count);
+        }
         const f32 _w2    = fude_draw_text_width(_font, _font_px, _line, 13.0f) + 34.0f;
         const f32 _h     = 28.0f;
         _viewer->next_min = (rde_vec_2F){ _end - _w2, _tmid - _h * 0.5f };
         _viewer->next_max = (rde_vec_2F){ _end, _tmid + _h * 0.5f };
         const b8 _down = _viewer->sentence_pressed == 2u;
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _end - _w2 * 0.5f, _tmid }, (rde_vec_2F){ _w2, _h }, 1.0f, 8, _down ? _theme->accent : _theme->tint, NULL);
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_end - _w2 * 0.5f), _tmid }, (rde_vec_2F){ _w2, _h }, 1.0f, 8, _down ? _theme->accent : _theme->tint, NULL);
         fude_draw_text(_font, _font_px, _line, _viewer->next_min.x + 14.0f, _tmid - 13.0f * 0.42f, 13.0f, _down ? _theme->on_accent : _theme->accent);
         _end = _viewer->next_min.x - 10.0f;
     }
@@ -864,13 +868,13 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         // Note: the learner's own, written in the word card.
         if(!_viewer->adding) {
             c8 _note[64];
-            snprintf(_note, sizeof(_note), FUDE_ICON_NOTE_EDIT " %s", fude_text(FUDE_TEXT_NOTE));
+            fude_draw_icon_label(_note, sizeof(_note), FUDE_ICON_NOTE_EDIT, fude_text(FUDE_TEXT_NOTE));
             const f32 _nw = fude_draw_text_width(_font, _font_px, _note, 12.0f) + 24.0f;
             const f32 _nx = _right - _pos_w - 16.0f - _nw;
             const b8  _has = fude_charnote_get(_info.codepoint)[0] != 0;
             _viewer->note_min = (rde_vec_2F){ _nx, _mid - 14.0f };
             _viewer->note_max = (rde_vec_2F){ _nx + _nw, _mid + 14.0f };
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _nx + _nw * 0.5f, _mid }, (rde_vec_2F){ _nw, 28.0f }, 1.0f, 8,
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_nx + _nw * 0.5f), _mid }, (rde_vec_2F){ _nw, 28.0f }, 1.0f, 8,
                                                     _viewer->note_pressed ? _theme->accent : _has ? _theme->tint : _theme->surface_2, NULL);
             fude_draw_text(_font, _font_px, _note, _nx + 12.0f, _mid - 12.0f * 0.42f, 12.0f, _viewer->note_pressed ? _theme->on_accent : _theme->accent);
             _chips_end = _nx - 8.0f;
@@ -1016,7 +1020,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         for(u32 _i = 0; _i < _viewer->similar_count && _x + FUDE_VIEWER_KANA_SIZE <= _right; _i++) {
             const f32 _s = FUDE_VIEWER_KANA_SIZE;
             if(_viewer->similar_pressed == (i32)_i) {
-                rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _s * 0.5f, _mid }, (rde_vec_2F){ _s + 12.0f, _s + 10.0f }, 1.0f, 8, _theme->select_fill, NULL);
+                rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _s * 0.5f), _mid }, (rde_vec_2F){ _s + 12.0f, _s + 10.0f }, 1.0f, 8, _theme->select_fill, NULL);
             }
             fude_glyph_character(&_viewer->glyph, _viewer->similar[_i], (rde_vec_2F){ _x, _mid + _s * 0.5f }, _s, _i < _viewer->similar_mine ? _theme->score_poor : _theme->ink);
             _viewer->similar_min[_viewer->similar_shown] = (rde_vec_2F){ _x - 8.0f, _mid - _s * 0.5f - 6.0f };
@@ -1041,9 +1045,9 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         const u32 _lines = fude_draw_text_wrap_lines(_font, _font_px, _note, _px, _tw);
         const f32 _lh    = _px * 1.3f;
         if(_viewer->note_pressed) {
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_tx + _right) * 0.5f, _mid }, (rde_vec_2F){ _tw + 8.0f, FUDE_VIEWER_LINE - 4.0f }, 1.0f, 8, _theme->select_fill, NULL);
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x((_tx + _right) * 0.5f), _mid }, (rde_vec_2F){ _tw + 8.0f, FUDE_VIEWER_LINE - 4.0f }, 1.0f, 8, _theme->select_fill, NULL);
         }
-        rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_tx + _right) * 0.5f), (i32)_mid }, (rde_vec_2UI){ (u32)_tw + 4u, (u32)FUDE_VIEWER_LINE });
+        rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_tx + _right) * 0.5f), (i32)_mid }, (rde_vec_2UI){ (u32)_tw + 4u, (u32)FUDE_VIEWER_LINE });
         fude_draw_text_wrap(_font, _font_px, _note, _tx, _mid + (f32)((_lines < 2u ? _lines : 2u) - 1u) * _lh * 0.5f - _px * 0.38f, _px, _tw, _lh, _theme->text);
         rde_rendering_end_clipping_rect();
         _viewer->note_line_min = (rde_vec_2F){ _x0, _ly - FUDE_VIEWER_LINE };
@@ -1123,12 +1127,12 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     }
     {
         c8 _label[64];
-        snprintf(_label, sizeof(_label), FUDE_ICON_PLUS " %s", fude_text(FUDE_TEXT_ADD));
+        fude_draw_icon_label(_label, sizeof(_label), FUDE_ICON_PLUS, fude_text(FUDE_TEXT_ADD));
         const f32 _w     = fude_draw_text_width(_font, _font_px, _label, 13.0f) + 28.0f;
         const f32 _h     = 28.0f;
         _viewer->add_min = (rde_vec_2F){ _right - _inner - _w, _tmid - _h * 0.5f };
         _viewer->add_max = (rde_vec_2F){ _right - _inner, _tmid + _h * 0.5f };
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_viewer->add_min.x + _viewer->add_max.x) * 0.5f, _tmid }, (rde_vec_2F){ _w, _h }, 1.0f, 8,
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x((_viewer->add_min.x + _viewer->add_max.x) * 0.5f), _tmid }, (rde_vec_2F){ _w, _h }, 1.0f, 8,
                                                 _viewer->add_pressed ? _theme->accent : _theme->tint, NULL);
         fude_draw_text(_font, _font_px, _label, _viewer->add_min.x + 14.0f, _tmid - 13.0f * 0.42f, 13.0f,
                        _viewer->add_pressed ? _theme->on_accent : _theme->accent);

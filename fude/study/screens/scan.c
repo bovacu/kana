@@ -542,7 +542,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
     if(_view_t <= _view_b) {
         return;
     }
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_view_t + _view_b) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_view_t + _view_b) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_view_t - _view_b) });
     fude_scan_line* _lines = (fude_scan_line*)_scan->lines.memory;
     const u32       _count = (u32)rde_arr_length(&_scan->lines);
@@ -606,7 +606,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
         _y -= _h + FUDE_SCAN_PANEL_ROW_GAP;
         if(_i + 1u < _count && _y + FUDE_SCAN_PANEL_ROW_GAP * 0.5f < _view_t) {
             const f32 _sep = _y + FUDE_SCAN_PANEL_ROW_GAP * 0.5f;
-            rde_rendering_2d_draw_line((rde_vec_2F){ _x, _sep }, (rde_vec_2F){ _x + _w, _sep }, _theme->line);
+            rde_rendering_2d_draw_line((rde_vec_2F){ fude_draw_x(_x), _sep }, (rde_vec_2F){ fude_draw_x(_x + _w), _sep }, _theme->line);
         }
     }
     rde_rendering_end_clipping_rect();
@@ -681,9 +681,12 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
     const f32 _ph    = (f32)_scan->picture_h * _scale;
     _scan->picture_scale = _scale;
     _scan->picture_tl    = (rde_vec_2F){ (_left + _right) * 0.5f - _pw * 0.5f, _area_top - (_area_h - _ph) * 0.5f };
+    // The photo and the lines over it are never mirrored (a right-to-left
+    // screen puts them where they go: draw.h), and a tap on a line maps the same.
+    fude_draw_keep_begin((rde_vec_2F){ _scan->picture_tl.x, _scan->picture_tl.y - _ph }, (rde_vec_2F){ _scan->picture_tl.x + _pw, _scan->picture_tl.y }, true);
     // Rows top first (a camera frame) are mirrored back first — RDE draws a
     // texture's first row at the bottom — then the frame turned upright.
-    rde_rendering_2d_draw_texture_2(_scan->shown, (rde_vec_3F){ _scan->picture_tl.x + _pw * 0.5f, _scan->picture_tl.y - _ph * 0.5f, 0.0f },
+    rde_rendering_2d_draw_texture_2(_scan->shown, (rde_vec_3F){ fude_draw_x(_scan->picture_tl.x + _pw * 0.5f), _scan->picture_tl.y - _ph * 0.5f, 0.0f },
                                     (rde_vec_2F){ _scale, _scan->shown_top_first ? -_scale : _scale }, FUDE_SCAN_TURN * _scan->shown_rotation,
                                     (rde_color){ 255, 255, 255, 255 });
 
@@ -691,6 +694,9 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
     for(u32 _i = 0; _i < _found; _i++) {
         rde_vec_2F _q[4];
         fude_scan_quad(_scan, &_lines[_i], _q);
+        for(u32 _k = 0; _k < 4u; _k++) {
+            _q[_k] = fude_draw_at(_q[_k]);
+        }
         if(_lines[_i].kept) {
             rde_color _fill = _theme->accent;
             _fill.a         = 60;
@@ -701,6 +707,7 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
             rde_rendering_2d_draw_polygon_border(_q, 4u, 1.0f, _edge, NULL);
         }
     }
+    fude_draw_keep_end();
 }
 
 // --- the screen (screen.h): its row, and what it does --------------------------------------

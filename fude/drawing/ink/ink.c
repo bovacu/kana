@@ -1,5 +1,6 @@
 #include "drawing/ink/ink.h"
 #include "drawing/base/theme.h"
+#include "drawing/widgets/draw.h"
 
 #include <math.h>
 #include <string.h>
@@ -820,7 +821,8 @@ RDE_INTERNAL const rde_vec_2F* fude_ink_emit_stroke(fude_ink* _ink, const fude_i
 
         // Canvas → screen: points and widths scale with the zoom, like ink on
         // a page under a magnifier.
-        const rde_vec_2F _at = { _point->position.x * _zoom + _offset.x, _point->position.y * _zoom + _offset.y };
+        // (As drawn: in a right-to-left screen, a kept box moves it — draw.h.)
+        const rde_vec_2F _at = fude_draw_at((rde_vec_2F){ _point->position.x * _zoom + _offset.x, _point->position.y * _zoom + _offset.y });
         const f32        _r  = rde_math_clamp_f32(fude_ink_width_at(_point) * _zoom, FUDE_INK_MIN_SCREEN_RADIUS, 1e6f) + _extra_px;
 
         // The marker is see-through: where its outline folds over itself it

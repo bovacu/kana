@@ -777,7 +777,7 @@ RDE_INTERNAL void fude_doc_draw_tile(const fude_doc_page* _p, const fude_doc_til
     const rde_vec_2F _screen = { _tile->size.x * _k * _v.zoom, _tile->size.y * _k * _v.zoom };
     const rde_texture* _tex  = rde_memory_texture_get_texture(_tile->texture);
     const rde_vec_2UI  _px   = rde_texture_get_size(_tex);
-    rde_rendering_2d_draw_texture_2(_tex, (rde_vec_3F){ _c.x * _v.zoom + _v.offset.x, _c.y * _v.zoom + _v.offset.y, 0.0f },
+    rde_rendering_2d_draw_texture_2(_tex, (rde_vec_3F){ fude_draw_x(_c.x * _v.zoom + _v.offset.x), _c.y * _v.zoom + _v.offset.y, 0.0f },
                                     (rde_vec_2F){ _screen.x / (f32)_px.x, _screen.y / (f32)_px.y }, 0.0f, (rde_color){ 255, 255, 255, 255 });
 }
 
@@ -797,8 +797,8 @@ void fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _wi
         // The sheet (blank until it is drawn), its edge, then the pictures.
         const rde_vec_2F _c    = { _v.offset.x, (_p->top - _p->size.y * 0.5f) * _v.zoom + _v.offset.y };
         const rde_vec_2F _size = { _p->size.x * _v.zoom, _p->size.y * _v.zoom };
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _c.x, _c.y - 1.5f }, (rde_vec_2F){ _size.x + 3.0f, _size.y + 3.0f }, _t->outline);
-        rde_rendering_2d_draw_rectangle(_c, _size, _doc->paper);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_c.x), _c.y - 1.5f }, (rde_vec_2F){ _size.x + 3.0f, _size.y + 3.0f }, _t->outline);
+        rde_rendering_2d_draw_rectangle(fude_draw_at(_c), _size, _doc->paper);
         fude_doc_draw_tile(_p, &_p->whole, _v);
         fude_doc_draw_tile(_p, &_p->sharp, _v);
     }
@@ -815,9 +815,9 @@ void fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _wi
         const rde_vec_2F     _s = { _match->size.x * _k + 4.0f, _match->size.y * _k + 4.0f };
         rde_color            _mark = _t->accent;
         _mark.a = _m == _doc->match_at ? 120u : 60u;
-        rde_rendering_2d_draw_rectangle(_c, _s, _mark);
+        rde_rendering_2d_draw_rectangle(fude_draw_at(_c), _s, _mark);
         if(_m == _doc->match_at) {
-            rde_rendering_2d_draw_rectangle_border(_c, _s, 2.0f, _t->accent, NULL);
+            rde_rendering_2d_draw_rectangle_border(fude_draw_at(_c), _s, 2.0f, _t->accent, NULL);
         }
     }
 }
@@ -1011,7 +1011,7 @@ void fude_doc_render_pill(fude_doc* _doc, const fude_app* _app, rde_window* _win
     const rde_vec_2F  _center = { 0.0f, -(f32)_size.y * 0.5f + (f32)_safe.w + 16.0f + _pill.y * 0.5f };
     rde_color _back = _t->panel;
     _back.a         = (u8)((f32)_back.a * _fade);
-    rde_rendering_2d_draw_rounded_rectangle(_center, _pill, 1.0f, 8u, _back, NULL);
+    rde_rendering_2d_draw_rounded_rectangle(fude_draw_at(_center), _pill, 1.0f, 8u, _back, NULL);
     rde_color _ink = _t->button_text;
     _ink.a         = (u8)((f32)_ink.a * _fade);
     fude_draw_text(_app->font, _app->font_px, _text, _center.x - _w * 0.5f, _center.y - _px * 0.36f, _px, _ink);

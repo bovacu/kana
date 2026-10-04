@@ -406,13 +406,14 @@ void fude_browse_update(fude_browse* _browse, f32 _dt) {
 // --- drawing -----------------------------------------------------------------------
 
 RDE_INTERNAL void fude_browse_draw_pad(fude_browse* _browse, rde_vec_2F _tl, f32 _size, rde_vec_2F _screen_half) {
-    fude_glyph_box(_tl, _size);   // the same writing square as Practice's and Check's
-
     _browse->pad_min = (rde_vec_2F){ _tl.x, _tl.y - _size };
     _browse->pad_max = (rde_vec_2F){ _tl.x + _size, _tl.y };
 
+    fude_draw_keep_begin(_browse->pad_min, _browse->pad_max, true);   // the writing is never mirrored (draw.h)
+    fude_glyph_box(_tl, _size);   // the same writing square as Practice's and Check's
     // The pad's strokes are stored from its bottom-left corner.
     fude_ink_render(&_browse->pad, _browse->pad_min, 1.0f, _screen_half, rde_engine_get_time_now(), false);
+    fude_draw_keep_end();
 }
 
 // The parts panel: the sheet, and on it every offered part by stroke count — a
@@ -433,7 +434,7 @@ RDE_INTERNAL void fude_browse_draw_parts(fude_browse* _browse, rde_window* _wind
     const f32 _scroll = _browse->parts_scroller.offset;
 
     rde_rendering_begin_clipping_rect(_window,
-                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)(_top - _height * 0.5f) },
+                                      (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)(_top - _height * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left - 2.0f), (u32)(_height - 2.0f) });
 
     const fude_browse_part* _parts   = (const fude_browse_part*)_browse->parts.memory;
@@ -466,7 +467,7 @@ RDE_INTERNAL void fude_browse_draw_parts(fude_browse* _browse, rde_window* _wind
         rde_arr_add(&_browse->part_hits, &_hit);
 
         if(fude_browse_is_picked(_browse, _p->codepoint)) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _cell * 0.5f, _y - _cell * 0.5f }, (rde_vec_2F){ _cell - 4.0f, _cell - 4.0f }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_x + _cell * 0.5f), _y - _cell * 0.5f }, (rde_vec_2F){ _cell - 4.0f, _cell - 4.0f }, _theme->select_fill);
             fude_draw_outline((rde_vec_2F){ _x + 2.0f, _y - _cell + 2.0f }, (rde_vec_2F){ _x + _cell - 2.0f, _y - 2.0f }, 1.2f, _theme->select);
         }
         const f32 _glyph = _cell * 0.7f;
@@ -604,7 +605,7 @@ void fude_browse_render(fude_browse* _browse, rde_window* _window, rde_font* _fo
     }
 
     rde_rendering_begin_clipping_rect(_window,
-                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
+                                      (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width, (u32)_view });
 
     const f32 _scroll    = _browse->scroller.offset;
@@ -731,7 +732,7 @@ static const fude_filterbar_def FUDE_BROWSE_BAR = {
     .search_hint = FUDE_TEXT_SEARCH_HINT,
     .search      = fude_browse_search,
     .toggles = { { FUDE_TEXT_BROWSE_DRAW,  FUDE_ICON_SCRIBBLE, 15.0f, fude_browse_drawing_on, fude_browse_toggle_drawing, NULL,                  false },
-                 { FUDE_TEXT_BROWSE_PARTS, "\xE9\x83\xA8",     13.0f, fude_browse_picking_on, fude_browse_toggle_picking, fude_browse_has_parts, false },   // 部
+                 { FUDE_TEXT_BROWSE_PARTS, "\xE9\x83\xA8",     13.0f, fude_browse_picking_on, fude_browse_toggle_picking, fude_browse_has_parts, false, true },   // 部 (hidden without parts: Thai, Hindi, Arabic)
                  { FUDE_TEXT_CLEAR,        FUDE_ICON_CLOSE,    14.0f, NULL,                   fude_browse_clear_all,      NULL,                  true } },
     .toggle_count = 3u,
 };

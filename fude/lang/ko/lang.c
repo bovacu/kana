@@ -363,6 +363,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0xC5B4u,   // 어 (語)
         0xC0ACu,   // 사 (似)
         0xAE30u,   // 기 (記)
+        0xBC88u,   // 번 (번역: translation)
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

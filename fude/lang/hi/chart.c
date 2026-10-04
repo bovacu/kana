@@ -258,7 +258,7 @@ void fude_chart_render(fude_chart* _chart, rde_window* _window, rde_font* _font,
 
     const f32 _scroll = _chart->scroller.offset;
     rde_rendering_begin_clipping_rect(_window,
-                                      (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
+                                      (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_top - _bottom) });
 
     // The sections' titles.

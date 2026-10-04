@@ -207,6 +207,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x0E04u,   // ค (คำ: word)
         0x0E21u,   // ม (เหมือน: alike)
         0x0E1Au,   // บ (บันทึก: note)
+        0x0E41u,   // แ (แปล: translate)
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

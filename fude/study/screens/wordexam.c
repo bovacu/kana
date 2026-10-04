@@ -482,10 +482,11 @@ RDE_INTERNAL b8 fude_wordexam_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F 
     return _p.x >= _min.x && _p.x <= _max.x && _p.y >= _min.y && _p.y <= _max.y && _max.x > _min.x;
 }
 
-// Box _b's place in the row (0 the leftmost): from the right in a right-to-left
-// language, its first letter at the right.
+// Box _b's place in the row (0 the leftmost, as laid out): from the right in a
+// right-to-left language, its first letter at the right — which a right-to-left
+// screen's mirror (draw.h) already does, so then as the row comes.
 RDE_INTERNAL f32 fude_wordexam_slot(const fude_wordexam_item* _it, u32 _b) {
-    return (f32)(fude_lang_rtl() ? _it->count - 1u - _b : _b);
+    return (f32)(fude_lang_rtl() != fude_draw_is_rtl() ? _it->count - 1u - _b : _b);
 }
 
 // The box under _screen (writing), or UINT32_MAX.
@@ -604,7 +605,7 @@ void fude_wordexam_update(fude_wordexam* _exam, f32 _dt) {
 
 RDE_INTERNAL void fude_wordexam_chip_draw(rde_font* _font, f32 _font_px, rde_vec_2F _min, rde_vec_2F _max, const c8* _label, b8 _chosen) {
     const fude_theme* _theme = fude_theme_active();
-    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, (rde_vec_2F){ _max.x - _min.x, _max.y - _min.y }, 1.0f, 10,
+    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x((_min.x + _max.x) * 0.5f), (_min.y + _max.y) * 0.5f }, (rde_vec_2F){ _max.x - _min.x, _max.y - _min.y }, 1.0f, 10,
                                             _chosen ? _theme->accent : _theme->surface_2, NULL);
     const f32 _w = fude_draw_text_width(_font, _font_px, _label, FUDE_WORDEXAM_CHIP_PX);
     fude_draw_text(_font, _font_px, _label, (_min.x + _max.x - _w) * 0.5f, (_min.y + _max.y) * 0.5f - FUDE_WORDEXAM_CHIP_PX * 0.42f, FUDE_WORDEXAM_CHIP_PX,
@@ -679,6 +680,8 @@ RDE_INTERNAL void fude_wordexam_draw_boxes(fude_wordexam* _exam, rde_window* _wi
     const rde_vec_2I  _size  = rde_window_get_size(_window);
     for(u32 _b = 0; _b < _it->count; _b++) {
         const rde_vec_2F _btl = { _tl.x + fude_wordexam_slot(_it, _b) * (_box + _gap), _tl.y };
+        // The writing is never mirrored, nor a pen's place in it (draw.h).
+        fude_draw_keep_begin((rde_vec_2F){ _btl.x, _btl.y - _box }, (rde_vec_2F){ _btl.x + _box, _btl.y }, true);
         fude_glyph_box(_btl, _box);
         if(_it->records[_b] == UINT32_MAX) {
             // Given: the character as text, grey.
@@ -686,14 +689,15 @@ RDE_INTERNAL void fude_wordexam_draw_boxes(fude_wordexam* _exam, rde_window* _wi
             const f32 _px = _box * 0.5f;
             fude_draw_text(fude_wordexam_font, fude_wordexam_font_px, _ch, _btl.x + (_box - fude_draw_text_width(fude_wordexam_font, fude_wordexam_font_px, _ch, _px)) * 0.5f,
                            _btl.y - _box * 0.5f - _px * 0.38f, _px, _theme->text_soft);
-            continue;
+        } else {
+            fude_ink_render(&_it->ink[_b], (rde_vec_2F){ _btl.x, _btl.y - _box }, _box / FUDE_WORDEXAM_UNITS, (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f },
+                            rde_engine_get_time_now(), false);
+            if(_verdicts && _it->box_graded[_b]) {
+                const f32 _r = fmaxf(6.0f, _box * 0.1f);
+                fude_draw_verdict((rde_vec_2F){ _btl.x + _box - _r - 3.0f, _btl.y - _r - 3.0f }, _r, _it->box_right[_b]);
+            }
         }
-        fude_ink_render(&_it->ink[_b], (rde_vec_2F){ _btl.x, _btl.y - _box }, _box / FUDE_WORDEXAM_UNITS, (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f },
-                        rde_engine_get_time_now(), false);
-        if(_verdicts && _it->box_graded[_b]) {
-            const f32 _r = fmaxf(6.0f, _box * 0.1f);
-            fude_draw_verdict((rde_vec_2F){ _btl.x + _box - _r - 3.0f, _btl.y - _r - 3.0f }, _r, _it->box_right[_b]);
-        }
+        fude_draw_keep_end();
     }
 }
 
@@ -715,7 +719,7 @@ RDE_INTERNAL void fude_wordexam_render_writing(fude_wordexam* _exam, rde_window*
     const f32 _sw  = (_right - _left - _gap * (f32)(_exam->count - 1u)) / (f32)_exam->count;
     for(u32 _i = 0; _i < _exam->count; _i++) {
         const rde_color _c = _i < _exam->current ? _theme->accent : _i == _exam->current ? _theme->tint : _theme->surface_2;
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _left + (f32)_i * (_sw + _gap) + _sw * 0.5f, _py }, (rde_vec_2F){ _sw, 6.0f }, 1.0f, 4, _c, NULL);
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_left + (f32)_i * (_sw + _gap) + _sw * 0.5f), _py }, (rde_vec_2F){ _sw, 6.0f }, 1.0f, 4, _c, NULL);
     }
 
     // What to write: its meaning and reading — or, by ear, a speaker and its meaning.
@@ -724,7 +728,7 @@ RDE_INTERNAL void fude_wordexam_render_writing(fude_wordexam* _exam, rde_window*
         if(_exam->by == FUDE_WORDEXAM_BY_EAR) {
             const f32 _r = 34.0f;
             const rde_vec_2F _c = { (_left + _right) * 0.5f, _y - _r };
-            rde_rendering_2d_draw_circle(_c, _r, 40, _theme->accent, NULL);
+            rde_rendering_2d_draw_circle(fude_draw_at(_c), _r, 40, _theme->accent, NULL);
             fude_draw_icon(_font, _font_px, FUDE_ICON_SPEAK, _c, 30.0f, _theme->on_accent);
             _exam->speaker_min = (rde_vec_2F){ _c.x - _r, _c.y - _r };
             _exam->speaker_max = (rde_vec_2F){ _c.x + _r, _c.y + _r };
@@ -789,7 +793,7 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
     if(_rows_top <= _bottom) {
         return;
     }
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_rows_top + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_rows_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_rows_top - _bottom) });
     for(u32 _i = 0; _i < _exam->count; _i++) {
         const f32 _row_top = _rows_top - (f32)_i * FUDE_WORDEXAM_ROW + _exam->scroller.offset;
@@ -811,7 +815,7 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
         if(_it->graded) {
             fude_draw_verdict((rde_vec_2F){ _right - 22.0f, _mid }, 14.0f, _it->correct);
         } else {
-            rde_rendering_2d_draw_circle_border((rde_vec_2F){ _right - 22.0f, _mid }, 14.0f, 1.5f, 24, _theme->text_soft, NULL);
+            rde_rendering_2d_draw_circle_border((rde_vec_2F){ fude_draw_x(_right - 22.0f), _mid }, 14.0f, 1.5f, 24, _theme->text_soft, NULL);
         }
         if(_i + 1u < _exam->count) {
             fude_draw_line((rde_vec_2F){ _left, _row_top - FUDE_WORDEXAM_ROW }, (rde_vec_2F){ _right, _row_top - FUDE_WORDEXAM_ROW }, 0.5f, _theme->outline);

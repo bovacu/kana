@@ -236,7 +236,7 @@ RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
     }
     _row->size      = (rde_vec_2F){ _x - FUDE_ROW_SPACING + FUDE_ROW_PADDING, fude_row_height() };
     _row->_laid_for = _avail;
-    fude_kit_place(rde_ui_image_as_node(_row->panel), _row->center, _row->size);
+    fude_kit_place_at(rde_ui_image_as_node(_row->panel), _row->center, _row->size);
     if(_row->menu_open) {
         fude_row_menu_show(_row, false);
     }
@@ -367,7 +367,7 @@ void fude_row_show(fude_row* _row, rde_window* _window, b8 _show, rde_vec_2F _ce
         _center = fude_kit_clamp(_window, _center, _row->size);
         if(!_row->open || memcmp(&_center, &_row->center, sizeof(rde_vec_2F)) != 0) {
             _row->center = _center;
-            fude_kit_place(rde_ui_image_as_node(_row->panel), _center, _row->size);
+            fude_kit_place_at(rde_ui_image_as_node(_row->panel), _center, _row->size);
         }
     }
     if(_show != _row->open) {

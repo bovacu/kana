@@ -2,6 +2,7 @@
 #include "lang/lang.h"
 #include "drawing/base/text.h"
 #include "study/services/mlkit.h"
+#include "drawing/widgets/draw.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -54,7 +55,7 @@ void fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark) {
         return;
     }
     const rde_vec_2UI _px = rde_texture_get_size(fude_translate_badges[_b]);
-    rde_rendering_2d_draw_texture_2(fude_translate_badges[_b], (rde_vec_3F){ _left + FUDE_TRANSLATE_BADGE_W * 0.5f, _y, 0.0f },
+    rde_rendering_2d_draw_texture_2(fude_translate_badges[_b], (rde_vec_3F){ fude_draw_x(_left + FUDE_TRANSLATE_BADGE_W * 0.5f), _y, 0.0f },
                                     (rde_vec_2F){ FUDE_TRANSLATE_BADGE_W / (f32)_px.x, FUDE_TRANSLATE_BADGE_H / (f32)_px.y }, 0.0f,
                                     (rde_color){ 255, 255, 255, 255 });
 }

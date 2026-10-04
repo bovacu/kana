@@ -419,6 +419,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x0643u,   // ك (كلمة: word)
         0x0634u,   // ش (شبيه: alike)
         0x062Du,   // ح (حاشية: note)
+        0x062Au,   // ت (ترجمة: translation)
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

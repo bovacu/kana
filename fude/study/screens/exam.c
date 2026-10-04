@@ -674,7 +674,7 @@ void fude_exam_update(fude_exam* _exam, f32 _dt) {
 RDE_INTERNAL void fude_exam_chip_draw(rde_font* _font, f32 _font_px, rde_vec_2F _min, rde_vec_2F _max, const c8* _label, b8 _chosen, b8 _usable) {
     const fude_theme* _theme = fude_theme_active();
     const rde_vec_2F  _size  = { _max.x - _min.x, _max.y - _min.y };
-    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, _size, 1.0f, 10,
+    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x((_min.x + _max.x) * 0.5f), (_min.y + _max.y) * 0.5f }, _size, 1.0f, 10,
                                             _chosen ? _theme->accent : _theme->surface_2, NULL);
     const f32 _px = FUDE_EXAM_CHIP_PX;
     const f32 _w  = fude_draw_text_width(_font, _font_px, _label, _px);
@@ -779,7 +779,7 @@ RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window
     if(_grid_top <= _bottom) {
         return;
     }
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_grid_top - _bottom) });
     const f32 _cell  = _exam->cell;
     const f32 _glyph = _cell * 0.62f;
@@ -914,13 +914,13 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
         const f32 _w   = (_right - _left - _gap * (f32)(_exam->asked - 1u)) / (f32)_exam->asked;
         for(u32 _i = 0; _i < _exam->asked; _i++) {
             const rde_color _c = _i < _exam->current ? _theme->accent : _i == _exam->current ? _theme->tint : _theme->surface_2;
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _left + (f32)_i * (_w + _gap) + _w * 0.5f, _py }, (rde_vec_2F){ _w, 6.0f }, 1.0f, 4, _c, NULL);
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_left + (f32)_i * (_w + _gap) + _w * 0.5f), _py }, (rde_vec_2F){ _w, 6.0f }, 1.0f, 4, _c, NULL);
         }
     } else if(_exam->asked > 0) {
         const f32 _done = (_right - _left) * (f32)_exam->current / (f32)_exam->asked;
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ (_left + _right) * 0.5f, _py }, (rde_vec_2F){ _right - _left, 6.0f }, 1.0f, 4, _theme->surface_2, NULL);
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x((_left + _right) * 0.5f), _py }, (rde_vec_2F){ _right - _left, 6.0f }, 1.0f, 4, _theme->surface_2, NULL);
         if(_done > 6.0f) {
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _left + _done * 0.5f, _py }, (rde_vec_2F){ _done, 6.0f }, 1.0f, 4, _theme->accent, NULL);
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_left + _done * 0.5f), _py }, (rde_vec_2F){ _done, 6.0f }, 1.0f, 4, _theme->accent, NULL);
         }
     }
 
@@ -934,10 +934,12 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
     const rde_vec_2F _tl = { (_left + _right) * 0.5f - _square * 0.5f, _y - 18.0f };
     _exam->square_tl   = _tl;
     _exam->square_size = _square;
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
     fude_glyph_box(_tl, _square);
     const rde_vec_2I _size = rde_window_get_size(_window);
     fude_ink_render(&_it->ink, (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / FUDE_EXAM_UNITS,
                     (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, rde_engine_get_time_now(), false);
+    fude_draw_keep_end();
     fude_draw_text(_font, _font_px, fude_text(fude_exam_at_last(_exam) ? FUDE_TEXT_EXAM_THEN_FINISH : FUDE_TEXT_EXAM_THEN_NEXT),
                    _tl.x, _tl.y - _square - 20.0f, 12.0f, _theme->text_soft);
 }
@@ -977,7 +979,7 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
     if(_grid_top <= _bottom) {
         return;
     }
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_grid_top - _bottom) });
     const rde_vec_2I _size = rde_window_get_size(_window);
     const f32        _cell = _exam->cell;
@@ -996,15 +998,17 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
         const f32 _sq = _cell - 10.0f;
         const rde_vec_2F _tl = { _x + 5.0f, _y - 5.0f };
         fude_glyph_box(_tl, _sq);
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _sq }, (rde_vec_2F){ _tl.x + _sq, _tl.y }, false);   // the writing as written (draw.h)
         fude_ink_render(&_it->ink, (rde_vec_2F){ _tl.x, _tl.y - _sq }, _sq / FUDE_EXAM_UNITS,
                         (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, rde_engine_get_time_now(), false);
+        fude_draw_keep_end();
         fude_glyph_character(&_exam->glyph, _info.codepoint, (rde_vec_2F){ _tl.x + 4.0f, _tl.y - 4.0f }, _sq * 0.26f, _theme->text_soft);
 
         // Right or wrong, and the points.
         const f32        _r = fmaxf(10.0f, _sq * 0.1f);
         const rde_vec_2F _c = { _tl.x + _sq - _r - 5.0f, _tl.y - _r - 5.0f };
         if(!_it->graded) {
-            rde_rendering_2d_draw_circle_border(_c, _r, 1.5f, 24, _theme->text_soft, NULL);
+            rde_rendering_2d_draw_circle_border(fude_draw_at(_c), _r, 1.5f, 24, _theme->text_soft, NULL);
             continue;
         }
         fude_draw_verdict(_c, _r, _it->correct);

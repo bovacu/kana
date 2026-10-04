@@ -140,6 +140,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x8A9Eu,   // 語
         0x4F3Cu,   // 似
         0x8A18u,   // 記
+        0x8A33u,   // 訳
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

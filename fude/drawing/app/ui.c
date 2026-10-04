@@ -3,6 +3,7 @@
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 #include "drawing/widgets/draw.h"
+#include "drawing/app/look.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -303,6 +304,10 @@ void fude_ui_apply_theme(fude_ui* _ui) {
 
 // --- lifetime -----------------------------------------------------------------------------
 
+b8 fude_ui_rtl(void) {
+    return rde_localization_is_rtl() || fude_look_rtl();
+}
+
 // Every widget, in the language now (text.h): the canvas and all on it.
 RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     fude_app* _app = _ui->app;
@@ -318,6 +323,10 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     // space pen positions are in; fude_kit_clamp keeps what floats out of the
     // unsafe edges instead.
     rde_ui_canvas_set_safe_area_enabled(_ui->canvas, false);
+    // A right-to-left language (its .rdel block's @direction) mirrors the whole
+    // UI (rde.h: RDE_UI_DIRECTION_); --rtl asks for it to check a layout.
+    rde_ui_canvas_set_direction(_ui->canvas, fude_ui_rtl() ? RDE_UI_DIRECTION_RTL : RDE_UI_DIRECTION_LTR);
+    fude_draw_set_rtl(fude_ui_rtl());
     rde_ui_node* _root = rde_ui_canvas_get_root(_ui->canvas);
 
     // In the order they stack, bottom first: the bar, the page's menus, the

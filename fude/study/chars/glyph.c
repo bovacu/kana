@@ -54,7 +54,8 @@ rde_vec_2F fude_glyph_stroke(fude_glyph* _glyph, const fude_kanji_stroke* _strok
     rde_arr_clear(&_glyph->_points);
     rde_arr_clear(&_glyph->_radii);
 
-    f32 _walked = 0.0f;
+    f32        _walked = 0.0f;
+    rde_vec_2F _end    = _origin;   // where the drawn part ends, laid out
     for(u32 _i = 0; _i < _n; _i++) {
         rde_vec_2F _p = _pts[_i];
 
@@ -71,14 +72,15 @@ rde_vec_2F fude_glyph_stroke(fude_glyph* _glyph, const fude_kanji_stroke* _strok
             _walked += _seg;
         }
 
-        rde_vec_2F _screen = { _origin.x + _p.x * _scale, _origin.y - _p.y * _scale };
+        _end               = (rde_vec_2F){ _origin.x + _p.x * _scale, _origin.y - _p.y * _scale };
+        rde_vec_2F _screen = fude_draw_at(_end);   // as drawn (draw.h: a mirrored screen)
         rde_arr_add(&_glyph->_points, &_screen);
         rde_arr_add(&_glyph->_radii,  &_radius);
     }
 
     const u32 _count = (u32)rde_arr_length(&_glyph->_points);
     rde_rendering_2d_draw_stroke((const rde_vec_2F*)_glyph->_points.memory, (const f32*)_glyph->_radii.memory, _count, _color);
-    return ((const rde_vec_2F*)_glyph->_points.memory)[_count - 1];
+    return _end;
 }
 
 // A sign written on another letter, shown alone: a dotted circle where that letter
@@ -106,6 +108,8 @@ b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
 
     const f32 _scale  = _size / FUDE_KANJI_BOX;
     const f32 _radius = fmaxf(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
+    // A character is never mirrored: its box goes where a right-to-left screen puts it.
+    fude_draw_keep_begin((rde_vec_2F){ _origin.x, _origin.y - _size }, (rde_vec_2F){ _origin.x + _size, _origin.y }, false);
     fude_glyph_base_hint(_codepoint, _origin, _scale);
     for(u32 _s = 0; _s < _info.strokes; _s++) {
         fude_kanji_stroke _stroke;
@@ -113,6 +117,7 @@ b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
             fude_glyph_stroke(_glyph, &_stroke, _origin, _scale, _radius, 1.0f, _color);
         }
     }
+    fude_draw_keep_end();
     return true;
 }
 
@@ -131,11 +136,24 @@ void fude_glyph_box(rde_vec_2F _tl, f32 _size) {
     }
 }
 
+RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _scale, f32 _radius, f64 _elapsed,
+                                           rde_font* _font, f32 _font_px, f32 _number_px);
+
 b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _size, f64 _elapsed,
                       rde_font* _font, f32 _font_px, f32 _number_px) {
     const f32 _scale  = _size / FUDE_KANJI_BOX;
     const f32 _radius = fmaxf(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
 
+    // Never mirrored, as a character is (fude_glyph_character).
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);
+    const b8 _done = fude_glyph_writing_strokes(_glyph, _info, _tl, _scale, _radius, _elapsed, _font, _font_px, _number_px);
+    fude_draw_keep_end();
+    return _done;
+}
+
+// fude_glyph_writing's strokes, at _scale screen units per KanjiVG unit.
+RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _scale, f32 _radius, f64 _elapsed,
+                                           rde_font* _font, f32 _font_px, f32 _number_px) {
     fude_glyph_base_hint(_info->codepoint, _tl, _scale);
 
     // Ghosts first: the whole shape, faint, so the eye knows where it is going.
@@ -175,7 +193,7 @@ b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_
         }
 
         if(_fraction < 1.0f) {
-            rde_rendering_2d_draw_circle(_tip, _radius * 1.35f, 16u, fude_theme_active()->pen_tip, NULL);
+            rde_rendering_2d_draw_circle(fude_draw_at(_tip), _radius * 1.35f, 16u, fude_theme_active()->pen_tip, NULL);
             return false;
         }
 
@@ -193,7 +211,8 @@ void fude_glyph_set_text_font(rde_font* _font, f32 _font_px) {
     fude_glyph_text_font_px = _font_px;
 }
 
-f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, f32 _size, f32 _max_x, rde_color _ink, rde_color _soft) {
+// fude_glyph_reading's walk: drawn when _draw, else only measured. Where it ends.
+RDE_INTERNAL f32 fude_glyph_reading_walk(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, f32 _size, f32 _max_x, rde_color _ink, rde_color _soft, b8 _draw) {
     rde_color _color = _ink;
     f32       _x     = _origin.x;
 
@@ -203,19 +222,28 @@ f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, 
             continue;
         }
         if(_cp == '-') {
-            fude_draw_line((rde_vec_2F){ _x + _size * 0.15f, _origin.y - _size * 0.5f }, (rde_vec_2F){ _x + _size * 0.45f, _origin.y - _size * 0.5f }, 1.2f, _color);
+            if(_draw) {
+                fude_draw_line((rde_vec_2F){ _x + _size * 0.15f, _origin.y - _size * 0.5f }, (rde_vec_2F){ _x + _size * 0.45f, _origin.y - _size * 0.5f }, 1.2f, _color);
+            }
             _x += _size * 0.6f;
             continue;
         }
         if(_cp == 0x3001u) {   // 、 — a new reading starts
             _color = _ink;
         }
-        if(!fude_glyph_character(_glyph, _cp, (rde_vec_2F){ _x, _origin.y }, _size, _color) && fude_glyph_text_font != NULL && _cp != 0x3001u) {
+        fude_kanji_info _info;
+        const b8 _strokes = _glyph->db != NULL && fude_kanji_find(_glyph->db, _cp, &_info);
+        if(_strokes && _draw) {
+            fude_glyph_character(_glyph, _cp, (rde_vec_2F){ _x, _origin.y }, _size, _color);
+        }
+        if(!_strokes && fude_glyph_text_font != NULL && _cp != 0x3001u) {
             // No strokes for it (a letter of pinyin): the text font, centred on the line.
             c8 _one[5];
             fude_utf8_put(_cp, _one);
             const f32 _px = _size * 0.8f;
-            fude_draw_text(fude_glyph_text_font, fude_glyph_text_font_px, _one, _x, _origin.y - _size * 0.5f - _px * 0.36f, _px, _color);
+            if(_draw) {
+                fude_draw_text(fude_glyph_text_font, fude_glyph_text_font_px, _one, _x, _origin.y - _size * 0.5f - _px * 0.36f, _px, _color);
+            }
             _x += fude_draw_text_width(fude_glyph_text_font, fude_glyph_text_font_px, _one, _px);
             continue;
         }
@@ -223,4 +251,14 @@ f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, 
     }
 
     return _x;
+}
+
+f32 fude_glyph_reading(fude_glyph* _glyph, const c8* _text, rde_vec_2F _origin, f32 _size, f32 _max_x, rde_color _ink, rde_color _soft) {
+    // One run, read left to right however the screen runs (a right-to-left one
+    // puts it, whole, where it starts there).
+    const f32 _end = fude_glyph_reading_walk(_glyph, _text, _origin, _size, _max_x, _ink, _soft, false);
+    fude_draw_keep_begin((rde_vec_2F){ _origin.x, _origin.y - _size }, (rde_vec_2F){ _end, _origin.y }, false);
+    fude_glyph_reading_walk(_glyph, _text, _origin, _size, _max_x, _ink, _soft, true);
+    fude_draw_keep_end();
+    return _end;
 }

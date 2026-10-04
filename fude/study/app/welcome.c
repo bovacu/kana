@@ -126,7 +126,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     const f32         _sh     = (f32)_size.y;
 
     // The page's colour over everything, then the card in the middle.
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ _sw, _sh }, _t->page);
+    rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), 0.0f }, (rde_vec_2F){ _sw, _sh }, _t->page);
     const f32 _w     = fminf(FUDE_WELCOME_CARD_W, _sw - (f32)(_insets.x + _insets.z) - 32.0f);
     const f32 _inner = _w - 2.0f * FUDE_WELCOME_PAD;
     const u32 _page  = _welcome->page < FUDE_WELCOME_PAGES ? _welcome->page : FUDE_WELCOME_PAGES - 1u;
@@ -179,7 +179,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     // Where it is: a dot a page.
     for(u32 _i = 0; _i < FUDE_WELCOME_PAGES; _i++) {
         const f32 _x = ((f32)_i - (f32)(FUDE_WELCOME_PAGES - 1u) * 0.5f) * 18.0f;
-        rde_rendering_2d_draw_circle((rde_vec_2F){ _x, _y }, _i == _page ? 5.0f : 3.5f, 20, _i == _page ? _t->accent : _t->outline, NULL);
+        rde_rendering_2d_draw_circle((rde_vec_2F){ fude_draw_x(_x), _y }, _i == _page ? 5.0f : 3.5f, 20, _i == _page ? _t->accent : _t->outline, NULL);
     }
 
     // Skip (not on the last page) at the left, Next / Start writing at the right.

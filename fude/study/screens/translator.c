@@ -181,7 +181,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - 24.0f;
     const f32         _width  = _right - _left;
 
-    // The header: 訳, "Into Japanese", the language typed in → the one taught, in
+    // The header: its badge (訳), "Into Japanese", the language typed in → the one taught, in
     // itself (日本語). The UI in that one: English is what is typed. (The field is
     // at the top right: the UI's.)
     c8                  _caption[96];
@@ -192,8 +192,14 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
     for(u32 _l = 0; _l < FUDE_TEXT_LANGUAGES; _l++) {
         _name = FUDE_TEXT_LANGUAGE_LIST[_l].language == fude_text_language() && fude_text_language() != _taught ? FUDE_TEXT_LANGUAGE_LIST[_l].name : _name;
     }
-    snprintf(_caption, sizeof(_caption), "%s \xE2\x86\x92 %s", _name, _target);   // →
-    fude_header_draw(&_tr->glyph, 0x8A33u, _font, _font_px, _left, _right - 380.0f, _top, fude_text(FUDE_TEXT_TRANSLATOR_TITLE), _caption, NULL);   // 訳
+    // The arrow Phosphor's (every app's font has it, not every one has →),
+    // pointing the way the UI reads.
+    if(fude_draw_is_rtl()) {   // each piece parted by a right-to-left mark (draw.h: fude_draw_icon_label)
+        snprintf(_caption, sizeof(_caption), FUDE_DRAW_RLM "%s" FUDE_DRAW_RLM " %s " FUDE_DRAW_RLM "%s", _name, fude_draw_icon_dir(FUDE_ICON_ARROW_RIGHT), _target);
+    } else {
+        snprintf(_caption, sizeof(_caption), "%s %s %s", _name, FUDE_ICON_ARROW_RIGHT, _target);
+    }
+    fude_header_draw(&_tr->glyph, fude_lang_badge(FUDE_LANG_BADGE_TRANSLATE), _font, _font_px, _left, _right - 380.0f, _top, fude_text(FUDE_TEXT_TRANSLATOR_TITLE), _caption, NULL);
 
     // Google's badge, by the translations.
     const rde_color _p    = _t->page;
@@ -212,7 +218,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
         return;
     }
 
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width + 8u, (u32)fmaxf(1.0f, _y - _bottom) });
     const b8 _speak = fude_speech_available();
     f32      _at    = _y + _tr->scroller.offset;   // the next card's top

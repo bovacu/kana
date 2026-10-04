@@ -519,7 +519,7 @@ RDE_INTERNAL void fude_wordcard_open(fude_ui* _ui, const fude_wordcard_word* _wo
     rde_ui_label_set_text(_card->title, _title);
     rde_ui_text_editor_set_placeholder(_card->fields[FUDE_WORDCARD_WRITTEN], fude_text(FUDE_TEXT_WORD_FIELD_WRITTEN));
     c8 _remove[96];
-    snprintf(_remove, sizeof(_remove), FUDE_ICON_TRASH " %s", fude_text(FUDE_TEXT_WORD_REMOVE));
+    fude_draw_icon_label(_remove, sizeof(_remove), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_WORD_REMOVE));
     rde_ui_button_set_text(_card->remove, _remove);
     fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_WRITTEN], _word->written);
     fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_READING], _word->reading);
@@ -572,7 +572,7 @@ RDE_INTERNAL void fude_wordcard_open_list(fude_ui* _ui, u32 _list) {
     fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_WRITTEN], _name);
     rde_ui_text_editor_select_all(_card->fields[FUDE_WORDCARD_WRITTEN]);
     c8 _delete[96];
-    snprintf(_delete, sizeof(_delete), FUDE_ICON_TRASH " %s", fude_text(FUDE_TEXT_VOCAB_DELETE_LIST));
+    fude_draw_icon_label(_delete, sizeof(_delete), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_VOCAB_DELETE_LIST));
     rde_ui_button_set_text(_card->remove, _delete);
     fude_wordcard_layout(_ui);
     rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]));   // the keyboard comes up
@@ -593,7 +593,7 @@ RDE_INTERNAL void fude_wordcard_open_note(fude_ui* _ui, u32 _cp) {
     _card->note_cp   = _cp;
     fude_wordcard_set_field(_card->note_field, fude_charnote_get(_cp));
     c8 _delete[96];
-    snprintf(_delete, sizeof(_delete), FUDE_ICON_TRASH " %s", fude_text(FUDE_TEXT_NOTE_DELETE));
+    fude_draw_icon_label(_delete, sizeof(_delete), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_NOTE_DELETE));
     rde_ui_button_set_text(_card->remove, _delete);
     fude_wordcard_layout(_ui);
     rde_ui_node_focus(rde_ui_text_editor_as_node(_card->note_field));   // the keyboard comes up
@@ -1077,7 +1077,7 @@ void fude_wordcard_create(fude_ui* _ui, rde_ui_node* _root) {
         _card->fields[_i] = fude_wordcard_field(_ui, _c, _placeholders[_i], _max[_i]);
     }
     c8 _translate[96];
-    snprintf(_translate, sizeof(_translate), FUDE_ICON_TRANSLATE " %s", fude_text(FUDE_TEXT_SCAN_TRANSLATE));
+    fude_draw_icon_label(_translate, sizeof(_translate), FUDE_ICON_TRANSLATE, fude_text(FUDE_TEXT_SCAN_TRANSLATE));
     _card->translate        = fude_kit_button(_c, _translate, fude_wordcard_on_translate, _ui);
     _card->translate_status = fude_wordcard_label(_ui, _c, 12.0f);
     rde_ui_label_set_wrap(_card->translate_status, true);
@@ -1111,17 +1111,17 @@ void fude_wordcard_create(fude_ui* _ui, rde_ui_node* _root) {
         rde_ui_button_set_on_click(_card->list_chips[_i], fude_wordcard_on_list, &_card->refs[_i]);
     }
     c8 _label[96];
-    snprintf(_label, sizeof(_label), FUDE_ICON_PLUS " %s", fude_text(FUDE_TEXT_WORD_NEW_LIST));
+    fude_draw_icon_label(_label, sizeof(_label), FUDE_ICON_PLUS, fude_text(FUDE_TEXT_WORD_NEW_LIST));
     _card->new_list   = fude_kit_button(_c, _label, fude_wordcard_on_new_list, _ui);
     _card->list_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_WORD_LIST_NAME), 30u);
     _card->note_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_NOTE_PLACEHOLDER), 180u);
     rde_ui_text_editor_set_multiline(_card->note_field, true);
     _card->list_ok    = fude_kit_button(_c, fude_text(FUDE_TEXT_ADD), fude_wordcard_on_list_ok, _ui);
     _card->error      = fude_wordcard_label(_ui, _c, 12.0f);
-    snprintf(_label, sizeof(_label), FUDE_ICON_TRASH " %s", fude_text(FUDE_TEXT_WORD_REMOVE));
+    fude_draw_icon_label(_label, sizeof(_label), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_WORD_REMOVE));
     _card->remove     = fude_kit_button(_c, _label, fude_wordcard_on_remove, _ui);
     _card->cancel     = fude_kit_button(_c, fude_text(FUDE_TEXT_CANCEL), fude_wordcard_on_cancel, _ui);
-    snprintf(_label, sizeof(_label), FUDE_ICON_CHECK " %s", fude_text(FUDE_TEXT_SAVE));
+    fude_draw_icon_label(_label, sizeof(_label), FUDE_ICON_CHECK, fude_text(FUDE_TEXT_SAVE));
     _card->save       = fude_kit_button(_c, _label, fude_wordcard_on_save, _ui);
     fude_wordcard_close(_ui);
 }

@@ -63,6 +63,9 @@ void           fude_kit_style_panel(rde_ui_image* _panel, f32 _radius, f32 _bord
 // Pins _node bottom-left to its parent with a centre pivot: _center is its centre
 // in parent-local units (bottom-left origin).
 void           fude_kit_place(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size);
+// The same for a point on the screen (a dragged bar, a menu at a tap): not
+// mirrored in a right-to-left UI, while what it holds still is.
+void           fude_kit_place_at(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size);
 // Pins _node to its parent's edges: its rect is the parent's anchor box
 // (_anchor_min.._anchor_max, fractions) moved in by _inset_min / _inset_max.
 void           fude_kit_pin(rde_ui_node* _node, rde_vec_2F _anchor_min, rde_vec_2F _anchor_max, rde_vec_2F _inset_min, rde_vec_2F _inset_max);

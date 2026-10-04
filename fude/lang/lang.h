@@ -130,6 +130,7 @@ typedef enum {
     FUDE_LANG_BADGE_WORDS,           // 語
     FUDE_LANG_BADGE_LOOKALIKES,      // 似
     FUDE_LANG_BADGE_NOTE,            // 記
+    FUDE_LANG_BADGE_TRANSLATE,       // 訳
     FUDE_LANG_BADGE_COUNT
 } FUDE_LANG_BADGE_;
 

@@ -1,6 +1,7 @@
 #include "drawing/widgets/draw.h"
 #include "drawing/base/utf8.h"
 #include "drawing/base/theme.h"
+#include "drawing/widgets/icons.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -47,6 +48,112 @@ RDE_INTERNAL void fude_draw_check(rde_font* _font, f32 _font_px, const c8* _text
                   fmaxf(-_half - _x, _x + _w - _half), _text, _x, _w, _px);
 }
 
+// --- right to left: a screen drawn mirrored (draw.h) ---------------------------------------
+
+#define FUDE_DRAW_KEEPS 128u
+
+// A kept box: laid out from min to max, drawn dx along.
+typedef struct {
+    rde_vec_2F min, max;
+    f32        dx;
+} fude_draw_kept;
+
+RDE_INTERNAL struct {
+    b8             on;      // a mirrored screen being drawn
+    f32            sum;     // its frame's left + right: x is drawn at sum - x
+    u32            depth;   // kept boxes open
+    f32            dx;      // the outermost open one's shift
+    fude_draw_kept kept[FUDE_DRAW_KEEPS];   // this screen's, for its pointer
+    u32            kept_count;
+    // The pointer's: the last screen drawn's, as it ended.
+    b8             in_on;
+    f32            in_sum;
+    fude_draw_kept in_kept[FUDE_DRAW_KEEPS];
+    u32            in_count;
+    i32            gesture;   // what a press picked: -1 the mirror, else a kept box
+} fude_draw_m = { .gesture = -1 };
+
+void fude_draw_mirror_begin(b8 _on, f32 _left, f32 _right) {
+    fude_draw_m.on         = _on;
+    fude_draw_m.sum        = _left + _right;
+    fude_draw_m.depth      = 0;
+    fude_draw_m.kept_count = 0;
+}
+
+void fude_draw_mirror_end(void) {
+    fude_draw_m.in_on    = fude_draw_m.on;
+    fude_draw_m.in_sum   = fude_draw_m.sum;
+    fude_draw_m.in_count = fude_draw_m.kept_count;
+    memcpy(fude_draw_m.in_kept, fude_draw_m.kept, sizeof(fude_draw_kept) * fude_draw_m.kept_count);
+    fude_draw_m.on    = false;
+    fude_draw_m.depth = 0;
+}
+
+RDE_INTERNAL void fude_draw_keep_open(rde_vec_2F _min, rde_vec_2F _max, b8 _for_pointer) {
+    if(fude_draw_m.on && fude_draw_m.depth == 0) {
+        fude_draw_m.dx = fude_draw_m.sum - _min.x - _max.x;
+        if(_for_pointer && fude_draw_m.kept_count < FUDE_DRAW_KEEPS) {
+            fude_draw_m.kept[fude_draw_m.kept_count++] = (fude_draw_kept){ _min, _max, fude_draw_m.dx };
+        }
+    }
+    fude_draw_m.depth++;
+}
+
+void fude_draw_keep_begin(rde_vec_2F _min, rde_vec_2F _max, b8 _for_pointer) {
+    fude_draw_keep_open(_min, _max, _for_pointer);
+}
+
+void fude_draw_keep_end(void) {
+    if(fude_draw_m.depth > 0) {
+        fude_draw_m.depth--;
+    }
+}
+
+f32 fude_draw_x(f32 _x) {
+    if(!fude_draw_m.on) {
+        return _x;
+    }
+    return fude_draw_m.depth > 0 ? _x + fude_draw_m.dx : fude_draw_m.sum - _x;
+}
+
+rde_vec_2F fude_draw_at(rde_vec_2F _p) {
+    return (rde_vec_2F){ fude_draw_x(_p.x), _p.y };
+}
+
+// A span (a box's left and right) as drawn: mirrored, it swaps ends.
+RDE_INTERNAL void fude_draw_span(f32* _a, f32* _b) {
+    const f32 _x0 = fude_draw_x(*_a), _x1 = fude_draw_x(*_b);
+    *_a = _x0 < _x1 ? _x0 : _x1;
+    *_b = _x0 < _x1 ? _x1 : _x0;
+}
+
+rde_vec_2F fude_draw_pointer(rde_vec_2F _p, b8 _press) {
+    if(!fude_draw_m.in_on) {
+        return _p;
+    }
+    if(_press) {
+        // The last box drawn under it (drawn last: on top).
+        fude_draw_m.gesture = -1;
+        for(u32 _i = fude_draw_m.in_count; _i-- > 0;) {
+            const fude_draw_kept* _k = &fude_draw_m.in_kept[_i];
+            if(_p.x >= _k->min.x + _k->dx && _p.x <= _k->max.x + _k->dx && _p.y >= _k->min.y && _p.y <= _k->max.y) {
+                fude_draw_m.gesture = (i32)_i;
+                break;
+            }
+        }
+    }
+    if(fude_draw_m.gesture >= 0 && (u32)fude_draw_m.gesture < fude_draw_m.in_count) {
+        return (rde_vec_2F){ _p.x - fude_draw_m.in_kept[fude_draw_m.gesture].dx, _p.y };
+    }
+    return (rde_vec_2F){ fude_draw_m.in_sum - _p.x, _p.y };
+}
+
+// _text with its baseline starting at (_x, _y), as it is: where every placed text ends up.
+RDE_INTERNAL void fude_draw_text_raw(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
+    const f32 _scale = _px / _font_px;
+    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
+}
+
 void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
     if(_font == NULL || _text == NULL) {
         return;
@@ -54,25 +161,36 @@ void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 
     if(fude_draw_checking != NULL) {
         fude_draw_check(_font, _font_px, _text, _x, _px);
     }
-    const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
+    if(!fude_draw_m.on || fude_draw_m.depth > 0) {
+        fude_draw_text_raw(_font, _font_px, _text, fude_draw_x(_x), _y, _px, _color);
+        return;
+    }
+    // Mirrored: it ends where it would have started (its width measured on the
+    // very shape that is drawn).
+    const f32                   _scale = _px / _font_px;
+    rde_text_engine_shaped_text _shape = rde_text_engine_shape_text(_font, NULL, _text);
+    const f32                   _w     = (f32)_shape.bounding_box.width * _scale;
+    rde_rendering_2d_draw_shaped_text_3(_font, &_shape, (rde_vec_3F){ fude_draw_m.sum - _x - _w, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color, NULL, NULL);
+    rde_text_engine_free_shaped_text(&_shape);
 }
 
 void fude_draw_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color) {
-    const rde_vec_2F _p[2] = { _a, _b };
+    const rde_vec_2F _p[2] = { fude_draw_at(_a), fude_draw_at(_b) };
     const f32        _r[2] = { _radius, _radius };
     rde_rendering_2d_draw_stroke(_p, _r, 2, _color);
 }
 
 void fude_draw_outline(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color _color) {
+    fude_draw_span(&_min.x, &_max.x);
     const rde_vec_2F _p[5] = { { _min.x, _max.y }, { _max.x, _max.y }, { _max.x, _min.y }, { _min.x, _min.y }, { _min.x, _max.y } };
     const f32        _r[5] = { _radius, _radius, _radius, _radius, _radius };
     rde_rendering_2d_draw_stroke(_p, _r, 5, _color);
 }
 
 void fude_draw_stroke_even(const rde_vec_2F* _points, u32 _count, f32 _radius, rde_color _color) {
-    static f32 _radii[FUDE_DRAW_CHUNK];
-    static f32 _filled_with = -1.0f;
+    static f32        _radii[FUDE_DRAW_CHUNK];
+    static f32        _filled_with = -1.0f;
+    static rde_vec_2F _moved[FUDE_DRAW_CHUNK];   // the chunk as drawn, in a mirrored screen
     if(_count == 0) {
         return;
     }
@@ -85,7 +203,14 @@ void fude_draw_stroke_even(const rde_vec_2F* _points, u32 _count, f32 _radius, r
     // In chunks that share their end point, so a long stroke stays joined.
     for(u32 _start = 0;; _start += FUDE_DRAW_CHUNK - 1u) {
         const u32 _n = _count - _start < FUDE_DRAW_CHUNK ? _count - _start : FUDE_DRAW_CHUNK;
-        rde_rendering_2d_draw_stroke(_points + _start, _radii, _n, _color);
+        if(fude_draw_m.on) {
+            for(u32 _i = 0; _i < _n; _i++) {
+                _moved[_i] = fude_draw_at(_points[_start + _i]);
+            }
+            rde_rendering_2d_draw_stroke(_moved, _radii, _n, _color);
+        } else {
+            rde_rendering_2d_draw_stroke(_points + _start, _radii, _n, _color);
+        }
         if(_start + _n >= _count) {
             break;
         }
@@ -102,11 +227,53 @@ void fude_draw_set_icon_fill(rde_font* _font, f32 _font_px) {
     fude_draw_fill_font_px = _font_px;
 }
 
+// Right to left (fude_draw_set_rtl): the directional icons as their mirror
+// images — Phosphor has each pair (back and forward, previous and next, undo
+// and redo), so the other glyph of the pair is drawn.
+static b8 fude_draw_rtl = false;
+
+void fude_draw_set_rtl(b8 _rtl) {
+    fude_draw_rtl = _rtl;
+}
+
+b8 fude_draw_is_rtl(void) {
+    return fude_draw_rtl;
+}
+
+void fude_draw_icon_label(c8* _out, usize _size, const c8* _icon, const c8* _text) {
+    if(fude_draw_rtl) {
+        snprintf(_out, _size, FUDE_DRAW_RLM "%s" FUDE_DRAW_RLM " %s", fude_draw_icon_dir(_icon), _text);
+    } else {
+        snprintf(_out, _size, "%s %s", _icon, _text);
+    }
+}
+
+const c8* fude_draw_icon_dir(const c8* _icon) {
+    static const c8* const _pairs[][2] = {
+        { FUDE_ICON_BACK, FUDE_ICON_ARROW_RIGHT }, { FUDE_ICON_PREV, FUDE_ICON_NEXT }, { FUDE_ICON_UNDO, FUDE_ICON_REDO },
+    };
+    if(!fude_draw_rtl || _icon == NULL) {
+        return _icon;
+    }
+    for(u32 _i = 0; _i < (u32)(sizeof(_pairs) / sizeof(_pairs[0])); _i++) {
+        if(strcmp(_icon, _pairs[_i][0]) == 0) {
+            return _pairs[_i][1];
+        }
+        if(strcmp(_icon, _pairs[_i][1]) == 0) {
+            return _pairs[_i][0];
+        }
+    }
+    return _icon;
+}
+
 // Phosphor's glyphs fill their em, from 1/16 of it under the baseline to 15/16
 // over: the middle is 7/16 up. Slug's em is FUDE_DRAW_EM times the size.
 void fude_draw_icon(rde_font* _font, f32 _font_px, const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color) {
+    if(_font == NULL || _icon == NULL) {
+        return;
+    }
     const f32 _px = _em / FUDE_DRAW_EM;
-    fude_draw_text(_font, _font_px, _icon, _center.x - _em * 0.5f, _center.y - _em * 0.4375f, _px, _color);
+    fude_draw_text_raw(_font, _font_px, fude_draw_icon_dir(_icon), fude_draw_x(_center.x) - _em * 0.5f, _center.y - _em * 0.4375f, _px, _color);   // its middle mirrored, never the icon
 }
 
 void fude_draw_icon_fill(const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color) {
@@ -119,21 +286,23 @@ void fude_draw_card(rde_vec_2F _min, rde_vec_2F _max, f32 _radius, rde_color _fi
         return;
     }
     const f32 _roundness = fminf(1.0f, 2.0f * _radius / fminf(_size.x, _size.y));
-    rde_rendering_2d_draw_rounded_rectangle_with_border((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, _size, _roundness, 6,
+    rde_rendering_2d_draw_rounded_rectangle_with_border((rde_vec_2F){ fude_draw_x((_min.x + _max.x) * 0.5f), (_min.y + _max.y) * 0.5f }, _size, _roundness, 6,
                                                         _fill, 1.0f, _border, NULL);
 }
 
 f32 fude_draw_chip(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, rde_color _fill, rde_color _color) {
     const f32 _h = _px + 12.0f;
     const f32 _w = fude_draw_text_width(_font, _font_px, _text, _px) + 22.0f;
-    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _w * 0.5f, _mid }, (rde_vec_2F){ _w, _h }, 1.0f, 8, _fill, NULL);
+    rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _w * 0.5f), _mid }, (rde_vec_2F){ _w, _h }, 1.0f, 8, _fill, NULL);
     fude_draw_text(_font, _font_px, _text, _x + 11.0f, _mid - _px * 0.36f, _px, _color);
     return _w;
 }
 
 void fude_draw_verdict(rde_vec_2F _center, f32 _radius, b8 _right) {
     const fude_theme* _theme = fude_theme_active();
-    rde_rendering_2d_draw_circle(_center, _radius, 24, _right ? _theme->score_good : _theme->score_poor, NULL);
+    // A tick is never mirrored (as the platforms keep it).
+    fude_draw_keep_begin((rde_vec_2F){ _center.x - _radius, _center.y - _radius }, (rde_vec_2F){ _center.x + _radius, _center.y + _radius }, false);
+    rde_rendering_2d_draw_circle(fude_draw_at(_center), _radius, 24, _right ? _theme->score_good : _theme->score_poor, NULL);
     const f32        _u = _radius * 0.5f;
     const f32        _w = fmaxf(1.2f, _radius * 0.13f);
     const rde_vec_2F _c = _center;
@@ -144,6 +313,7 @@ void fude_draw_verdict(rde_vec_2F _center, f32 _radius, b8 _right) {
         fude_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y - _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y + _u * 0.7f }, _w, _theme->on_accent);
         fude_draw_line((rde_vec_2F){ _c.x - _u * 0.7f, _c.y + _u * 0.7f }, (rde_vec_2F){ _c.x + _u * 0.7f, _c.y - _u * 0.7f }, _w, _theme->on_accent);
     }
+    fude_draw_keep_end();
 }
 
 // --- text widths -----------------------------------------------------------------

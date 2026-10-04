@@ -259,6 +259,9 @@ RDE_INTERNAL void fude_demo_exam(fude_demo* _demo, u32 _first, u32 _count, u8 _s
     const fude_ink*          _drawings[16];
     u32                      _picked[16];
     u32                      _n = 0;
+    if(_count == 0) {
+        return;   // a group the app's data has none of (the demo's are Japanese's)
+    }
     for(u32 _tries = 0; _tries < 200u && _n < _max && _n < 16u; _tries++) {
         const u32 _i = _first + fude_demo_rand() % _count;
         if(_demo->chars[_i].introduced == UINT32_MAX || _demo->chars[_i].introduced >= _day) {

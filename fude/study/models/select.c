@@ -80,7 +80,7 @@ const u32* fude_selection_records(const fude_selection* _selection) {
 
 void fude_selection_draw_behind(b8 _ticked, rde_vec_2F _tl, f32 _size) {
     if(_ticked) {
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + _size * 0.5f, _tl.y - _size * 0.5f }, (rde_vec_2F){ _size - 4.0f, _size - 4.0f },
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_tl.x + _size * 0.5f), _tl.y - _size * 0.5f }, (rde_vec_2F){ _size - 4.0f, _size - 4.0f },
                                         fude_theme_active()->select_fill);
     }
 }
@@ -90,10 +90,10 @@ void fude_selection_draw_tick(b8 _ticked, rde_vec_2F _tl, f32 _size) {
     const f32         _r      = fmaxf(10.0f, _size * 0.11f);
     const rde_vec_2F  _center = { _tl.x + _size - _r - 6.0f, _tl.y - _r - 6.0f };
     if(!_ticked) {
-        rde_rendering_2d_draw_circle_with_border(_center, _r, 24, _theme->surface, 1.5f, _theme->text_soft, NULL);
+        rde_rendering_2d_draw_circle_with_border(fude_draw_at(_center), _r, 24, _theme->surface, 1.5f, _theme->text_soft, NULL);
         return;
     }
-    rde_rendering_2d_draw_circle(_center, _r, 24, _theme->accent, NULL);
+    rde_rendering_2d_draw_circle(fude_draw_at(_center), _r, 24, _theme->accent, NULL);
     const f32 _u = _r * 0.5f;
     fude_draw_line((rde_vec_2F){ _center.x - _u, _center.y + _u * 0.05f }, (rde_vec_2F){ _center.x - _u * 0.25f, _center.y - _u * 0.7f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
     fude_draw_line((rde_vec_2F){ _center.x - _u * 0.25f, _center.y - _u * 0.7f }, (rde_vec_2F){ _center.x + _u, _center.y + _u * 0.75f }, fmaxf(1.2f, _r * 0.13f), _theme->on_accent);
@@ -110,6 +110,6 @@ void fude_selection_draw_mark(FUDE_MARK_ _mark, rde_vec_2F _tl, f32 _size, b8 _l
     const f32         _edge  = fmaxf(5.0f, _size * 0.035f);
     const rde_vec_2F  _c     = { _left ? _tl.x + _edge + _r : _tl.x + _size - _edge - _r, _tl.y - _edge - _r };
     const b8          _known = _mark == FUDE_MARK_KNOWN;
-    rde_rendering_2d_draw_circle(_c, _r, 28, _known ? _theme->score_good : _theme->score_fair, NULL);
+    rde_rendering_2d_draw_circle(fude_draw_at(_c), _r, 28, _known ? _theme->score_good : _theme->score_fair, NULL);
     fude_draw_icon_fill(_known ? FUDE_ICON_KNOWN : FUDE_ICON_STAR, _c, _r * 1.3f, _theme->on_accent);
 }

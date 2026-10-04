@@ -126,7 +126,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     // The page, nearly opaque, over everything: what is under it shows but can't be reached.
     rde_color _veil = _t->page;
     _veil.a         = 235u;
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ _sw, _sh }, _veil);
+    rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), 0.0f }, (rde_vec_2F){ _sw, _sh }, _veil);
 
     // The card: as wide as it may be, as tall as its text — up to the safe area,
     // past which the text scrolls.
@@ -174,10 +174,10 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     _card->text_max = (rde_vec_2F){ _l + _w - FUDE_READCARD_PAD, _y };
     const b8 _scrolls = _card->content_h > _view_h + 0.5f;
     if(_scrolls) {   // hairlines where the text runs on, above and below
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ 0.0f, _y + 1.0f }, (rde_vec_2F){ _inner, 1.0f }, _t->outline);
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ 0.0f, _y - _view_h - 1.0f }, (rde_vec_2F){ _inner, 1.0f }, _t->outline);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), _y + 1.0f }, (rde_vec_2F){ _inner, 1.0f }, _t->outline);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), _y - _view_h - 1.0f }, (rde_vec_2F){ _inner, 1.0f }, _t->outline);
     }
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ 0, (i32)(_y - _view_h * 0.5f) }, (rde_vec_2UI){ (u32)_inner + 4u, (u32)fmaxf(1.0f, _view_h) });
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x(0.0f), (i32)(_y - _view_h * 0.5f) }, (rde_vec_2UI){ (u32)_inner + 4u, (u32)fmaxf(1.0f, _view_h) });
     fude_draw_text_wrap(_font, _font_px, _body, _card->text_min.x, _y - FUDE_READCARD_INSET - FUDE_READCARD_BODY * 0.8f + _card->scroller.offset, FUDE_READCARD_BODY, _text_w,
                         FUDE_READCARD_LINE, _t->text_soft);
     rde_rendering_end_clipping_rect();

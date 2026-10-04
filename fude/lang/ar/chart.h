@@ -42,6 +42,7 @@ RDE_STRUCT {
     rde_arr TYPE(u32)             codepoints;// the same, as code points (for the romanization)
     rde_arr TYPE(fude_chart_cell) cells;     // laid out for the last frame's width
     f32                           _laid_out_width;
+    b8                            _laid_out_rtl;   // laid out for a right-to-left screen (fude_chart_layout)
     f32                           content_height;
     f32                           section_at[FUDE_CHART_SECTIONS];   // content y of each section's title
     u32                           section_first[FUDE_CHART_SECTIONS + 1u];   // where each section starts in the list

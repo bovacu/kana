@@ -190,6 +190,24 @@ mouse), in `fude_app_screen_event`.
 - The page has its own input, with the finger-writing state machine
   (`page.c`).
 
+**Right to left.** When the UI is right to left (its language's
+`@direction`, or `--rtl`), `fude_app` draws every screen mirrored and maps its
+pointer back the same way (`draw.h`: `fude_draw_mirror_begin`). A screen lays
+out left to right as ever: boxes, cards and lines land mirrored, and text and
+icons land at the mirrored place without being mirrored themselves.
+- **Drawing straight with the engine** in a screen: put x through `fude_draw_x`
+  (a centre) or `fude_draw_at` (a point), and a clip's centre too.
+- **What must keep its own left and right** (a character's strokes,
+  handwriting, a photo, a tick, a run of Latin) goes between
+  `fude_draw_keep_begin` and `_end`: drawn as it is, its box placed mirrored.
+  Pass `true` for a box written or tapped in, so a press there maps the same.
+  Characters (`glyph.c`), the guide and ticks already do it.
+- **Content laid out in its own script's direction** (the word test's boxes,
+  the Arabic chart's rows) checks `fude_lang_rtl() != fude_draw_is_rtl()`,
+  so the mirror does not undo it.
+- **An icon inside a label's text** ("+ Add"): `fude_draw_icon_label`, which
+  keeps it at the start of the line in either direction.
+
 ## Documents
 
 A canvas can have a PDF under its ink (`fude/drawing/doc/`). Its note says which

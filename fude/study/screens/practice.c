@@ -571,6 +571,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
         const f64         _now   = rde_engine_get_time_now();
         const fude_theme* _theme = fude_theme_active();
         const b8          _shown = _practice->scored && !_practice->scores[0].empty;   // a step 3 attempt, scored
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
         fude_glyph_box(_tl, _square);
         fude_guide_render(&_practice->guide, &_practice->glyph, _tl, _square, _now);
         if(_shown) {
@@ -583,6 +584,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
             snprintf(_line, sizeof(_line), "%.0f", (f64)_practice->scores[0].score);
             fude_draw_text(_font, _font_px, _line, _tl.x + _square - 52.0f, _tl.y - 40.0f, 32.0f, fude_theme_grade(_practice->scores[0].score));
         }
+        fude_draw_keep_end();
 
         // The step, then what went wrong (or what to do again), wrapped from the
         // square's left to the screen's right margin.
@@ -619,6 +621,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
                                   _grid_top - (f32)_row * (_square + FUDE_PRACTICE_LABEL_H + FUDE_PRACTICE_GAP) };
         _practice->square_tl[_i] = _tl;
 
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
         fude_glyph_box(_tl, _square);
 
         const fude_score* _s = &_practice->scores[_i];
@@ -635,6 +638,9 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
             c8 _mark[8];
             snprintf(_mark, sizeof(_mark), "%.0f", (f64)_s->score);
             fude_draw_text(_font, _font_px, _mark, _tl.x + _square - 34.0f, _tl.y - 24.0f, 20.0f, fude_theme_grade(_s->score));
+        }
+        fude_draw_keep_end();
+        if(_show) {
             fude_draw_text(_font, _font_px, _s->feedback, _tl.x + 2.0f, _tl.y - _square - 20.0f, 13.0f, fude_theme_active()->text);
         }
     }

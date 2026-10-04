@@ -517,7 +517,7 @@ RDE_INTERNAL rde_color fude_stats_alpha(rde_color _c, f32 _a) {
 RDE_INTERNAL void fude_stats_bar(f32 _x, f32 _y, f32 _w, f32 _h, f32 _fraction, rde_color _color) {
     const f32 _len = _w * fmaxf(0.0f, fminf(1.0f, _fraction));
     if(_len > 0.5f) {
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _len * 0.5f, _y - _h * 0.5f }, (rde_vec_2F){ _len, _h }, _color);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_x + _len * 0.5f), _y - _h * 0.5f }, (rde_vec_2F){ _len, _h }, _color);
     }
 }
 
@@ -594,7 +594,7 @@ RDE_INTERNAL void fude_stats_draw_activity(const fude_stats_box* _b) {
         }
         const f32 _x = _b->left + 22.0f + (f32)(_i / 7u) * _cell;
         const f32 _y = _b->top - (f32)(_i % 7u) * _cell;
-        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _dot * 0.5f, _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, 0.4f, 3, _c, NULL);
+        rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _dot * 0.5f), _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, 0.4f, 3, _c, NULL);
     }
     c8 _line[96];
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_ACTIVITY_CAPTION, FUDE_TN(FUDE_STATS_WEEKS));
@@ -650,7 +650,7 @@ RDE_INTERNAL void fude_stats_draw_scores(const fude_stats_box* _b) {
         if(_have) {
             fude_draw_line(_prev, _p, 1.4f, _theme->button_selected);
         }
-        rde_rendering_2d_draw_circle(_p, 3.5f, 16, fude_theme_grade(_d->week_average[_i]), NULL);
+        rde_rendering_2d_draw_circle(fude_draw_at(_p), 3.5f, 16, fude_theme_grade(_d->week_average[_i]), NULL);
         _prev = _p;
         _have = true;
     }
@@ -680,9 +680,9 @@ RDE_INTERNAL void fude_stats_draw_exams(const fude_stats_box* _b) {
         const f32 _bh  = _h * _acc;
         const rde_color _c = _acc >= FUDE_EXAM_PASS ? _theme->score_good : _acc >= 0.5f ? _theme->score_fair : _theme->score_poor;
         if(_bh > 0.5f) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _y - _h + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.55f, _bh }, fude_stats_alpha(_c, 0.8f));
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cx), _y - _h + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.55f, _bh }, fude_stats_alpha(_c, 0.8f));
         }
-        rde_rendering_2d_draw_circle((rde_vec_2F){ _cx, _y - _h + _h * _d->recent_points[_i] / 100.0f }, 3.5f, 16, _theme->text, NULL);
+        rde_rendering_2d_draw_circle((rde_vec_2F){ fude_draw_x(_cx), _y - _h + _h * _d->recent_points[_i] / 100.0f }, 3.5f, 16, _theme->text, NULL);
         const c8* _name = fude_exam_source_name((FUDE_EXAM_SOURCE_)_d->recent_source[_i]);
         // Its first two characters (whole ones: a name may be Japanese).
         c8        _short[16] = "";
@@ -760,10 +760,10 @@ RDE_INTERNAL void fude_stats_draw_marks(const fude_stats_box* _b) {
         const f32 _kh = _h * (f32)_d->week_known[_i] / (f32)_top_value;
         const f32 _sh = _h * (f32)_d->week_studying[_i] / (f32)_top_value;
         if(_kh > 0.25f) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _y - _h + _kh * 0.5f }, (rde_vec_2F){ _bw, _kh }, _known_c);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cx), _y - _h + _kh * 0.5f }, (rde_vec_2F){ _bw, _kh }, _known_c);
         }
         if(_sh > 0.25f) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _y - _h + _kh + _sh * 0.5f }, (rde_vec_2F){ _bw, _sh }, _studying_c);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cx), _y - _h + _kh + _sh * 0.5f }, (rde_vec_2F){ _bw, _sh }, _studying_c);
         }
     }
 
@@ -775,7 +775,7 @@ RDE_INTERNAL void fude_stats_draw_marks(const fude_stats_box* _b) {
     };
     f32 _lx = _b->left;
     for(u32 _k = 0; _k < 2u; _k++) {
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _lx + 6.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_lx + 6.0f), _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
         fude_draw_text(_b->font, _b->font_px, fude_text(_legend[_k].text), _lx + 16.0f, _ly, 13.0f, _theme->text_soft);
         _lx += 16.0f + fude_draw_text_width(_b->font, _b->font_px, fude_text(_legend[_k].text), 13.0f) + 18.0f;
     }
@@ -806,7 +806,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
         fude_draw_text(_b->font, _b->font_px, fude_stats_group_name(_g), _b->left, _y - 22.0f, 16.0f, _theme->text);
         const f32 _x = _b->left + _label;
         // The whole level, then practised, studying and known over it.
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + _bar * 0.5f, _y - 16.0f }, (rde_vec_2F){ _bar, 14.0f }, _theme->line);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_x + _bar * 0.5f), _y - 16.0f }, (rde_vec_2F){ _bar, 14.0f }, _theme->line);
         if(_c->total > 0) {
             const f32 _t = (f32)_c->total;
             fude_stats_bar(_x, _y - 9.0f, _bar, 14.0f, (f32)_c->practised / _t, fude_stats_alpha(_theme->button_selected, 0.35f));
@@ -825,7 +825,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
     };
     f32 _lx = _b->left;
     for(u32 _k = 0; _k < 3u; _k++) {
-        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _lx + 6.0f, _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_lx + 6.0f), _ly + 4.0f }, (rde_vec_2F){ 12.0f, 12.0f }, _legend[_k].color);
         fude_draw_text(_b->font, _b->font_px, fude_text(_legend[_k].text), _lx + 16.0f, _ly, 13.0f, _theme->text_soft);
         _lx += 16.0f + fude_draw_text_width(_b->font, _b->font_px, fude_text(_legend[_k].text), 13.0f) + 18.0f;
     }
@@ -925,7 +925,7 @@ RDE_INTERNAL void fude_stats_draw_when(const fude_stats_box* _b) {
             const f32 _bh = _h * (f32)_values[_i] / (f32)_max;
             const f32 _cx = _b->left + _slot * ((f32)_i + 0.5f);
             if(_bh > 0.5f) {
-                rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cx, _base + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.6f, _bh }, fude_stats_alpha(_theme->button_selected, 0.75f));
+                rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cx), _base + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.6f, _bh }, fude_stats_alpha(_theme->button_selected, 0.75f));
             }
             c8 _label[16];
             if(_part == 0) {
@@ -976,7 +976,7 @@ void fude_stats_render(fude_stats* _stats, rde_window* _window, rde_font* _font,
     const f32 _cw     = ((_right - _left) - FUDE_STATS_GAP * (f32)(_cols - 1u)) / (f32)_cols;
     f32       _col_y[2] = { 0.0f, 0.0f };
     rde_arr_clear(&_stats->hits);
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_view_top + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_view_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_view_top - _bottom) });
     for(u32 _c = 0; _c < FUDE_STATS_CARD_COUNT; _c++) {
         const u32 _col = _cols == 2u && _col_y[1] < _col_y[0] ? 1u : 0u;

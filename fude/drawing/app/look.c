@@ -26,6 +26,7 @@ RDE_INTERNAL struct {
     u32       frames;
     b8        paper, deselect, trim_fonts, data, data_replace;
     b8        stay;       // --stay: a shot's sequence without the shot, and no quitting (a screenshot taken from outside: the Simulator's)
+    b8        rtl;        // --rtl: the UI laid out right to left whatever the language (a right-to-left layout checked before its strings exist)
     i32       theme;
     const c8* note_card;  // --note-card=folder|canvas|rename: a new note's card at frame 15 (in the saves: a look for scratch saves)
     i32       ui_size;    // --ui-size=N: the interface's (FUDE_UI_SIZE_, app.h: 1 Small, 2 Medium, 3 Large; 0 the device's)
@@ -60,6 +61,10 @@ b8 fude_look_is(const c8* _arg, const c8* _flag) {
     return _arg != NULL && strcmp(_arg, _flag) == 0;
 }
 
+b8 fude_look_rtl(void) {
+    return fude_look.rtl;
+}
+
 u32 fude_look_shot_frame(void) {
     return fude_look.shot != NULL || fude_look.stay ? fude_look.frames : 0u;
 }
@@ -89,6 +94,7 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--press")) != NULL)          { fude_look.press = _v; }
         if((_v = fude_look_value(_a, "--swipe")) != NULL)          { fude_look.swipe = strtof(_v, NULL); }
         if((_v = fude_look_value(_a, "--language")) != NULL)       { fude_look.language = (i32)strtol(_v, NULL, 10); }
+        if(fude_look_is(_a, "--rtl"))                             { fude_look.rtl = true; }
         if((_v = fude_look_value(_a, "--doc")) != NULL)            { fude_look.doc = _v; }
         if((_v = fude_look_value(_a, "--doc-view")) != NULL)       { fude_look.doc_view = _v; }
         if((_v = fude_look_value(_a, "--book")) != NULL)           { fude_look.book = (i32)strtol(_v, NULL, 10); }

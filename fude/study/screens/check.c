@@ -379,8 +379,10 @@ RDE_INTERNAL void fude_check_draw_writing(fude_check* _check, const fude_check_c
     const f32        _extent = fmaxf(fmaxf(_c->max.x - _c->min.x, _c->max.y - _c->min.y), 1.0f);
     const rde_vec_2F _center = { _tl.x + _size * 0.5f, _tl.y - _size * 0.5f };
     const rde_vec_2F _mid    = { (_c->min.x + _c->max.x) * 0.5f, (_c->min.y + _c->max.y) * 0.5f };
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);   // as written (draw.h)
     fude_check_draw_strokes(_check, _c->first, _c->count, _mid, _center, _size * FUDE_CHECK_FILL / _extent,
                             fmaxf(1.0f, _size * FUDE_CHECK_FILL * FUDE_GLYPH_WIDTH / FUDE_KANJI_BOX * 0.5f));
+    fude_draw_keep_end();
 }
 
 RDE_INTERNAL void fude_check_add_hit(fude_check* _check, rde_vec_2F _min, rde_vec_2F _max, u32 _index) {
@@ -400,18 +402,21 @@ RDE_INTERNAL f32 fude_check_draw_all(fude_check* _check, f32 _left, f32 _width, 
     const rde_vec_2F  _mid   = { (_check->bounds_min.x + _check->bounds_max.x) * 0.5f, (_check->bounds_min.y + _check->bounds_max.y) * 0.5f };
     const rde_vec_2F  _at    = { _left + _pad + _bw * _zoom * 0.5f, _top - _h * 0.5f };
 
+    // The writing as written, and a tap on a character in it (draw.h).
+    fude_draw_keep_begin((rde_vec_2F){ _left, _top - _h }, (rde_vec_2F){ _left + _bw * _zoom + 2.0f * _pad, _top }, true);
     const u32 _n = fude_check_count(_check);
     for(u32 _i = 0; _i < _n; _i++) {
         const fude_check_char* _c   = fude_check_at(_check, _i);
         const rde_vec_2F       _min = { _at.x + (_c->min.x - _mid.x) * _zoom - 3.0f, _at.y + (_c->min.y - _mid.y) * _zoom - 3.0f };
         const rde_vec_2F       _max = { _at.x + (_c->max.x - _mid.x) * _zoom + 3.0f, _at.y + (_c->max.y - _mid.y) * _zoom + 3.0f };
         if(_i == _check->selected) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_min.x + _max.x) * 0.5f, (_min.y + _max.y) * 0.5f }, (rde_vec_2F){ _max.x - _min.x, _max.y - _min.y }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x((_min.x + _max.x) * 0.5f), (_min.y + _max.y) * 0.5f }, (rde_vec_2F){ _max.x - _min.x, _max.y - _min.y }, _theme->select_fill);
         }
         fude_draw_outline(_min, _max, _i == _check->selected ? 1.2f : 0.8f, _i == _check->selected ? _theme->select : _theme->line);
         fude_check_add_hit(_check, _min, _max, _i);
     }
     fude_check_draw_strokes(_check, 0, fude_ink_stroke_count(&_check->drawing), _mid, _at, _zoom, rde_math_clamp_f32(_zoom * 2.5f, 0.8f, 2.5f));
+    fude_draw_keep_end();
     return _h;
 }
 
@@ -430,7 +435,7 @@ RDE_INTERNAL f32 fude_check_draw_reading(fude_check* _check, rde_font* _font, f3
         const rde_vec_2F       _tl = { _left + (f32)(_i % _cols) * _step, _top - (f32)(_i / _cols) * _row };
         const rde_vec_2F       _br = { _tl.x + FUDE_CHECK_READ, _tl.y - FUDE_CHECK_READ };
         if(_i == _check->selected) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _tl.x + FUDE_CHECK_READ * 0.5f, _tl.y - FUDE_CHECK_READ * 0.5f }, (rde_vec_2F){ FUDE_CHECK_READ, FUDE_CHECK_READ }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_tl.x + FUDE_CHECK_READ * 0.5f), _tl.y - FUDE_CHECK_READ * 0.5f }, (rde_vec_2F){ FUDE_CHECK_READ, FUDE_CHECK_READ }, _theme->select_fill);
             fude_draw_outline((rde_vec_2F){ _tl.x, _br.y }, (rde_vec_2F){ _br.x, _tl.y }, 1.2f, _theme->select);
         }
         fude_kanji_info _info;
@@ -491,7 +496,7 @@ RDE_INTERNAL void fude_check_draw_detail(fude_check* _check, rde_font* _font, f3
             continue;
         }
         if((i32)_i == _c->chosen) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ _cell.x + FUDE_CHECK_CELL * 0.5f, _cell.y - FUDE_CHECK_CELL * 0.5f }, (rde_vec_2F){ FUDE_CHECK_CELL - 6.0f, FUDE_CHECK_CELL - 6.0f }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cell.x + FUDE_CHECK_CELL * 0.5f), _cell.y - FUDE_CHECK_CELL * 0.5f }, (rde_vec_2F){ FUDE_CHECK_CELL - 6.0f, FUDE_CHECK_CELL - 6.0f }, _theme->select_fill);
             fude_draw_outline((rde_vec_2F){ _cell.x + 3.0f, _cell.y - FUDE_CHECK_CELL + 3.0f }, (rde_vec_2F){ _cell.x + FUDE_CHECK_CELL - 3.0f, _cell.y - 3.0f }, 1.2f, _theme->select);
         }
         const f32 _glyph = FUDE_CHECK_CELL * 0.62f;

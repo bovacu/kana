@@ -36,6 +36,45 @@ f32  fude_draw_chip(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 
 // font's fallback, so the UI font draws it), or Phosphor Fill — its font set
 // once by the app.
 void fude_draw_icon(rde_font* _font, f32 _font_px, const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color);
+// Right to left (the UI's direction, set as it is built): directional icons —
+// back, previous, undo — are drawn as their mirror images (fude_draw_icon_dir:
+// the other glyph of their pair; any other icon as it is).
+void      fude_draw_set_rtl(b8 _rtl);
+b8        fude_draw_is_rtl(void);
+const c8* fude_draw_icon_dir(const c8* _icon);
+
+// A screen drawn right to left. The screens lay out left to right, as ever, and
+// what they draw between begin and end lands mirrored about the middle of _left.._right:
+// boxes, cards, lines and dots mirrored; a text or an icon put at the mirrored
+// place but never itself mirrored (a text that started at x ends at x's mirror,
+// so start-aligned text ends up right-aligned). fude_app does it around every
+// screen when the UI is right to left, and maps the pointer back the same way
+// (fude_draw_pointer), so a screen's own hit-testing holds. _on false: drawn as
+// it is (and the pointer as it is).
+void       fude_draw_mirror_begin(b8 _on, f32 _left, f32 _right);
+void       fude_draw_mirror_end(void);
+// What must keep its own left and right inside a mirrored screen — a
+// character's strokes, handwriting, a photo, a page, a tick, a run of Latin —
+// drawn as it is, its box (laid out from _min to _max) put at the box's mirrored
+// place. Nests. _for_pointer: a press inside maps the same way (a box written
+// in); not for what is only shown. Nothing outside a mirrored screen.
+void       fude_draw_keep_begin(rde_vec_2F _min, rde_vec_2F _max, b8 _for_pointer);
+void       fude_draw_keep_end(void);
+// For drawing straight with the engine inside a screen: a laid-out x (or point)
+// to where it is drawn — mirrored, moved with a kept box, or as it is.
+f32        fude_draw_x(f32 _x);
+rde_vec_2F fude_draw_at(rde_vec_2F _p);
+// A pointer on the screen to where the screen laid out what is under it (the
+// last screen drawn's mirror and kept boxes). _press: a new press, which picks
+// the mapping (in a kept box or not) its whole gesture keeps.
+rde_vec_2F fude_draw_pointer(rde_vec_2F _p, b8 _press);
+
+// An icon at the start of a label, as one text ("+ Add"): into _out. Right to
+// left, the pieces parted by right-to-left marks — a Phosphor icon (private
+// use) reads as left to right, and would otherwise go with an English label to
+// the left, or sit after an Arabic one.
+#define FUDE_DRAW_RLM "\xE2\x80\x8F"   // U+200F, right-to-left mark
+void fude_draw_icon_label(c8* _out, usize _size, const c8* _icon, const c8* _text);
 void fude_draw_set_icon_fill(rde_font* _font, f32 _font_px);
 void fude_draw_icon_fill(const c8* _icon, rde_vec_2F _center, f32 _em, rde_color _color);
 

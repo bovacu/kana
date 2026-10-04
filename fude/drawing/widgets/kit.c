@@ -337,6 +337,14 @@ void fude_kit_place(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size) {
     rde_ui_node_set_position(_node, _center);
 }
 
+// fude_kit_place for a point on the screen (where the bar was dragged, where a
+// tap opened a menu): a right-to-left UI does not mirror it (rde.h:
+// rde_ui_node_set_physical_placement), while what it holds still is.
+void fude_kit_place_at(rde_ui_node* _node, rde_vec_2F _center, rde_vec_2F _size) {
+    rde_ui_node_set_physical_placement(_node, true);
+    fude_kit_place(_node, _center, _size);
+}
+
 // Pins _node to its parent's edges: its rect is the parent's anchor box
 // (_anchor_min.._anchor_max, fractions) moved in by _inset_min / _inset_max.
 void fude_kit_pin(rde_ui_node* _node, rde_vec_2F _anchor_min, rde_vec_2F _anchor_max, rde_vec_2F _inset_min, rde_vec_2F _inset_max) {
@@ -365,6 +373,35 @@ rde_ui_button* fude_kit_button(rde_ui_node* _parent, const c8* _text, rde_ui_eve
 // font), _px tall, set out as _at says: alone, over its label (a row's
 // buttons), or before it (a list's rows, left-aligned). Again on the same button
 // changes the icon.
+// How far up a letter used as an icon has to go for its ink to sit in the middle.
+// The label centres the font's line (its ascender to its descender), and letters
+// sit on that line very differently: Arabic's م hangs below the baseline while ف
+// and ك sit on it and rise, so each would land at a height of its own. Phosphor's
+// icons are drawn centred on the line and need none.
+RDE_INTERNAL f32 fude_kit_glyph_rise(rde_font* _font, const c8* _glyph, f32 _px) {
+    if(_font == NULL) {
+        return 0.0f;
+    }
+    rde_text_engine_shaped_text _s = rde_text_engine_shape_text(_font, NULL, _glyph);
+    // Shape space: y down from the baseline (a glyph's top is negative).
+    f32 _top = 0.0f, _bottom = 0.0f;
+    b8  _ink = false;
+    rde_arr_foreach(rde_text_engine_shaped_line, _line, &_s.lines) {
+        rde_arr_foreach(rde_text_engine_shaped_char, _c, &_line->chars) {
+            if(_c->bounding_box.height <= 0) {
+                continue;
+            }
+            const f32 _t = (f32)_c->bounding_box.y, _b = (f32)(_c->bounding_box.y + _c->bounding_box.height);
+            _top    = _ink && _top    < _t ? _top    : _t;
+            _bottom = _ink && _bottom > _b ? _bottom : _b;
+            _ink    = true;
+        }
+    }
+    const f32 _line_mid = (-(f32)_s.max_ascender - (f32)_s.max_descender) * 0.5f;   // max_descender is negative
+    rde_text_engine_free_shaped_text(&_s);
+    return _ink ? ((_top + _bottom) * 0.5f - _line_mid) * _px / (f32)FUDE_KIT_FONT_SIZE : 0.0f;   // ink below the line's middle: up
+}
+
 void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _at, f32 _px) {
     const b8      _phosphor = (u8)_glyph[0] == 0xEEu || (u8)_glyph[0] == 0xEFu;   // U+E000..U+F8FF: Phosphor's private use
     rde_ui_label* _icon     = fude_kit_icon_of(_button);
@@ -383,19 +420,21 @@ void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _
         rde_ui_label_set_font(_icon, _font);
     }
     rde_ui_label_set_font_scale(_icon, _px / (f32)FUDE_KIT_FONT_SIZE);
-    rde_ui_label_set_text(_icon, _glyph);
+    rde_ui_label_set_text(_icon, _phosphor ? fude_draw_icon_dir(_glyph) : _glyph);   // a directional icon mirrored right to left
 
     rde_ui_label* _text = _button->internal_label;
     // Back left by the icon's bearing (see FUDE_KIT_ICON_BEARINGS).
     const f32 _back = _phosphor ? fude_kit_icon_bearing(_glyph) * _px * FUDE_KIT_EM : 0.0f;
+    // A letter centred on its ink (fude_kit_glyph_rise).
+    const f32 _up = _phosphor ? 0.0f : fude_kit_glyph_rise(_font, _glyph, _px);
     if(_at == FUDE_KIT_ICON_ONLY) {
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, 0.0f }, (rde_vec_2F){ _back, 0.0f });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, _up }, (rde_vec_2F){ _back, -_up });
         if(_text != NULL) {
             rde_ui_node_set_active(rde_ui_label_as_node(_text), false);
         }
     } else if(_at == FUDE_KIT_ICON_ABOVE) {
         // The icon in the top of the button, the label a line under it.
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, 20.0f }, (rde_vec_2F){ _back, 3.0f });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, 20.0f + _up }, (rde_vec_2F){ _back, 3.0f - _up });
         if(_text != NULL) {
             fude_kit_pin(rde_ui_label_as_node(_text), (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 0.0f }, (rde_vec_2F){ 3.0f, 5.0f }, (rde_vec_2F){ 3.0f, -21.0f });
             rde_ui_label_set_font_scale(_text, FUDE_KIT_CAPTION_PX / (f32)FUDE_KIT_FONT_SIZE);
@@ -403,7 +442,7 @@ void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _
     } else {
         // At the left, the label left-aligned after it.
         const f32 _em = _px * FUDE_KIT_EM;
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 0.0f, 1.0f }, (rde_vec_2F){ 10.0f - _back, 0.0f }, (rde_vec_2F){ -(10.0f + _em - _back), 0.0f });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 0.0f, 1.0f }, (rde_vec_2F){ 10.0f - _back, _up }, (rde_vec_2F){ -(10.0f + _em - _back), -_up });
         if(_text != NULL) {
             fude_kit_pin(rde_ui_label_as_node(_text), (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ 20.0f + _em, 0.0f }, (rde_vec_2F){ 8.0f, 0.0f });
             rde_ui_label_set_alignment(_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_MIDDLE);

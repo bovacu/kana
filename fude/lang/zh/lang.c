@@ -263,6 +263,7 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x8BCDu,   // 词
         0x4F3Cu,   // 似
         0x8BB0u,   // 记
+        0x8BD1u,   // 译
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
 }

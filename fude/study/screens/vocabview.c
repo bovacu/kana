@@ -380,7 +380,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
                 snprintf(_line, sizeof(_line), "%s  %u", fude_vocab_list_name(_list), fude_vocab_list_words(_list, NULL, 0u));
             } else {
                 _list = UINT32_MAX;
-                snprintf(_line, sizeof(_line), FUDE_ICON_PLUS " %s", fude_text(FUDE_TEXT_WORD_NEW_LIST));
+                fude_draw_icon_label(_line, sizeof(_line), FUDE_ICON_PLUS, fude_text(FUDE_TEXT_WORD_NEW_LIST));
             }
             const b8  _shown = _list == _view->list;
             const f32 _w     = fminf(_right - _left, fude_draw_text_width(_font, _font_px, _line, FUDE_VOCABVIEW_CHIP_PX) + (_shown && _list != 0u ? 52.0f : 32.0f));
@@ -390,7 +390,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
             }
             const rde_vec_2F _min = { _x, _y - FUDE_VOCABVIEW_CHIP_H };
             const rde_vec_2F _max = { _x + _w, _y };
-            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ _x + _w * 0.5f, _y - FUDE_VOCABVIEW_CHIP_H * 0.5f }, (rde_vec_2F){ _w, FUDE_VOCABVIEW_CHIP_H }, 1.0f, 10,
+            rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _w * 0.5f), _y - FUDE_VOCABVIEW_CHIP_H * 0.5f }, (rde_vec_2F){ _w, FUDE_VOCABVIEW_CHIP_H }, 1.0f, 10,
                                                     _shown ? _theme->accent : _theme->surface_2, NULL);
             const rde_color _ink = _shown ? _theme->on_accent : _list == UINT32_MAX ? _theme->accent : _theme->text;
             const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _line, FUDE_VOCABVIEW_CHIP_PX, _w - 28.0f, 0.6f);
@@ -435,7 +435,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     _view->reading_x1 = _speak ? _meaning_x - 6.0f : 0.0f;
     const u32 _today  = fude_reviews_today();
 
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)fmaxf(1.0f, _y - _bottom) });
     const u32 _first = (u32)fmaxf(0.0f, floorf(_view->scroller.offset / FUDE_VOCABVIEW_ROW));
     for(u32 _i = _first; _i < _n; _i++) {
@@ -449,7 +449,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
         }
         const f32 _mid = _row_top - FUDE_VOCABVIEW_ROW * 0.5f;
         if(_view->pressed == (i32)_i) {
-            rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_left + _right) * 0.5f, _mid }, (rde_vec_2F){ _inner, FUDE_VOCABVIEW_ROW }, _theme->select_fill);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x((_left + _right) * 0.5f), _mid }, (rde_vec_2F){ _inner, FUDE_VOCABVIEW_ROW }, _theme->select_fill);
         }
         c8  _fit[FUDE_USERWORD_MEANING];
         f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _w->written, FUDE_VOCABVIEW_WORD_PX, _written_w, 0.5f);

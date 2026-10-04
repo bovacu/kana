@@ -139,6 +139,12 @@ RDE_INTERNAL u32 fude_filterbar_chip_row(fude_filterbar* _bar, u32 _r, f32 _widt
 
 // Across the top, the status-bar strip included: the chip rows, then the field
 // with the toggles after it.
+// Toggle _t not shown: unavailable and meant to hide then.
+RDE_INTERNAL b8 fude_filterbar_toggle_hidden(const fude_filterbar* _bar, u32 _t) {
+    const fude_filterbar_toggle* _toggle = &_bar->def->toggles[_t];
+    return _toggle->hide_unavailable && _toggle->available != NULL && !_toggle->available(_bar->self);
+}
+
 RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     const rde_vec_2F _screen = fude_kit_screen_size(_bar->window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_bar->window);   // left, top, right, bottom
@@ -178,11 +184,17 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
         _top -= _h + _gap;
     }
 
-    // The field, the toggles after it (a phone's: their icons alone).
+    // The field, the toggles after it (a phone's: their icons alone) — those shown.
     f32       _y     = _top - FUDE_FILTERBAR_FIELD_H * 0.5f;
     const u32 _n     = _bar->def->toggle_count;
+    u32       _shown = 0;
+    for(u32 _t = 0; _t < _n; _t++) {
+        _bar->_hidden[_t] = fude_filterbar_toggle_hidden(_bar, _t) ? 1u : 0u;
+        rde_ui_node_set_active(rde_ui_button_as_node(_bar->toggles[_t]), !_bar->_hidden[_t]);
+        _shown += _bar->_hidden[_t] ? 0u : 1u;
+    }
     const f32 _side  = _compact ? FUDE_FILTERBAR_ICON_W : FUDE_FILTERBAR_SIDE_W;
-    const f32 _field = _width - (f32)_n * (_side + _gap);
+    const f32 _field = _width - (f32)_shown * (_side + _gap);
     if(_compact != (_bar->_compact_for == 1)) {
         for(u32 _t = 0; _t < _n; _t++) {
             const fude_filterbar_toggle* _toggle = &_bar->def->toggles[_t];
@@ -192,11 +204,15 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
     }
     _bar->_compact_for = _compact ? 1 : 0;
     fude_kit_place(fude_kit_field_node(_bar->field), (rde_vec_2F){ _left + _field * 0.5f, _y }, (rde_vec_2F){ _field, FUDE_FILTERBAR_FIELD_H });
-    for(u32 _t = 0; _t < _n; _t++) {
+    for(u32 _t = 0, _k = 0; _t < _n; _t++) {
+        if(_bar->_hidden[_t]) {
+            continue;
+        }
         // The last against the right edge; the others after the field.
-        const f32 _x = _t + 1u == _n ? _left + _width - _side * 0.5f
-                                     : _left + _field + (f32)(_t + 1u) * _gap + _side * ((f32)_t + 0.5f);
+        const f32 _x = _k + 1u == _shown ? _left + _width - _side * 0.5f
+                                         : _left + _field + (f32)(_k + 1u) * _gap + _side * ((f32)_k + 0.5f);
         fude_kit_place(rde_ui_button_as_node(_bar->toggles[_t]), (rde_vec_2F){ _x, _y }, (rde_vec_2F){ _side, FUDE_FILTERBAR_FIELD_H });
+        _k++;
     }
 }
 
@@ -242,7 +258,11 @@ void fude_filterbar_update(fude_filterbar* _bar, b8 _show) {
     // start iOS reports none, then the status bar's a frame or two later).
     const rde_vec_2F _screen = fude_kit_screen_size(_bar->window);
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_bar->window);
-    if(memcmp(&_screen, &_bar->_laid_out, sizeof(rde_vec_2F)) != 0 || memcmp(&_insets, &_bar->_insets_for, sizeof(rde_vec_4I)) != 0) {
+    b8               _again  = false;   // ...and when a hidden toggle comes (its data loaded) or goes
+    for(u32 _t = 0; _t < _bar->def->toggle_count; _t++) {
+        _again = _again || (fude_filterbar_toggle_hidden(_bar, _t) ? 1u : 0u) != _bar->_hidden[_t];
+    }
+    if(_again || memcmp(&_screen, &_bar->_laid_out, sizeof(rde_vec_2F)) != 0 || memcmp(&_insets, &_bar->_insets_for, sizeof(rde_vec_4I)) != 0) {
         fude_filterbar_layout(_bar);
     }
     fude_filterbar_refresh(_bar, false);

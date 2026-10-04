@@ -171,11 +171,11 @@ RDE_INTERNAL void fude_library_draw_cover(fude_library* _lib, u32 _i, const fude
         _size                 = (rde_vec_2F){ (f32)_px.x * _k, (f32)_px.y * _k };
     }
     const rde_vec_2F _c = { _min.x + _size.x * 0.5f, _max.y - _size.y * 0.5f };
-    rde_rendering_2d_draw_rectangle(_c, (rde_vec_2F){ _size.x + 2.0f, _size.y + 2.0f }, _t->outline);
-    rde_rendering_2d_draw_rectangle(_c, _size, (rde_color){ 255, 255, 255, 255 });
+    rde_rendering_2d_draw_rectangle(fude_draw_at(_c), (rde_vec_2F){ _size.x + 2.0f, _size.y + 2.0f }, _t->outline);
+    rde_rendering_2d_draw_rectangle(fude_draw_at(_c), _size, (rde_color){ 255, 255, 255, 255 });
     if(_lib->covers[_i] != NULL) {
         const rde_vec_2UI _px = rde_texture_get_size(_lib->covers[_i]);
-        rde_rendering_2d_draw_texture_2(_lib->covers[_i], (rde_vec_3F){ _c.x, _c.y, 0.0f }, (rde_vec_2F){ _size.x / (f32)_px.x, _size.y / (f32)_px.y }, 0.0f,
+        rde_rendering_2d_draw_texture_2(_lib->covers[_i], (rde_vec_3F){ fude_draw_x(_c.x), _c.y, 0.0f }, (rde_vec_2F){ _size.x / (f32)_px.x, _size.y / (f32)_px.y }, 0.0f,
                                         (rde_color){ 255, 255, 255, 255 });
     }
 }
@@ -201,7 +201,7 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
     _lib->list_min = (rde_vec_2F){ _left, _bottom };
     _lib->list_max = (rde_vec_2F){ _right, _y };
     fude_library_gather(_lib);
-    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
+    rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width + 8u, (u32)fmaxf(1.0f, _y - _bottom) });
     f32 _at = _y + _lib->scroller.offset;   // the next thing's top
 

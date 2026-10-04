@@ -239,14 +239,25 @@ RDE_INTERNAL void fude_guide_arrow(const rde_vec_2F* _p, u32 _n, f32 _length, rd
     fude_draw_line(_tip, (rde_vec_2F){ _tip.x + _r.x * _head, _tip.y + _r.y * _head }, _width, _color);
 }
 
+RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _scale, f32 _pen, f64 _now);
+
 void fude_guide_render(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _size, f64 _now) {
-    const fude_theme* _theme = fude_theme_active();
     const f32         _scale = _size / FUDE_KANJI_BOX;
     const f32         _pen   = FUDE_GLYPH_WIDTH * _scale * 0.5f;
 
     if(_guide->stage == FUDE_GUIDE_RECALL) {
         return;   // a blank square
     }
+    // Never mirrored, as a character is (glyph.h).
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);
+    fude_guide_render_steps(_guide, _glyph, _tl, _scale, _pen, _now);
+    fude_draw_keep_end();
+}
+
+// fude_guide_render's character and the stroke to write, inside its kept box.
+RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _scale, f32 _pen, f64 _now) {
+    const fude_theme* _theme = fude_theme_active();
+    const f32         _size  = _scale * FUDE_KANJI_BOX;
 
     // The character, faint (fainter at step 2).
     fude_glyph_character(_glyph, _guide->info.codepoint, _tl, _size, fude_guide_alpha(_theme->ghost, _guide->stage == FUDE_GUIDE_TRACE ? 1.0f : 0.5f));
@@ -274,7 +285,7 @@ void fude_guide_render(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f
         const f64 _t        = (_now - _guide->shown_at - FUDE_GUIDE_DEMO_DELAY) / _duration;
         if(_t > 0.0 && _t < 1.0) {
             const rde_vec_2F _end = fude_glyph_stroke(_glyph, &_stroke, _tl, _scale, _pen, (f32)_t, fude_guide_alpha(_theme->pen_tip, 0.75f));
-            rde_rendering_2d_draw_circle(_end, _pen * 1.4f, 20, _theme->pen_tip, NULL);
+            rde_rendering_2d_draw_circle(fude_draw_at(_end), _pen * 1.4f, 20, _theme->pen_tip, NULL);
         }
     }
 
@@ -282,11 +293,12 @@ void fude_guide_render(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f
     if(_guide->stage == FUDE_GUIDE_TRACE && _length >= FUDE_GUIDE_SHORT) {
         fude_guide_arrow(_points, _n, _length, _tl, _scale, fude_guide_alpha(_theme->pen_tip, 0.8f));
     }
-    rde_rendering_2d_draw_circle(fude_guide_screen(_tl, _scale, _points[0]), fmaxf(4.0f, _pen * 1.6f), 24, _theme->pen_tip, NULL);
+    rde_rendering_2d_draw_circle(fude_draw_at(fude_guide_screen(_tl, _scale, _points[0])), fmaxf(4.0f, _pen * 1.6f), 24, _theme->pen_tip, NULL);
 }
 
 void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _units, f64 _now) {
     const fude_theme* _theme = fude_theme_active();
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);   // as fude_guide_render
 
     // The wrong stroke, red, fading out.
     const f64 _since = _now - _guide->rejected_at;
@@ -312,6 +324,7 @@ void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _
         fude_draw_line(_a, _b, _size * 0.022f, _g);
         fude_draw_line(_b, _e, _size * 0.022f, _g);
     }
+    fude_draw_keep_end();
 }
 
 void fude_guide_prompt(const fude_guide* _guide, c8* _out, usize _size) {

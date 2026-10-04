@@ -206,7 +206,7 @@ RDE_INTERNAL void fude_toolbar_place_palette(fude_toolbar* _toolbar) {
                                _rows * FUDE_TOOLBAR_SWATCH + (_rows - 1.0f) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING };
     _toolbar->palette_center = fude_toolbar_beside(_toolbar, fude_toolbar_center_of(_toolbar->color), _size);
     _toolbar->palette_size   = _size;
-    fude_kit_place(rde_ui_image_as_node(_toolbar->palette), _toolbar->palette_center, _size);
+    fude_kit_place_at(rde_ui_image_as_node(_toolbar->palette), _toolbar->palette_center, _size);
     for(u32 _i = 0; _i < FUDE_TOOLBAR_PALETTE_COUNT; _i++) {
         const u32        _col   = _i % FUDE_TOOLBAR_SWATCH_COLS;
         const u32        _row   = _i / FUDE_TOOLBAR_SWATCH_COLS;
@@ -223,7 +223,7 @@ RDE_INTERNAL void fude_toolbar_place_paper(fude_toolbar* _toolbar) {
                                FUDE_TOOLBAR_CHOICE_H + 2.0f * FUDE_TOOLBAR_PADDING };
     _toolbar->paper_center = fude_toolbar_beside(_toolbar, fude_toolbar_center_of(_toolbar->paper), _size);
     _toolbar->paper_size   = _size;
-    fude_kit_place(rde_ui_image_as_node(_toolbar->paper_panel), _toolbar->paper_center, _size);
+    fude_kit_place_at(rde_ui_image_as_node(_toolbar->paper_panel), _toolbar->paper_center, _size);
     // In the order they read: dots, lines, squares, nothing.
     static const FUDE_PAPER_ _order[FUDE_PAPER_COUNT] = { FUDE_PAPER_DOTS, FUDE_PAPER_LINES, FUDE_PAPER_SQUARES, FUDE_PAPER_NONE };
     for(u32 _i = 0; _i < FUDE_PAPER_COUNT; _i++) {
@@ -375,7 +375,7 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
     }
 
     _toolbar->center = fude_kit_clamp(_toolbar->app->window, _toolbar->center, _toolbar->panel_size);
-    fude_kit_place(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
+    fude_kit_place_at(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
     fude_toolbar_place_popups(_toolbar);
 }
 
@@ -587,7 +587,7 @@ FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_drag_move) {
     _toolbar->center = (rde_vec_2F){ _toolbar->drag_start_center.x + (_info->position.x - _toolbar->drag_press.x),
                                      _toolbar->drag_start_center.y + (_info->position.y - _toolbar->drag_press.y) };
     _toolbar->center = fude_kit_clamp(_toolbar->app->window, _toolbar->center, _toolbar->panel_size);
-    fude_kit_place(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
+    fude_kit_place_at(rde_ui_image_as_node(_toolbar->panel), _toolbar->center, _toolbar->panel_size);
     fude_toolbar_place_popups(_toolbar);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
@@ -777,10 +777,10 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
         fude_kit_icon(_toolbar->paper_choices[_i], _icons[_i], FUDE_KIT_ICON_ABOVE, 18.0f);
     }
 
-    // The first time: on the right edge, vertically centred.
+    // The first time: on the right edge (the left, right to left), vertically centred.
     if(_toolbar->center.x == 0.0f && _toolbar->center.y == 0.0f) {
         const rde_vec_2F _screen = fude_kit_screen_size(_app->window);
-        _toolbar->center = (rde_vec_2F){ _screen.x - 60.0f, _screen.y * 0.5f };
+        _toolbar->center = (rde_vec_2F){ fude_ui_rtl() ? 60.0f : _screen.x - 60.0f, _screen.y * 0.5f };
     }
     fude_toolbar_layout(_toolbar);
     fude_toolbar_set_palette_open(_toolbar, false);
