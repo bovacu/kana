@@ -92,9 +92,25 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
         { _toolbar->erase,      FUDE_TOOL_ERASE },
         { _toolbar->lasso_tool, FUDE_TOOL_LASSO },
     };
+    // An app's own tool in the pen's hand (extension.h): the bar's are not, while it is.
+    const fude_extension* _ext      = fude_app_ext(_app);
+    b8                    _app_tool = false;
+    for(u32 _t = 0; _t < FUDE_EXTENSION_TOOLS; _t++) {
+        if(_toolbar->tools[_t] == NULL) {
+            continue;
+        }
+        const b8 _on = (_ext->tools[_t].selected != NULL && _ext->tools[_t].selected(_app)) || _toolbar->tool_open == (i32)_t;
+        _app_tool    = _app_tool || (_ext->tools[_t].selected != NULL && _ext->tools[_t].selected(_app));
+        if(_on) { fude_kit_button_selected(_toolbar->tools[_t]); }
+        else    { fude_kit_button_quiet(_toolbar->tools[_t]); }
+        for(u32 _c = 0; _toolbar->tool_panels[_t] != NULL && _c < _ext->tools[_t].choice_count && _c < FUDE_EXTENSION_CHOICES; _c++) {
+            if(_ext->tools[_t].chosen != NULL && _ext->tools[_t].chosen(_app, _c)) { fude_kit_button_selected(_toolbar->tool_choices[_t][_c]); }
+            else                                                                   { fude_kit_button_quiet(_toolbar->tool_choices[_t][_c]); }
+        }
+    }
     for(u32 _i = 0; _i < sizeof(_tools) / sizeof(_tools[0]); _i++) {
-        if(_tools[_i].tool == _toolbar->tool) { fude_kit_button_selected(_tools[_i].button); }
-        else                                  { fude_kit_button_quiet(_tools[_i].button); }
+        if(_tools[_i].tool == _toolbar->tool && !_app_tool) { fude_kit_button_selected(_tools[_i].button); }
+        else                                                { fude_kit_button_quiet(_tools[_i].button); }
     }
     // The hand: chosen while a finger writes.
     if(_app->finger_writes) { fude_kit_button_selected(_toolbar->finger); }
@@ -135,10 +151,14 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
         fude_kit_button_round(_toolbar->swatches[_i], FUDE_TOOLBAR_SWATCH * 0.5f);
     }
 
-    // The width: the brush's, or the marker's (canvas units, its own range).
+    // The width: the brush's, the marker's (canvas units, its own range), or
+    // the eraser's reach (screen units, its own too).
     if(_marking) {
         rde_ui_slider_set_range(_toolbar->size, FUDE_INK_MARKER_MIN, FUDE_INK_MARKER_MAX);
         rde_ui_slider_set_value(_toolbar->size, _app->ink->marker_radius);
+    } else if(_toolbar->tool == FUDE_TOOL_ERASE) {
+        rde_ui_slider_set_range(_toolbar->size, FUDE_INK_ERASER_MIN, FUDE_INK_ERASER_MAX);
+        rde_ui_slider_set_value(_toolbar->size, _app->ink->eraser_radius);
     } else {
         rde_ui_slider_set_range(_toolbar->size, FUDE_TOOLBAR_SIZE_MIN, FUDE_TOOLBAR_SIZE_MAX);
         rde_ui_slider_set_value(_toolbar->size, _app->ink->constant_radius);
@@ -155,6 +175,7 @@ void fude_toolbar_update(fude_toolbar* _toolbar, b8 _hidden) {
         if(_hidden) {
             fude_toolbar_set_palette_open(_toolbar, false);
             fude_toolbar_set_paper_open(_toolbar, false);
+            fude_toolbar_set_tool_open(_toolbar, -1);
         }
     }
 
@@ -163,8 +184,9 @@ void fude_toolbar_update(fude_toolbar* _toolbar, b8 _hidden) {
         fude_toolbar_refresh(_toolbar);
     }
 
-    const b8 _can_undo = fude_ink_can_undo(_toolbar->app->ink);
-    const b8 _can_redo = fude_ink_can_redo(_toolbar->app->ink);
+    const fude_page_kind* _kind = fude_app_ext(_toolbar->app)->page_kind;
+    const b8 _can_undo = _kind != NULL ? _kind->can_undo(_toolbar->app) : fude_ink_can_undo(_toolbar->app->ink);
+    const b8 _can_redo = _kind != NULL ? _kind->can_redo(_toolbar->app) : fude_ink_can_redo(_toolbar->app->ink);
     if(!_toolbar->_history_shown || _can_undo != _toolbar->_can_undo_shown) {
         fude_kit_set_enabled(_toolbar->undo, _can_undo);
         _toolbar->_can_undo_shown = _can_undo;
@@ -235,8 +257,30 @@ RDE_INTERNAL void fude_toolbar_place_paper(fude_toolbar* _toolbar) {
     }
 }
 
+// An app tool's choices: in a row beside its button, as Paper's.
+RDE_INTERNAL void fude_toolbar_place_tool_panel(fude_toolbar* _toolbar) {
+    const i32 _t = _toolbar->tool_open;
+    if(_t < 0 || _toolbar->tool_panels[_t] == NULL) {
+        return;
+    }
+    const fude_extension* _ext = fude_app_ext(_toolbar->app);
+    const u32  _count = _ext->tools[_t].choice_count < FUDE_EXTENSION_CHOICES ? _ext->tools[_t].choice_count : FUDE_EXTENSION_CHOICES;
+    const f32  _n     = (f32)_count;
+    const rde_vec_2F _size = { _n * FUDE_TOOLBAR_CHOICE_W + (_n - 1.0f) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING,
+                               FUDE_TOOLBAR_CHOICE_H + 2.0f * FUDE_TOOLBAR_PADDING };
+    _toolbar->tool_panel_center = fude_toolbar_beside(_toolbar, fude_toolbar_center_of(_toolbar->tools[_t]), _size);
+    _toolbar->tool_panel_size   = _size;
+    fude_kit_place_at(rde_ui_image_as_node(_toolbar->tool_panels[_t]), _toolbar->tool_panel_center, _size);
+    for(u32 _c = 0; _c < _count; _c++) {
+        fude_kit_place(rde_ui_button_as_node(_toolbar->tool_choices[_t][_c]),
+                       (rde_vec_2F){ FUDE_TOOLBAR_PADDING + (f32)_c * (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING) + FUDE_TOOLBAR_CHOICE_W * 0.5f, _size.y * 0.5f },
+                       (rde_vec_2F){ FUDE_TOOLBAR_CHOICE_W, FUDE_TOOLBAR_CHOICE_H });
+    }
+}
+
 // Whichever of the bar's panels is open, placed against the bar where it is now.
 RDE_INTERNAL void fude_toolbar_place_popups(fude_toolbar* _toolbar) {
+    fude_toolbar_place_tool_panel(_toolbar);
     if(_toolbar->palette_open) {
         fude_toolbar_place_palette(_toolbar);
     }
@@ -273,6 +317,10 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
         { rde_ui_image_as_node(_toolbar->separators[3]), _sep },
         { _toolbar->tools[0] != NULL ? rde_ui_button_as_node(_toolbar->tools[0]) : NULL, _tool },   // the app's (FUDE_EXTENSION_TOOLS)
         { _toolbar->tools[1] != NULL ? rde_ui_button_as_node(_toolbar->tools[1]) : NULL, _tool },
+        { _toolbar->tools[2] != NULL ? rde_ui_button_as_node(_toolbar->tools[2]) : NULL, _tool },
+        { _toolbar->tools[3] != NULL ? rde_ui_button_as_node(_toolbar->tools[3]) : NULL, _tool },
+        { _toolbar->tools[4] != NULL ? rde_ui_button_as_node(_toolbar->tools[4]) : NULL, _tool },
+        { _toolbar->tools[5] != NULL ? rde_ui_button_as_node(_toolbar->tools[5]) : NULL, _tool },
         { rde_ui_image_as_node(_toolbar->separators[4]), _sep },
         { rde_ui_button_as_node(_toolbar->rotate),       _tool },
         { rde_ui_button_as_node(_toolbar->reset_view),   _tool },
@@ -296,8 +344,10 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
 #else
     const b8 _hand = false;
 #endif
+    const b8 _scale = !_ext->brush_on_screen;   // Page/Screen: left out where the brush is always on the screen
     rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->separators[4]), _any);
     rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->finger), _hand);
+    rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->brush_scale), _scale);
     u32 _count = 0;
     for(u32 _i = 0; _i < sizeof(_items) / sizeof(_items[0]); _i++) {
         const rde_ui_node* _n    = _items[_i].node;
@@ -305,7 +355,8 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
         for(u32 _t = 0; _t < FUDE_EXTENSION_TOOLS; _t++) {
             _tool_left_out = _tool_left_out || (_toolbar->tools[_t] != NULL && _n == rde_ui_button_as_node(_toolbar->tools[_t]) && !_shown[_t]);
         }
-        if(_n == NULL || _tool_left_out || (!_any && _n == rde_ui_image_as_node(_toolbar->separators[4])) || (!_hand && _n == rde_ui_button_as_node(_toolbar->finger))) {
+        if(_n == NULL || _tool_left_out || (!_any && _n == rde_ui_image_as_node(_toolbar->separators[4])) || (!_hand && _n == rde_ui_button_as_node(_toolbar->finger)) ||
+           (!_scale && _n == rde_ui_button_as_node(_toolbar->brush_scale))) {
             continue;
         }
         _items[_count++] = _items[_i];
@@ -408,6 +459,7 @@ RDE_INTERNAL void fude_toolbar_set_minimized(fude_toolbar* _toolbar, b8 _minimiz
     if(_minimized) {
         fude_toolbar_set_palette_open(_toolbar, false);
         fude_toolbar_set_paper_open(_toolbar, false);
+        fude_toolbar_set_tool_open(_toolbar, -1);
     }
     fude_toolbar_layout(_toolbar);   // the new size
 
@@ -430,6 +482,7 @@ void fude_toolbar_set_placement(fude_toolbar* _toolbar, b8 _vertical, rde_vec_2F
 void fude_toolbar_set_palette_open(fude_toolbar* _toolbar, b8 _open) {
     if(_open) {
         fude_toolbar_set_paper_open(_toolbar, false);   // one panel at a time
+        fude_toolbar_set_tool_open(_toolbar, -1);
     }
     _toolbar->palette_open = _open;
     rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->palette), _open);
@@ -443,6 +496,9 @@ void fude_toolbar_set_paper_open(fude_toolbar* _toolbar, b8 _open) {
     if(_open && _toolbar->palette_open) {
         fude_toolbar_set_palette_open(_toolbar, false);   // one panel at a time
     }
+    if(_open) {
+        fude_toolbar_set_tool_open(_toolbar, -1);
+    }
     _toolbar->paper_open = _open;
     rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->paper_panel), _open);
     if(_open) {
@@ -451,9 +507,32 @@ void fude_toolbar_set_paper_open(fude_toolbar* _toolbar, b8 _open) {
     fude_toolbar_refresh(_toolbar);   // Paper shows it open
 }
 
+void fude_toolbar_set_tool_open(fude_toolbar* _toolbar, i32 _tool) {
+    const i32 _was = _toolbar->tool_open;
+    if(_was >= 0 && _toolbar->tool_panels[_was] != NULL) {
+        rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->tool_panels[_was]), false);
+    }
+    _toolbar->tool_open = -1;
+    if(_tool >= 0 && _tool < (i32)FUDE_EXTENSION_TOOLS && _toolbar->tool_panels[_tool] != NULL) {
+        if(_toolbar->palette_open) {
+            fude_toolbar_set_palette_open(_toolbar, false);   // one panel at a time
+        }
+        if(_toolbar->paper_open) {
+            fude_toolbar_set_paper_open(_toolbar, false);
+        }
+        _toolbar->tool_open = _tool;
+        rde_ui_node_set_active(rde_ui_image_as_node(_toolbar->tool_panels[_tool]), true);
+        fude_toolbar_place_tool_panel(_toolbar);
+    }
+    if(_was != _toolbar->tool_open && _toolbar->palette != NULL) {
+        fude_toolbar_refresh(_toolbar);
+    }
+}
+
 // Leaving the Lasso tool drops the selection: it would otherwise sit there with
 // no way to act on it.
 void fude_toolbar_set_tool(fude_toolbar* _toolbar, FUDE_TOOL_ _tool) {
+    _toolbar->tool_taps++;   // an app's own tool lets go (extension.h)
     if(_tool != FUDE_TOOL_LASSO) {
         fude_lasso_clear(_toolbar->app->lasso, _toolbar->app->ink);
     }
@@ -491,7 +570,8 @@ b8 fude_toolbar_hit(const fude_toolbar* _toolbar, rde_vec_2F _ui) {
     // only updates at the next layout pass).
     return (!_toolbar->hidden && fude_toolbar_contains(_toolbar->center, _toolbar->panel_size, _ui)) ||
            (_toolbar->palette_open && fude_toolbar_contains(_toolbar->palette_center, _toolbar->palette_size, _ui)) ||
-           (_toolbar->paper_open && fude_toolbar_contains(_toolbar->paper_center, _toolbar->paper_size, _ui));
+           (_toolbar->paper_open && fude_toolbar_contains(_toolbar->paper_center, _toolbar->paper_size, _ui)) ||
+           (_toolbar->tool_open >= 0 && fude_toolbar_contains(_toolbar->tool_panel_center, _toolbar->tool_panel_size, _ui));
 }
 
 // --- callbacks ---------------------------------------------------------------------
@@ -501,12 +581,51 @@ b8 fude_toolbar_hit(const fude_toolbar* _toolbar, rde_vec_2F _ui) {
 #define FUDE_TOOLBAR_CALLBACK(_name) RDE_INTERNAL RDE_UI_EVENT_RESULT_ _name(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data)
 #define FUDE_TOOLBAR_SELF            RDE_UNUSED(_node); RDE_UNUSED(_info); fude_toolbar* _toolbar = (fude_toolbar*)_user_data; fude_app* _app = _toolbar->app; RDE_UNUSED(_app)
 
-FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_undo)  { FUDE_TOOLBAR_SELF; fude_ink_undo(_app->ink); fude_ui_update(_app->ui); return RDE_UI_EVENT_RESULT_DEFAULT; }
-FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_redo)  { FUDE_TOOLBAR_SELF; fude_ink_redo(_app->ink); fude_ui_update(_app->ui); return RDE_UI_EVENT_RESULT_DEFAULT; }
-FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_clear) { FUDE_TOOLBAR_SELF; fude_ink_clear(_app->ink); fude_ui_update(_app->ui); return RDE_UI_EVENT_RESULT_DEFAULT; }   // undoable: one Undo brings the page back
+// The page's own when the app has one (extension.h), else the ink's.
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_undo) {
+    FUDE_TOOLBAR_SELF;
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL) {
+        _kind->undo(_app);
+    } else {
+        fude_ink_undo(_app->ink);
+    }
+    fude_ui_update(_app->ui);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_redo) {
+    FUDE_TOOLBAR_SELF;
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL) {
+        _kind->redo(_app);
+    } else {
+        fude_ink_redo(_app->ink);
+    }
+    fude_ui_update(_app->ui);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+// Undoable: one Undo brings the page back.
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_clear) {
+    FUDE_TOOLBAR_SELF;
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL) {
+        _kind->clear(_app);
+    } else {
+        fude_ink_clear(_app->ink);
+    }
+    fude_ui_update(_app->ui);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_draw)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_DRAW); return RDE_UI_EVENT_RESULT_DEFAULT; }
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_mark)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_MARK); return RDE_UI_EVENT_RESULT_DEFAULT; }
-FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_erase) { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_ERASE); return RDE_UI_EVENT_RESULT_DEFAULT; }
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_erase) {
+    FUDE_TOOLBAR_SELF;
+    if(_toolbar->tool == FUDE_TOOL_ERASE) {
+        _toolbar->erase_taps++;
+    }
+    fude_toolbar_set_tool(_toolbar, FUDE_TOOL_ERASE);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_lasso) { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_LASSO); return RDE_UI_EVENT_RESULT_DEFAULT; }
 // The hand: one finger writes, or (off) only the pen.
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_finger) { FUDE_TOOLBAR_SELF; fude_app_set_finger_writes(_app, !_app->finger_writes); return RDE_UI_EVENT_RESULT_DEFAULT; }
@@ -514,7 +633,16 @@ FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_color)  { FUDE_TOOLBAR_SELF; fude_toolbar_
 // Paper opens (or closes) its panel.
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_paper)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_paper_open(_toolbar, !_toolbar->paper_open); return RDE_UI_EVENT_RESULT_DEFAULT; }
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_rotate) { FUDE_TOOLBAR_SELF; _toolbar->vertical = !_toolbar->vertical; fude_toolbar_layout(_toolbar); return RDE_UI_EVENT_RESULT_DEFAULT; }
-FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_reset_view) { FUDE_TOOLBAR_SELF; fude_canvas_reset_view(_app->canvas); return RDE_UI_EVENT_RESULT_DEFAULT; }
+FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_reset_view) {
+    FUDE_TOOLBAR_SELF;
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL) {
+        _kind->reset_view(_app);
+    } else {
+        fude_canvas_reset_view(_app->canvas);
+    }
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
 
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_brush_scale) {
     FUDE_TOOLBAR_SELF;
@@ -531,7 +659,31 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_toolbar_on_tool(rde_ui_node* _node, const
     fude_app*               _app     = _toolbar->app;
     fude_toolbar_set_palette_open(_toolbar, false);
     fude_toolbar_set_paper_open(_toolbar, false);
-    fude_app_ext(_app)->tools[_ref->index].press(_app);
+    if(_toolbar->tool_panels[_ref->index] != NULL) {
+        fude_toolbar_set_tool_open(_toolbar, _toolbar->tool_open == (i32)_ref->index ? -1 : (i32)_ref->index);
+    } else {
+        fude_toolbar_set_tool_open(_toolbar, -1);
+        fude_app_ext(_app)->tools[_ref->index].press(_app);
+    }
+    fude_ui_update(_app->ui);
+    return RDE_UI_EVENT_RESULT_DEFAULT;
+}
+
+// One of an app tool's choices: what it does; the panel closes unless it says
+// to stay (a toggle).
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_toolbar_on_choice(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    const fude_toolbar_ref* _ref     = (const fude_toolbar_ref*)_user_data;
+    fude_toolbar*           _toolbar = _ref->toolbar;
+    fude_app*               _app     = _toolbar->app;
+    const u32               _t       = _ref->index / FUDE_EXTENSION_CHOICES;
+    const u32               _c       = _ref->index % FUDE_EXTENSION_CHOICES;
+    const fude_extension_choice* _choice = &fude_app_ext(_app)->tools[_t].choices[_c];
+    const b8 _stay = _choice->press != NULL && _choice->press(_app, _c);
+    if(!_stay) {
+        fude_toolbar_set_tool_open(_toolbar, -1);
+    }
+    fude_toolbar_refresh(_toolbar);
     fude_ui_update(_app->ui);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
@@ -567,6 +719,8 @@ RDE_INTERNAL void fude_toolbar_on_size(rde_ui_node* _node, any _user_data) {
     fude_toolbar* _toolbar = (fude_toolbar*)_user_data;
     if(_toolbar->tool == FUDE_TOOL_MARK) {
         _toolbar->app->ink->marker_radius = rde_ui_slider_get_value(_toolbar->size);
+    } else if(_toolbar->tool == FUDE_TOOL_ERASE) {
+        _toolbar->app->ink->eraser_radius = rde_ui_slider_get_value(_toolbar->size);
     } else {
         _toolbar->app->ink->constant_radius = rde_ui_slider_get_value(_toolbar->size);
     }
@@ -644,6 +798,14 @@ void fude_toolbar_restyle(fude_toolbar* _toolbar) {
     for(u32 _t = 0; _t < FUDE_EXTENSION_TOOLS; _t++) {
         if(_toolbar->tools[_t] != NULL) {
             fude_kit_restyle_quiet(_toolbar->tools[_t]);
+        }
+        if(_toolbar->tool_panels[_t] != NULL) {
+            fude_kit_style_panel(_toolbar->tool_panels[_t], 14.0f, 1.0f);
+            for(u32 _c = 0; _c < FUDE_EXTENSION_CHOICES; _c++) {
+                if(_toolbar->tool_choices[_t][_c] != NULL) {
+                    fude_kit_restyle_quiet(_toolbar->tool_choices[_t][_c]);
+                }
+            }
         }
     }
 
@@ -729,6 +891,21 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
         _toolbar->tool_refs[_t] = (fude_toolbar_ref){ _toolbar, _t };
         _toolbar->tools[_t]     = fude_kit_button(_tools, fude_text((FUDE_TEXT_)_ext->tools[_t].text), fude_toolbar_on_tool, &_toolbar->tool_refs[_t]);
         fude_kit_icon(_toolbar->tools[_t], _ext->tools[_t].icon, FUDE_KIT_ICON_ONLY, FUDE_TOOLBAR_TOOL_ICON_PX);
+        // Its choices' panel, under the root like Paper's.
+        if(_ext->tools[_t].choices != NULL && _ext->tools[_t].choice_count > 0) {
+            _toolbar->tool_panels[_t] = rde_ui_image_create(NULL);
+            rde_ui_node* _panel = rde_ui_image_as_node(_toolbar->tool_panels[_t]);
+            rde_ui_node_set_blocks_input(_panel, true);
+            rde_ui_node_set_gesture_exclusive(_panel, true);
+            rde_ui_node_add_child(_root, _panel);
+            for(u32 _c = 0; _c < _ext->tools[_t].choice_count && _c < FUDE_EXTENSION_CHOICES; _c++) {
+                const fude_extension_choice* _ch = &_ext->tools[_t].choices[_c];
+                _toolbar->choice_refs[_t][_c]  = (fude_toolbar_ref){ _toolbar, _t * FUDE_EXTENSION_CHOICES + _c };
+                _toolbar->tool_choices[_t][_c] = fude_kit_button(_panel, fude_text((FUDE_TEXT_)_ch->text), fude_toolbar_on_choice, &_toolbar->choice_refs[_t][_c]);
+                fude_kit_icon(_toolbar->tool_choices[_t][_c], _ch->icon, FUDE_KIT_ICON_ABOVE, 18.0f);
+            }
+            rde_ui_node_set_active(_panel, false);
+        }
     }
     for(u32 _i = 0; _i < FUDE_TOOLBAR_SEPARATORS; _i++) {
         _toolbar->separators[_i] = rde_ui_image_create(NULL);
@@ -784,6 +961,7 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
         const rde_vec_2F _screen = fude_kit_screen_size(_app->window);
         _toolbar->center = (rde_vec_2F){ fude_ui_rtl() ? 60.0f : _screen.x - 60.0f, _screen.y * 0.5f };
     }
+    _toolbar->tool_open = -1;
     fude_toolbar_layout(_toolbar);
     fude_toolbar_set_palette_open(_toolbar, false);
     fude_toolbar_set_paper_open(_toolbar, false);

@@ -27,6 +27,7 @@ RDE_INTERNAL struct {
     const c8* shot;
     u32       frames;
     b8        paper, deselect, trim_fonts, data, data_replace;
+    u32       shot_at;    // --shot-at=N: the shot at frame N (0: as the sequence says)
     b8        stay;       // --stay: a shot's sequence without the shot, and no quitting (a screenshot taken from outside: the Simulator's)
     b8        rtl;        // --rtl: the UI laid out right to left whatever the language (a right-to-left layout checked before its strings exist)
     i32       theme;
@@ -91,6 +92,7 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--ui-size")) != NULL)        { fude_look.ui_size = (i32)strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--note-card")) != NULL)      { fude_look.note_card = _v; }
         if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; }
+        if((_v = fude_look_value(_a, "--shot-at")) != NULL)        { fude_look.shot_at = (u32)atoi(_v); }
         if((_v = fude_look_value(_a, "--data-export")) != NULL)    { fude_look.data_export = _v; }
         if((_v = fude_look_value(_a, "--data-import")) != NULL)    { fude_look.data_import = _v; }
         if((_v = fude_look_value(_a, "--press")) != NULL)          { fude_look.press = _v; }
@@ -163,6 +165,9 @@ void fude_look_loaded(fude_app* _app) {
 // The frame the shot is taken at: 45, or after the last press has settled (a
 // document: 100, its pages drawn by then).
 RDE_INTERNAL u32 fude_look_shot_at(void) {
+    if(fude_look.shot_at > 0u) {
+        return fude_look.shot_at;
+    }
     if(fude_look.doc != NULL || fude_look.book >= 0) {
         return 100u;
     }

@@ -4,6 +4,7 @@
 #   zsh tools/android/build.sh engine [--release]           # RDE for Android: FIRST, after any engine change,
 #                                                           # and after an engine build for another platform
 #   zsh tools/android/build.sh kana|hanzi|hangul|thai|hindi|arabic [--release] [builder flags...]
+#   zsh tools/android/build.sh sketching [--release] [builder flags...]   # the deep-zoom drawing app (no study layer)
 #
 # The APK: build/<app>-android/<App>.apk, <App>-release.apk with --release (signed with the builder's keystore,
 # build/<app>-android/com.rde.<app>.keystore — KEEP A COPY of it outside build/:
@@ -51,6 +52,31 @@ ANDROID=(--android --abi_armv8a --android_ndk=$NDK --android_sdk=$SDK/ --android
 if [ "$WHAT" = "engine" ]; then
     cd ~/RDE && ./builder --engine $MODE $ANDROID
     exit $?
+fi
+
+# Sketching: the drawing core and the deep-zoom canvas (fude/zoom), no study layer.
+# Its Java is the core's (fude/android/java), whose ML Kit classes build against
+# the same pinned libraries as Kana's (apps/sketching/platform/android/deps.lock).
+if [ "$WHAT" = "sketching" ]; then
+    OUT=$K/build/sketching-android
+    cd $K
+    ~/RDE/builder --project $MODE $ANDROID \
+        --android_app_name=Sketching --android_package_name=com.rde.sketching \
+        --android_icon=$K/apps/sketching/platform/ios/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png \
+        --assets_path=$K/apps/sketching/assets/ \
+        --android_java=$K/fude/android/java \
+        --android_deps_file=$K/apps/sketching/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
+        --android_internet --android_network_state --android_wake_lock --android_camera \
+        "$@" \
+        apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) \
+        fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c \
+        -I$K/fude -I$K/apps/sketching/src -Wall -Wextra \
+        --output_path=$OUT/
+    APK=$OUT/Sketching.apk
+    if [ "$MODE" = "--release" ]; then APK=$OUT/Sketching-release.apk; fi
+    cp $OUT/game.apk $APK
+    echo "$APK"
+    exit 0
 fi
 
 # The core's and the study layer's sources (every study app's).

@@ -39,6 +39,7 @@ void fude_ink_init(fude_ink* _ink) {
     _ink->constant_radius = FUDE_INK_RADIUS_DEFAULT;
     _ink->marker_color    = (rde_color){ 255, 214, 0, FUDE_INK_MARKER_ALPHA };   // the classic yellow
     _ink->marker_radius   = FUDE_INK_MARKER_RADIUS;
+    _ink->eraser_radius   = FUDE_INK_ERASER_RADIUS;
     _ink->zoom            = 1.0f;
 
     // The page has no natural size limit, so its arrays live on the standard heap:

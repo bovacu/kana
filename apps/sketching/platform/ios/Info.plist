@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Sketching's own Info.plist keys, merged over the engine template's by the
+     builder (--ios_plist): a key here replaces the template's. -->
+<plist version="1.0">
+<dict>
+    <!-- iPad only: drawn on with the Apple Pencil or a finger. -->
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>2</integer>
+    </array>
+    <!-- Portrait either way up, the whole screen (as the other apps: the shared
+         UI is laid out for it). -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>CFBundleDisplayName</key>
+    <string>Sketching</string>
+    <!-- The document camera (the core's import: pages scanned to draw on). -->
+    <key>NSCameraUsageDescription</key>
+    <string>Sketching scans pages with the camera, so you can draw on them.</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>es</string>
+        <string>pt-BR</string>
+        <string>ja</string>
+        <string>fr</string>
+    </array>
+</dict>
+</plist>

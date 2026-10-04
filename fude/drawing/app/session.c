@@ -33,6 +33,14 @@ RDE_INTERNAL fude_view     fude_session_seen_view;
 RDE_INTERNAL fude_page     fude_session_seen_page;
 RDE_INTERNAL fude_settings fude_session_seen_settings;
 RDE_INTERNAL f64           fude_session_changed_at = 0.0;
+// The app's own page (extension.h: page_kind), when it has one: its revision
+// last written, and last seen.
+RDE_INTERNAL u32           fude_session_kind_saved = 0;
+RDE_INTERNAL u32           fude_session_kind_seen  = 0;
+
+RDE_INTERNAL const fude_page_kind* fude_session_kind(const fude_app* _app) {
+    return fude_app_ext(_app)->page_kind;
+}
 
 RDE_INTERNAL fude_session_info fude_session_hud = { 0.0, 0.0f, 0u, false, "" };
 
@@ -72,6 +80,7 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
     _s.radius            = _app->ink->constant_radius;
     _s.marker_color      = _app->ink->marker_color;
     _s.marker_radius     = _app->ink->marker_radius;
+    _s.eraser_radius     = _app->ink->eraser_radius;
     _s.toolbar_center    = _bar->center;
     _s.theme             = (u8)fude_theme_index();
     _s.toolbar_minimized = _bar->minimized;
@@ -91,7 +100,7 @@ RDE_INTERNAL fude_settings fude_session_gather(const fude_app* _app) {
 RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
     fude_toolbar* _bar = &_app->ui->bar;
     _bar->tool                   = _s->tool == FUDE_TOOL_ERASE ? FUDE_TOOL_ERASE : _s->tool == FUDE_TOOL_LASSO ? FUDE_TOOL_LASSO : _s->tool == FUDE_TOOL_MARK ? FUDE_TOOL_MARK : FUDE_TOOL_DRAW;
-    _app->ink->brush_scale       = _s->brush_scale == FUDE_INK_BRUSH_SCALE_SCREEN ? FUDE_INK_BRUSH_SCALE_SCREEN : FUDE_INK_BRUSH_SCALE_PAGE;
+    _app->ink->brush_scale       = _s->brush_scale == FUDE_INK_BRUSH_SCALE_SCREEN || fude_app_ext(_app)->brush_on_screen ? FUDE_INK_BRUSH_SCALE_SCREEN : FUDE_INK_BRUSH_SCALE_PAGE;
     _app->ink->width_mode        = _s->width_mode == FUDE_INK_WIDTH_MODE_PRESSURE ? FUDE_INK_WIDTH_MODE_PRESSURE : FUDE_INK_WIDTH_MODE_CONSTANT;
     _app->ink->color             = _s->color;
     _app->ink->constant_radius   = rde_math_clamp_f32(_s->radius, FUDE_TOOLBAR_SIZE_MIN, FUDE_TOOLBAR_SIZE_MAX);
@@ -99,6 +108,7 @@ RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
         _app->ink->marker_color  = _s->marker_color;
         _app->ink->marker_radius = rde_math_clamp_f32(_s->marker_radius, FUDE_INK_MARKER_MIN, FUDE_INK_MARKER_MAX);
     }
+    _app->ink->eraser_radius     = _s->eraser_radius > 0.0f ? rde_math_clamp_f32(_s->eraser_radius, FUDE_INK_ERASER_MIN, FUDE_INK_ERASER_MAX) : FUDE_INK_ERASER_RADIUS;
     fude_theme_set((FUDE_THEME_)_s->theme);
     if(fude_app_ext(_app)->settings_apply != NULL) {
         fude_app_ext(_app)->settings_apply(_app, _s);
@@ -125,14 +135,16 @@ void fude_session_settings_seen(fude_app* _app) {
 // --- saving -----------------------------------------------------------------------------------
 
 void fude_session_save_now(fude_app* _app, b8 _force) {
-    if(_app->ink->drawing) {
+    const fude_page_kind* _kind = fude_session_kind(_app);
+    if(_app->ink->drawing || (_kind != NULL && _kind->busy(_app))) {
         return;
     }
     const fude_settings _settings = fude_session_gather(_app);
     const b8 _doc_dirty = _force || _app->ink->revision != fude_session_saved_revision || !fude_session_same_view(_app->canvas->view, fude_session_saved_view) ||
                           !fude_session_same_page(_app->canvas->page, fude_session_saved_page);
-    const b8 _set_dirty = _force || !fude_settings_equal(&_settings, &fude_session_saved_settings);
-    if(!_doc_dirty && !_set_dirty) {
+    const b8 _set_dirty  = _force || !fude_settings_equal(&_settings, &fude_session_saved_settings);
+    const b8 _kind_dirty = _kind != NULL && (_force || _kind->revision(_app) != fude_session_kind_saved);
+    if(!_doc_dirty && !_set_dirty && !_kind_dirty) {
         return;
     }
 
@@ -156,6 +168,14 @@ void fude_session_save_now(fude_app* _app, b8 _force) {
             _ok = false;
         }
     }
+    if(_kind_dirty) {
+        const u32 _revision = _kind->revision(_app);
+        if(_kind->save(_app, _force)) {
+            fude_session_kind_saved = _revision;
+        } else {
+            _ok = false;
+        }
+    }
     const f64 _now = rde_engine_get_time_now();
     fude_session_hud.last_save_ms   = (f32)((_now - _start) * 1000.0);
     fude_session_hud.last_save_time = _now;
@@ -168,10 +188,14 @@ void fude_session_save_now(fude_app* _app, b8 _force) {
 
 // Once a frame: note any change, and save once things have been quiet a while.
 RDE_INTERNAL void fude_session_autosave(fude_app* _app) {
-    const f64           _now      = rde_engine_get_time_now();
-    const fude_settings _settings = fude_session_gather(_app);
+    const f64             _now      = rde_engine_get_time_now();
+    const fude_settings   _settings = fude_session_gather(_app);
+    const fude_page_kind* _kind     = fude_session_kind(_app);
+    const u32             _kind_rev = _kind != NULL ? _kind->revision(_app) : 0u;
     if(_app->ink->revision != fude_session_seen_revision || !fude_session_same_view(_app->canvas->view, fude_session_seen_view) ||
-       !fude_session_same_page(_app->canvas->page, fude_session_seen_page) || !fude_settings_equal(&_settings, &fude_session_seen_settings)) {
+       !fude_session_same_page(_app->canvas->page, fude_session_seen_page) || !fude_settings_equal(&_settings, &fude_session_seen_settings) ||
+       _kind_rev != fude_session_kind_seen) {
+        fude_session_kind_seen     = _kind_rev;
         fude_session_seen_revision = _app->ink->revision;
         fude_session_seen_view     = _app->canvas->view;
         fude_session_seen_page     = _app->canvas->page;
@@ -179,7 +203,7 @@ RDE_INTERNAL void fude_session_autosave(fude_app* _app) {
         fude_session_changed_at    = _now;
         return;
     }
-    if(!_app->ink->drawing && !fude_lasso_busy(_app->lasso) && _now - fude_session_changed_at >= FUDE_SESSION_AUTOSAVE_DELAY) {
+    if(!_app->ink->drawing && !fude_lasso_busy(_app->lasso) && (_kind == NULL || !_kind->busy(_app)) && _now - fude_session_changed_at >= FUDE_SESSION_AUTOSAVE_DELAY) {
         fude_session_save_now(_app, false);
     }
 }
@@ -187,10 +211,17 @@ RDE_INTERNAL void fude_session_autosave(fude_app* _app) {
 void fude_session_save_on_exit(fude_app* _app) {
     fude_page_let_go(_app->page);
     fude_session_save_now(_app, false);
+    // The app's own page: everything on disk now, whatever the revision says.
+    const fude_page_kind* _kind = fude_session_kind(_app);
+    if(_kind != NULL && _kind->save(_app, true)) {
+        fude_session_kind_saved = _kind->revision(_app);
+    }
 }
 
 // What is on screen now IS what is saved.
 RDE_INTERNAL void fude_session_on_screen_is_saved(fude_app* _app) {
+    const fude_page_kind* _kind = fude_session_kind(_app);
+    fude_session_kind_saved     = fude_session_kind_seen     = _kind != NULL ? _kind->revision(_app) : 0u;
     fude_session_saved_revision = fude_session_seen_revision = _app->ink->revision;
     fude_session_saved_view     = fude_session_seen_view     = _app->canvas->view;
     fude_session_saved_page     = fude_session_seen_page     = _app->canvas->page;
@@ -240,6 +271,9 @@ void fude_session_load(fude_app* _app) {
         snprintf(fude_session_load_note, sizeof(fude_session_load_note), "new page");
     }
     rde_log_color(RDE_LOG_COLOR_GREEN, "fude: saves in %s (%s)", _dir, fude_session_load_note);
+    if(fude_session_kind(_app) != NULL) {
+        fude_session_kind(_app)->open(_app, fude_session_canvas);
+    }
 
     fude_session_on_screen_is_saved(_app);
     fude_session_settings_seen(_app);
@@ -274,13 +308,20 @@ RDE_INTERNAL void fude_session_empty_page(fude_app* _app) {
 // paste on another).
 RDE_INTERNAL void fude_session_switch_canvas(fude_app* _app) {
     fude_page_let_go(_app->page);
+    const fude_page_kind* _kind = fude_session_kind(_app);
     if(fude_notes_find(_app->notes, fude_session_canvas) != NULL) {
         fude_session_save_now(_app, false);
+        if(_kind != NULL) {
+            _kind->save(_app, true);   // the canvas left: all of it on disk
+        }
     }
     fude_session_empty_page(_app);
     fude_session_canvas = _app->notes->open;
     fude_notes_canvas_path(fude_session_canvas, fude_session_document, sizeof(fude_session_document));
     fude_load_document(fude_session_document, _app->ink, &_app->canvas->view, &_app->canvas->page);
+    if(_kind != NULL) {
+        _kind->open(_app, fude_session_canvas);
+    }
     fude_session_on_screen_is_saved(_app);
 }
 
@@ -301,6 +342,10 @@ RDE_INTERNAL void fude_session_reload(fude_app* _app) {
 void fude_session_export_to(fude_app* _app, const c8* _path, b8 _share) {
     fude_backup_info _info;
     c8               _line[512];
+    // The app's own page written whole first, so the backup holds all of it.
+    if(fude_session_kind(_app) != NULL) {
+        fude_session_kind(_app)->save(_app, true);
+    }
     c8 _what[64];
     snprintf(_what, sizeof(_what), "%s backup", _app->info->name);
     if(!fude_backup_export(fude_save_dir(), _path, _app->info->version, &_info) || (_share && !rde_mobile_share_file(_path, "application/octet-stream", _what))) {

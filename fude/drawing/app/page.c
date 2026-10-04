@@ -15,7 +15,6 @@
 // See page.h.
 // ===========================================================================
 
-#define FUDE_PAGE_ERASER_RADIUS 10.0f   // the eraser's reach, in SCREEN units: a fingertip-sized circle at any zoom
 #define FUDE_PAGE_FINGER_MOVE   6.0f    // screen units from where a finger landed: it writes
 #define FUDE_PAGE_FINGER_WAIT   0.12    // seconds down with some movement: it writes
 #define FUDE_PAGE_ZOOM_TIME     1.2     // the zoom's toast stays...
@@ -45,7 +44,7 @@ RDE_INTERNAL rde_vec_2F fude_page_at(fude_page_input* _page, rde_vec_2F _screen)
 
 RDE_INTERNAL void fude_page_erase_at(fude_page_input* _page, rde_vec_2F _screen) {
     fude_app* _app = _page->app;
-    fude_ink_erase_at(_app->ink, fude_canvas_from_screen(_app->canvas, _screen), FUDE_PAGE_ERASER_RADIUS / _app->canvas->view.zoom);
+    fude_ink_erase_at(_app->ink, fude_canvas_from_screen(_app->canvas, _screen), _app->ink->eraser_radius / _app->canvas->view.zoom);
 }
 
 // --- writing: the pen's, the mouse's, and a writing finger's ---------------------------

@@ -175,6 +175,25 @@ public final class FudePdf {
     }
 
     /**
+     * A picture (its path) as JPEG bytes — PNG when it has see-through parts —
+     * upright, as taken, at most _max pixels on its longer side (Sketching's
+     * pictures). Null when it cannot be read.
+     */
+    public static byte[] pictureJpeg(byte[] pathBytes, int max) {
+        try {
+            final String path = FudeAndroid.text(pathBytes);
+            Bitmap b = FudeText.decode(android.net.Uri.fromFile(new File(path)), max);
+            java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+            b.compress(b.hasAlpha() ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 86, jpeg);
+            b.recycle();
+            return jpeg.toByteArray();
+        } catch(Exception e) {
+            Log.e(FudeAndroid.TAG, "could not read the picture: " + e);
+            return null;
+        }
+    }
+
+    /**
      * Pictures (paths, one per line) as a new PDF at _out: a page each, upright, as
      * big as the picture at 150 dots an inch (at most _max pixels on its longer side).
      */

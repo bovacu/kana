@@ -456,6 +456,86 @@ Its saves are ./saves/ under the folder it runs in on a computer, and draw/ in
 its own storage on a device (fude_save_set_folder).
 
 
+SKETCHING (the deep-zoom drawing app, a working name) — on the Mac, the tablet, the iPad
+----------------------------------------------------------------------------------------
+The drawing core (fude/drawing) over the deep-zoom canvas (fude/zoom), no study
+layer: zoom in or out as far as anyone likes and draw at every depth. Why it is
+built the way it is: docs/infinite_canvas_design.md (Phase 0) and
+docs/research/infinite_canvas_research.md. Its sources are its shell, every .c
+of the core and every .c of the canvas:
+
+  cd ~/kana
+  ~/RDE/builder --project --debug \
+    --assets_path=/Users/borjavazquez/kana/apps/sketching/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/sketching/ \
+    --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
+    apps/sketching/sketching.c $(ls fude/drawing/*/*.c) $(ls fude/zoom/*.c) fude/drawing/doc/pdf_kit.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/sketching/src -Wall -Wextra
+
+  ./build/sketching/osx-silicon/debug/project/exe/runnable
+
+On a computer: the left button draws, the right drags the page, the wheel zooms
+where the mouse is; Z undo, Y redo, C clear, R back to the start (flown there),
+B back to where a flight left, E the eraser's mode (on the toolbar: Erase pressed
+again). A canvas is <save dir>/notes/<id>.zoom
+(fude/zoom/zfile.h: Kana's chunk format written as a log).
+
+Its own looks (debug builds), besides the core's (--size, --theme, --shot, --perf...):
+--demo-deep=N flowers drawn at N depths, each 1024x inside the last, the camera
+left at the deepest; --zoom=F the camera's zoom times F once loaded (0.001 out,
+1000 in); --paper-is=dots|lines|squares|none the canvas's paper; --pan=X,Y the page dragged X, Y screen units first (to park the camera
+on a stroke's edge and look from inside it); --demo-erase three lines crossed and
+erased with each eraser; --gate=POINTS a canvas of that many points over four
+depths (with --perf=SECONDS: the gate's frame times, docs/infinite_canvas_design.md §10);
+--demo-lasso[=2] the left half looped, dragged (and with 2, turned); --demo-snap a
+rough circle, rectangle and line drawn with the "pen", each held till it snaps (with
+--shot-at=560: the shot after); --demo-shapes the Shapes tool's four dragged out;
+--shapes-panel its choices open; --smoothing-panel the Smoothing tool's levels
+open; --demo-smooth one shaky wave drawn at each smoothing level (Off, Low, Medium,
+High, Rope, top to bottom); --demo-places two views marked as places, then Places opened; --fly-home Reset view's flight at frame 10 (Back shows
+after); --depth-levels the depth chip's levels open at frame 20 (with --demo-deep);
+--demo-fill a hand's loop, a rectangle, a figure 8 and an open arc, each tapped
+with the Fill tool, then rubbed out across with the eraser; --export=png:PATH or
+svg:PATH the view exported there at frame 20; --brush-at=X,Y[,erase|mark] the brush's circle there, as if the
+pen hovered;
+--demo-picture=FILE a picture brought in as Files
+would (JPEG, PNG; HEIC on a Mac); --zoom-later=F the --zoom a few frames in, after a
+--demo-picture has landed (to look at it close up); --stress drawing without pause (a stroke a frame, now and then a sweep, an undo,
+a zoom): the gate's kill test runs it, kills it with kill -9 at a random moment,
+opens the canvas again, and checks it is never damaged and never holds fewer
+strokes than the last time it was opened.
+
+  ./build/sketching/osx-silicon/debug/project/exe/runnable --size=1024x768 --demo-deep=4 --zoom=0.03 --shot=/tmp/deep.png
+  ./build/sketching/osx-silicon/debug/project/exe/runnable --demo-erase --pan=200,-194.0000001 --zoom=1000000000 --shot=/tmp/edge.png
+  ./build/sketching/osx-silicon/debug/project/exe/runnable --size=1024x768 --demo-picture=$HOME/photo.jpg --zoom-later=100 --shot-at=20 --shot=/tmp/pic.png
+
+Android (from the Mac; the engine for Android first, as for every app):
+
+  zsh tools/android/build.sh engine --release
+  zsh tools/android/build.sh sketching --release      # build/sketching-android/Sketching-release.apk
+  adb install -r build/sketching-android/Sketching-release.apk
+
+iOS: needs a provisioning profile for com.rde.sketching (Xcode, with the iPad
+connected, as for Hanzi and Hangul). Then, the engine built for iOS first:
+
+  ~/RDE/builder --project --release --ios \
+    --assets_path=/Users/borjavazquez/kana/apps/sketching/assets/ \
+    --output_path=/Users/borjavazquez/kana/build/sketching-ios/ \
+    --ios_package_name=com.rde.sketching --ios_app_name=Sketching \
+    "--apple_development_name=vazquezborja@hotmail.es (7VRZRRF73U)" \
+    "--ios_provisioning_profile=<~/Library/MobileDevice/Provisioning Profiles/....mobileprovision>" \
+    --ios_framework=PhotosUI --ios_framework=VisionKit --ios_framework=PDFKit --ios_framework=CoreText --ios_framework=ImageIO \
+    --ios_bundle=/Users/borjavazquez/kana/apps/sketching/platform/ios/localized \
+    --ios_assets=/Users/borjavazquez/kana/apps/sketching/platform/ios/Assets.xcassets \
+    --ios_launch_storyboard=/Users/borjavazquez/kana/apps/sketching/platform/ios/LaunchScreen.storyboard \
+    --ios_plist=/Users/borjavazquez/kana/apps/sketching/platform/ios/Info.plist \
+    apps/sketching/sketching.c $(ls fude/drawing/*/*.c) $(ls fude/zoom/*.c) fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/sketching/src -Wall -Wextra
+
+Its icon (platform/ios/AppIcon.svg, a pen stroke spiralling inward) is a
+placeholder until the app has its real name.
+
+
 HANZI (Chinese) — on the Mac and the iPad
 -----------------------------------------
 apps/hanzi/ is Kana's shell for Chinese: the same study layer, with fude/lang/zh/

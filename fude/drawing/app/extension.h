@@ -25,12 +25,31 @@ struct fude_ui;
 struct fude_doc_line;   // doc.h
 
 // A tool of the app's on the toolbar, after Paper (Kana's camera).
-#define FUDE_EXTENSION_TOOLS 2u
+#define FUDE_EXTENSION_TOOLS   6u
+#define FUDE_EXTENSION_CHOICES 8u
+
+// One of a tool's choices, in its panel: its name, its icon, and what choosing
+// it does — true: the panel stays open (a toggle among its choices).
+typedef struct {
+    u32       text;                       // FUDE_TEXT_
+    const c8* icon;                       // icons.h
+    b8      (*press)(struct fude_app* _app, u32 _index);
+} fude_extension_choice;
+
 typedef struct {
     u32       text;                       // its name (FUDE_TEXT_): the button's label, kept hidden
     const c8* icon;                       // icons.h
     void    (*press)(struct fude_app* _app);   // the bar's panels are closed first, the UI catches up after
     b8      (*available)(void);           // NULL: always; false: left out of the bar, not shown dead
+    // Choices in a panel beside the bar, which the tool opens and closes like
+    // Paper's (press is not called then; NULL: none) — Sketching's shapes —,
+    // which of them show chosen, and whether the tool itself does: a tool of
+    // the app's own that the pen uses, the bar's (pen, eraser...) not chosen
+    // while it is. Choosing one of the bar's tools counts (fude_toolbar.tool_taps).
+    const fude_extension_choice* choices;
+    u32       choice_count;               // at most FUDE_EXTENSION_CHOICES
+    b8      (*chosen)(const struct fude_app* _app, u32 _index);
+    b8      (*selected)(const struct fude_app* _app);
 } fude_extension_tool;
 
 // An entry of the side panel's navigation: a button that opens what is the app's.
@@ -81,10 +100,61 @@ typedef struct fude_extension_side_button {
     void    (*press)(struct fude_app* _app);
 } fude_extension_side_button;
 
+// A page of the app's own in place of the ink page (Sketching's deep-zoom
+// canvas, zoom/page.h). The core keeps its ink as the brush's settings — the
+// toolbar's colours and sizes, Settings' width — but what is drawn, undone,
+// cleared and saved is the app's: the toolbar's buttons and the session ask it.
+// The shell hands it the pen, the fingers and the frame itself.
+typedef struct fude_page_kind {
+    b8   (*undo)(struct fude_app* _app);
+    b8   (*redo)(struct fude_app* _app);
+    b8   (*can_undo)(const struct fude_app* _app);
+    b8   (*can_redo)(const struct fude_app* _app);
+    void (*clear)(struct fude_app* _app);        // undoable
+    void (*reset_view)(struct fude_app* _app);
+    // The session: the canvas _canvas opened (its notes.h id: on launch, when
+    // another is chosen, after an import); a number that moves with every change
+    // worth saving; busy (a stroke open: not now); saved — _leaving: the canvas
+    // is being left or the app is going, so everything goes to disk now.
+    void (*open)(struct fude_app* _app, u32 _canvas);
+    u32  (*revision)(const struct fude_app* _app);
+    b8   (*busy)(const struct fude_app* _app);
+    b8   (*save)(struct fude_app* _app, b8 _leaving);
+    // Its lasso's selection, for the page's menus (pagemenu.h): its box on the
+    // app's screen (centre origin, Y up) and whether the pen is still at it (the
+    // menu hides) — false: nothing selected. The menus' buttons on it
+    // (FUDE_PAGE_CMD_; _at: where Paste lands, on the app's screen), and whether
+    // there is anything to paste.
+    b8   (*selection)(const struct fude_app* _app, rde_vec_2F* _min, rde_vec_2F* _max, b8* _busy);
+    void (*command)(struct fude_app* _app, u32 _cmd, rde_vec_2F _at);
+    b8   (*can_paste)(const struct fude_app* _app);
+    // What the pickers brought (import.h: Files, Photos, the camera's scan) onto
+    // the page — Sketching's pictures — instead of a canvas of its own. _paths:
+    // the files, in order (the pickers' copies are deleted after).
+    void (*imported)(struct fude_app* _app, u8 _kind, const c8* const* _paths, u32 _count);
+} fude_page_kind;
+
+typedef enum {
+    FUDE_PAGE_CMD_CUT = 0,
+    FUDE_PAGE_CMD_COPY,
+    FUDE_PAGE_CMD_DUPLICATE,
+    FUDE_PAGE_CMD_DELETE,
+    FUDE_PAGE_CMD_PASTE,
+    FUDE_PAGE_CMD_SELECT_ALL,
+    FUDE_PAGE_CMD_DESELECT
+} FUDE_PAGE_CMD_;
+
 typedef struct fude_extension {
+    // The page, when it is the app's own (NULL: the ink page).
+    const fude_page_kind* page_kind;
+
     // The toolbar: the app's tools.
     const fude_extension_tool* tools;
     u32                        tool_count;   // at most FUDE_EXTENSION_TOOLS
+    // The brush always sized on the screen (fude_ink.brush_scale SCREEN), and
+    // the toolbar's Page/Screen left out — Sketching's, whose pen is the same
+    // size on screen at any zoom.
+    b8                         brush_on_screen;
 
     // The page's menus (pagemenu.h): the row over a lasso selection and the one at
     // a long press (NULL: the core's own — Cut, Copy, Duplicate, Delete; Paste,

@@ -604,3 +604,92 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
 }
 
 #endif
+
+// --- a picture as JPEG (or PNG) bytes ------------------------------------------------------
+
+#if defined(__APPLE__)
+
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
+    *_out  = NULL;
+    *_size = 0u;
+    CFURLRef _from = fude_pdf_url(_path);
+    CGImageSourceRef _source = _from != NULL ? CGImageSourceCreateWithURL(_from, NULL) : NULL;
+    if(_from != NULL) {
+        CFRelease(_from);
+    }
+    if(_source == NULL) {
+        return false;
+    }
+    // Read turned as taken, no larger than asked; written back as JPEG (PNG when
+    // it has see-through parts: a JPEG would fill them in).
+    const i32       _max     = (i32)_max_px;
+    const f64       _quality = 0.86;
+    CFNumberRef     _max_n   = CFNumberCreate(NULL, kCFNumberSInt32Type, &_max);
+    CFNumberRef     _q_n     = CFNumberCreate(NULL, kCFNumberFloat64Type, &_quality);
+    const void*     _keys[]  = { kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceCreateThumbnailWithTransform, kCGImageSourceThumbnailMaxPixelSize };
+    const void*     _vals[]  = { kCFBooleanTrue, kCFBooleanTrue, _max_n };
+    CFDictionaryRef _read    = CFDictionaryCreate(NULL, _keys, _vals, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    const void*     _qkeys[] = { kCGImageDestinationLossyCompressionQuality };
+    const void*     _qvals[] = { _q_n };
+    CFDictionaryRef _write   = CFDictionaryCreate(NULL, _qkeys, _qvals, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CGImageRef      _image   = CGImageSourceCreateThumbnailAtIndex(_source, 0, _read);
+    b8              _ok      = false;
+    if(_image != NULL) {
+        const CGImageAlphaInfo _alpha = CGImageGetAlphaInfo(_image);
+        const b8               _clear = _alpha != kCGImageAlphaNone && _alpha != kCGImageAlphaNoneSkipLast && _alpha != kCGImageAlphaNoneSkipFirst;
+        CFMutableDataRef       _jpeg  = CFDataCreateMutable(NULL, 0);
+        CGImageDestinationRef  _dest  = CGImageDestinationCreateWithData(_jpeg, _clear ? CFSTR("public.png") : CFSTR("public.jpeg"), 1, NULL);
+        if(_dest != NULL) {
+            CGImageDestinationAddImage(_dest, _image, _write);
+            if(CGImageDestinationFinalize(_dest)) {
+                const CFIndex _n = CFDataGetLength(_jpeg);
+                *_out = (u8*)malloc((size_t)_n);
+                if(*_out != NULL) {
+                    memcpy(*_out, CFDataGetBytePtr(_jpeg), (size_t)_n);
+                    *_size = (u32)_n;
+                    _ok    = true;
+                }
+            }
+            CFRelease(_dest);
+        }
+        CFRelease(_jpeg);
+        CGImageRelease(_image);
+    }
+    CFRelease(_read);
+    CFRelease(_write);
+    CFRelease(_max_n);
+    CFRelease(_q_n);
+    CFRelease(_source);
+    return _ok;
+}
+
+#elif !defined(RDE_PLATFORM_ANDROID)   // Android: pdf_android.c
+
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
+    RDE_UNUSED(_max_px);
+    *_out  = NULL;
+    *_size = 0u;
+    FILE* _f = fopen(_path, "rb");
+    if(_f == NULL) {
+        return false;
+    }
+    fseek(_f, 0, SEEK_END);
+    const long _n = ftell(_f);
+    fseek(_f, 0, SEEK_SET);
+    if(_n <= 0) {
+        fclose(_f);
+        return false;
+    }
+    *_out = (u8*)malloc((size_t)_n);
+    const b8 _ok = *_out != NULL && fread(*_out, 1, (size_t)_n, _f) == (size_t)_n;
+    fclose(_f);
+    if(!_ok) {
+        free(*_out);
+        *_out = NULL;
+        return false;
+    }
+    *_size = (u32)_n;
+    return true;
+}
+
+#endif

@@ -149,7 +149,14 @@ RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
         return;
     }
     rde_vec_2F _min, _max;
-    if(fude_lasso_busy(_app->lasso) || fude_lasso_box(_app->lasso, _app->ink, &_min, &_max)) {
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL && _kind->selection != NULL) {
+        b8 _busy = false;
+        if(_kind->selection(_app, &_min, &_max, &_busy)) {
+            _kind->command(_app, FUDE_PAGE_CMD_DESELECT, (rde_vec_2F){ 0.0f, 0.0f });
+            return;
+        }
+    } else if(fude_lasso_busy(_app->lasso) || fude_lasso_box(_app->lasso, _app->ink, &_min, &_max)) {
         fude_lasso_clear(_app->lasso, _app->ink);
         return;
     }

@@ -54,6 +54,8 @@ typedef struct fude_toolbar {
 
     FUDE_TOOL_     tool;
     FUDE_TOOL_     tool_before;     // the one before it (a pen's double tap goes back to it)
+    u32            erase_taps;      // Erase pressed while already chosen, ever (Sketching: the next eraser mode)
+    u32            tool_taps;       // one of the bar's tools chosen, ever (an app's own tool then lets go: extension.h)
     b8             vertical;
     b8             minimized;       // folded down to the grip
     rde_vec_2F     center;          // panel centre, UI canvas units (bottom-left origin, Y up)
@@ -84,6 +86,13 @@ typedef struct fude_toolbar {
     rde_ui_button* reset_view;
     rde_ui_button* tools[FUDE_EXTENSION_TOOLS];   // the app's own (NULL: none), where they are available
     fude_toolbar_ref tool_refs[FUDE_EXTENSION_TOOLS];
+    // An app tool's choices (extension.h), a panel beside the bar like Paper's.
+    rde_ui_image*     tool_panels[FUDE_EXTENSION_TOOLS];                           // NULL: that tool has none
+    rde_ui_button*    tool_choices[FUDE_EXTENSION_TOOLS][FUDE_EXTENSION_CHOICES];
+    fude_toolbar_ref  choice_refs[FUDE_EXTENSION_TOOLS][FUDE_EXTENSION_CHOICES];   // index: tool · CHOICES + choice
+    i32               tool_open;          // the tool whose panel is open (-1: none)
+    rde_vec_2F        tool_panel_center;
+    rde_vec_2F        tool_panel_size;
     rde_ui_image*  separators[FUDE_TOOLBAR_SEPARATORS];   // between the groups of tools
 
     rde_ui_image*     palette;
@@ -141,6 +150,8 @@ void fude_toolbar_set_placement(fude_toolbar* _toolbar, b8 _vertical, rde_vec_2F
 // The colour palette, or the paper panel, beside the bar: open or closed (one at a time).
 void fude_toolbar_set_palette_open(fude_toolbar* _toolbar, b8 _open);
 void fude_toolbar_set_paper_open(fude_toolbar* _toolbar, b8 _open);
+// An app tool's choices (_tool: its place in extension.h's list; -1: whichever is open, closed).
+void fude_toolbar_set_tool_open(fude_toolbar* _toolbar, i32 _tool);
 // Apple Pencil's double tap (RDE_EVENT_TYPE_PEN_DOUBLE_TAP), as the learner set
 // it in the system's settings (_action, RDE_PEN_TAP_ACTION_): the eraser and back,
 // the tool before, or the colour palette; nothing when they turned it off.

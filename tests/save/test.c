@@ -199,6 +199,14 @@ int main(void) {
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
         CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && !t.finger_writes && t.pen_ever);
         s.pen_ever = false;
+        s.smoothing = 5;                                                                              // Sketching's smoothing: saved too
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.smoothing == 5);
+        s.smoothing = 0;
+        s.eraser_radius = 24.5f;                                                                      // the eraser's own size: saved too
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.eraser_radius == 24.5f);
+        s.eraser_radius = 0.0f;
 
         u8 buf[64]; u32 n = 0;
         P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');
@@ -215,6 +223,10 @@ int main(void) {
         CHECK(fude_load_settings(set, &q) == FUDE_LOAD_OK && q.paper_size == FUDE_PAPER_SMALL);
         fude_settings h = s; h.finger_writes = true; h.pen_ever = false;                              // from before the hand: a pen user's
         CHECK(fude_load_settings(set, &h) == FUDE_LOAD_OK && !h.finger_writes && h.pen_ever);
+        fude_settings g = s; g.smoothing = 3;                                                         // from before smoothing: as it was
+        CHECK(fude_load_settings(set, &g) == FUDE_LOAD_OK && g.smoothing == 3);
+        fude_settings er = s; er.eraser_radius = 7.0f;                                                // from before the eraser's size: as it was
+        CHECK(fude_load_settings(set, &er) == FUDE_LOAD_OK && er.eraser_radius == 7.0f);
 
         // An out-of-range theme (a newer build's) keeps the current one.
         n = 0;

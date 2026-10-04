@@ -96,6 +96,12 @@ typedef enum {
 #define FUDE_INK_MARKER_ALPHA  110u
 #define FUDE_INK_MARKER_STEP   0.75f   // its points drawn at least this many half-widths apart (see fude_ink_render)
 
+// The eraser's reach: a radius in SCREEN units (a fingertip's circle at any
+// zoom), its own size on the toolbar's slider, kept apart from the brush's.
+#define FUDE_INK_ERASER_RADIUS 10.0f
+#define FUDE_INK_ERASER_MIN    4.0f
+#define FUDE_INK_ERASER_MAX    60.0f
+
 // @struct fude_ink_point
 // @desc One sample. `time` is seconds since the stroke's FIRST sample — the
 // rhythm of the stroke, which is what survives a save and what scoring can use.
@@ -201,6 +207,8 @@ RDE_STRUCT {
     b8                    marking;
     rde_color             marker_color;
     f32                   marker_radius;
+    // The eraser's reach (screen units; the page's to use, the toolbar's to set).
+    f32                   eraser_radius;
     // The canvas zoom at the moment of capture, set by the caller like
     // sample_time. Turns screen units into the canvas units points are stored in:
     // always for the min step (a sampling density), and for the width in SCREEN

@@ -18,9 +18,21 @@
 
 // --- the selection's menu ----------------------------------------------------------
 
+// The app's own page (extension.h: page_kind) takes the menus' commands itself.
+RDE_INTERNAL b8 fude_pagemenu_kind_command(fude_app* _app, FUDE_PAGE_CMD_ _cmd, rde_vec_2F _at) {
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind == NULL || _kind->command == NULL) {
+        return false;
+    }
+    _kind->command(_app, (u32)_cmd, _at);
+    return true;
+}
+
 void fude_pagemenu_on_cut(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
-    fude_lasso_cut(_app->lasso, _app->ink);   // copy, then one undoable delete
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_CUT, (rde_vec_2F){ 0.0f, 0.0f })) {
+        fude_lasso_cut(_app->lasso, _app->ink);   // copy, then one undoable delete
+    }
 }
 
 void fude_pagemenu_copied(fude_pagemenu* _menu, fude_row_press _press) {
@@ -30,18 +42,24 @@ void fude_pagemenu_copied(fude_pagemenu* _menu, fude_row_press _press) {
 
 void fude_pagemenu_on_copy(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_arg);
-    fude_lasso_copy(_app->lasso, _app->ink);
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_COPY, (rde_vec_2F){ 0.0f, 0.0f })) {
+        fude_lasso_copy(_app->lasso, _app->ink);
+    }
     fude_pagemenu_copied((fude_pagemenu*)_self, fude_pagemenu_on_copy);   // nothing on the page changes, so say it worked
 }
 
 void fude_pagemenu_on_duplicate(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
-    fude_lasso_duplicate(_app->lasso, _app->ink, _app->canvas->view.zoom);
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_DUPLICATE, (rde_vec_2F){ 0.0f, 0.0f })) {
+        fude_lasso_duplicate(_app->lasso, _app->ink, _app->canvas->view.zoom);
+    }
 }
 
 void fude_pagemenu_on_delete(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
-    fude_lasso_delete(_app->lasso, _app->ink);   // one undoable edit
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_DELETE, (rde_vec_2F){ 0.0f, 0.0f })) {
+        fude_lasso_delete(_app->lasso, _app->ink);   // one undoable edit
+    }
 }
 
 static const fude_row_button FUDE_PAGEMENU_SELECTION[] = {
@@ -67,6 +85,27 @@ RDE_INTERNAL void fude_pagemenu_selection_faces(fude_pagemenu* _menu, fude_row_f
 RDE_INTERNAL void fude_pagemenu_place_selection(fude_pagemenu* _menu, b8 _hidden) {
     fude_app*  _app = _menu->app;
     rde_vec_2F _min, _max;
+    // The app's own page: its selection's box is on the screen already.
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL && _kind->selection != NULL) {
+        b8 _busy = false;
+        const b8 _has = _kind->selection(_app, &_min, &_max, &_busy);
+        const b8 _on  = !_hidden && _has && !_busy;
+        rde_vec_2F _c = _menu->selection.center;
+        if(_on) {
+            const rde_vec_2F _screen = fude_kit_screen_size(_app->window);
+            const rde_vec_4I _insets = rde_window_get_safe_area_insets(_app->window);
+            const rde_vec_2F _size   = _menu->selection.size;
+            const f32        _top    = _max.y + _screen.y * 0.5f + FUDE_LASSO_BOX_PAD;
+            const f32        _bottom = _min.y + _screen.y * 0.5f - FUDE_LASSO_BOX_PAD;
+            _c = (rde_vec_2F){ (_min.x + _max.x) * 0.5f + _screen.x * 0.5f, _top + FUDE_PAGEMENU_GAP + _size.y * 0.5f };
+            if(_c.y + _size.y * 0.5f > _screen.y - (f32)_insets.y - FUDE_KIT_SCREEN_EDGE) {
+                _c.y = _bottom - FUDE_PAGEMENU_GAP - _size.y * 0.5f;
+            }
+        }
+        fude_row_show(&_menu->selection, _app->window, _on, _c);
+        return;
+    }
     fude_lasso_sync(_app->lasso, _app->ink);
     // Ink's row over ink; the text row over an area of a PDF's text.
     const b8   _text   = _menu->text.panel != NULL && fude_lasso_area(_app->lasso, &_min, &_max);
@@ -101,14 +140,19 @@ void fude_pagemenu_on_paste(fude_app* _app, void* _self, u32 _arg) {
     fude_pagemenu_close_context(_menu);
     // What was pasted comes in selected, ready to drag: that is the Lasso's job.
     fude_toolbar_set_tool(&_app->ui->bar, FUDE_TOOL_LASSO);
-    fude_lasso_paste(_app->lasso, _app->ink, _menu->context_canvas);
+    // (The app's own page was handed the screen point where the menu opened.)
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_PASTE, _menu->context_canvas)) {
+        fude_lasso_paste(_app->lasso, _app->ink, _menu->context_canvas);
+    }
 }
 
 void fude_pagemenu_on_select_all(fude_app* _app, void* _self, u32 _arg) {
     RDE_UNUSED(_arg);
     fude_pagemenu_close_context((fude_pagemenu*)_self);
     fude_toolbar_set_tool(&_app->ui->bar, FUDE_TOOL_LASSO);
-    fude_lasso_select_all(_app->lasso, _app->ink);
+    if(!fude_pagemenu_kind_command(_app, FUDE_PAGE_CMD_SELECT_ALL, (rde_vec_2F){ 0.0f, 0.0f })) {
+        fude_lasso_select_all(_app->lasso, _app->ink);
+    }
 }
 
 static const fude_row_button FUDE_PAGEMENU_CONTEXT[] = {
@@ -127,7 +171,8 @@ void fude_pagemenu_open_context(fude_pagemenu* _menu, rde_vec_2F _screen, rde_ve
     memset(_menu->context_faces, 0, sizeof(_menu->context_faces));
     const u32 _paste = fude_row_def_find(_menu->context.def, fude_pagemenu_on_paste);
     if(_paste != FUDE_ROW_NONE) {
-        _menu->context_faces[_paste].disabled = !fude_lasso_can_paste(_app->lasso);
+        const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+        _menu->context_faces[_paste].disabled = _kind != NULL && _kind->can_paste != NULL ? !_kind->can_paste(_app) : !fude_lasso_can_paste(_app->lasso);
     }
     const fude_extension* _ext = fude_app_ext(_app);
     if(_ext->context_faces != NULL) {

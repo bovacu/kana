@@ -38,6 +38,16 @@ fude/lang/ja/            Japanese's own: lang (lang.c, lang_ios.m) strings.py ro
 apps/kana/               Kana: kana.c (the shell) · src/ (kana_app, welcome, version.h,
                          text_ids.h) · assets/ · platform/ios/ · tools/ · docs/ · site/
 apps/draw/               Draw: draw.c · src/text_ids.h · assets/ · tools/strings.py
+fude/zoom/               the deep-zoom canvas (Sketching's): zoom (shared types, f64 transforms) ·
+                         codec (strokes as exact integers, ~1.6 bytes a point) · index (R-tree) ·
+                         scene (frames, objects, camera, undo, journal) · erase (three erasers) ·
+                         shape (shapes as numbers, hold to snap) · smooth (smoothing, the rope) ·
+                         nav (flying, the empty screen's marks, the depth) · fill (tap to fill, cuts) ·
+                         export (SVG; PNG through the renderer) ·
+                         select (the lasso) · zfile (the canvas's file: Kana's chunks as a log) ·
+                         render · page · strings.py
+apps/sketching/          Sketching (a working name): sketching.c · src/ (version.h, text_ids.h) · assets/ ·
+                         platform/ (ios, android) · tools/strings.py
 tests/                   a suite per module group (tests/README.md)
 tools/                   strings/build.py (every app's strings) · icons/bearings.py · mlkit/
 ```
@@ -56,6 +66,7 @@ Each uses the ones under it, never the ones over it:
 | `fude/drawing` | itself, and the app's `text_ids.h` | the page, the screens' table, the toolbar, the side panel, Settings, Your data |
 | `fude/study` | the core, `fude/lang/lang.h` and `fude/lang/wordsplit.h` (the interfaces, not a language) | the character data, the study screens, their verbs, the word card, the page read as text |
 | `fude/lang/<code>` | the core, the study | one language: what `lang.h` asks, its strings, its data bake, its own screens (see the last section) |
+| `fude/zoom` | the core | the deep-zoom canvas: frames nested for precision, its objects, undo and file, and the page that draws on it (docs/infinite_canvas_design.md) |
 | `apps/<app>` | all of them | its shell, what it is (`info.h`), what it adds (`extension.h`), its screens' order |
 
 Inside each layer the old rule holds. Models keep what is learned and written,
@@ -114,6 +125,7 @@ all out.
 | `page_render`, `page_press` | over the page's ink | Translate's card by the selection, its speaker, its words |
 | `session_open`, `settings_gather/apply`, `first_launch` | the session | the study files; ML Kit on or off; the welcome |
 | `text_row` | the page's menu over a PDF's text the lasso took (no ink) | Copy as text, Translate, Save word |
+| `page_kind` | the page itself: the toolbar's Undo, Redo, Clear and Reset view, and the session's opening and saving of a canvas | none (Sketching's: the deep-zoom page, `zoom/page.h`) |
 | `library`, `library_count` | the Library screen's books (`doc.h`'s `fude_doc_book`: a PDF and its cover in the assets, its title, what it is, its credit) | the lectures: First Year Japanese I (CC BY 4.0, Kana's edition) |
 
 The study fills most of it: a study app's extension starts with

@@ -119,5 +119,15 @@
 #define FUDE_ICON_IMAGE         "\xEE\x8B\x8A"   // ph-image U+E2CA
 #define FUDE_ICON_SCAN          "\xEE\xAE\xB6"   // ph-scan U+EBB6
 #define FUDE_ICON_PAUSE         "\xEE\x8E\x9E"   // ph-pause U+E39E
+#define FUDE_ICON_SHAPES          "\xEE\xB1\x9E"   // ph-shapes U+EC5E (the shapes tool (Sketching))
+#define FUDE_ICON_LINE            "\xEE\x9B\x92"   // ph-line-segment U+E6D2 (a line)
+#define FUDE_ICON_RECTANGLE       "\xEE\x8F\xB0"   // ph-rectangle U+E3F0 (a rectangle)
+#define FUDE_ICON_CIRCLE          "\xEE\x86\x8A"   // ph-circle U+E18A (an ellipse)
+#define FUDE_ICON_TRIANGLE        "\xEE\x92\xB0"   // ph-triangle U+E4B0 (a triangle)
+#define FUDE_ICON_FILL            "\xEE\x8E\x92"   // ph-paint-bucket U+E392 (filled shapes)
+#define FUDE_ICON_SMOOTHING       "\xEE\xAA\x9A"   // ph-wave-sine U+EA9A (the smoothing tool (Sketching))
+#define FUDE_ICON_SIGNAL_LOW      "\xEE\x85\x86"   // ph-cell-signal-low U+E146 (a little)
+#define FUDE_ICON_SIGNAL_MEDIUM   "\xEE\x85\x88"   // ph-cell-signal-medium U+E148 (more)
+#define FUDE_ICON_SIGNAL_HIGH     "\xEE\x85\x84"   // ph-cell-signal-high U+E144 (a lot)
 
 #endif

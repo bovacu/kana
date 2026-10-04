@@ -433,6 +433,20 @@ RDE_INTERNAL void fude_notes_delete_files(u32 _id) {
             rde_file_delete(_file);
         }
     }
+    // A deep-zoom canvas's file (Sketching's, zoom/zfile.h): <id>.zoom beside the page's.
+    fude_notes_canvas_path(_id, _path, sizeof(_path));
+    c8* _dot = strrchr(_path, '.');
+    if(_dot != NULL) {
+        *_dot = 0;
+    }
+    const c8* const _zoom[] = { ".zoom", ".zoom.bak", ".zoom.tmp", ".zoom.bad" };
+    for(u32 _i = 0; _i < sizeof(_zoom) / sizeof(_zoom[0]); _i++) {
+        c8 _file[RDE_MAX_PATH];
+        snprintf(_file, sizeof(_file), "%s%s", _path, _zoom[_i]);
+        if(rde_file_exists(_file)) {
+            rde_file_delete(_file);
+        }
+    }
     fude_notes_document_path(_id, _path, sizeof(_path));   // its own document, if it had one
     if(rde_file_exists(_path)) {
         rde_file_delete(_path);

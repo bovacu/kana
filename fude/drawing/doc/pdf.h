@@ -48,6 +48,13 @@ b8         fude_pdf_render(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_
 #define FUDE_PDF_IMAGE_PX 2400u
 b8         fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out);
 
+// A picture file (JPEG, PNG, HEIC...) as bytes a texture can be made from: JPEG,
+// or PNG when it has see-through parts (a logo, a diagram), turned as it was
+// taken and no larger than _max_px on its longer side — by ImageIO on Apple's
+// devices, Android's ImageDecoder on Android (pdf_android.c); elsewhere the
+// file's own bytes. Into *_out (free() them), *_size. False: unreadable.
+b8         fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size);
+
 // --- writing one: a document with what was written on it -----------------------------
 // Pages copied from a PDF as they are (their text stays text), with strokes
 // drawn over them and, where a picture shows text (a scan's, read), that text

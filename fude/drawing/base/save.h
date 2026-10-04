@@ -56,7 +56,8 @@
 //           hand; 0: only the pen), u8 pen_ever (1: a pen has written here),
 //           u8 r g b a (the marker's colour), f32 the marker's half-width,
 //           u8 cards_read (the must-read cards closed, a bit each: readcard.h),
-//           u8 ui_size (the interface's: FUDE_UI_SIZE_, app.h; 0: the device's)
+//           u8 ui_size (the interface's: FUDE_UI_SIZE_, app.h; 0: the device's),
+//           u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0: never chosen)
 //           (new fields go at the END: an older file just ends sooner; one from
 //           before the hand is a pen user's: the pen writes)
 // ===========================================================================
@@ -92,6 +93,8 @@ RDE_STRUCT {
     f32        marker_radius;
     u8         cards_read;        // the must-read cards closed, a bit each (readcard.h)
     u8         ui_size;           // FUDE_UI_SIZE_ (app.h; 0: the device's)
+    u8         smoothing;         // Sketching's smoothing (zoom/smooth.h): its level + 1 (0: never chosen)
+    f32        eraser_radius;     // the eraser's reach (ink.h; 0: never chosen)
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

@@ -174,6 +174,31 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
     return !_threw && _ok == JNI_TRUE;
 }
 
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
+    *_out  = NULL;
+    *_size = 0u;
+    JNIEnv*   _env  = fude_android_env();
+    jmethodID _read = fude_android_method(FUDE_JAVA_PDF, "pictureJpeg", "([BI)[B");
+    if(_path == NULL || _env == NULL || _read == NULL) {
+        return false;
+    }
+    jbyteArray _p    = fude_android_bytes(_env, _path);
+    jbyteArray _jpeg = (jbyteArray)(*_env)->CallStaticObjectMethod(_env, fude_android_class(FUDE_JAVA_PDF), _read, _p, (jint)_max_px);
+    (*_env)->DeleteLocalRef(_env, _p);
+    if(fude_android_threw(_env, "FudePdf.pictureJpeg")) {
+        return false;
+    }
+    usize _n = 0;
+    *_out = (u8*)fude_android_take_alloc(_env, _jpeg, &_n);   // NULL: it could not be read
+    if(*_out == NULL || _n == 0u) {
+        free(*_out);
+        *_out = NULL;
+        return false;
+    }
+    *_size = (u32)_n;
+    return true;
+}
+
 // --- the learner's turns ---------------------------------------------------------------------
 // FudePdfBox's positions are the page as the PDF reads it; pdf.h's, as the learner
 // turned it (as pdf.c's for PDFKit).

@@ -47,6 +47,7 @@ its first argument). It prints `ALL PASSED` last, or how many checks failed and 
 | `scan` | Text from a photo: lines kept, rotation, translations, word taps |
 | `sheet` | practice sheets as PDF: every page's structure checked |
 | `text` | the strings: every language has every id; templates render |
+| `zoom` | the deep-zoom canvas: the codec exact, the index against brute force, 20 levels deep and back, the erasers, undo, moves, shapes and hold to snap, pictures, smoothing (drawn live the same as smoothed whole), flights (exact, in range, no frames made), the empty screen's marks, home, fills (triangulation areas, clipping, the file, the eraser cutting them, a figure 8's lobe), the SVG export, the file reopened and cut at every byte |
 
 ## `support/`
 

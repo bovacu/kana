@@ -1872,7 +1872,7 @@ void fude_side_apply_theme(fude_ui* _ui) {
             rde_ui_label_set_color(_headers[_i], _t->text_soft);
         }
     }
-    rde_ui_label* const _texts[] = { _side->settings_title, _side->width_label, _side->paper_label, _side->note_title,
+    rde_ui_label* const _texts[] = { _side->settings_title, _side->width_label, _side->paper_label, _side->ui_size_label, _side->note_title,
                                      _side->licences_title, _side->data_title, _side->data_text, _side->faq_title, _side->faq_text };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->text);

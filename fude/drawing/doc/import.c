@@ -128,6 +128,16 @@ b8 fude_import_update(fude_app* _app) {
     if(fude_import_in.count == 0u) {
         return false;   // cancelled
     }
+    // The app's own page takes them (Sketching: pictures on the canvas).
+    const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
+    if(_kind != NULL && _kind->imported != NULL) {
+        _kind->imported(_app, fude_import_in.kind, (const c8* const*)fude_import_in.paths, fude_import_in.count);
+        for(u32 _i = 0; fude_import_in.kind != FUDE_IMPORT_FILES && _i < fude_import_in.count; _i++) {
+            rde_file_delete(fude_import_in.paths[_i]);
+        }
+        fude_import_forget();
+        return false;
+    }
     // A PDF as it is (the first, if pictures came with it); pictures made into one.
     const c8* _pdf = NULL;
     const c8* _pictures[FUDE_IMPORT_MAX];

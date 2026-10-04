@@ -134,3 +134,6 @@ void rde_localization_free_translation(const c8* _t) { free((void*)_t); }
 #include "drawing/base/text.h"
 __attribute__((weak)) void rde_log_level(RDE_LOG_LEVEL_ _level, const c8* _fmt, ...) { (void)_level; (void)_fmt; }
 __attribute__((constructor)) static void ts_english(void) { fude_text_set_language(RDE_LANGUAGE_EN_US); }
+
+// The locale's digits (Arabic's own): the tests' languages write 0-9, so nothing changes.
+__attribute__((weak)) usize rde_localization_localize_digits(c8* _io, usize _capacity) { (void)_capacity; return strlen(_io); }

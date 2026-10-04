@@ -1,0 +1,3 @@
+/* The camera prompt (scanning pages to draw on), in ja. UTF-8. */
+"NSCameraUsageDescription" = "Sketching はカメラでページをスキャンし、その上に描けるようにします。";
+"CFBundleDisplayName" = "Sketching";
