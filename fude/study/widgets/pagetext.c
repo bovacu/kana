@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/widgets/pagetext.h"
 #include "lang/lang.h"
 #include "drawing/app/page.h"
@@ -138,7 +140,7 @@ RDE_INTERNAL void fude_pagetext_notice_copied(const c8* _copied) {
         }
     }
     _one_line[_n] = 0;
-    c8 _line[256];
+    c8 _line[512];
     if(_chars <= FUDE_PAGETEXT_NOTICE_CHARS) {
         FUDE_TEXTF(_line, FUDE_TEXT_NOTICE_COPIED_TEXT, FUDE_TS(_one_line));
     } else {
@@ -341,7 +343,7 @@ void fude_pagetext_write(fude_pagetext* _text, const c8* _utf8, rde_vec_2F _canv
     fude_toolbar_set_tool(&_app->ui->bar, FUDE_TOOL_LASSO);
     fude_lasso_paste_clip(_app->lasso, _app->ink, &_text->_text_clip, _canvas);
     if(_r.skipped > 0) {
-        c8 _line[192];
+        c8 _line[512];
         FUDE_TEXTF(_line, FUDE_TEXT_NOTICE_LEFT_OUT, FUDE_TN(_r.skipped));
         fude_notice_show(_line);
     }
@@ -444,7 +446,7 @@ void fude_pagetext_render(fude_pagetext* _text, rde_window* _window) {
         }
         c8 _say[400];
         snprintf(_say, sizeof(_say), "%s  %s  ·  %s", _word.written, _word.reading, _word.meaning);
-        const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, 14.0f, _inner - 28.0f, 0.55f);
+        const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, 14.0f, _inner - 28.0f);
         fude_draw_text(_font, _font_px, _say, _left + FUDE_PAGETEXT_CARD_PAD + 28.0f, _mid - _px * 0.36f, _px, _theirs ? _t->text : _t->text_soft);
     }
 }

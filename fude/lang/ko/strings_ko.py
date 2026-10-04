@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Korean for Korean's strings (fude/lang/ko, the fourth language of Hangul Learn!):
 # x(id, text) rows, read by tools/strings/build.py fourth().
 x('KO_JAMO', '자모')

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/row.h"
 #include "drawing/widgets/kit.h"
 #include "drawing/widgets/draw.h"

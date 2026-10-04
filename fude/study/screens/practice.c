@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/practice.h"
 #include "lang/lang.h"
 #include "drawing/base/text.h"
@@ -320,7 +322,7 @@ void fude_practice_score(fude_practice* _practice) {
         snprintf(_practice->feedback, sizeof(_practice->feedback), "%s", _practice->scores[0].feedback);
         FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_FROM_MEMORY, FUDE_TN(lroundf(_average)), FUDE_TS(fude_text(_saved ? FUDE_TEXT_SAVED : FUDE_TEXT_NOT_SAVED)));
     } else {
-        c8 _squares_n[48];
+        c8 _squares_n[512];
         FUDE_TEXTF(_squares_n, FUDE_TEXT_SQUARES_N, FUDE_TN(_scored));
         FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_AVERAGE, FUDE_TN(lroundf(_average)), FUDE_TS(_squares_n),
                    FUDE_TS(fude_text(_saved ? FUDE_TEXT_SAVED : FUDE_TEXT_NOT_SAVED)));
@@ -424,7 +426,7 @@ RDE_INTERNAL void fude_practice_render_summary(fude_practice* _practice, rde_fon
     }
     const u32 _weak = fude_practice_weak_count(_practice);
 
-    c8 _line[160];
+    c8 _line[512];
     fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_SET_DONE), _left, _top - 32.0f, 24.0f, _theme->text);
     if(_done > 0) {
         FUDE_TEXTF(_line, FUDE_TEXT_SET_SUMMARY, FUDE_TN(_done), FUDE_TN(_count), FUDE_TN(lroundf(_sum / (f32)_done)));
@@ -513,13 +515,13 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     // --- beside it: what it is, how it has gone before, how this one went ---------------
     const f32 _tx = _left + _demo + 20.0f;
     f32       _ty = _top - 30.0f;
-    c8        _line[160];
-    c8 _where[64];
+    c8        _line[512];
+    c8 _where[512];
     snprintf(_where, sizeof(_where), "%s", fude_text(_practice->guided ? FUDE_TEXT_GUIDED : FUDE_TEXT_PRACTICE));
     if(fude_practice_in_set(_practice)) {
         FUDE_TEXTF(_where, FUDE_TEXT_OF_N, FUDE_TN(_practice->set_position + 1u), FUDE_TN(rde_arr_length(&_practice->set)));
     }
-    c8 _strokes[48];
+    c8 _strokes[512];
     FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_info->strokes));
     if(_info->level != 0) {
         c8 _level[32];
@@ -545,7 +547,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     }
 
     if(_practice->has_summary) {
-        c8 _sessions_n[48];
+        c8 _sessions_n[512];
         FUDE_TEXTF(_sessions_n, FUDE_TEXT_SESSIONS_N, FUDE_TN(_practice->summary.sessions));
         FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HISTORY, FUDE_TS(_sessions_n), FUDE_TN(lroundf(_practice->summary.best)), FUDE_TN(lroundf(_practice->summary.last)),
                    FUDE_TN(lroundf(_practice->summary.first)));

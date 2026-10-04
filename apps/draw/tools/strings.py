@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Draw's UI strings: the drawing core's (fude/drawing/strings.py), in its own
 # neutral words. Run after changing them:
 #

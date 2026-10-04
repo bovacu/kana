@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Check data/raw/hi/devanagarivg.xml the way the app's bake will read it.
 
     python3 apps/hindi/tools/strokes/validate.py [devanagarivg.xml] [--corners]

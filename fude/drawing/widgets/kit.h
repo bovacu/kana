@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_KIT
 #define FUDE_KIT
 
@@ -79,6 +81,10 @@ void           fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_
 // lands an icon that far right of centre: an icon label placed by hand moves
 // back by it times the icon's em (fude_kit_icon does this itself).
 f32            fude_kit_icon_bearing(const c8* _glyph);
+// How far left to lay a Phosphor icon out, _px tall, for its ink to be centred:
+// its bearing — the other way round right to left, where the placement is
+// mirrored (rde.h: RDE_UI_DIRECTION_) and brings it back to the left.
+f32            fude_kit_icon_back(const c8* _glyph, f32 _px);
 // The icon alone in _color (after a look, which colours label and icon alike).
 void           fude_kit_icon_color(rde_ui_button* _button, rde_color _color);
 // A text field in a rounded box under _parent (instead of adding the field

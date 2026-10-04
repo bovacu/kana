@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/models/sheet.h"
 #include "lang/lang.h"
 #include "drawing/base/kfile.h"
@@ -301,7 +303,7 @@ RDE_INTERNAL void fude_sheet_block(fude_sheet_pdf* _pdf, const fude_kanji_info* 
 
     // The line: meanings, then readings; the level and strokes at the right.
     c8 _label[96];
-    c8 _strokes[64];
+    c8 _strokes[512];
     FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_info->strokes));
     if(_info->level != 0u) {
         c8 _level[32];
@@ -394,11 +396,11 @@ RDE_INTERNAL void fude_sheet_end_page(fude_sheet_pdf* _pdf, u32 _page, u32 _page
     fude_sheet_text(_pdf, _title, _left, _top - 16.0f, 15.0f, 0.10f);
     fude_sheet_text(_pdf, _date, _right - fude_sheet_text_width(_pdf, _date, 9.0f), _top - 15.0f, 9.0f, 0.45f);
     fude_sheet_draw(_pdf, "0.75 G 0.5 w %.2f %.2f m %.2f %.2f l S\n", _left, _top - FUDE_SHEET_HEADER + 6.0f, _right, _top - FUDE_SHEET_HEADER + 6.0f);
-    c8 _number[32];
-    snprintf(_number, sizeof(_number), "%u / %u", _page + 1u, _pages);
+    c8 _number[512];
+    FUDE_TEXTF(_number, FUDE_TEXT_OF_N, FUDE_TN(_page + 1u), FUDE_TN(_pages));
     const f32 _foot = FUDE_SHEET_MARGIN - 4.0f;
     const f32 _nw   = fude_sheet_text_width(_pdf, _number, 7.5f);
-    c8        _credit[256];
+    c8        _credit[512];
     snprintf(_credit, sizeof(_credit), "%s", fude_text(FUDE_TEXT_SHEET_CREDIT));
     const f32 _cw   = fude_sheet_text_width(_pdf, _credit, 7.0f);
     const f32 _room = _right - _left - _nw - 12.0f;
@@ -461,7 +463,7 @@ b8 fude_sheet_write(const fude_kanji_db* _db, const u32* _records, u32 _count, c
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fude_sheet_pdf        _pdf  = { .db = _db, .out = fude_bytes_new(64u * 1024u), .page = fude_bytes_new(64u * 1024u),
                                     .offsets = rde_arr_new(sizeof(u32), _heap) };
-    c8 _title[128];
+    c8 _title[512];
     c8 _date[64];
     snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_SHEET_TITLE));
     fude_text_date(_date, sizeof(_date), (u64)time(NULL));

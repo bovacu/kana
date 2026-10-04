@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_APP_INFO
 #define FUDE_APP_INFO
 
@@ -12,6 +14,14 @@
 // ===========================================================================
 
 #define FUDE_APP_LICENCES 6u   // Settings › Licences: its documents, at most
+
+// Every app's copyright, shown in Settings' About and in Licences (a name and a
+// year: the same in every language).
+#define FUDE_APP_COPYRIGHT "\xC2\xA9 2026 Borja Vazquez Cuesta"   // ©
+// The side panel's FAQ & Contact: where to write (every app's), and the FAQ's
+// page, unless the app has its own (fude_app_info.faq_url). "": no FAQ link yet.
+#define FUDE_APP_CONTACT "rde.apps.support@gmail.com"
+#define FUDE_APP_FAQ_URL ""
 
 // A document of Licences: its name, and the files it is made of (one after the other).
 typedef struct {
@@ -33,6 +43,7 @@ typedef struct {
     u32              credits;      // About's credits, under the version (FUDE_TEXT_; FUDE_TEXT_COUNT: none)
     fude_app_licence licences[FUDE_APP_LICENCES];
     u32              licence_count;
+    const c8*        faq_url;      // FAQ & Contact's page (NULL: FUDE_APP_FAQ_URL)
 } fude_app_info;
 
 #endif

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // Apple's headers before RDE's: rde.h's `any` macro would otherwise reach the
 // availability attributes in them.
 #import <TargetConditionals.h>

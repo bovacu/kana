@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Kana's two web pages for the App Store: the privacy policy (privacy.html) and
 # the help and support page (index.html), in Kana's five languages, written into
 # site/. App Store Connect asks for both URLs: host site/ anywhere static (GitHub

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Hangul's raw data: every source its data bake reads, downloaded into data/raw/
 # (git-ignored), each from where docs/chinese_korean_data.md says, under the
 # licence it says. Run from the project root; a file already there is kept

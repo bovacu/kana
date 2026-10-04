@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef HANGUL_VERSION_H
 #define HANGUL_VERSION_H
 

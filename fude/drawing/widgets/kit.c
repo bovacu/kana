@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/kit.h"
 #include "drawing/base/theme.h"
 #include "drawing/widgets/draw.h"
@@ -160,6 +162,10 @@ f32 fude_kit_icon_bearing(const c8* _glyph) {
     }
     return _lo < sizeof(FUDE_KIT_ICON_BEARINGS) / sizeof(FUDE_KIT_ICON_BEARINGS[0]) && FUDE_KIT_ICON_BEARINGS[_lo].codepoint == _cp
          ? (f32)FUDE_KIT_ICON_BEARINGS[_lo].bearing / 1024.0f : 0.0f;
+}
+
+f32 fude_kit_icon_back(const c8* _glyph, f32 _px) {
+    return fude_kit_icon_bearing(_glyph) * _px * FUDE_KIT_EM * (fude_draw_is_rtl() ? -1.0f : 1.0f);
 }
 
 rde_ui_style fude_kit_style(rde_color _tint, f32 _radius) {
@@ -423,8 +429,8 @@ void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _
     rde_ui_label_set_text(_icon, _phosphor ? fude_draw_icon_dir(_glyph) : _glyph);   // a directional icon mirrored right to left
 
     rde_ui_label* _text = _button->internal_label;
-    // Back left by the icon's bearing (see FUDE_KIT_ICON_BEARINGS).
-    const f32 _back = _phosphor ? fude_kit_icon_bearing(_glyph) * _px * FUDE_KIT_EM : 0.0f;
+    // Back left by the icon's bearing (see FUDE_KIT_ICON_BEARINGS, fude_kit_icon_back).
+    const f32 _back = _phosphor ? fude_kit_icon_back(_glyph, _px) : 0.0f;
     // A letter centred on its ink (fude_kit_glyph_rise).
     const f32 _up = _phosphor ? 0.0f : fude_kit_glyph_rise(_font, _glyph, _px);
     if(_at == FUDE_KIT_ICON_ONLY) {

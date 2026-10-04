@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "hangul_app.h"
 #include "version.h"
 #include "drawing/base/text.h"

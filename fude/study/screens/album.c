@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/album.h"
 #include "study/widgets/header.h"
 #include "drawing/base/text.h"
@@ -408,11 +410,11 @@ RDE_INTERNAL void fude_album_render_overview(fude_album* _album, rde_font* _font
     #define FUDE_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
     fude_header_title(_font, _font_px, fude_text(FUDE_TEXT_ALBUM), _left, FUDE_ALBUM_SY(0.0f) - 2.0f);
-    c8 _line[128];
+    c8 _line[512];
     if(_count == 0) {
         snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_ALBUM_EMPTY));
     } else {
-        c8 _chars[48], _sessions_n[48];
+        c8 _chars[512], _sessions_n[48];
         FUDE_TEXTF(_chars, FUDE_TEXT_CHARACTERS_N, FUDE_TN(_count));
         FUDE_TEXTF(_sessions_n, FUDE_TEXT_SESSIONS_N, FUDE_TN(_album->sessions));
         FUDE_TEXTF(_line, FUDE_TEXT_ALBUM_COUNTS, FUDE_TS(_chars), FUDE_TS(_sessions_n));
@@ -465,7 +467,7 @@ RDE_INTERNAL void fude_album_render_exams(fude_album* _album, rde_font* _font, f
     #define FUDE_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
     fude_header_title(_font, _font_px, fude_text(FUDE_TEXT_ALBUM), _left, FUDE_ALBUM_SY(0.0f) - 2.0f);
-    c8  _line[160];
+    c8  _line[512];
     u32 _passed = 0;
     for(u32 _e = 0; _e < _count; _e++) {
         _passed += (f32)_exams[_e].correct >= FUDE_EXAM_PASS * (f32)_exams[_e].item_count ? 1u : 0u;
@@ -475,7 +477,7 @@ RDE_INTERNAL void fude_album_render_exams(fude_album* _album, rde_font* _font, f
     } else {
         FUDE_TEXTF(_line, FUDE_TEXT_ALBUM_EXAMS_COUNTS, FUDE_TN(_count), FUDE_TN(_passed));
     }
-    fude_draw_text(_font, _font_px, _line, _left, FUDE_ALBUM_SY(0.0f) - 60.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 17.0f, _right - _left, 0.6f),
+    fude_draw_text(_font, _font_px, _line, _left, FUDE_ALBUM_SY(0.0f) - 60.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 17.0f, _right - _left),
                    _theme->text_soft);
 
     const f32 _width    = _right - _left;
@@ -504,7 +506,7 @@ RDE_INTERNAL void fude_album_render_exams(fude_album* _album, rde_font* _font, f
             fude_text_date_time(_date, sizeof(_date), _exam->time);
             FUDE_TEXTF(_line, FUDE_TEXT_EXAM_KEPT, FUDE_TS(fude_exam_source_name((FUDE_EXAM_SOURCE_)_exam->source)), FUDE_TS(_date));
             fude_draw_text(_font, _font_px, _line, _x, _base,
-                           fude_draw_text_px_to_fit(_font, _font_px, _line, 18.0f, _width - 2.0f * FUDE_ALBUM_EXAM_PAD - _chip_w - 12.0f, 0.6f), _theme->text);
+                           fude_draw_text_px_to_fit(_font, _font_px, _line, 18.0f, _width - 2.0f * FUDE_ALBUM_EXAM_PAD - _chip_w - 12.0f), _theme->text);
             FUDE_TEXTF(_line, FUDE_TEXT_EXAM_RESULT, FUDE_TN(_exam->correct), FUDE_TN(_exam->item_count), FUDE_TN(lroundf(_exam->score)));
             fude_draw_text(_font, _font_px, _line, _x, _base - 24.0f, 15.0f, _theme->text_soft);
 
@@ -539,7 +541,7 @@ RDE_INTERNAL f32 fude_album_render_answer(fude_album* _album, rde_font* _font, f
     const fude_examlog_item*    _item   = &fude_examlog_items()[_exam->first_item + _answer->item];
     #define FUDE_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
-    c8        _title[64], _date[96], _line[32];
+    c8        _title[512], _date[96], _line[32];
     const f32 _base = FUDE_ALBUM_SY(_y) - 24.0f;
     fude_draw_verdict((rde_vec_2F){ _left + 11.0f, _base + 6.0f }, 11.0f, _item->correct);
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name((FUDE_EXAM_SOURCE_)_exam->source)));
@@ -584,7 +586,7 @@ RDE_INTERNAL void fude_album_render_page(fude_album* _album, rde_font* _font, f3
     const u32                   _count    = (u32)rde_arr_length(&_album->history.sessions);
     #define FUDE_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
 
-    c8 _line[160];
+    c8 _line[512];
     c8 _date[64];
 
     // --- the character, its summary, its trend ---------------------------------------
@@ -598,7 +600,7 @@ RDE_INTERNAL void fude_album_render_page(fude_album* _album, rde_font* _font, f3
             _best = fmaxf(_best, _sessions[_i].average);
         }
         fude_album_date(_sessions[0].time, false, _date, sizeof(_date));
-        c8 _sessions_n[48];
+        c8 _sessions_n[512];
         FUDE_TEXTF(_sessions_n, FUDE_TEXT_SESSIONS_N, FUDE_TN(_count));
         FUDE_TEXTF(_line, FUDE_TEXT_ALBUM_SINCE, FUDE_TS(_sessions_n), FUDE_TS(_date));
         fude_draw_text(_font, _font_px, _line, _tx, _head - 24.0f, 22.0f, _theme->text);

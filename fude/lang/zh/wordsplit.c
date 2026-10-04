@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "lang/wordsplit.h"
 
 #include <stdio.h>

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Simplified Chinese for Chinese's strings (fude/lang/zh/strings.py; the fourth
 # language of Hanzi Learn!): x(id, text) rows, read by tools/strings/build.py
 # fourth().

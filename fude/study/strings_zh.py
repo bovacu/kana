@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Simplified Chinese for the study layer's strings (the fourth language of
 # Hanzi Learn!): x(id, text) rows, read by tools/strings/build.py fourth().
 x('PREV', '上一个')

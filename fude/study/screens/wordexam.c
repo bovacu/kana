@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/wordexam.h"
 #include "lang/lang.h"
 #include "study/widgets/header.h"
@@ -614,13 +616,13 @@ RDE_INTERNAL void fude_wordexam_chip_draw(rde_font* _font, f32 _font_px, rde_vec
 
 RDE_INTERNAL void fude_wordexam_render_setup(fude_wordexam* _exam, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top) {
     const fude_theme* _theme = fude_theme_active();
-    c8 _title[128];
+    c8 _title[512];
     FUDE_TEXTF(_title, FUDE_TEXT_WORDEXAM_TITLE_OF, FUDE_TS(_exam->title));
     fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), NULL);
     f32 _y = _top - 56.0f;
     _exam->chip_count = 0;
     const u32 _size   = fude_wordexam_askable(_exam);
-    c8        _label[64];
+    c8        _label[512];
     for(u32 _group = 0; _group < 2u; _group++) {
         if(_group == 1u && !fude_speech_available()) {
             break;   // no voice: by meaning only
@@ -662,15 +664,15 @@ RDE_INTERNAL void fude_wordexam_render_setup(fude_wordexam* _exam, rde_font* _fo
     // What that makes.
     _y -= 24.0f;
     fude_draw_card((rde_vec_2F){ _left, _y - 76.0f }, (rde_vec_2F){ _right, _y }, 14.0f, _theme->surface, _theme->outline);
-    c8 _line[192];
+    c8 _line[512];
     if(_size == 0u) {
         snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_WORDEXAM_NONE));
     } else {
         FUDE_TEXTF(_line, FUDE_TEXT_WORDEXAM_PLAN, FUDE_TN(fude_wordexam_planned(_exam)), FUDE_TN(_size));
     }
-    fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 32.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 15.0f, _right - _left - 36.0f, 0.6f), _theme->text);
+    fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 32.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 15.0f, _right - _left - 36.0f), _theme->text);
     snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_WORDEXAM_RULE));
-    fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 56.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 12.0f, _right - _left - 36.0f, 0.6f), _theme->text_soft);
+    fude_draw_text(_font, _font_px, _line, _left + 18.0f, _y - 56.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 12.0f, _right - _left - 36.0f), _theme->text_soft);
 }
 
 // A word's boxes from _tl, each _box with _gap between: the writing (or, given,
@@ -709,7 +711,7 @@ RDE_INTERNAL void fude_wordexam_render_writing(fude_wordexam* _exam, rde_window*
         return;
     }
     const fude_vocab_word* _w = fude_vocab_get(_it->word);
-    c8 _title[128], _line[64];
+    c8 _title[512], _line[64];
     FUDE_TEXTF(_title, FUDE_TEXT_WORDEXAM_TITLE_OF, FUDE_TS(_exam->title));
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_exam->current + 1u), FUDE_TN(_exam->count));
     fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_WORDS), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_WORDEXAM_INTRO), _line);
@@ -761,7 +763,7 @@ RDE_INTERNAL void fude_wordexam_render_writing(fude_wordexam* _exam, rde_window*
 
 RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
-    c8 _line[192], _title[128];
+    c8 _line[512], _title[128];
     FUDE_TEXTF(_title, FUDE_TEXT_WORDEXAM_TITLE_OF, FUDE_TS(_exam->title));
     if(!fude_wordexam_graded(_exam)) {
         u32 _graded = 0;
@@ -807,10 +809,10 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
         fude_wordexam_draw_boxes(_exam, _window, _it, (rde_vec_2F){ _left, _mid + _box * 0.5f }, _box, 4.0f, true);
         const f32 _tx = _left + (f32)_it->count * (_box + 4.0f) + 16.0f;
         if(_w != NULL) {
-            const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _w->written, 20.0f, _right - 60.0f - _tx, 0.5f);
+            const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _w->written, 20.0f, _right - 60.0f - _tx);
             fude_draw_text(_font, _font_px, _w->written, _tx, _mid + 4.0f, _px, _theme->ink);
             snprintf(_line, sizeof(_line), "%s \xC2\xB7 %s", _w->reading, _w->meaning);   // ·
-            fude_draw_text(_font, _font_px, _line, _tx, _mid - 18.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 12.0f, _right - 60.0f - _tx, 0.6f), _theme->text_soft);
+            fude_draw_text(_font, _font_px, _line, _tx, _mid - 18.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 12.0f, _right - 60.0f - _tx), _theme->text_soft);
         }
         if(_it->graded) {
             fude_draw_verdict((rde_vec_2F){ _right - 22.0f, _mid }, 14.0f, _it->correct);

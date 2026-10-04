@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/app/study.h"
 #include "drawing/base/text.h"
 #include "drawing/widgets/notice.h"
@@ -145,7 +147,7 @@ RDE_INTERNAL void fude_study_select_list(fude_app* _app, void* _self, u32 _arg) 
         fude_notice_show(fude_text(FUDE_TEXT_VOCAB_LISTS_FULL));
         return;
     }
-    c8 _line[192];
+    c8 _line[512];
     FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_LIST_SAVED, FUDE_TN(_saved), FUDE_TS(_name));
     fude_notice_show(_line);
 }

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef KANA_VERSION_H
 #define KANA_VERSION_H
 

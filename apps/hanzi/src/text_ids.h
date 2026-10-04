@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // The UI strings' ids, in order: one FUDE_TEXT_ID(x) per string. Generated
 // by apps/hanzi/tools/strings.py with assets/text/strings.rdel (the texts, in
 // every language); see fude/drawing/base/text.h.
@@ -56,6 +58,9 @@ FUDE_TEXT_ID(SETTINGS_ABOUT)
 FUDE_TEXT_ID(ABOUT_BUILT)
 FUDE_TEXT_ID(RATE)
 FUDE_TEXT_ID(TUTORIAL)
+FUDE_TEXT_ID(FAQ_CONTACT)
+FUDE_TEXT_ID(FAQ_OPEN)
+FUDE_TEXT_ID(CONTACT_WRITE)
 FUDE_TEXT_ID(DATA)
 FUDE_TEXT_ID(DATA_OFFLINE)
 FUDE_TEXT_ID(DATA_BACKUP_IOS)

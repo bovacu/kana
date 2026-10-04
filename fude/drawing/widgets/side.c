@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/side.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/notice.h"
@@ -129,6 +131,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_backdrop(rde_ui_node* _node, cons
 // below take no node or event).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_licences_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_data_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_faq_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_settings_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_card_cancel(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
 
@@ -136,6 +139,7 @@ b8 fude_side_back(fude_ui* _ui) {
     fude_side* _side = &_ui->side;
     if(_side->licences_open)                          { fude_side_on_licences_close(NULL, NULL, _ui); }
     else if(_side->data_open)                         { fude_side_on_data_close(NULL, NULL, _ui); }
+    else if(_side->faq_open)                          { fude_side_on_faq_close(NULL, NULL, _ui); }
     else if(_side->card_mode != FUDE_SIDE_CARD_NONE)  { fude_side_on_card_cancel(NULL, NULL, _ui); }
     else if(_side->settings_open)                     { fude_side_on_settings_close(NULL, NULL, _ui); }
     else if(_side->open)                              { fude_side_on_backdrop(NULL, NULL, _ui); }
@@ -267,6 +271,54 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_tutorial(rde_ui_node* _node, cons
     fude_ui* _ui = (fude_ui*)_user_data;
     _ui->side.open = false;
     fude_app_ext(_ui->app)->tutorial(_ui->app);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// FAQ & Contact: its card, over the panel.
+RDE_INTERNAL const c8* fude_side_faq_url(const fude_ui* _ui) {
+    return _ui->app->info->faq_url != NULL ? _ui->app->info->faq_url : FUDE_APP_FAQ_URL;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_faq(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    ((fude_ui*)_user_data)->side.faq_open = true;
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_faq_close(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    ((fude_ui*)_user_data)->side.faq_open = false;
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// The FAQ's page, in the browser.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_faq_link(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    const c8* _url = fude_side_faq_url((const fude_ui*)_user_data);
+    if(_url[0] != 0) {
+        rde_engine_open_url(_url);
+    }
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// A new mail to the address, the app's name and version as its subject.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_faq_mail(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    const fude_ui* _ui = (const fude_ui*)_user_data;
+    c8 _subject[96];
+    snprintf(_subject, sizeof(_subject), "%s %s", _ui->app->info->name, _ui->app->info->version);
+    c8    _url[256];
+    usize _n = (usize)snprintf(_url, sizeof(_url), "mailto:%s?subject=", FUDE_APP_CONTACT);
+    for(const c8* _p = _subject; *_p != 0 && _n + 4u < sizeof(_url); _p++) {
+        const u8 _c = (u8)*_p;
+        if((_c >= 'A' && _c <= 'Z') || (_c >= 'a' && _c <= 'z') || (_c >= '0' && _c <= '9') || _c == '.' || _c == '-') {
+            _url[_n++] = (c8)_c;
+        } else {
+            _n += (usize)snprintf(_url + _n, sizeof(_url) - _n, "%%%02X", _c);   // percent-encoded (a space, "!")
+        }
+    }
+    _url[_n] = 0;
+    rde_engine_open_url(_url);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
@@ -753,7 +805,7 @@ RDE_INTERNAL void fude_side_card(fude_ui* _ui, FUDE_SIDE_CARD_ _mode, u32 _note)
 
     const b8 _folder = _n->kind == FUDE_NOTE_FOLDER;
     c8       _title[FUDE_NOTE_NAME + 32];
-    c8       _body[160] = "";
+    c8       _body[512] = "";
     if(_mode == FUDE_SIDE_CARD_ACTIONS) {
         snprintf(_title, sizeof(_title), "%s", _n->name);
         if(_folder) {
@@ -781,7 +833,7 @@ RDE_INTERNAL void fude_side_card(fude_ui* _ui, FUDE_SIDE_CARD_ _mode, u32 _note)
     }
     rde_ui_label_set_text(_side->note_title, _title);
     rde_ui_label_set_text(_side->note_body, _body);
-    c8 _confirm[64];
+    c8 _confirm[512];
     snprintf(_confirm, sizeof(_confirm), "%s  %s", _mode == FUDE_SIDE_CARD_DELETE ? FUDE_ICON_TRASH : FUDE_ICON_CHECK,
              fude_text(_mode == FUDE_SIDE_CARD_DELETE ? FUDE_TEXT_DELETE : FUDE_TEXT_SAVE));
     rde_ui_button_set_text(_side->note_confirm, _confirm);
@@ -1008,12 +1060,15 @@ RDE_INTERNAL void fude_side_build_notes(fude_ui* _ui) {
         rde_ui_label_set_font(_dots6, _ui->font_icons != NULL ? _ui->font_icons : _ui->font);
         rde_ui_label_set_alignment(_dots6, RDE_UI_LABEL_H_ALIGN_CENTER, RDE_UI_LABEL_V_ALIGN_MIDDLE);
         rde_ui_label_set_color(_dots6, _t->grip);
-        const f32 _back = fude_kit_icon_bearing(FUDE_ICON_GRIP_V) * 14.0f * FUDE_KIT_EM;   // centred
+        const f32 _back = fude_kit_icon_back(FUDE_ICON_GRIP_V, 14.0f);   // centred
         fude_kit_place(rde_ui_label_as_node(_dots6), (rde_vec_2F){ FUDE_SIDE_HANDLE_W * 0.5f - _back, FUDE_SIDE_NOTE_H * 0.5f }, (rde_vec_2F){ FUDE_SIDE_HANDLE_W, FUDE_SIDE_NOTE_H });
 
         c8 _label[FUDE_NOTE_NAME + 32];
         if(_folder) {
-            snprintf(_label, sizeof(_label), "%s  (%u)", _n->name, fude_notes_count_in(_notes, _n->id));
+            c8 _count[32];
+            snprintf(_count, sizeof(_count), "%u", fude_notes_count_in(_notes, _n->id));
+            rde_localization_localize_digits(_count, sizeof(_count));   // the language's digits (the name is the learner's: as written)
+            snprintf(_label, sizeof(_label), "%s  (%s)", _n->name, _count);
         } else {
             snprintf(_label, sizeof(_label), "%s", _n->name);
         }
@@ -1186,10 +1241,12 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     const f32 _vy       = (f32)_insets.w + FUDE_SIDE_MARGIN * 0.5f + 9.0f;   // the version's middle
     const f32 _first    = _vy + 9.0f + FUDE_SIDE_GAP + _foot_h * 0.5f;          // the lowest row's middle
     const b8  _app_b    = _side->app_button != NULL && _side->_app_button_shown;
-    const u32 _stacked  = 1u + (_side->tutorial != NULL ? 1u : 0u) + (_rate ? 1u : 0u) + (_app_b ? 1u : 0u);
+    const u32 _stacked  = 2u + (_side->tutorial != NULL ? 1u : 0u) + (_rate ? 1u : 0u) + (_app_b ? 1u : 0u);   // FAQ & Contact and Settings, ...
     const f32 _room     = _y - (_first + (f32)(_stacked - 1u) * (_foot_h + FUDE_SIDE_GAP) + _foot_h * 0.5f + FUDE_SIDE_MARGIN);
     const b8  _compact  = _side->tutorial != NULL && _room < 2.0f * FUDE_SIDE_NOTE_H;
-    f32       _top      = _first;   // the highest row's middle
+    // FAQ & Contact the lowest, under Settings.
+    fude_kit_place(rde_ui_button_as_node(_side->faq_button), (rde_vec_2F){ _x0 + _cw * 0.5f, _first }, (rde_vec_2F){ _cw, _foot_h });
+    f32       _top      = _first + _foot_h + FUDE_SIDE_GAP;   // the highest row's middle
     if(_compact) {
         const f32 _tw = FUDE_SIDE_FOOT_W(fude_text(FUDE_TEXT_TUTORIAL));
         const f32 _sw = FUDE_SIDE_FOOT_W(fude_text(FUDE_TEXT_SETTINGS));
@@ -1292,9 +1349,24 @@ RDE_INTERNAL void fude_side_layout(fude_ui* _ui) {
     fude_kit_place(rde_ui_scroll_area_as_node(_side->licences_text), (rde_vec_2F){ _m + _lw * 0.5f, (_lt_top + _lt_bottom) * 0.5f },
                        (rde_vec_2F){ _lw, fmaxf(40.0f, _lt_top - _lt_bottom) });
     fude_kit_place(rde_ui_button_as_node(_side->licences_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
+    fude_kit_place(rde_ui_label_as_node(_side->licences_copyright), (rde_vec_2F){ _m + (_lw - 132.0f) * 0.5f, _m + 22.0f }, (rde_vec_2F){ _lw - 132.0f, 44.0f });   // by Close
     if(_side->licences_open) {
         fude_side_licence_load(_ui, _side->licences_doc);   // new width: the lines again
     }
+
+    // FAQ & Contact: a smaller card, the FAQ's page, then where to write.
+    const f32 _fh = fminf(fude_side_faq_url(_ui)[0] != 0 ? 300.0f : 240.0f, _kh);   // shorter without the FAQ's link
+    const b8  _fl = fude_side_faq_url(_ui)[0] != 0;
+    fude_kit_modal_place(&_side->faq, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.5f }, (rde_vec_2F){ _kw, _fh });
+    fude_kit_place(rde_ui_label_as_node(_side->faq_title), (rde_vec_2F){ _m + _lw * 0.5f, _fh - 36.0f }, (rde_vec_2F){ _lw, 44.0f });
+    f32 _fy = _fh - 92.0f;
+    if(_fl) {
+        fude_kit_place(rde_ui_button_as_node(_side->faq_link), (rde_vec_2F){ _m + _lw * 0.5f, _fy }, (rde_vec_2F){ _lw, 44.0f });
+        _fy -= 60.0f;
+    }
+    fude_kit_place(rde_ui_label_as_node(_side->faq_text), (rde_vec_2F){ _m + _lw * 0.5f, _fy }, (rde_vec_2F){ _lw, 44.0f });
+    fude_kit_place(rde_ui_button_as_node(_side->faq_mail), (rde_vec_2F){ _m + _lw * 0.5f, _fy - 46.0f }, (rde_vec_2F){ _lw, 44.0f });
+    fude_kit_place(rde_ui_button_as_node(_side->faq_close), (rde_vec_2F){ _kw - _m - 60.0f, _m + 22.0f }, (rde_vec_2F){ 120.0f, 44.0f });
 
     // The note card (its own layout: its height follows its buttons' rows).
     fude_side_card_layout(_ui);
@@ -1402,6 +1474,8 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     _side->version         = fude_side_label(_ui, _panel, _version, 11.0f);
     _side->settings_button = fude_kit_button(_panel, fude_text(FUDE_TEXT_SETTINGS), fude_side_on_settings, _ui);
     fude_kit_icon(_side->settings_button, FUDE_ICON_SETTINGS, FUDE_KIT_ICON_LEFT, 15.0f);
+    _side->faq_button = fude_kit_button(_panel, fude_text(FUDE_TEXT_FAQ_CONTACT), fude_side_on_faq, _ui);
+    fude_kit_icon(_side->faq_button, FUDE_ICON_HINT, FUDE_KIT_ICON_LEFT, 15.0f);
     if(fude_app_ext(_ui->app)->tutorial != NULL) {
         _side->tutorial = fude_kit_button(_panel, fude_text(FUDE_TEXT_TUTORIAL), fude_side_on_tutorial, _ui);
         fude_kit_icon(_side->tutorial, FUDE_ICON_INFO, FUDE_KIT_ICON_LEFT, 15.0f);
@@ -1467,6 +1541,7 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     }
 
     FUDE_TEXTF(fude_side_about, FUDE_TEXT_ABOUT_BUILT, FUDE_TS(_ui->app->info->version), FUDE_TS(__DATE__));
+    snprintf(fude_side_about + strlen(fude_side_about), sizeof(fude_side_about) - strlen(fude_side_about), "\n%s", FUDE_APP_COPYRIGHT);
     if(_ui->app->info->credits < FUDE_TEXT_COUNT) {
         snprintf(fude_side_about + strlen(fude_side_about), sizeof(fude_side_about) - strlen(fude_side_about), "\n\n%s", fude_text((FUDE_TEXT_)_ui->app->info->credits));
     }
@@ -1533,7 +1608,24 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
         rde_ui_node_set_active(rde_ui_label_as_node(_side->licences_lines[_k]), false);
     }
     _side->licences_close = fude_kit_button(_lcard, fude_text(FUDE_TEXT_CLOSE), fude_side_on_licences_close, _ui);
+    {
+        c8 _copyright[128];
+        snprintf(_copyright, sizeof(_copyright), "%s %s", _ui->app->info->name, FUDE_APP_COPYRIGHT);
+        _side->licences_copyright = fude_side_label(_ui, _lcard, _copyright, FUDE_SIDE_SMALL_PX);
+    }
     _side->_licence_first = -1;
+
+    // FAQ & Contact, over the panel.
+    fude_kit_modal_create(&_side->faq, _root, fude_side_on_faq_close, _ui);
+    rde_ui_node* _fcard = rde_ui_image_as_node(_side->faq.card);
+    _side->faq_title = fude_side_label(_ui, _fcard, fude_text(FUDE_TEXT_FAQ_CONTACT), FUDE_SIDE_TITLE_PX);
+    _side->faq_link  = fude_kit_button(_fcard, fude_text(FUDE_TEXT_FAQ_OPEN), fude_side_on_faq_link, _ui);
+    fude_kit_icon(_side->faq_link, FUDE_ICON_EXPORT, FUDE_KIT_ICON_LEFT, 15.0f);
+    rde_ui_node_set_active(rde_ui_button_as_node(_side->faq_link), fude_side_faq_url(_ui)[0] != 0);
+    _side->faq_text  = fude_side_label(_ui, _fcard, fude_text(FUDE_TEXT_CONTACT_WRITE), FUDE_SIDE_ROW_PX);
+    rde_ui_label_set_wrap(_side->faq_text, true);
+    _side->faq_mail  = fude_kit_button(_fcard, FUDE_APP_CONTACT, fude_side_on_faq_mail, _ui);
+    _side->faq_close = fude_kit_button(_fcard, fude_text(FUDE_TEXT_CLOSE), fude_side_on_faq_close, _ui);
 
     // The note card, over the panel (and a backdrop that cancels it).
     fude_kit_modal_create(&_side->note, _root, fude_side_on_card_cancel, _ui);
@@ -1549,7 +1641,7 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_side->note_field), _ui);
     rde_ui_text_editor_set_on_submit(_side->note_field, fude_side_on_field_submit);
     fude_kit_field_box(_note_card, _side->note_field);
-    c8 _with_icon[96];
+    c8 _with_icon[512];
     snprintf(_with_icon, sizeof(_with_icon), FUDE_ICON_DRAW "  %s", fude_text(FUDE_TEXT_RENAME));
     _side->note_rename  = fude_kit_button(_note_card, _with_icon, fude_side_on_card_rename, _ui);
     snprintf(_with_icon, sizeof(_with_icon), FUDE_ICON_FILE_ADD "  %s", fude_text(FUDE_TEXT_CANVAS));
@@ -1604,7 +1696,7 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
         const u32                       _n     = _entry->count != NULL ? _entry->count(_ui->app) : 0u;
         if(_entry->count != NULL && _n != _side->_nav_counts[_i]) {
             _side->_nav_counts[_i] = _n;
-            c8 _label[64];
+            c8 _label[512];
             if(_n > 0) { FUDE_TEXTF(_label, (FUDE_TEXT_)_entry->counted_text, FUDE_TN(_n)); }
             else       { snprintf(_label, sizeof(_label), "%s", fude_text((FUDE_TEXT_)_entry->text)); }
             rde_ui_button_set_text(_side->nav[_i], _label);
@@ -1643,6 +1735,11 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
             rde_ui_node_set_active(rde_ui_button_as_node(_side->data_cancel), _side->data_confirming);
         }
     }
+
+    if(!_side->open && _side->faq_open) {
+        _side->faq_open = false;   // the panel gone, its card too
+    }
+    fude_kit_modal_show(&_side->faq, _side->faq_open);
 
     const b8 _card = _side->card_mode != FUDE_SIDE_CARD_NONE && _side->open;
     fude_kit_modal_show(&_side->note, _card);
@@ -1707,7 +1804,7 @@ void fude_side_apply_theme(fude_ui* _ui) {
         fude_kit_restyle_quiet(_side->nav[_i]);
         fude_kit_icon_color(_side->nav[_i], _t->accent);
     }
-    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button, _side->tutorial, _side->rate, _side->app_button };
+    rde_ui_button* const _quiet[] = { _side->new_folder, _side->new_canvas, _side->settings_button, _side->faq_button, _side->tutorial, _side->rate, _side->app_button };
     for(u32 _i = 0; _i < sizeof(_quiet) / sizeof(_quiet[0]); _i++) {
         if(_quiet[_i] != NULL) {
             fude_kit_restyle_quiet(_quiet[_i]);
@@ -1718,6 +1815,7 @@ void fude_side_apply_theme(fude_ui* _ui) {
                                         _side->ui_sizes[0], _side->ui_sizes[1], _side->ui_sizes[2],
                                         _side->licences_button, _side->licences_close,
                                         _side->data_button, _side->data_export, _side->data_import, _side->data_cancel, _side->data_close,
+                                        _side->faq_link, _side->faq_mail, _side->faq_close,
                                         _side->note_rename, _side->note_add, _side->note_add_folder, _side->note_delete, _side->note_cancel, _side->note_confirm };
     for(u32 _i = 0; _i < sizeof(_buttons) / sizeof(_buttons[0]); _i++) {
         fude_kit_restyle_button(_buttons[_i]);
@@ -1728,6 +1826,8 @@ void fude_side_apply_theme(fude_ui* _ui) {
     fude_kit_button_primary(_side->settings_close);
     fude_kit_button_primary(_side->licences_close);
     fude_kit_button_primary(_side->data_close);
+    fude_kit_button_primary(_side->faq_close);
+    fude_kit_modal_restyle(&_side->faq, 18.0f);
     fude_kit_button_danger(_side->data_replace);
     fude_kit_modal_restyle(&_side->data, 18.0f);
     _side->_data_shown[0] = 1;   // the answer line's colour again
@@ -1773,11 +1873,11 @@ void fude_side_apply_theme(fude_ui* _ui) {
         }
     }
     rde_ui_label* const _texts[] = { _side->settings_title, _side->width_label, _side->paper_label, _side->note_title,
-                                     _side->licences_title, _side->data_title, _side->data_text };
+                                     _side->licences_title, _side->data_title, _side->data_text, _side->faq_title, _side->faq_text };
     for(u32 _i = 0; _i < sizeof(_texts) / sizeof(_texts[0]); _i++) {
         rde_ui_label_set_color(_texts[_i], _t->text);
     }
-    rde_ui_label* const _soft[] = { _side->about_text, _side->note_body };
+    rde_ui_label* const _soft[] = { _side->about_text, _side->note_body, _side->licences_copyright };
     for(u32 _i = 0; _i < sizeof(_soft) / sizeof(_soft[0]); _i++) {
         rde_ui_label_set_color(_soft[_i], _t->text_soft);
     }

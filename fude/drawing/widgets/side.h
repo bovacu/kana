@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_SIDE
 #define FUDE_SIDE
 
@@ -160,6 +162,7 @@ RDE_STRUCT {
     b8                  licences_open;
     fude_kit_modal      licences;
     rde_ui_label*       licences_title;
+    rde_ui_label*       licences_copyright;   // the app's (info.h), by Close
     rde_ui_button*      licences_docs[FUDE_SIDE_LICENCE_DOCS];
     fude_side_theme_ref licences_refs[FUDE_SIDE_LICENCE_DOCS];
     rde_ui_scroll_area* licences_text;
@@ -181,6 +184,17 @@ RDE_STRUCT {
     // Your data: a card over Settings — Kana is offline, the platform's own
     // backup, Export and Import (backup.h). kana.c does the work (it owns the
     // saves): fude_side_take_data_request, and the answer in data_message.
+    // FAQ & Contact, the panel's lowest row: a card over the panel with the FAQ's
+    // page (when there is one) and the address to write to (info.h).
+    rde_ui_button*      faq_button;
+    b8                  faq_open;
+    fude_kit_modal      faq;
+    rde_ui_label*       faq_title;
+    rde_ui_button*      faq_link;             // the FAQ's page (hidden without one)
+    rde_ui_label*       faq_text;             // what the address is for
+    rde_ui_button*      faq_mail;             // the address: a tap writes to it
+    rde_ui_button*      faq_close;
+
     b8                  data_open;
     rde_ui_button*      data_button;          // in Settings, by Licences
     fude_kit_modal      data;

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Simplified Chinese for the drawing core's strings (the fourth language of
 # Hanzi Learn!): x(id, text) rows, read by tools/strings/build.py fourth().
 x('FINISH', '结束')
@@ -55,6 +57,9 @@ x('SETTINGS_ABOUT', '关于')
 x('ABOUT_BUILT', '{APP} {0}，构建于{1}。')
 x('RATE', '为 {APP} 评分')
 x('TUTORIAL', '教程')
+x('FAQ_CONTACT', '常见问题与联系')
+x('FAQ_OPEN', '常见问题')
+x('CONTACT_WRITE', '有疑问、想法或遇到问题？请写信给我们：')
 x('DATA', '你的数据')
 x('DATA_BACKUP_IOS', '开启 iCloud 云备份后（设置 › 你的名字 › iCloud › iCloud 云备份），这些数据也会包含在此设备的备份中：用该备份恢复此设备或设置新设备时，数据会随之恢复。')
 x('DATA_BACKUP_ANDROID', '开启 Google 备份后（设置 › Google › 备份），这些数据也会包含在此设备的备份中：新设备或重置后的设备从该备份恢复时，即可找回这些数据。')

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # A study app's AppIcon.svg with its script written in its own strokes: another
 # app's icon as the template (the moon and the open book), its background colour
 # and the letters on the moon replaced by TEXT's, from a strokes file (KanjiVG's

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/translator.h"
 #include "lang/lang.h"
 #include "study/widgets/header.h"
@@ -288,7 +290,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
                     else        { fude_draw_icon(_font, _font_px, FUDE_ICON_BOOKMARK, _b, 16.0f, _t->accent); }
                     c8 _say[400];
                     snprintf(_say, sizeof(_say), "%s  %s  \xC2\xB7  %s", _w.written, _w.reading, _w.meaning);   // ·
-                    const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, 15.0f, _width - 2.0f * FUDE_TRANSLATOR_PAD - 30.0f, 0.55f);
+                    const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, 15.0f, _width - 2.0f * FUDE_TRANSLATOR_PAD - 30.0f);
                     fude_draw_text(_font, _font_px, _say, _left + FUDE_TRANSLATOR_PAD + 30.0f, _mid - _px * 0.36f, _px, _theirs ? _t->text : _t->text_soft);
                 }
             }

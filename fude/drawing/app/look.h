@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_LOOK
 #define FUDE_LOOK
 
@@ -13,7 +15,7 @@
 //   --shot=FILE        a screenshot once the screen has settled, then quit
 //   --stay             the same sequence (presses, pastes...) without the shot, and
 //                      the app carries on: for a screenshot taken from outside (the Simulator's)
-//   --side --settings --licences=N --data --paper
+//   --side --faq --settings --licences=N --data --paper
 //   --data-export=FILE --data-import=FILE [--data-replace] --deselect --trim-fonts
 //   --press=I,J,...  the screen on top's row's buttons, pressed in turn   --language=N
 //   --rtl            the UI right to left, whatever the language

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/handwriting/textink.h"
 #include "study/chars/glyph.h"
 #include "lang/lang.h"

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/widgets/header.h"
 #include "study/screens/stats.h"
 #include "drawing/base/text.h"
@@ -596,9 +598,9 @@ RDE_INTERNAL void fude_stats_draw_activity(const fude_stats_box* _b) {
         const f32 _y = _b->top - (f32)(_i % 7u) * _cell;
         rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _dot * 0.5f), _y - _dot * 0.5f }, (rde_vec_2F){ _dot, _dot }, 0.4f, 3, _c, NULL);
     }
-    c8 _line[96];
+    c8 _line[512];
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_ACTIVITY_CAPTION, FUDE_TN(FUDE_STATS_WEEKS));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 7.0f * _cell - 22.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 14.0f, _b->width, 0.6f),
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 7.0f * _cell - 22.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 14.0f, _b->width),
                    _theme->text_soft);
 }
 
@@ -609,7 +611,7 @@ RDE_INTERNAL void fude_stats_chart_frame(const fude_stats_box* _b, f32 _x, f32 _
     for(u32 _i = 0; _i < 3u; _i++) {
         const f32 _ly = _y - _h + _h * _lines[_i] / 100.0f;
         fude_draw_line((rde_vec_2F){ _x, _ly }, (rde_vec_2F){ _x + _w, _ly }, 0.5f, _i == 2u ? fude_stats_alpha(_theme->score_good, 0.6f) : _theme->line);
-        c8 _label[8];
+        c8 _label[512];
         snprintf(_label, sizeof(_label), "%.0f", (f64)_lines[_i]);
         fude_stats_text_right(_b, _label, _x - 6.0f, _ly - 5.0f, 12.0f, _theme->text_soft);
     }
@@ -618,7 +620,7 @@ RDE_INTERNAL void fude_stats_chart_frame(const fude_stats_box* _b, f32 _x, f32 _
 RDE_INTERNAL void fude_stats_draw_scores(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
-    c8 _line[160];
+    c8 _line[512];
     if(_d->squares == 0) {
         fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_SCORES);
         return;
@@ -635,7 +637,7 @@ RDE_INTERNAL void fude_stats_draw_scores(const fude_stats_box* _b) {
     } else {
         FUDE_TEXTF(_line, FUDE_TEXT_STATS_SCORES_ALL, FUDE_TN(lroundf(_d->average)));
     }
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width), _theme->text);
 
     // Weekly averages: a line through the weeks that had practice.
     const f32 _x = _b->left + 28.0f, _y = _b->top - 36.0f, _w = _b->width - 28.0f, _h = 140.0f;
@@ -655,20 +657,20 @@ RDE_INTERNAL void fude_stats_draw_scores(const fude_stats_box* _b) {
         _have = true;
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_SCORES_CAPTION, FUDE_TN(FUDE_STATS_WEEKS));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 36.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 36.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width), _theme->text_soft);
 }
 
 RDE_INTERNAL void fude_stats_draw_exams(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
-    c8 _line[160];
+    c8 _line[512];
     if(_d->exams == 0) {
         fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_EXAMS);
         return;
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_EXAMS_LINE, FUDE_TN(_d->exams), FUDE_TN(_d->exams_passed), FUDE_TN(_d->exam_right), FUDE_TN(_d->exam_items),
                FUDE_TN(lroundf(_d->exam_points)));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width), _theme->text);
 
     // The last exams: how many right (the bar), how many points (the dot).
     const f32 _x = _b->left + 28.0f, _y = _b->top - 36.0f, _w = _b->width - 28.0f, _h = 130.0f;
@@ -696,7 +698,7 @@ RDE_INTERNAL void fude_stats_draw_exams(const fude_stats_box* _b) {
                        _theme->text_soft);
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_EXAMS_CAPTION, FUDE_TN(FUDE_STATS_EXAMS), FUDE_TN(lroundf(100.0f * FUDE_EXAM_PASS)));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _y - _h - 46.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width), _theme->text_soft);
 }
 
 // A chart's top value for _max: a round number at or above it (10 at least).
@@ -718,11 +720,11 @@ RDE_INTERNAL u32 fude_stats_round_up(u32 _max) {
 RDE_INTERNAL void fude_stats_draw_marks(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
-    c8 _line[160];
+    c8 _line[512];
     if(_d->mark_changes == 0) {
         const c8* _hint = fude_text(FUDE_TEXT_EXAM_MARK_HINT);
         fude_draw_text(_b->font, _b->font_px, fude_text(FUDE_TEXT_STATS_NO_MARKS), _b->left, _b->top - 20.0f, 16.0f, _theme->text_soft);
-        fude_draw_text(_b->font, _b->font_px, _hint, _b->left, _b->top - 42.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _hint, 13.0f, _b->width, 0.6f),
+        fude_draw_text(_b->font, _b->font_px, _hint, _b->left, _b->top - 42.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _hint, 13.0f, _b->width),
                        _theme->text_soft);
         return;
     }
@@ -731,12 +733,12 @@ RDE_INTERNAL void fude_stats_draw_marks(const fude_stats_box* _b) {
 
     // Now, and how Known moved recently.
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_MARKS_NOW, FUDE_TN(_d->known), FUDE_TN(_d->studying));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width, 0.6f), _theme->text);
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 18.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 16.0f, _b->width), _theme->text);
     const i64 _delta = (i64)_d->known - (i64)_d->known_before;
     c8 _signed[24];
     snprintf(_signed, sizeof(_signed), "%s%lld", _delta > 0 ? "+" : "", (long long)_delta);
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_MARKS_RECENT, FUDE_TS(_signed), FUDE_TN(FUDE_STATS_RECENT));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 40.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f),
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - 40.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width),
                    _theme->text_soft);
 
     // The weeks: lines at 0, half and the top, labelled; a bar each.
@@ -780,7 +782,7 @@ RDE_INTERNAL void fude_stats_draw_marks(const fude_stats_box* _b) {
         _lx += 16.0f + fude_draw_text_width(_b->font, _b->font_px, fude_text(_legend[_k].text), 13.0f) + 18.0f;
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_MARKS_CAPTION, FUDE_TN(FUDE_STATS_WEEKS));
-    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _ly - 24.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f),
+    fude_draw_text(_b->font, _b->font_px, _line, _b->left, _ly - 24.0f, fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width),
                    _theme->text_soft);
 }
 
@@ -788,7 +790,7 @@ RDE_INTERNAL void fude_stats_draw_coverage(const fude_stats_box* _b) {
     const fude_stats_data* _d     = &_b->stats->data;
     const fude_theme*      _theme = fude_theme_active();
     // The columns as wide as their widest text: the names, the counts.
-    c8  _line[96];
+    c8  _line[512];
     f32 _label = 0.0f;
     f32 _count = 0.0f;
     for(u32 _g = 0; _g < fude_stats_group_count(); _g++) {
@@ -838,7 +840,7 @@ RDE_INTERNAL void fude_stats_draw_mistakes(const fude_stats_box* _b) {
         fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_PRACTICE);
         return;
     }
-    c8  _line[80];
+    c8  _line[512];
     f32 _label = 0.0f;
     for(u32 _m = 0; _m < FUDE_STATS_MISTAKE_COUNT; _m++) {
         _label = fmaxf(_label, fude_draw_text_width(_b->font, _b->font_px, fude_text(FUDE_STATS_MISTAKE_NAMES[_m]), 15.0f));
@@ -860,7 +862,7 @@ RDE_INTERNAL void fude_stats_draw_mistakes(const fude_stats_box* _b) {
     }
     FUDE_TEXTF(_line, FUDE_TEXT_STATS_MISTAKES_CAPTION, FUDE_TN(FUDE_STATS_RECENT));
     fude_draw_text(_b->font, _b->font_px, _line, _b->left, _b->top - (f32)FUDE_STATS_MISTAKE_COUNT * FUDE_STATS_ROW - 14.0f,
-                   fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width, 0.6f), _theme->text_soft);
+                   fude_draw_text_px_to_fit(_b->font, _b->font_px, _line, 13.0f, _b->width), _theme->text_soft);
 }
 
 RDE_INTERNAL void fude_stats_draw_characters(const fude_stats_box* _b) {
@@ -871,7 +873,7 @@ RDE_INTERNAL void fude_stats_draw_characters(const fude_stats_box* _b) {
         fude_stats_draw_empty(_b, FUDE_TEXT_STATS_NO_PRACTICE);
         return;
     }
-    c8 _line[16];
+    c8 _line[512];
     for(u32 _list = 0; _list < 2u; _list++) {
         const f32  _y      = _b->top - (f32)_list * (26.0f + FUDE_STATS_GLYPH + 26.0f);
         const u32  _count  = _list == 0 ? _d->weakest_count : _d->improved_count;
@@ -927,7 +929,7 @@ RDE_INTERNAL void fude_stats_draw_when(const fude_stats_box* _b) {
             if(_bh > 0.5f) {
                 rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_cx), _base + _bh * 0.5f }, (rde_vec_2F){ _slot * 0.6f, _bh }, fude_stats_alpha(_theme->button_selected, 0.75f));
             }
-            c8 _label[16];
+            c8 _label[512];
             if(_part == 0) {
                 if(_i % 6u != 0u) { continue; }
                 snprintf(_label, sizeof(_label), "%u", _i);
@@ -954,7 +956,7 @@ void fude_stats_render(fude_stats* _stats, rde_window* _window, rde_font* _font,
     const f32              _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_STATS_MARGIN;
 
     // The header: since when.
-    c8 _line[160];
+    c8 _line[512];
     fude_header_title(_font, _font_px, fude_text(FUDE_TEXT_STATISTICS), _left, _top);
     if(_d->first_time != 0) {
         const time_t _first = (time_t)_d->first_time;

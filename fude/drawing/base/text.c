@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/base/text.h"
 
 #include <stdio.h>
@@ -61,7 +63,13 @@ RDE_INTERNAL c8* fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args, u3
         }
     }
     const c8* _rendered = rde_localization_render(&_binding);
-    c8*       _copy     = fude_text_dup(_rendered != NULL ? _rendered : "");
+    // In the language's digits (its @digits: Arabic's ٠١٢٣٤٥٦٧٨٩), every number
+    // of a UI string — RDE leaves a bare {0} as it is.
+    const usize _n    = strlen(_rendered != NULL ? _rendered : "");
+    c8*         _copy = (c8*)malloc(_n * 4u + 1u);
+    memcpy(_copy, _rendered != NULL ? _rendered : "", _n + 1u);
+    const usize _len  = rde_localization_localize_digits(_copy, _n * 4u + 1u);
+    _copy             = (c8*)realloc(_copy, _len + 1u);
     rde_localization_free_translation(_rendered);
     rde_localization_binding_free(&_binding);
     return _copy;
@@ -266,7 +274,7 @@ void fude_text_date_time(c8* _out, usize _size, u64 _time) {
     const time_t _t  = (time_t)_time;
     struct tm*   _tm = localtime(&_t);
     c8 _clock[16] = "";
-    c8 _day[80];
+    c8 _day[512];
     if(_tm != NULL) {
         snprintf(_clock, sizeof(_clock), "%02d:%02d", _tm->tm_hour, _tm->tm_min);
         snprintf(_day, sizeof(_day), "%s %s", fude_text((FUDE_TEXT_)(FUDE_TEXT_DAY_MON + (_tm->tm_wday + 6) % 7)), _date);   // Monday first

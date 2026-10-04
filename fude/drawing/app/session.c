@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/app/session.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
@@ -298,7 +300,7 @@ RDE_INTERNAL void fude_session_reload(fude_app* _app) {
 
 void fude_session_export_to(fude_app* _app, const c8* _path, b8 _share) {
     fude_backup_info _info;
-    c8               _line[400];
+    c8               _line[512];
     c8 _what[64];
     snprintf(_what, sizeof(_what), "%s backup", _app->info->name);
     if(!fude_backup_export(fude_save_dir(), _path, _app->info->version, &_info) || (_share && !rde_mobile_share_file(_path, "application/octet-stream", _what))) {
@@ -358,7 +360,7 @@ void fude_session_import_pick(fude_app* _app, const c8* _path) {
         return;
     }
     c8 _when[64];
-    c8 _question[400];
+    c8 _question[512];
     fude_text_date_time(_when, sizeof(_when), _info.created);
     FUDE_TEXTF(_question, FUDE_TEXT_DATA_CONFIRM, FUDE_TS(_when), FUDE_TN(_info.canvases));
     fude_side_data_confirm(_app->ui, _data, _size, _question);
@@ -435,7 +437,7 @@ RDE_INTERNAL void fude_session_data_update(fude_app* _app) {
             if(_ok) {
                 fude_session_reload(_app);
                 c8 _when[64];
-                c8 _line[400];
+                c8 _line[512];
                 fude_text_date_time(_when, sizeof(_when), _info.created);
                 FUDE_TEXTF(_line, FUDE_TEXT_DATA_IMPORTED, FUDE_TS(_when));
                 fude_side_data_message(_app->ui, _line, false);

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The study apps' lectures from Wikivoyage's phrasebooks (CC BY-SA 4.0), one per
 # language the app speaks that has one: Kana's Japanese ones (English, Spanish,
 # French, Portuguese), Hanzi's Chinese and Hangul's Korean ones (those and

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/vocabview.h"
 #include "study/widgets/header.h"
 #include "drawing/widgets/draw.h"
@@ -336,7 +338,7 @@ RDE_INTERNAL f32 fude_vocabview_fit(rde_font* _font, f32 _font_px, const c8* _te
             _cut = _c;
         }
         if(_cut == NULL) {
-            return fude_draw_text_px_to_fit(_font, _font_px, _out, _px, _width, 0.6f);
+            return fude_draw_text_px_to_fit(_font, _font_px, _out, _px, _width);
         }
         *_cut = 0;
     }
@@ -352,11 +354,11 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     const rde_vec_4I  _insets = rde_window_get_safe_area_insets(_window);
     const f32         _left   = -(f32)_size.x * 0.5f + (f32)_insets.x + 24.0f;
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - 24.0f;
-    c8                _line[256];
+    c8                _line[512];
 
     // The header: 語, "Vocabulary", how many words and lists.
     {
-        c8 _words[64], _lists[64];
+        c8 _words[512], _lists[64];
         FUDE_TEXTF(_words, FUDE_TEXT_VOCAB_WORDS_N, FUDE_TN(fude_vocab_count()));
         FUDE_TEXTF(_lists, FUDE_TEXT_VOCAB_LISTS_N, FUDE_TN(fude_vocab_list_count()));
         snprintf(_line, sizeof(_line), "%s \xC2\xB7 %s", _words, _lists);   // ·
@@ -393,7 +395,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
             rde_rendering_2d_draw_rounded_rectangle((rde_vec_2F){ fude_draw_x(_x + _w * 0.5f), _y - FUDE_VOCABVIEW_CHIP_H * 0.5f }, (rde_vec_2F){ _w, FUDE_VOCABVIEW_CHIP_H }, 1.0f, 10,
                                                     _shown ? _theme->accent : _theme->surface_2, NULL);
             const rde_color _ink = _shown ? _theme->on_accent : _list == UINT32_MAX ? _theme->accent : _theme->text;
-            const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _line, FUDE_VOCABVIEW_CHIP_PX, _w - 28.0f, 0.6f);
+            const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _line, FUDE_VOCABVIEW_CHIP_PX, _w - 28.0f);
             fude_draw_text(_font, _font_px, _line, _x + 16.0f, _y - FUDE_VOCABVIEW_CHIP_H * 0.5f - _px * 0.42f, _px, _ink);
             if(_shown && _list != 0u) {
                 fude_draw_icon(_font, _font_px, FUDE_ICON_NOTE_EDIT, (rde_vec_2F){ _x + _w - 20.0f, _y - FUDE_VOCABVIEW_CHIP_H * 0.5f }, 14.0f, _ink);   // tap again: rename
@@ -452,12 +454,12 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
             rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x((_left + _right) * 0.5f), _mid }, (rde_vec_2F){ _inner, FUDE_VOCABVIEW_ROW }, _theme->select_fill);
         }
         c8  _fit[FUDE_USERWORD_MEANING];
-        f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _w->written, FUDE_VOCABVIEW_WORD_PX, _written_w, 0.5f);
+        f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _w->written, FUDE_VOCABVIEW_WORD_PX, _written_w);
         fude_draw_text(_font, _font_px, _w->written, _left + 14.0f, _mid - _px * 0.38f, _px, _theme->ink);
         if(_speak) {
             fude_draw_icon(_font, _font_px, FUDE_ICON_SPEAK, (rde_vec_2F){ _reading_x - 14.0f, _mid }, 14.0f, _theme->accent);
         }
-        _px = fude_draw_text_px_to_fit(_font, _font_px, _w->reading, FUDE_VOCABVIEW_SMALL_PX, _reading_w, 0.6f);
+        _px = fude_draw_text_px_to_fit(_font, _font_px, _w->reading, FUDE_VOCABVIEW_SMALL_PX, _reading_w);
         fude_draw_text(_font, _font_px, _w->reading, _reading_x, _mid - _px * 0.36f, _px, _theme->text_soft);
         _px = fude_vocabview_fit(_font, _font_px, _w->meaning, FUDE_VOCABVIEW_SMALL_PX, _meaning_w, _fit, sizeof(_fit));
         fude_draw_text(_font, _font_px, _fit, _meaning_x, _mid - _px * 0.36f, _px, _theme->text);
@@ -472,7 +474,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
         } else {
             FUDE_TEXTF(_line, FUDE_TEXT_REVIEW_IN_N, FUDE_TN(_due - _today));
         }
-        _px = fude_draw_text_px_to_fit(_font, _font_px, _line, 11.0f, _state_w, 0.7f);
+        _px = fude_draw_text_px_to_fit(_font, _font_px, _line, 11.0f, _state_w);
         fude_draw_text(_font, _font_px, _line, _right - 28.0f - fude_draw_text_width(_font, _font_px, _line, _px), _mid - _px * 0.36f, _px, _c);
         fude_draw_icon(_font, _font_px, FUDE_ICON_NEXT, (rde_vec_2F){ _right - 12.0f, _mid }, 16.0f, _theme->text_soft);
         if(_i + 1u < _n) {

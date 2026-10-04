@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Arabic's data, prepared for the bake (study/chars/bake.h's PREPARED tables):
 # data/raw/ar/prepared/{chars,words,lists,sentences}.tsv, from the sources
 # fetch.py downloads. Run from the project root after fetch.py:

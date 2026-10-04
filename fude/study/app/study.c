@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/app/study.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/kit.h"

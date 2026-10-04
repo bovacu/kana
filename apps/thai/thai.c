@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // ===========================================================================
 // Thai: Thai written by hand. The app’s shell — what RDE calls (init, the
 // events, each frame's update and render, the end), and what it owns.

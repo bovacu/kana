@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """The Hangul jamo, drawn by hand as centreline strokes.
 
 Our own work: every shape below was drawn for this project, in code. Nothing

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_GUIDE
 #define FUDE_GUIDE
 
@@ -52,7 +54,7 @@ RDE_STRUCT {
     u32                  misses;          // wrong tries at it
     f64                  shown_at;        // when it became the one to write, or was missed (its demonstration starts)
     f64                  stage_done_at;   // when the step's last stroke went in (0: still writing)
-    c8                   message[96];     // what the last stroke got ("" when it was right)
+    c8                   message[384];    // what the last stroke got ("" when it was right)
     rde_vec_2F           rejected[FUDE_GUIDE_MAX_POINTS];   // the last wrong stroke, square units, fading out
     u32                  rejected_count;
     f64                  rejected_at;

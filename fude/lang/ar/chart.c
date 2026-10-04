@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "lang/ar/chart.h"
 #include "lang/lang.h"
 #include "drawing/base/text.h"

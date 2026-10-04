@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/widgets/header.h"
 #include "lang/lang.h"
 #include "study/screens/scan.h"
@@ -593,7 +595,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
                 }
                 c8 _say[400];
                 snprintf(_say, sizeof(_say), "%s  %s  ·  %s", _word.written, _word.reading, _word.meaning);
-                const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, FUDE_SCAN_PANEL_WORD_PX, _w - 28.0f, 0.55f);
+                const f32 _px = fude_draw_text_px_to_fit(_font, _font_px, _say, FUDE_SCAN_PANEL_WORD_PX, _w - 28.0f);
                 rde_color _c  = _theirs ? _theme->text : _theme->text_soft;
                 _c.a          = (u8)((u32)_c.a * _alpha / 255u);
                 fude_draw_text(_font, _font_px, _say, _x + 28.0f, _mid - _px * 0.36f, _px, _c);
@@ -627,7 +629,7 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
 
     // The title, and what is happening (or what went wrong) under it.
     fude_header_title(_font, _font_px, fude_text(FUDE_TEXT_SCAN_TITLE), _left, _top);
-    c8 _line[256] = "";
+    c8 _line[512] = "";
     if(_scan->message != 0) {
         snprintf(_line, sizeof(_line), "%s", fude_text((FUDE_TEXT_)_scan->message));
     } else if(_scan->stage == FUDE_SCAN_WAITING) {
@@ -651,7 +653,7 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
     }
     if(_line[0] != 0) {
         const rde_color _c = _bad ? _theme->score_poor : _theme->text_soft;
-        fude_draw_text(_font, _font_px, _line, _left, _top - 56.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 15.0f, _width, 0.6f), _c);
+        fude_draw_text(_font, _font_px, _line, _left, _top - 56.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, 15.0f, _width), _c);
     }
 
     // With the panel of translations up, the picture keeps the space above it.

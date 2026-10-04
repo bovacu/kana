@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_ROW
 #define FUDE_ROW
 
@@ -25,7 +27,7 @@ struct fude_app;
 
 #define FUDE_ROW_BUTTONS 8u            // a row's buttons, at most
 #define FUDE_ROW_NONE    UINT32_MAX    // no row (screen.h: row)
-#define FUDE_ROW_LABEL   48u
+#define FUDE_ROW_LABEL   128u
 
 typedef enum {
     FUDE_ROW_QUIET = 0,   // no background until pressed

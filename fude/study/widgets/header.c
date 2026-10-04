@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/widgets/header.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/base/theme.h"
@@ -28,9 +30,9 @@ void fude_header_draw(fude_glyph* _glyph, u32 _codepoint, rde_font* _font, f32 _
     const f32         _x     = _left + FUDE_HEADER_TEXT_LEFT;
     const f32         _room  = _right - _x - (_right_text != NULL ? fude_draw_text_width(_font, _font_px, _right_text, 14.0f) + 16.0f : 0.0f);
     fude_header_badge(_glyph, _codepoint, (rde_vec_2F){ _left, _top }, FUDE_HEADER_BADGE);
-    fude_draw_text(_font, _font_px, _title, _x, _top - 19.0f, fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_HEADER_TITLE_PX, _room, 0.6f), _theme->text);
+    fude_draw_text(_font, _font_px, _title, _x, _top - 19.0f, fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_HEADER_TITLE_PX, _room), _theme->text);
     if(_caption != NULL) {
-        fude_draw_text(_font, _font_px, _caption, _x, _top - 37.0f, fude_draw_text_px_to_fit(_font, _font_px, _caption, FUDE_HEADER_CAPTION_PX, _room, 0.6f), _theme->text_soft);
+        fude_draw_text(_font, _font_px, _caption, _x, _top - 37.0f, fude_draw_text_px_to_fit(_font, _font_px, _caption, FUDE_HEADER_CAPTION_PX, _room), _theme->text_soft);
     }
     if(_right_text != NULL) {
         fude_draw_text(_font, _font_px, _right_text, _right - fude_draw_text_width(_font, _font_px, _right_text, 14.0f), _top - 25.0f, 14.0f, _theme->text);

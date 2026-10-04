@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Check data/raw/th/thaivg.xml the way Kana's bake will read it.
 
     python3 apps/thai/tools/strokes/validate.py [thaivg.xml] [--corners]

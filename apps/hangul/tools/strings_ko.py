@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Korean for Hangul's own strings (apps/hangul/tools/strings.py, the fourth language
 # of Hangul Learn!): x(id, text) rows, read by tools/strings/build.py fourth().
 x('DATA_OFFLINE', '{APP} 앱은 오프라인으로 작동합니다. 페이지, 학습 표시, 시험, 단어, 연습 기록은 이 기기에 남으며, {APP}에서 어디로도 보내지 않습니다. (Google ML Kit은 켜져 있을 때 모델을 한 번 다운로드한 다음, 인식과 번역도 기기에서 합니다.)')

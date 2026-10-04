@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Write the hand-drawn Thai letters (letters.py) as KanjiVG-style XML for
 Kana's bake (fude/study/chars/bake.c, fude_bake_kanjivg).
 

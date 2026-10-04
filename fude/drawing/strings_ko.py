@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Korean for the drawing core's strings (the fourth language of Hangul Learn!):
 # x(id, text) rows, read by tools/strings/build.py fourth().
 x('FINISH', '마치기')
@@ -55,6 +57,9 @@ x('SETTINGS_ABOUT', '정보')
 x('ABOUT_BUILT', '{APP} {0}, {1} 빌드.')
 x('RATE', '{APP} 평가하기')
 x('TUTORIAL', '튜토리얼')
+x('FAQ_CONTACT', '자주 묻는 질문 및 문의')
+x('FAQ_OPEN', '자주 묻는 질문')
+x('CONTACT_WRITE', '궁금한 점, 아이디어, 문제가 있나요? 메일을 보내 주세요:')
 x('DATA', '내 데이터')
 x('DATA_BACKUP_IOS', '이 기기의 iCloud 백업이 켜져 있으면(설정 › 사용자 이름 › iCloud › iCloud 백업) 데이터도 함께 백업됩니다. 이 백업으로 기기를 복원하거나 새 기기를 설정하면 데이터가 돌아옵니다.')
 x('DATA_BACKUP_ANDROID', '이 기기의 Google 백업이 켜져 있으면(설정 › Google › 백업) 데이터도 함께 백업됩니다. 이 백업에서 복원하는 새 기기나 초기화한 기기로 데이터가 돌아옵니다.')

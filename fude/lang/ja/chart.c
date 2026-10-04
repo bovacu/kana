@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "lang/ja/chart.h"
 #include "lang/ja/romaji.h"
 #include "drawing/base/text.h"

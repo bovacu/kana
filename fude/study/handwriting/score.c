@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/handwriting/score.h"
 #include "drawing/base/text.h"
 #include "study/handwriting/match.h"
@@ -164,7 +166,7 @@ RDE_INTERNAL f32 fude_score_fitted_distance(const fude_match_stroke* _user, cons
 void fude_score_describe(fude_score* _s) {
     // One line: the most important thing first.
     // In the learner's language (text.h), as it was when scored: history keeps the words.
-    c8 _strokes[48];
+    c8 _strokes[512];
     if(_s->empty) {
         snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(FUDE_TEXT_SCORE_EMPTY));
     } else if(_s->expected == 0) {

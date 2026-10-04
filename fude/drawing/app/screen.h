@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_SCREEN_IFACE
 #define FUDE_SCREEN_IFACE
 

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_PAGETEXT_H
 #define FUDE_PAGETEXT_H
 

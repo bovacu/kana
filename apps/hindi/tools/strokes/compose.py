@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Write the hand-drawn Devanagari letters as KanjiVG-style XML for the app's
 bake (fude/study/chars/bake.c, fude_bake_kanjivg; fude/lang/hi/bake.c reads
 data/raw/hi/devanagarivg.xml).

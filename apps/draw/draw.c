@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // ===========================================================================
 // Draw: an endless page to write and draw on, with a pen or a finger — the
 // drawing core alone (fude/drawing), the start of the diagram and drawing app.

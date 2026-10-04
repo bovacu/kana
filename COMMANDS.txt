@@ -356,7 +356,7 @@ Looks, without the device (debug builds: a release takes no arguments): a screen
 (Browse sorted: 0 default, 1 strokes, then each reading's kind, then meaning), --notice (the longest
 notice), --text-check (every text drawn past the screen's sides, on the log: run it over the
 screens in every --language=N), --kana, --stats, --exam,
---exam-start, --side, --paper, --album, --album-exams, --album-page=HEX,
+--exam-start, --side, --faq, --paper, --album, --album-exams, --album-page=HEX,
 --kept-exam=N, --viewer=HEX; --offline-note (why the app works offline: the
 must-read card shown once after the welcome, its Close counting down 5 seconds); --scan-demo=PNG the Text from a photo screen fed
 that image and some lines, --scan-demo-turn=DEG and --scan-demo-top-first to

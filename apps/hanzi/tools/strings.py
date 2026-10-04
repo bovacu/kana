@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Hanzi's UI strings: English and four translations. Every text the app shows is
 # in the layers' files and here, and only there: the core's (fude/drawing/
 # strings.py), the study's (fude/study/strings.py), Chinese's

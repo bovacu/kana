@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The half of a language's data tools that Thai's and Hindi's share
 # (apps/<app>/tools/data/prepare.py): reading Wiktionary's entries (kaikki.org's
 # JSON lines), Tatoeba's sentences and the Volubilis spreadsheet; meanings cut to

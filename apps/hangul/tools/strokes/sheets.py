@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Contact sheets of the generated stroke data, for looking at it.
 
     python3 apps/hangul/tools/strokes/sheets.py OUT_DIR [--xml data/raw/hangulvg.xml]

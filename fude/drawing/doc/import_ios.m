@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // Apple's headers before RDE's: rde.h defines `any`, a word their availability
 // pragmas use.
 #import <TargetConditionals.h>

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/app/study.h"
 #include "study/services/speech.h"
 #include "drawing/widgets/notice.h"

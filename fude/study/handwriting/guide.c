@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/handwriting/guide.h"
 #include "drawing/base/text.h"
 #include "study/handwriting/match.h"
@@ -341,7 +343,7 @@ void fude_guide_prompt(const fude_guide* _guide, c8* _out, usize _size) {
             break;
         default:
             {
-                c8 _strokes[48];
+                c8 _strokes[512];
                 FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_total));
                 fude_text_format(_out, _size, FUDE_TEXT_GUIDE_STEP3, (const fude_text_arg[]){ FUDE_TS(_strokes) }, 1u);
             }

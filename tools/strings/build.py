@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The UI strings' generator, for every app: each layer's strings (fude/drawing/
 # strings.py, the core's; fude/study/strings.py, a study app's) and the app's
 # own, in that order, become the app's
@@ -116,11 +118,15 @@ def write(_app_dir, _tool):
             L[3] = tag
             LOCALES[tag] = locale
             NAMES[tag] = name
+    # In a right-to-left language the name (Latin: "Arabic Learn!") ends with a
+    # left-to-right mark, or its "!" would go to the wrong side of it.
+    _names = [_name + ('\u200e' if '@direction = rtl' in LOCALES[lang] else '') for lang in L]
     for row in T:
-        row[1:] = [s.replace('{APP}', _name) for s in row[1:]]
+        row[1:] = [s.replace('{APP}', _names[k]) for k, s in enumerate(row[1:])]
     if not check():
         sys.exit(1)
     with open(os.path.join(_app_dir, 'src', 'text_ids.h'), 'w') as f:
+        f.write('// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.\n\n')
         f.write('// The UI strings\' ids, in order: one FUDE_TEXT_ID(x) per string. Generated\n')
         f.write('// by %s with assets/text/strings.rdel (the texts, in\n' % _tool)
         f.write('// every language); see fude/drawing/base/text.h.\n')

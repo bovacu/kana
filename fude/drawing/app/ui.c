@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/app/ui.h"
 #include "drawing/widgets/kit.h"
 #include "drawing/base/text.h"
@@ -412,6 +414,7 @@ void fude_ui_init(fude_ui* _ui, fude_app* _app) {
 RDE_INTERNAL void fude_ui_rebuild(fude_ui* _ui) {
     const b8 _side_open     = _ui->side.open;
     const b8 _settings_open = _ui->side.settings_open;
+    const b8 _faq_open      = _ui->side.faq_open;
     fude_side_forget(_ui);
     if(fude_app_ext(_ui->app)->ui_forget != NULL) {
         fude_app_ext(_ui->app)->ui_forget(_ui);
@@ -435,6 +438,7 @@ RDE_INTERNAL void fude_ui_rebuild(fude_ui* _ui) {
     fude_ui_build(_ui);
     _ui->side.open          = _side_open;
     _ui->side.settings_open = _settings_open;
+    _ui->side.faq_open      = _faq_open;
 }
 
 void fude_ui_follow_language(fude_ui* _ui) {

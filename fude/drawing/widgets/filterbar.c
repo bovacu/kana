@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/filterbar.h"
 #include "drawing/widgets/kit.h"
 #include "drawing/widgets/draw.h"
@@ -95,7 +97,7 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     _bar->field = rde_ui_text_editor_create(fude_kit_font(), NULL);
     rde_ui_text_editor_set_multiline(_bar->field, false);
     rde_ui_text_editor_set_font_size(_bar->field, FUDE_FILTERBAR_FIELD_PX);
-    c8 _hint[160];
+    c8 _hint[512];
     snprintf(_hint, sizeof(_hint), FUDE_ICON_SEARCH "  %s", fude_text((FUDE_TEXT_)_def->search_hint));
     rde_ui_text_editor_set_placeholder(_bar->field, _hint);
     rde_ui_text_editor_set_content_insets(_bar->field, 12.0f, 8.0f, 12.0f, 8.0f);

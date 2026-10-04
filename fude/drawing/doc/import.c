@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/doc/import.h"
 #include "drawing/doc/doc.h"
 #include "drawing/doc/pdf.h"
@@ -176,7 +178,7 @@ b8 fude_import_update(fude_app* _app) {
         fude_notice_show(fude_text(FUDE_TEXT_DOC_CANT_OPEN));
         return false;
     }
-    c8 _line[160];
+    c8 _line[512];
     FUDE_TEXTF(_line, FUDE_TEXT_DOC_IMPORTED, FUDE_TS(_name));
     fude_notice_show(_line);
     return true;

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_DRAW
 #define FUDE_DRAW
 
@@ -95,9 +97,9 @@ u32  fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f
 // The narrowest width wrapping _text in as many lines as _width does: a short
 // text's lines even (no word alone on the last). For labels and captions.
 f32  fude_draw_text_balanced_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
-// The size to draw _text at so it fits _width: _px, or smaller (down to
-// _min_scale of it) when it would not fit.
-f32  fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale);
+// The size to draw _text at so it fits _width: _px, or as much smaller as it
+// takes — a text is never cut (a longer language's labels come out smaller).
+f32  fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
 // _text whole in _width, its line's middle at _mid — never cut short: at _px,
 // else smaller (to three quarters), else on up to _lines lines (smaller still if
 // need be), else as small as it takes. Returns the size drawn at.

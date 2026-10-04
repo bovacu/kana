@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/exam.h"
 #include "study/widgets/header.h"
 #include "study/models/review.h"
@@ -691,7 +693,7 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
 
     // What it is of, and how many.
     _exam->chip_count = 0;
-    c8 _label[48];
+    c8 _label[512];
     for(u32 _group = 0; _group < 2u; _group++) {
         _y -= 30.0f;
         fude_draw_text(_font, _font_px, fude_text(_group == 0 ? FUDE_TEXT_EXAM_WHAT : FUDE_TEXT_EXAM_HOW_MANY), _left, _y, FUDE_EXAM_CAPTION_PX, _theme->text_soft);
@@ -732,7 +734,7 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
     const u32 _size    = fude_exam_source_size(_exam, _exam->source);
     const u32 _planned = fude_exam_planned(_exam);
     // Its two texts wrap to the card's width; it is as tall as they are.
-    c8 _first[160], _second[256];
+    c8 _first[512], _second[256];
     if(_size == 0) {
         snprintf(_first, sizeof(_first), "%s", fude_text(_exam->source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_TEXT_EXAM_NOTHING_STUDYING : FUDE_TEXT_EXAM_NOTHING));
         snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_MARK_HINT));
@@ -767,9 +769,9 @@ RDE_INTERNAL void fude_exam_grid(fude_exam* _exam, f32 _left, f32 _right, f32 _t
 
 RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
-    c8 _line[160];
+    c8 _line[512];
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(fude_exam_included(_exam)), FUDE_TN(_exam->count));
-    c8 _title[96];
+    c8 _title[512];
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
     fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_TAP_TO_LEAVE), _line);
     RDE_UNUSED(_theme);
@@ -839,7 +841,7 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
     const fude_theme* _theme = fude_theme_active();
     const f32         _pad   = 18.0f;
     const f32         _x     = _left + _pad;
-    c8                _line[256];
+    c8                _line[512];
 
     // How tall it is: the caption and the big line, then a line a reading, and the word.
     const c8* _on  = _kana ? "" : fude_kanji_reading(_exam->db, _info, 0u);   // the language's first kind...
@@ -903,8 +905,8 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
 
     // The title, where it is, and the progress: a segment per character (a bar
     // when there are many).
-    c8 _title[96];
-    c8 _line[64];
+    c8 _title[512];
+    c8 _line[512];
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
     FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_exam->current + 1u), FUDE_TN(_exam->asked));
     fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, _title, fude_text(FUDE_TEXT_EXAM_ONCE_EACH), _line);
@@ -946,7 +948,7 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
 
 RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
-    c8 _line[160];
+    c8 _line[512];
     if(!fude_exam_graded(_exam)) {
         FUDE_TEXTF(_line, FUDE_TEXT_EXAM_READING_ANSWERS, FUDE_TN(fude_exam_graded_count(_exam)), FUDE_TN(_exam->asked));
         fude_draw_text(_font, _font_px, _line, _left, _top - 30.0f, FUDE_EXAM_TITLE_PX, _theme->text);
@@ -967,11 +969,11 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
     // A kept exam: which, and when.
     f32 _grid_top = _top - 56.0f;
     if(_exam->kept < fude_examlog_count()) {
-        c8 _title[64], _when[96];
+        c8 _title[512], _when[96];
         FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
         fude_text_date_time(_when, sizeof(_when), fude_examlog_exams()[_exam->kept].time);
         FUDE_TEXTF(_line, FUDE_TEXT_EXAM_KEPT, FUDE_TS(_title), FUDE_TS(_when));
-        fude_draw_text(_font, _font_px, _line, _left, _top - 54.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, FUDE_EXAM_CAPTION_PX, _right - _left, 0.6f),
+        fude_draw_text(_font, _font_px, _line, _left, _top - 54.0f, fude_draw_text_px_to_fit(_font, _font_px, _line, FUDE_EXAM_CAPTION_PX, _right - _left),
                        _theme->text_soft);
         _grid_top = _top - 72.0f;
     }

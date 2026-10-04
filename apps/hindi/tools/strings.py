@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Hindi's UI strings: English and four translations. Every text the app shows
 # is in the layers' files and here, and only there: the core's (fude/drawing/
 # strings.py), the study's (fude/study/strings.py), Hindi's
@@ -182,7 +184,7 @@ t('LECTURE_PHRASEBOOK_ABOUT',
 # The fourth language: Hindi (the one Hindi teaches) in place of Japanese, once
 # every string has one: each layer's strings_hi.py beside its strings.py, and this
 # tool's own (tools/strings/build.py: fourth).
-fourth('HI-IN', 'Hindi', ['@plural = 1'], [
+fourth('HI-IN', 'Hindi', ['@plural = n > 1'], [   # one for 0 and 1
     os.path.join(ROOT, 'fude', 'drawing', 'strings_hi.py'),
     os.path.join(ROOT, 'fude', 'study', 'strings_hi.py'),
     os.path.join(ROOT, 'fude', 'lang', 'hi', 'strings_hi.py'),

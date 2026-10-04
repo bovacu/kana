@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/browse.h"
 #include "drawing/base/text.h"
 #include "study/models/marks.h"
@@ -555,7 +557,7 @@ void fude_browse_render(fude_browse* _browse, rde_window* _window, rde_font* _fo
     const f32        _bottom = fmaxf(_bottom_edge, -_hh + (f32)_insets.w + FUDE_BROWSE_MARGIN);   // above the bottom row
 
     // --- status ------------------------------------------------------------------------
-    c8 _status[160];
+    c8 _status[512];
     const u32 _count = fude_browse_count(_browse);
     if(fude_browse_pad_used(_browse)) {
         FUDE_TEXTF(_status, FUDE_TEXT_BROWSE_BEST, FUDE_TN(_count));

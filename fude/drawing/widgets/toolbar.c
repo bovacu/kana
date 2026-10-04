@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/toolbar.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
@@ -340,7 +342,7 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
     fude_kit_place(rde_ui_image_as_node(_toolbar->grip_area), _v ? (rde_vec_2F){ _across * 0.5f, _strip + _grip * 0.5f } : (rde_vec_2F){ _grip * 0.5f, _across * 0.5f }, _area);
     const f32 _handle = _min ? _grip * 0.5f : FUDE_TOOLBAR_PADDING + FUDE_TOOLBAR_GRIP * 0.5f;   // from the bar's end
     const c8* _dots   = _v ? FUDE_ICON_GRIP_H : FUDE_ICON_GRIP_V;   // the dots across the bar
-    const f32 _back   = fude_kit_icon_bearing(_dots) * FUDE_TOOLBAR_GRIP_PX * FUDE_KIT_EM;   // centred (see FUDE_KIT_ICON_BEARINGS)
+    const f32 _back   = fude_kit_icon_back(_dots, FUDE_TOOLBAR_GRIP_PX);   // centred (see FUDE_KIT_ICON_BEARINGS)
     rde_ui_label_set_text(_toolbar->grip, _dots);
     fude_kit_place(rde_ui_label_as_node(_toolbar->grip),
                    _v ? (rde_vec_2F){ _across * 0.5f - _back, _grip - _handle } : (rde_vec_2F){ _handle - _back, _across * 0.5f },

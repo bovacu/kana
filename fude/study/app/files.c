@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/app/study.h"
 #include "drawing/app/session.h"
 #include "drawing/base/text.h"
@@ -60,7 +62,7 @@ void fude_study_sheet_write(fude_app* _app, const u32* _records, u32 _count, b8 
         fude_notice_show(fude_text(FUDE_TEXT_SHEET_FAILED));
         return;
     }
-    c8 _line[400];
+    c8 _line[512];
     if(_cut) {
         FUDE_TEXTF(_line, FUDE_TEXT_SHEET_FIRST_N, FUDE_TN(FUDE_SHEET_MAX));
         fude_notice_show(_line);

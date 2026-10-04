@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The drawing core's UI strings: a layer of every app's (tools/strings/build.py
 # reads it, first). {APP} is the app's name (its src/version.h), filled in as the
 # app's strings are written; a layer over this one, or the app, may give a
@@ -65,6 +67,10 @@ t('SETTINGS_ABOUT', 'ABOUT', 'ACERCA DE', 'SOBRE', '情報', 'À PROPOS')
 t('ABOUT_BUILT', '{APP} {0}, built {1}.', '{APP} {0}, compilado el {1}.', '{APP} {0}, compilado em {1}.', '{APP} {0}（{1} ビルド）', '{APP} {0}, compilé le {1}.')
 t('RATE', 'Rate {APP}', 'Valorar {APP}', 'Avaliar o {APP}', '{APP}を評価', 'Noter {APP}')
 t('TUTORIAL', 'Tutorial', 'Tutorial', 'Tutorial', 'チュートリアル', 'Tutoriel')
+# FAQ & Contact (the side panel's lowest row, and its card): the FAQ's page, and where to write.
+t('FAQ_CONTACT', 'FAQ & Contact', 'Preguntas y contacto', 'Perguntas e contato', 'よくある質問・お問い合わせ', 'FAQ et contact')
+t('FAQ_OPEN', 'Frequently asked questions', 'Preguntas frecuentes', 'Perguntas frequentes', 'よくある質問', 'Questions fréquentes')
+t('CONTACT_WRITE', 'Questions, ideas or a problem? Write to us:', '¿Dudas, ideas o algún problema? Escríbenos:', 'Dúvidas, ideias ou algum problema? Escreva para nós:', 'ご質問・ご意見・不具合のご報告はこちらへ：', 'Une question, une idée ou un problème ? Écrivez-nous :')
 
 # Your data (backup.h): offline; the platform's own backup; Export / Import.
 t('DATA', 'Your data', 'Tus datos', 'Seus dados', 'データ', 'Vos données')

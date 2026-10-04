@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/doc/library.h"
 #include "drawing/doc/import.h"
 #include "drawing/app/app.h"
@@ -269,7 +271,7 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
             fude_text_date(_date, sizeof(_date), _n->created);
             const f32 _date_w = fude_draw_text_width(_font, _font_px, _date, 13.0f);
             const f32 _name_w = _width - 2.0f * FUDE_LIBRARY_PAD - 36.0f - _date_w - 16.0f;
-            const f32 _px     = fude_draw_text_px_to_fit(_font, _font_px, _n->name, 16.0f, _name_w, 0.6f);
+            const f32 _px     = fude_draw_text_px_to_fit(_font, _font_px, _n->name, 16.0f, _name_w);
             fude_draw_text(_font, _font_px, _n->name, _left + FUDE_LIBRARY_PAD + 36.0f, _mid - _px * 0.36f, _px, _t->text);
             fude_draw_text(_font, _font_px, _date, _right - FUDE_LIBRARY_PAD - _date_w, _mid - 13.0f * 0.36f, 13.0f, _t->text_soft);
         }

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "lang/lang.h"
 #include "study/widgets/wordcard.h"
 #include "drawing/app/ui.h"
@@ -638,7 +640,7 @@ RDE_INTERNAL void fude_wordcard_open_asked(fude_ui* _ui) {
     }
     fude_wordcard_put(_card->sentence, sizeof(_card->sentence), _sent);
     fude_wordcard_put(_card->sentence_to, sizeof(_card->sentence_to), _to);
-    c8 _title[128];
+    c8 _title[512];
     if(_saved != NULL) {
         snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_WORD_SAVED_TITLE));
     } else if(fude_wordcard_asked.kind == FUDE_WORDCARD_ASK_TYPED && fude_wordcard_asked.kanji != 0u) {
@@ -866,7 +868,7 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
             _first = _first != NULL ? _first : fude_vocab_list_name(_card->lists[_i]);
         }
     }
-    c8 _line[256];
+    c8 _line[512];
     if(_first != NULL) {
         FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_SAVED_IN, FUDE_TS(_written), FUDE_TS(_first));
     } else {
@@ -921,7 +923,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_remove(rde_ui_node* _node, co
     if(FUDE_WORDCARD_OF(_ui)->list_mode) {
         // Delete list: the list goes, its words stay.
         if(FUDE_WORDCARD_OF(_ui)->list_id != 0u) {
-            c8 _line[256];
+            c8 _line[512];
             FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_LIST_DELETED, FUDE_TS(fude_vocab_list_name(FUDE_WORDCARD_OF(_ui)->list_id)));
             fude_vocab_list_remove(FUDE_WORDCARD_OF(_ui)->list_id);
             fude_notice_show(_line);
@@ -931,7 +933,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_remove(rde_ui_node* _node, co
     }
     const fude_vocab_word* _w       = fude_vocab_get(FUDE_WORDCARD_OF(_ui)->id);
     if(_w != NULL) {
-        c8 _line[256];
+        c8 _line[512];
         FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_REMOVED, FUDE_TS(_w->written));
         fude_vocab_remove(FUDE_WORDCARD_OF(_ui)->id);
         fude_notice_show(_line);

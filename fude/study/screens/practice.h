@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_PRACTICE
 #define FUDE_PRACTICE
 
@@ -58,7 +60,7 @@ RDE_STRUCT {
     f64                  demo_done;       // when it finished writing (0: still writing)
     fude_history_summary summary;
     b8                   has_summary;
-    c8                   status[128];     // after scoring: the average, and whether it was saved
+    c8                   status[512];     // after scoring: the average, and whether it was saved
 
     i32                  writing;         // the square the pen is in, or -1
 
@@ -70,7 +72,7 @@ RDE_STRUCT {
 
     b8                   guided;
     fude_guide           guide;
-    c8                   feedback[96];    // guided: the scored attempt's line
+    c8                   feedback[384];   // guided: the scored attempt's line
 
     // Layout of the last frame (screen space).
     rde_vec_2F           square_tl[FUDE_PRACTICE_MAX_SQUARES];

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/docbar.h"
 #include "drawing/app/app.h"
 #include "drawing/app/page.h"
@@ -263,8 +265,8 @@ void fude_docbar_update(fude_docbar* _bar, b8 _hidden) {
     const u32 _key = _at | (_pages << 16);
     if(_key != _bar->_page_said) {
         _bar->_page_said = _key;
-        c8 _line[32];
-        snprintf(_line, sizeof(_line), "%u / %u", _at, _pages);
+        c8 _line[512];
+        FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_at), FUDE_TN(_pages));
         rde_ui_button_set_text(_bar->page, _line);
         fude_kit_icon(_bar->page, FUDE_ICON_PAGE_NUMBER, FUDE_KIT_ICON_LEFT, 14.0f);
     }
@@ -276,11 +278,12 @@ void fude_docbar_update(fude_docbar* _bar, b8 _hidden) {
                          : (_n << 12) ^ (_shown_at << 1) ^ (_done ? 1u : 0u) ^ (_doc->searching ? 0x40000000u : 0u);
     if(_count_key != _bar->_count_said) {
         _bar->_count_said = _count_key;
-        c8 _line[64];
+        c8 _line[512];
         if(_bar->mode == FUDE_DOCBAR_PAGE) {
             snprintf(_line, sizeof(_line), "/ %u", _pages);
+            rde_localization_localize_digits(_line, sizeof(_line));   // the language's digits
         } else if(_n > 0u) {
-            snprintf(_line, sizeof(_line), "%u / %u", _shown_at + 1u, _n);
+            FUDE_TEXTF(_line, FUDE_TEXT_OF_N, FUDE_TN(_shown_at + 1u), FUDE_TN(_n));
         } else if(_doc->searching) {
             snprintf(_line, sizeof(_line), "%s", fude_text(_done ? FUDE_TEXT_DOC_NO_MATCHES : FUDE_TEXT_DOC_SEARCHING));
         } else {

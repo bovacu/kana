@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/readcard.h"
 #include "drawing/app/screen.h"
 #include "drawing/widgets/draw.h"
@@ -148,7 +150,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
         }
         _body[_n] = 0;
     }
-    const f32 _tpx    = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_READCARD_TITLE, _inner, 0.6f);
+    const f32 _tpx    = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_READCARD_TITLE, _inner);
     const u32 _lines  = fude_draw_text_wrap_lines(_font, _font_px, _body, FUDE_READCARD_BODY, _text_w);
     _card->content_h  = (f32)_lines * FUDE_READCARD_LINE + 2.0f * FUDE_READCARD_INSET;
     // Close alone at the right; with a second button, both as wide as halves of the card allow.
@@ -202,7 +204,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     const f32 _by   = _top - _h + FUDE_READCARD_PAD + _b.y * 0.5f;
     _card->close_min = (rde_vec_2F){ _bx - _b.x * 0.5f, _by - _b.y * 0.5f };
     _card->close_max = (rde_vec_2F){ _bx + _b.x * 0.5f, _by + _b.y * 0.5f };
-    c8 _label[64];
+    c8 _label[512];
     if(_wait > 0u) {
         FUDE_TEXTF(_label, FUDE_TEXT_READ_CLOSE_IN, FUDE_TN(_wait));
         fude_draw_card(_card->close_min, _card->close_max, 14.0f, _t->surface_2, _t->surface_2);
@@ -214,7 +216,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
         }
         fude_draw_card(_card->close_min, _card->close_max, 14.0f, _c, _c);
     }
-    const f32 _lp = fude_draw_text_px_to_fit(_font, _font_px, _label, 17.0f, _b.x - 24.0f, 0.6f);
+    const f32 _lp = fude_draw_text_px_to_fit(_font, _font_px, _label, 17.0f, _b.x - 24.0f);
     const f32 _lw = fude_draw_text_width(_font, _font_px, _label, _lp);
     fude_draw_text(_font, _font_px, _label, _bx - _lw * 0.5f, _by - _lp * 0.36f, _lp, _wait > 0u ? _t->text_soft : _t->on_accent);
 
@@ -225,7 +227,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
         _card->action_max = (rde_vec_2F){ _ax + _b.x * 0.5f, _by + _b.y * 0.5f };
         fude_draw_card(_card->action_min, _card->action_max, 14.0f, _card->pressing_action ? _t->select_fill : _t->surface_2, _t->surface_2);
         const c8* _action = fude_text((FUDE_TEXT_)_card->action);
-        const f32 _ap     = fude_draw_text_px_to_fit(_font, _font_px, _action, 17.0f, _b.x - 24.0f, 0.6f);
+        const f32 _ap     = fude_draw_text_px_to_fit(_font, _font_px, _action, 17.0f, _b.x - 24.0f);
         const f32 _aw     = fude_draw_text_width(_font, _font_px, _action, _ap);
         fude_draw_text(_font, _font_px, _action, _ax - _aw * 0.5f, _by - _ap * 0.36f, _ap, _t->accent);
     }

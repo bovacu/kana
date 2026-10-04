@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Check data/raw/hangulvg.xml the way Kana's bake will read it.
 
     python3 apps/hangul/tools/strokes/validate.py [hangulvg.xml] [--clearance]

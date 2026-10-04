@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/doc/doc.h"
 #include "drawing/app/app.h"
 #include "drawing/base/save.h"
@@ -1000,8 +1002,8 @@ void fude_doc_render_pill(fude_doc* _doc, const fude_app* _app, rde_window* _win
         return;
     }
     const f32 _fade = _age <= FUDE_DOC_PILL_TIME ? 1.0f : 1.0f - (f32)((_age - FUDE_DOC_PILL_TIME) / FUDE_DOC_PILL_FADE);
-    c8        _text[32];
-    snprintf(_text, sizeof(_text), "%u / %u", fude_doc_page_in_middle(_doc, _app->canvas->view) + 1u, _doc->page_count);
+    c8        _text[512];
+    FUDE_TEXTF(_text, FUDE_TEXT_OF_N, FUDE_TN(fude_doc_page_in_middle(_doc, _app->canvas->view) + 1u), FUDE_TN(_doc->page_count));
     const f32         _px     = 18.0f;
     const f32         _w      = fude_draw_text_width(_app->font, _app->font_px, _text, _px);
     const fude_theme* _t      = fude_theme_active();

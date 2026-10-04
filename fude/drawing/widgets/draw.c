@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/widgets/draw.h"
 #include "drawing/base/utf8.h"
 #include "drawing/base/theme.h"
@@ -154,10 +156,35 @@ RDE_INTERNAL void fude_draw_text_raw(rde_font* _font, f32 _font_px, const c8* _t
     rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
 }
 
+// A number alone (a score, "3 / 20", "×2"), which a screen formats itself: in
+// the language's digits (its @digits), as the UI strings are (text.c). Texts
+// with words are left alone: a meaning or a sentence keeps its own digits.
+RDE_INTERNAL const c8* fude_draw_number_digits(const c8* _text, c8* _buf, usize _size) {
+    b8 _digit = false;
+    for(const c8* _p = _text; *_p != 0; _p++) {
+        const u8 _c = (u8)*_p;
+        if(_c >= '0' && _c <= '9') {
+            _digit = true;
+        } else if((_c >= 'A' && _c <= 'Z') || (_c >= 'a' && _c <= 'z')) {
+            return _text;
+        } else if(_c >= 0x80u && !(_c == 0xC3u && (u8)_p[1] == 0x97u) && !(_c == 0xC2u && (u8)_p[1] == 0xB7u) && !((_c & 0xC0u) == 0x80u)) {
+            return _text;   // a letter of any script (only × and · pass)
+        }
+    }
+    if(!_digit || strlen(_text) * 4u + 1u > _size) {
+        return _text;
+    }
+    snprintf(_buf, _size, "%s", _text);
+    rde_localization_localize_digits(_buf, _size);
+    return _buf;
+}
+
 void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
     if(_font == NULL || _text == NULL) {
         return;
     }
+    c8 _digits[256];
+    _text = fude_draw_number_digits(_text, _digits, sizeof(_digits));
     if(fude_draw_checking != NULL) {
         fude_draw_check(_font, _font_px, _text, _x, _px);
     }
@@ -609,24 +636,24 @@ u32 fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f3
     return fude_draw_text_wrap_do(_font, _font_px, _text, 0.0f, 0.0f, _px, _width, 0.0f, (rde_color){ 0, 0, 0, 0 }, false);
 }
 
-f32 fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, f32 _min_scale) {
+f32 fude_draw_text_px_to_fit(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
     const f32 _w = fude_draw_text_width(_font, _font_px, _text, _px);
     if(_w <= _width || _w <= 0.0f) {
         return _px;
     }
-    return _px * fmaxf(_min_scale, _width / _w);
+    return _px * _width / _w;
 }
 
 f32 fude_draw_text_whole(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _mid, f32 _px, f32 _width, u32 _lines, rde_color _color) {
     if(_text == NULL || _text[0] == 0) {
         return _px;
     }
-    // One line: as it is, or smaller.
-    const f32 _one = fude_draw_text_px_to_fit(_font, _font_px, _text, _px, _width, 0.75f);
-    if(fude_draw_text_width(_font, _font_px, _text, _one) <= _width || _lines < 2u) {
-        const f32 _p = fude_draw_text_px_to_fit(_font, _font_px, _text, _px, _width, 0.35f);
-        fude_draw_text(_font, _font_px, _text, _x, _mid - _p * 0.38f, _p, _color);
-        return _p;
+    // One line: as it is, or smaller — to three quarters, or as small as it
+    // takes when it may have only one.
+    const f32 _p1 = fude_draw_text_px_to_fit(_font, _font_px, _text, _px, _width);
+    if(_p1 >= _px * 0.75f || _lines < 2u) {
+        fude_draw_text(_font, _font_px, _text, _x, _mid - _p1 * 0.38f, _p1, _color);
+        return _p1;
     }
     // More lines, a little smaller each step until they are few enough.
     f32 _p = _px * 0.92f;

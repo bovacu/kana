@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Hindi's data, prepared for the bake (study/chars/bake.h's PREPARED tables):
 # data/raw/hi/prepared/{chars,words,lists,sentences}.tsv, from the sources
 # fetch.py downloads. Run from the project root after fetch.py:

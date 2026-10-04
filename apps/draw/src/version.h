@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef DRAW_VERSION_H
 #define DRAW_VERSION_H
 

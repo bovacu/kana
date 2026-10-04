@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_WORDEXAM
 #define FUDE_WORDEXAM
 
@@ -80,7 +82,7 @@ RDE_STRUCT {
     FUDE_WORDEXAM_BY_    by;
     u32                  length;                    // index into the lengths (10, 20, 50, all)
     b8                   review;                    // opened by Reviews
-    c8                   title[64];                 // what it is of (a list's name, Vocabulary, Reviews)
+    c8                   title[256];                // what it is of (a list's name, Vocabulary, Reviews)
 
     rde_arr TYPE(u32)    words;                     // what it can ask (ids)
     fude_wordexam_item   items[FUDE_WORDEXAM_MAX];

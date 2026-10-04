@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # A study app's icon, from its platform/ios/AppIcon.svg: the App Store's
 # AppIcon-1024.png and the launch screen's LaunchIcon@2x/@3x.png (the icon
 # rounded as iOS rounds it on the home screen), into its Assets.xcassets.

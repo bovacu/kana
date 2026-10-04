@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Japanese's UI strings (lang.h): the study's ids that name the language, in
 # its words, and the ids fude/lang/ja/lang.c returns. A study app's strings
 # tool reads this after fude/study/strings.py; another language's strings.py

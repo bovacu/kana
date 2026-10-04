@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Compose every Hangul syllable from the hand-drawn jamo and write them out as
 KanjiVG-style XML for Kana's bake (fude/lang/ja/bake.c, fude_bake_kanjivg).
 

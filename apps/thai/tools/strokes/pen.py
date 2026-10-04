@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """Stroke geometry for the Thai stroke data.
 
 A stroke is a centreline: a start point and a run of cubic Bezier segments, in

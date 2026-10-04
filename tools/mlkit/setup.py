@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # ===========================================================================
 # Google ML Kit for the study apps' iOS builds (Kana, Hanzi, Hangul) — without
 # CocoaPods: Digital Ink Recognition (handwriting, recognize.h), Text Recognition

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Arabic's UI strings: English and four translations. Every text the app shows
 # is in the layers' files and here, and only there: the core's (fude/drawing/
 # strings.py), the study's (fude/study/strings.py), Arabic's
@@ -182,7 +184,10 @@ t('LECTURE_PHRASEBOOK_ABOUT',
 # The fourth language: Arabic (the one Arabic teaches) in place of Japanese, once
 # every string has one: each layer's strings_ar.py beside its strings.py, and this
 # tool's own (tools/strings/build.py: fourth).
-fourth('AR-SA', 'العربية', ['@plural = 1'], [
+# Its locale: six plural forms (one, other, zero, two, few, many: RDE's order),
+# written right to left, numbers in Arabic-Indic digits with their separators.
+fourth('AR-SA', 'العربية', ['@plural = n==0 ? 2 : n==1 ? 0 : n==2 ? 3 : n%100>=3 && n%100<=10 ? 4 : n%100>=11 ? 5 : 1',
+                            '@direction = rtl', '@digits = ٠١٢٣٤٥٦٧٨٩', '@decimal = ٫', '@group = ٬'], [
     os.path.join(ROOT, 'fude', 'drawing', 'strings_ar.py'),
     os.path.join(ROOT, 'fude', 'study', 'strings_ar.py'),
     os.path.join(ROOT, 'fude', 'lang', 'ar', 'strings_ar.py'),

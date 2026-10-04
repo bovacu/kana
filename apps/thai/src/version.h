@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef THAI_VERSION_H
 #define THAI_VERSION_H
 

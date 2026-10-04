@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Kana's edition of "First Year Japanese I - Supplemental material and worksheets"
 # (Yoko Sato, Mt Hood Community College, CC BY 4.0), for the Lectures screen:
 #   python3 make_jpn101.py SOURCE.pdf OUT.pdf

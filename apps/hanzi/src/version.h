@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef HANZI_VERSION_H
 #define HANZI_VERSION_H
 

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/models/charnote.h"
 #include "drawing/base/kfile.h"
 

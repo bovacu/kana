@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The icons' left bearings (FUDE_KIT_ICON_BEARINGS in fude/drawing/widgets/kit.c), measured
 # from Phosphor-Regular.ttf (Kana's assets) for every icon of fude/drawing/widgets/icons.h.
 # Run after adding an icon (and cutting the fonts again: COMMANDS.txt, ICONS):

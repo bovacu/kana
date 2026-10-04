@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # Hanzi's stroke data, in KanjiVG's form so the data bake reads it as it reads
 # KanjiVG: data/raw/zh/hanzivg.xml, from Make Me a Hanzi's strokes as
 # hanzi-writer-data packs them (data/raw/zh/hanzi-writer-data-2.0.1.tgz, from

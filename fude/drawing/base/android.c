@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/base/android.h"
 
 #if defined(RDE_PLATFORM_ANDROID)

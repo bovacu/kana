@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // swift tools/icons/flags.swift OUT_DIR — China's, South Korea's, Thailand's and India's flags
 // as the language list draws the others (96x64, rounded 6, a 1-pixel 209 grey border):
 // cn.png, kr.png, th.png, in.png; and Arabic's mark, ar.png (no one country's flag).

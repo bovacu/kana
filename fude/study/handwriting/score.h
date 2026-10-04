@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef FUDE_SCORE
 #define FUDE_SCORE
 
@@ -61,7 +63,7 @@ RDE_STRUCT {
     u8  swap_a;         // an order mistake: reference strokes swap_a and swap_b; 0 = none
     u8  swap_b;
     u8  worst;          // the reference stroke whose shape is furthest off (1-based); 0 = none
-    c8  feedback[96];   // one line for the learner
+    c8  feedback[384];  // one line for the learner
 } fude_score;
 
 // Scores the alive strokes of _drawing (any units, Y up) against a character.

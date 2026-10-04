@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // HTML laid out as an A4 PDF by macOS's own text system (AppKit), its pages
 // numbered at the foot — for the lectures built from wiki pages (phrasebook.py):
 //   swift html2pdf.swift IN.html OUT.pdf [--no-numbers]

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # A study app's UI strings: the study layer's (fude/study), read after the
 # core's (tools/strings/build.py) and before the language's (fude/lang/<code>/
 # strings.py, which has the ones that name the language). {APP} is the app's

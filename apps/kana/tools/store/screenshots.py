@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 # The App Store's iPad screenshots, from screenshots taken on the iPad: each
 # framed on Kana's blue with a caption on top, at the 13-inch size App Store
 # Connect asks for (2048 x 2732 portrait, 2732 x 2048 landscape — the store

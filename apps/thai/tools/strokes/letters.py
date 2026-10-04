@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 """The Thai letters, drawn by hand as centreline strokes.
 
 Our own work: every shape below was drawn for this project, in code. Nothing

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/app/look.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/app/app.h"
@@ -122,6 +124,7 @@ void fude_look_start(fude_app* _app) {
         const c8* _v;
         if(fude_look_is(_a, "--settings"))   { fude_side_open_settings(_app->ui, -1); }
         if(fude_look_is(_a, "--side"))       { _app->ui->side.open = true; }
+        if(fude_look_is(_a, "--faq"))        { _app->ui->side.open = true; _app->ui->side.faq_open = true; }   // FAQ & Contact's card
         if(fude_look_is(_a, "--text-check")) { fude_draw_text_check(_app->window); }
         if((_v = fude_look_value(_a, "--licences")) != NULL)   { fude_side_open_settings(_app->ui, (i32)strtol(_v, NULL, 10)); }
         if((_v = fude_look_value(_a, "--size")) != NULL) {

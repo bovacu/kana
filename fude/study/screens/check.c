@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/widgets/header.h"
 #include "lang/lang.h"
 #include "study/screens/check.h"
@@ -429,7 +431,7 @@ RDE_INTERNAL f32 fude_check_draw_reading(fude_check* _check, rde_font* _font, f3
     const u32         _cols  = (u32)fmaxf(1.0f, floorf((_width + FUDE_CHECK_READ_GAP) / _step));
     const u32         _n     = fude_check_count(_check);
     const u32         _shown = _n < _cols * FUDE_CHECK_ROWS ? _n : _cols * FUDE_CHECK_ROWS;
-    c8                _line[16];
+    c8                _line[512];
     for(u32 _i = 0; _i < _shown; _i++) {
         const fude_check_char* _c  = fude_check_at(_check, _i);
         const rde_vec_2F       _tl = { _left + (f32)(_i % _cols) * _step, _top - (f32)(_i / _cols) * _row };
@@ -458,7 +460,7 @@ RDE_INTERNAL void fude_check_draw_detail(fude_check* _check, rde_font* _font, f3
     const fude_theme*      _theme = fude_theme_active();
     const fude_check_char* _c     = fude_check_at(_check, _check->selected);
     const f32              _width = _right - _left;
-    c8                     _line[160];
+    c8                     _line[512];
     _check->cell_size = FUDE_CHECK_CELL;
     if(_c == NULL) {
         return;
@@ -523,7 +525,7 @@ void fude_check_render(fude_check* _check, rde_window* _window, rde_font* _font,
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_CHECK_MARGIN;
     const f32         _width  = _right - _left;
     const u32         _n      = fude_check_count(_check);
-    c8                _line[200];
+    c8                _line[512];
 
     fude_header_title(_font, _font_px, fude_text(FUDE_TEXT_CHECK_TITLE), _left, _top);
 

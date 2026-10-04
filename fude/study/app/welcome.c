@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/app/welcome.h"
 #include "drawing/app/screen.h"
 #include "drawing/widgets/draw.h"
@@ -140,7 +142,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
 #endif
     const c8* _title = fude_text(_title_id);
     const c8* _body  = fude_text(_body_id);
-    const f32 _title_px = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_WELCOME_TITLE, _inner, 0.6f);
+    const f32 _title_px = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_WELCOME_TITLE, _inner);
     // On a phone the first page says the app is made for tablets, under its words.
     const c8* _phone = _page == 0u && fude_kit_compact(_window) ? fude_text(FUDE_TEXT_WELCOME_PHONE) : NULL;
     // A screen too short for it (a phone): smaller words and icon.
@@ -195,7 +197,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     }
     fude_draw_card(_welcome->next_min, _welcome->next_max, 14.0f, _next_c, _next_c);
     const c8* _next  = fude_text(_last ? FUDE_TEXT_WELCOME_START : FUDE_TEXT_NEXT);
-    const f32 _np    = fude_draw_text_px_to_fit(_font, _font_px, _next, 17.0f, _b.x - 24.0f, 0.6f);
+    const f32 _np    = fude_draw_text_px_to_fit(_font, _font_px, _next, 17.0f, _b.x - 24.0f);
     const f32 _nw    = fude_draw_text_width(_font, _font_px, _next, _np);
     fude_draw_text(_font, _font_px, _next, _nx - _nw * 0.5f, _by - _np * 0.36f, _np, _t->on_accent);
     if(_last) {
@@ -208,7 +210,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
             fude_draw_card(_welcome->skip_min, _welcome->skip_max, 14.0f, _t->surface_2, _t->surface_2);
         }
         const c8* _skip = fude_text(FUDE_TEXT_WELCOME_SKIP);
-        const f32 _sp   = fude_draw_text_px_to_fit(_font, _font_px, _skip, 17.0f, _b.x - 24.0f, 0.6f);
+        const f32 _sp   = fude_draw_text_px_to_fit(_font, _font_px, _skip, 17.0f, _b.x - 24.0f);
         const f32 _skw  = fude_draw_text_width(_font, _font_px, _skip, _sp);
         fude_draw_text(_font, _font_px, _skip, _sx - _skw * 0.5f, _by - _sp * 0.36f, _sp, _t->text_soft);
     }

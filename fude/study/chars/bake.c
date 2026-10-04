@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/chars/bake.h"
 
 #if !defined(RDE_PLATFORM_MOBILE)

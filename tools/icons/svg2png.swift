@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // swift svg2png.swift IN.svg OUT.png SIZE — an SVG drawn by AppKit into a SIZE×SIZE PNG
 // (tools/icons/app_icon.py: a study app's icon).
 import AppKit

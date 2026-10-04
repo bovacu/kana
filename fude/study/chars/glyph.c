@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/chars/glyph.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/base/theme.h"

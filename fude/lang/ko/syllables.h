@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 // The syllables to learn (lang.c's Syllables group): KS X 1001's 2,350, any a
 // word of the dictionary has, and the Hangul chart's — 2358; the rest of the
 // 11,172 are written, but listed nowhere. A bit each, from U+AC00 (bit n of

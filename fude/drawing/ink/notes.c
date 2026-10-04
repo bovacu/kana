@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "drawing/ink/notes.h"
 #include "drawing/base/text.h"
 #include "drawing/base/kfile.h"

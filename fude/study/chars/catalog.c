@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/chars/catalog.h"
 #include "lang/lang.h"
 #include "study/models/marks.h"

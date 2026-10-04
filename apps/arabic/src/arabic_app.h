@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #ifndef ARABIC_APP_H
 #define ARABIC_APP_H
 

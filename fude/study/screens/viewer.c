@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
+
 #include "study/screens/viewer.h"
 #include "lang/lang.h"
 #include "study/widgets/header.h"
@@ -568,7 +570,7 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
     }
 
     // The columns: the widest written form and reading.
-    c8        _line[256];
+    c8        _line[512];
     const f32 _em        = fude_draw_text_width(_font, _font_px, "\xE3\x81\x82", 1.0f);   // a Japanese character (あ), per unit of size
     f32       _written_w = 2.0f * _em * FUDE_VIEWER_WORD_PX;
     f32       _reading_w = 3.0f * _em * FUDE_VIEWER_SMALL_PX;
@@ -743,12 +745,14 @@ RDE_INTERNAL void fude_viewer_draw_sentence(fude_viewer* _viewer, rde_font* _fon
     // The title: what it is and whose; › (with where it is) when there are more.
     const f32 _tmid  = _top - FUDE_VIEWER_SENT_TITLE * 0.5f;
     f32       _end   = _right - _inner;
-    c8        _line[128];
+    c8        _line[512];
     if(_viewer->sentence_count > 1u) {
-        if(fude_draw_is_rtl()) {   // the arrow at the line's end, the left; the numbers read left to right, as the counter's
-            snprintf(_line, sizeof(_line), "%s  %u / %u", fude_draw_icon_dir(FUDE_ICON_NEXT), _viewer->sentence_at + 1u, _viewer->sentence_count);
+        c8 _of[512];
+        FUDE_TEXTF(_of, FUDE_TEXT_OF_N, FUDE_TN(_viewer->sentence_at + 1u), FUDE_TN(_viewer->sentence_count));
+        if(fude_draw_is_rtl()) {   // the arrow at the line's end, the left
+            snprintf(_line, sizeof(_line), "%s  %s", fude_draw_icon_dir(FUDE_ICON_NEXT), _of);
         } else {
-            snprintf(_line, sizeof(_line), "%u / %u  " FUDE_ICON_NEXT, _viewer->sentence_at + 1u, _viewer->sentence_count);
+            snprintf(_line, sizeof(_line), "%s  " FUDE_ICON_NEXT, _of);
         }
         const f32 _w2    = fude_draw_text_width(_font, _font_px, _line, 13.0f) + 34.0f;
         const f32 _h     = 28.0f;
@@ -763,7 +767,7 @@ RDE_INTERNAL void fude_viewer_draw_sentence(fude_viewer* _viewer, rde_font* _fon
     fude_draw_text(_font, _font_px, _title, _x0 + _inner, _tmid - 16.0f * 0.42f, 16.0f, _theme->text);
     const f32 _wx = _x0 + _inner + fude_draw_text_width(_font, _font_px, _title, 16.0f) + 12.0f;
     snprintf(_line, sizeof(_line), "%s \xC2\xB7 %s", _w.written, _w.reading);   // ·
-    const f32 _wpx = fude_draw_text_px_to_fit(_font, _font_px, _line, 13.0f, _end - _wx, 0.7f);
+    const f32 _wpx = fude_draw_text_px_to_fit(_font, _font_px, _line, 13.0f, _end - _wx);
     fude_draw_text(_font, _font_px, _line, _wx, _tmid - _wpx * 0.42f, _wpx, _theme->text_soft);
     fude_draw_line((rde_vec_2F){ _x0, _top - FUDE_VIEWER_SENT_TITLE }, (rde_vec_2F){ _right, _top - FUDE_VIEWER_SENT_TITLE }, 0.5f, _theme->outline);
 
@@ -803,7 +807,7 @@ RDE_INTERNAL void fude_viewer_render_adding(fude_viewer* _viewer, rde_window* _w
 
     const f32 _tx = _left + _size + 24.0f;
     fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_VIEWER_ADD_WORDS), _tx, _tl.y - 30.0f, 20.0f, _theme->text);
-    c8 _line[160];
+    c8 _line[512];
     FUDE_TEXTF(_line, FUDE_TEXT_VIEWER_YOURS_N, FUDE_TN(fude_vocab_kanji_count(_info->codepoint)));
     fude_draw_text(_font, _font_px, _line, _tx, _tl.y - 62.0f, 17.0f, _theme->text_soft);
     fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_VIEWER_ADD_HELP), _tx, _tl.y - 96.0f, 13.0f, _theme->text_soft);
@@ -855,13 +859,13 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     const b8          _plain  = _kana && !_letter;
     const u32         _kinds  = _letter ? 0u : fude_lang_reading_kinds();
     const fude_theme* _theme = fude_theme_active();
-    c8 _line[256];
+    c8 _line[512];
     {
         const u8  _group   = fude_lang_group(_info.codepoint);
         const f32 _mid     = _top - 14.0f;
         // At the right: where it is in the list, and Note before it.
-        c8 _pos[32];
-        snprintf(_pos, sizeof(_pos), "%u / %u", _viewer->position + 1u, (u32)rde_arr_length(&_viewer->list));
+        c8 _pos[512];
+        FUDE_TEXTF(_pos, FUDE_TEXT_OF_N, FUDE_TN(_viewer->position + 1u), FUDE_TN((u32)rde_arr_length(&_viewer->list)));
         const f32 _pos_w = fude_draw_text_width(_font, _font_px, _pos, 14.0f);
         fude_draw_text(_font, _font_px, _pos, _right - _pos_w, _mid - 14.0f * 0.42f, 14.0f, _theme->text_soft);
         f32 _chips_end = _right - _pos_w - 16.0f;   // the chips stop short of them
@@ -882,7 +886,7 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
         // The chips, as many as fit before them (a phone: the grade, then the
         // strokes, are left out). Its group (one outside them all, as the
         // language names it: 々 a kanji), its level, its strokes, its grade.
-        c8         _chip[4][96];
+        c8         _chip[4][384];
         rde_color  _fill[4], _ink[4];
         u32        _n = 0;
         snprintf(_chip[_n], sizeof(_chip[_n]), "%s", fude_text((FUDE_TEXT_)fude_lang_group_name(_group)));
