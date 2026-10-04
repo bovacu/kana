@@ -67,6 +67,9 @@ static const fude_chart_row FUDE_CHART_ROWS[] = {
     { FUDE_CHART_MORE, { 0xFE94, 0, 0, 0x0629 } },   // ﺔ · · ة
     { FUDE_CHART_MORE, { 0xFEF0, 0, 0, 0x0649 } },   // ﻰ · · ى
     { FUDE_CHART_MORE, { 0xFEFC, 0, 0, 0xFEFB } },   // ﻼ · · ﻻ
+    { FUDE_CHART_MORE, { 0xFEF6, 0, 0, 0xFEF5 } },   // ﻶ · · ﻵ
+    { FUDE_CHART_MORE, { 0xFEF8, 0, 0, 0xFEF7 } },   // ﻸ · · ﻷ
+    { FUDE_CHART_MORE, { 0xFEFA, 0, 0, 0xFEF9 } },   // ﻺ · · ﻹ
     { FUDE_CHART_MARKS, { 0x064E, 0x064F, 0x0650, 0x0652 } },   // ◌َ ◌ُ ◌ِ ◌ْ
     { FUDE_CHART_MARKS, { 0x0651, 0x064B, 0x064C, 0x064D } },   // ◌ّ ◌ً ◌ٌ ◌ٍ
     { FUDE_CHART_DIGITS, { 0x0660, 0x0661, 0x0662, 0x0663, 0x0664 } },   // ٠ ١ ٢ ٣ ٤

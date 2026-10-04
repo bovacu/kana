@@ -9,7 +9,8 @@
 // See lang.h: Arabic (Modern Standard Arabic, in the Naskh hand). Its letters in
 // four groups — the letters as they stand alone (the 28, the hamza and its
 // seats, ة ى, the lām-alif), the joined forms each takes inside a word (initial,
-// medial, final: Unicode's presentation forms, each with strokes of its own),
+// medial, final: Unicode's presentation forms, each with strokes of its own;
+// the lām-alif ligatures لا لآ لأ لإ, alone and joined),
 // the vowel marks (harakat), the digits — each with its Latin name: a letter's
 // (ب "bāʾ"), a joined form's with where it joins, as textbooks write ـبـ
 // ("bāʾ-" starts a word, "-bāʾ-" inside one, "-bāʾ" ends one), a mark's
@@ -173,6 +174,12 @@ static const fude_ar_letter FUDE_AR_TABLE[] = {
     { 0xFEF2, FUDE_AR_FORMS,   1, "-y\xC4\x81\xCA\xBE" },        // ﻲ
     { 0xFEF3, FUDE_AR_FORMS,   1, "y\xC4\x81\xCA\xBE-" },        // ﻳ
     { 0xFEF4, FUDE_AR_FORMS,   1, "-y\xC4\x81\xCA\xBE-" },       // ﻴ
+    { 0xFEF5, FUDE_AR_LETTERS, 2, "l\xC4\x81m alif madda" },     // ﻵ
+    { 0xFEF6, FUDE_AR_FORMS,   2, "-l\xC4\x81m alif madda" },    // ﻶ
+    { 0xFEF7, FUDE_AR_LETTERS, 2, "l\xC4\x81m alif hamza" },     // ﻷ
+    { 0xFEF8, FUDE_AR_FORMS,   2, "-l\xC4\x81m alif hamza" },    // ﻸ
+    { 0xFEF9, FUDE_AR_LETTERS, 2, "l\xC4\x81m alif hamza ta\xE1\xB8\xA5t" }, // ﻹ
+    { 0xFEFA, FUDE_AR_FORMS,   2, "-l\xC4\x81m alif hamza ta\xE1\xB8\xA5t" }, // ﻺ
     { 0xFEFB, FUDE_AR_LETTERS, 2, "l\xC4\x81m alif" },           // ﻻ
     { 0xFEFC, FUDE_AR_FORMS,   2, "-l\xC4\x81m alif" },          // ﻼ
 };
@@ -309,12 +316,13 @@ u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
         return _cp;   // a digit, a mark, a form already
     }
     const b8 _joined_before = _before != 0u && fude_ar_joins_after(_before) && _f->final != 0u;
-    // ل then ا: written together, as the ligature ﻻ.
-    if(_cp == 0x0644u && _after == 0x0627u) {
+    // ل then ا, آ, أ or إ: written together, as a ligature (ﻻ ﻵ ﻷ ﻹ).
+    if(_cp == 0x0644u && (_after == 0x0627u || _after == 0x0622u || _after == 0x0623u || _after == 0x0625u)) {
         if(_with_after != NULL) {
             *_with_after = true;
         }
-        return _joined_before ? 0xFEFCu : 0xFEFBu;
+        const u32 _alone = _after == 0x0627u ? 0xFEFBu : _after == 0x0622u ? 0xFEF5u : _after == 0x0623u ? 0xFEF7u : 0xFEF9u;
+        return _joined_before ? _alone + 1u : _alone;
     }
     const b8 _joined_after = _after != 0u && _f->initial != 0u && fude_ar_joins_before(_after);
     if(_joined_before && _joined_after) {
@@ -329,9 +337,9 @@ u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
     return _cp;
 }
 
-// A joined form's letter: the table's, and the ligature's ل.
+// A joined form's letter: the table's, and a lām-alif ligature's ل.
 u32 fude_lang_letter(u32 _cp) {
-    if(_cp == 0xFEFBu || _cp == 0xFEFCu) {
+    if(_cp >= 0xFEF5u && _cp <= 0xFEFCu) {
         return 0x0644u;
     }
     if(_cp < 0xFE70u) {

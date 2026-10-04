@@ -1,10 +1,11 @@
 # Arabic stroke data
 
-Stroke-order data for the Arabic app: its 137 characters
+Stroke-order data for the Arabic app: its 143 characters
 (`fude/lang/ar/lang.c`'s table): the 36 letters as they stand alone, at their
 own code points (U+0621..U+064A); their 81 joined forms (final, initial,
 medial) at Unicode's Arabic Presentation Forms-B code points (U+FE82..U+FEF4);
-lam-alif, isolated and final (U+FEFB, U+FEFC); the 8 harakat (U+064B..U+0652);
+lam-alif, isolated and final (U+FEFB, U+FEFC), and with madda, hamza above or
+hamza below (لآ لأ لإ, U+FEF5..U+FEFA); the 8 harakat (U+064B..U+0652);
 the 10 Arabic-Indic digits (U+0660..U+0669). Each is a set of centreline
 strokes in writing order, written in KanjiVG's XML format, so Kana's bake
 (`fude/study/chars/bake.c`, `fude_bake_kanjivg`) reads it unchanged.
@@ -42,7 +43,7 @@ python3 apps/arabic/tools/strokes/sheets.py OUT_DIR --font NotoNaskhArabic[wght]
 `compose.py` takes an optional output path. The output is deterministic (no
 dates or random numbers): two runs give the same file.
 
-`validate.py` checks: the character set (exactly the 137, in code point order,
+`validate.py` checks: the character set (exactly the 143, in code point order,
 listed in `validate.py` itself, and the same set as `lang.c`'s table when that
 file is there); the ids (`kvg:kanji_0fe8b`, one top group `kvg:0fe8b` whose
 `kvg:element` is the character, paths `kvg:0fe8b-sN` numbered 1, 2, 3 ... in
@@ -178,7 +179,7 @@ per-letter table independently.
 
 Dots count one stroke each. Letters: ب 2, ت 3, ث 4, ن 2, ي 3, ى 1, ئ 2, ة 3,
 ج 2, ح 1, خ 2, د 1, ذ 2, ر 1, ز 2, س 1, ش 4, ص 1, ض 2, ط 2, ظ 3, ع 1, غ 2, ف 2,
-ق 3, ك 2, ل 1, م 1, ه 1, و 1, ؤ 2, ا 1, أ إ آ 2, ء 1, لا 2, in every form, but
+ق 3, ك 2, ل 1, م 1, ه 1, و 1, ؤ 2, ا 1, أ إ آ 2, ء 1, لا 2 (لآ لأ لإ 3), in every form, but
 **initial ك 1** (its bar is part of the body [G]). Harakat: fathatan, dammatan,
 kasratan 2; the rest 1. Digits: 1 each. In all, 253 strokes.
 
@@ -235,7 +236,9 @@ kasratan 2; the rest 1. Digits: 1 each. In all, 253 strokes.
 12. **لا**: two strokes, the lam (no cup) with its foot running on to the left
     as the joint, then the slanted alif from the top left down to meet it [M]
     ("لام ناقصة الكأس، وصلة، ألف مائلة"). Final ـلا: from the connector up the
-    lam and back down first.
+    lam and back down first. لآ لأ لإ: لا, then the mark as آ أ إ take
+    theirs (the alif shortened to y 24 under a madda or hamza; the hamza below
+    under the joint).
 13. **Hamza** (ء and the small one): from the top right, the small crescent
     counter-clockwise, right, then the slanted dash down to the lower left
     [M] ("نقطة البداية، نزول بميل، تداخل، نزول"). Over أ آ (and their finals)

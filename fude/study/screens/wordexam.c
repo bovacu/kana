@@ -340,7 +340,8 @@ RDE_INTERNAL void fude_wordexam_mark_box(fude_wordexam* _exam, fude_wordexam_ite
     // points that. Without ML Kit, the matcher knows letters only: its letter.
     c8 _letter[8];
     fude_utf8_put(fude_lang_letter(_it->chars[_b]), _letter);
-    const b8 _syllable = strcmp(_it->written[_b], _letter) != 0 && _it->chars[_b] != 0xFEFBu && _it->chars[_b] != 0xFEFCu;
+    const b8 _ligature = _it->chars[_b] >= 0xFEF5u && _it->chars[_b] <= 0xFEFCu;   // Arabic's lām-alif: one letter's box, two letters' text
+    const b8 _syllable = strcmp(_it->written[_b], _letter) != 0 && !_ligature;
     if(_syllable && _r != NULL) {
         for(u32 _l = 0; _l < _r->line_count && _l < FUDE_WORDEXAM_CANDIDATES; _l++) {
             _it->box_right[_b] = _it->box_right[_b] || strcmp(_r->lines[_l], _it->written[_b]) == 0;

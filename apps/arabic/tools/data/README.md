@@ -27,7 +27,7 @@ All in `data/raw/ar/prepared/` (git-ignored).
 
 | File | What it holds |
 | --- | --- |
-| `chars.tsv` | The 137 characters of `fude/lang/ar/lang.c`'s table at its levels (read from there): how common each is, and what it is — a letter's sound (ث: th, as in think), a joined form's place, a mark's vowel — ours, in en/es/pt/fr/ja. |
+| `chars.tsv` | The 143 characters of `fude/lang/ar/lang.c`'s table at its levels (read from there): how common each is, and what it is — a letter's sound (ث: th, as in think), a joined form's place, a mark's vowel — ours, in en/es/pt/fr/ja. |
 | `words.tsv` | English Wiktionary's Arabic lemmas, written with their vowels (كِتَاب): romanization (kitāb), meanings in English, and in Spanish, French, Portuguese and Japanese where those Wiktionaries have the word, how common (wordfreq), common or not, and a sentence. |
 | `lists.tsv` | A letter's words; a joined form's, the words where its letter takes that form; a vowel mark's, the words that write it. Examples first. |
 | `sentences.tsv` | Tatoeba's Arabic sentences used, with their English, Spanish, French and Portuguese translations. |

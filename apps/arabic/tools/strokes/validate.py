@@ -5,7 +5,8 @@
 Errors (exit status 1):
   - the characters: exactly the app's 137 (the 36 letters as they stand alone
     U+0621..U+063A and U+0641..U+064A; their 81 joined forms at Arabic
-    Presentation Forms-B code points; lam-alif U+FEFB U+FEFC; the 8 harakat
+    Presentation Forms-B code points; lam-alif U+FEFB U+FEFC and with madda
+    or hamza U+FEF5..U+FEFA; the 8 harakat
     U+064B..U+0652; the 10 digits U+0660..U+0669), copied below as EXPECTED,
     each once, in code point order; and, when fude/lang/ar/lang.c is there,
     the same set as its table
@@ -76,7 +77,7 @@ DUAL_FORMS = [  # final, initial, medial
     (0xFEC6, 0xFEC7, 0xFEC8), (0xFECA, 0xFECB, 0xFECC), (0xFECE, 0xFECF, 0xFED0), (0xFED2, 0xFED3, 0xFED4),
     (0xFED6, 0xFED7, 0xFED8), (0xFEDA, 0xFEDB, 0xFEDC), (0xFEDE, 0xFEDF, 0xFEE0), (0xFEE2, 0xFEE3, 0xFEE4),
     (0xFEE6, 0xFEE7, 0xFEE8), (0xFEEA, 0xFEEB, 0xFEEC), (0xFEF2, 0xFEF3, 0xFEF4)]
-LAM_ALIF = {0xFEFB: "iso", 0xFEFC: "fin"}
+LAM_ALIF = {0xFEFB: "iso", 0xFEFC: "fin", 0xFEF5: "iso", 0xFEF6: "fin", 0xFEF7: "iso", 0xFEF8: "fin", 0xFEF9: "iso", 0xFEFA: "fin"}
 HARAKAT_ABOVE = [0x064B, 0x064C, 0x064E, 0x064F, 0x0651, 0x0652]
 HARAKAT_BELOW = [0x064D, 0x0650]
 DIGITS = list(range(0x0660, 0x066A))

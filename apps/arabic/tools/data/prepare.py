@@ -90,7 +90,7 @@ def letters():
     out = {}
     for m in re.finditer(r'\{\s*0x([0-9A-Fa-f]{4}),\s*FUDE_AR_(\w+),\s*(\d)\s*,', body):
         out[chr(int(m.group(1), 16))] = (m.group(2), int(m.group(3)))
-    assert len(out) == 137, 'lang.c table: %d' % len(out)
+    assert len(out) == 143, 'lang.c table: %d' % len(out)
     return out
 
 # Each letter's forms (Unicode's presentation forms), as lang.c's fude_lang_form.
@@ -103,13 +103,14 @@ for cp in range(0xFE70, 0xFEFD):
 
 def form_of(before, c, after):
     # The character c is written as between before and after ('' none), and
-    # whether after is written in it (ل then ا: ﻻ).
+    # whether after is written in it (ل then ا آ أ إ: ﻻ ﻵ ﻷ ﻹ).
     f = FORMS.get(c, {})
     joins_after = lambda x: 'initial' in FORMS.get(x, {})
     joins_before = lambda x: 'final' in FORMS.get(x, {})
     joined_before = bool(before) and joins_after(before) and 'final' in f
-    if c == 'ل' and after == 'ا':
-        return ('ﻼ' if joined_before else 'ﻻ'), True
+    if c == '\u0644' and after in ('\u0627', '\u0622', '\u0623', '\u0625'):
+        alone = {'\u0627': 0xFEFB, '\u0622': 0xFEF5, '\u0623': 0xFEF7, '\u0625': 0xFEF9}[after]
+        return chr(alone + 1 if joined_before else alone), True
     joined_after = bool(after) and 'initial' in f and joins_before(after)
     if joined_before and joined_after:
         return f['medial'], False
@@ -169,6 +170,9 @@ SOUND = {
     'ى': ('alif maqṣūra: a long ā at a word’s end', 'alif maqṣūra: una ā larga al final', 'alif maqṣūra: um ā longo no fim', 'alif maqṣūra : un ā long en fin de mot', 'アリフ・マクスーラ：語末の長いā'),
     'ي': ('y, or the long vowel ī', 'y, o la vocal larga ī', 'i, ou a vogal longa ī', 'y, ou la voyelle longue ī', 'y、または長母音ī'),
     'ﻻ': ('lām and alif written together: lā', 'lām y alif juntas: lā', 'lām e alif juntos: lā', 'lām et alif liés : lā', 'ラームとアリフの合字：lā'),
+    '\ufef5': ('lām and alif madda written together: lʾā', 'lām y alif madda juntas: lʾā', 'lām e alif madda juntos: lʾā', 'lām et alif madda liés : lʾā', 'ラームとアリフ・マッダの合字：lʾā'),
+    '\ufef7': ('lām and hamza on alif written together: laʾ, luʾ', 'lām y hamza sobre alif juntas: laʾ, luʾ', 'lām e hamza sobre alif juntos: laʾ, luʾ', 'lām et hamza sur alif liés : laʾ, luʾ', 'ラームとアリフの上のハムザの合字：laʾ、luʾ'),
+    '\ufef9': ('lām and hamza under alif written together: liʾ', 'lām y hamza bajo alif juntas: liʾ', 'lām e hamza sob alif juntos: liʾ', 'lām et hamza sous alif liés : liʾ', 'ラームとアリフの下のハムザの合字：liʾ'),
     'ً': ('tanwīn: -an', 'tanwīn: -an', 'tanwīn: -an', 'tanwīn : -an', 'タンウィーン：-an'),
     'ٌ': ('tanwīn: -un', 'tanwīn: -un', 'tanwīn: -un', 'tanwīn : -un', 'タンウィーン：-un'),
     'ٍ': ('tanwīn: -in', 'tanwīn: -in', 'tanwīn: -in', 'tanwīn : -in', 'タンウィーン：-in'),

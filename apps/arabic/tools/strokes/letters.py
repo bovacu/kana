@@ -132,7 +132,8 @@ STROKES = {chr(cp): n for cp, n in {
     0x0648: 1, 0xFEEE: 1,
     0x0649: 1, 0xFEF0: 1,
     0x064A: 3, 0xFEF2: 3, 0xFEF3: 3, 0xFEF4: 3,
-    # lam-alif
+    # lam-alif; with madda, hamza above, hamza below (the mark a stroke of its own)
+    0xFEF5: 3, 0xFEF6: 3, 0xFEF7: 3, 0xFEF8: 3, 0xFEF9: 3, 0xFEFA: 3,
     0xFEFB: 2, 0xFEFC: 2,
     # harakat: fathatan, dammatan, kasratan, fatha, damma, kasra, shadda, sukun
     0x064B: 2, 0x064C: 2, 0x064D: 2, 0x064E: 1, 0x064F: 1, 0x0650: 1, 0x0651: 1, 0x0652: 1,
@@ -155,6 +156,7 @@ PRES_ISO = {   # the isolated presentation form of each letter (not stored: the 
     0x0646: 0xFEE5, 0x0647: 0xFEE9, 0x0648: 0xFEED, 0x0649: 0xFEEF, 0x064A: 0xFEF1,
 }
 LAM_ALIF = {0xFEFB: ISO, 0xFEFC: FIN}
+LAM_ALIF_MARKED = {0xFEF5: ISO, 0xFEF6: FIN, 0xFEF7: ISO, 0xFEF8: FIN, 0xFEF9: ISO, 0xFEFA: FIN}   # لآ لأ لإ
 HARAKAT = list(range(0x064B, 0x0653))
 DIGITS = list(range(0x0660, 0x066A))
 
@@ -174,7 +176,7 @@ FORM = {}           # code point -> (letter's base code point, form)
 for _b in [0x0621] + sorted(DUAL + RIGHT):
     for _cp, _f in forms_of(_b):
         FORM[_cp] = (_b, _f)
-for _cp, _f in LAM_ALIF.items():
+for _cp, _f in list(LAM_ALIF.items()) + list(LAM_ALIF_MARKED.items()):
     FORM[_cp] = (0xFEFB, _f)
 
 DRAW = {}           # code point -> function returning its strokes
@@ -1023,12 +1025,12 @@ def waw_hamza(form):
 
 # --- لا ---------------------------------------------------------------------------------------------
 
-@family(0xFEFB, "[M] (لا: لام ناقصة الكأس، وصلة، ألف مائلة; arrows for ـلا) [K].", cps=list(LAM_ALIF.items()))
-def lam_alif(form):
+def lam_alif_body(form, alif_top=18.0):
     """Two strokes [M]: the lam without its cup, its foot running on to the
     left as the joint (وصلة), then the slanted alif from the top left down to
-    meet it. Final: from the connection up the lam and back down first [M]
-    [W]."""
+    meet it (shortened below a madda or hamza, as أ's alif is). Final: from
+    the connection up the lam and back down first [M] [W]. Returns the strokes
+    and the alif's top."""
     if form == ISO:
         x = 65.0
         s = Stroke(x + 1.0, A, 92.0)
@@ -1042,8 +1044,34 @@ def lam_alif(form):
         s.line(x, 58.0)
     s.through([(x - 3.5, 65.2), (x - 12.0, 68.3), (x - 26.0, 69.0)], end=184.0)
     s.line(x - 31.0, 69.2)
-    a = spline([(x - 27.0, 18.0), (x - 19.0, 42.5), (x - 11.0, 67.0)], start=64.0, end=72.0)
-    return [s, a]
+    # The alif's slant: x - 27 at y 18 to x - 11 at y 67 (16 across, 49 down).
+    top_x = x - 27.0 + (alif_top - 18.0) * 16.0 / 49.0
+    a = spline([(top_x, alif_top), ((top_x + x - 11.0) / 2.0, (alif_top + 67.0) / 2.0), (x - 11.0, 67.0)], start=64.0, end=72.0)
+    return [s, a], (top_x, alif_top), x
+
+
+@family(0xFEFB, "[M] (لا: لام ناقصة الكأس، وصلة، ألف مائلة; arrows for ـلا) [K].", cps=list(LAM_ALIF.items()))
+def lam_alif(form):
+    return lam_alif_body(form)[0]
+
+
+# لآ لأ لإ: لا, then the alif's mark last, as آ أ إ take theirs [M] [K] [W].
+@family(0xFEF5, "As لا; then the madda over the alif, right to left, as آ's [H].", cps=[(0xFEF5, ISO), (0xFEF6, FIN)])
+def lam_alif_madda(form):
+    strokes, (tx, ty), x = lam_alif_body(form, 24.0)
+    return strokes + [madda(tx + 1.0, 15.5)]
+
+
+@family(0xFEF7, "As لا; then the hamza over the alif, as أ's [W].", cps=[(0xFEF7, ISO), (0xFEF8, FIN)])
+def lam_alif_hamza_above(form):
+    strokes, (tx, ty), x = lam_alif_body(form, 24.0)
+    return strokes + [small_hamza(tx + 1.5, 13.5, 0.46)]
+
+
+@family(0xFEF9, "As لا; then the hamza under the joint, as إ's [W].", cps=[(0xFEF9, ISO), (0xFEFA, FIN)])
+def lam_alif_hamza_below(form):
+    strokes, top, x = lam_alif_body(form)
+    return strokes + [small_hamza(x - 16.0, 80.0, 0.46)]
 
 
 # --- the harakat ------------------------------------------------------------------------------------
@@ -1195,6 +1223,7 @@ def _letters_in_order():
               0x0648, 0x0624]:
         out.append([cp for cp, _ in forms_of(b)])
     out.append([0xFEFB, 0xFEFC])
+    out.append([0xFEF5, 0xFEF6, 0xFEF7, 0xFEF8, 0xFEF9, 0xFEFA])
     return out
 
 
