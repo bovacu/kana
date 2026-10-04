@@ -17,6 +17,7 @@
 const c8* fude_lang_code(void)      { return "zh"; }
 const c8* fude_lang_ink_model(void) { return "zh-Hani-CN"; }
 const c8* fude_lang_voice(void)     { return "zh-CN"; }
+b8        fude_lang_text_readable(void) { return true; }
 
 RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
     *_name = "\xE7\xAE\x80\xE4\xBD\x93\xE4\xB8\xAD\xE6\x96\x87";   // 简体中文
@@ -65,9 +66,34 @@ b8 fude_lang_core(u32 _cp) {
     return false;
 }
 
+b8 fude_lang_combining(u32 _cp) {
+    RDE_UNUSED(_cp);
+    return false;   // every letter stands alone
+}
+
 const c8* fude_lang_latin(u32 _cp) {
     RDE_UNUSED(_cp);
     return NULL;   // no script of letters
+}
+
+
+// --- writing direction and joined forms: left to right, each letter as itself -------------
+
+b8 fude_lang_rtl(void) {
+    return false;
+}
+
+u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
+    RDE_UNUSED(_before);
+    RDE_UNUSED(_after);
+    if(_with_after != NULL) {
+        *_with_after = false;
+    }
+    return _cp;
+}
+
+u32 fude_lang_letter(u32 _cp) {
+    return _cp;
 }
 
 // --- levels: HSK 1 to 6, then 7-9 (stored as 7) ------------------------------------------

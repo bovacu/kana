@@ -53,6 +53,7 @@ PINS = [
     ("MLKitTextRecognitionJapanese", "https://dl.google.com/dl/cpdc/1855262723e8ed6b/MLKitTextRecognitionJapanese-6.0.0.tar.gz"),
     ("MLKitTextRecognitionChinese", "https://dl.google.com/dl/cpdc/88856ee0a4da8910/MLKitTextRecognitionChinese-6.0.0.tar.gz"),
     ("MLKitTextRecognitionKorean", "https://dl.google.com/dl/cpdc/7bfa31d60eef9311/MLKitTextRecognitionKorean-6.0.0.tar.gz"),
+    ("MLKitTextRecognitionDevanagari", "https://dl.google.com/dl/cpdc/179643a21ac697ae/MLKitTextRecognitionDevanagari-6.0.0.tar.gz"),
     ("MLKitTextRecognitionCommon", "https://dl.google.com/dl/cpdc/ffd1e8a2dd89e128/MLKitTextRecognitionCommon-6.0.0.tar.gz"),
     ("MLKitVision", "https://dl.google.com/dl/cpdc/4e1652530984149e/MLKitVision-10.0.0.tar.gz"),
     ("MLImage", "https://dl.google.com/dl/cpdc/438c904a2516b489/MLImage-1.0.0-beta8.tar.gz"),
@@ -133,7 +134,10 @@ FRAMEWORKS = ("MLKitDigitalInkRecognition", "MLKitCommon", "MLKitMDD", "MLKitTex
 # Each language's text model, and the app that reads it.
 OCR = {"ja": ("MLKitTextRecognitionJapanese", "JapaneseOCRResources", "kana"),
        "zh": ("MLKitTextRecognitionChinese",  "ChineseOCRResources",  "hanzi"),
-       "ko": ("MLKitTextRecognitionKorean",   "KoreanOCRResources",   "hangul")}
+       "ko": ("MLKitTextRecognitionKorean",   "KoreanOCRResources",   "hangul"),
+       "hi": ("MLKitTextRecognitionDevanagari", "DevanagariOCRResources", "hindi")}
+# The apps whose language ML Kit cannot read in pictures (no text model): their licences only.
+NO_OCR = {"th": "thai", "ar": "arabic"}
 for fw in FRAMEWORKS + tuple(o[0] for o in OCR.values()):
     src = os.path.join(PODS, fw, "Frameworks", fw + ".framework")
     shutil.copytree(src, os.path.join(OUT, "frameworks", fw + ".framework"), symlinks=True)
@@ -192,11 +196,11 @@ for fw in FRAMEWORKS:
         bundle(fw + "_Privacy", [(manifest, "PrivacyInfo.xcprivacy")])
 
 # The licences, into each study app's assets (an app not made yet is passed over).
-for code, (ocr_fw, _, app) in OCR.items():
+for code, (ocr_fw, _, app) in list(OCR.items()) + [(c, (None, None, a)) for c, a in NO_OCR.items()]:
     app_dir = os.path.join(ROOT, "apps", app)
     if not os.path.isdir(app_dir):
         continue
-    used = FRAMEWORKS[:3] + (ocr_fw,) + FRAMEWORKS[3:]   # the text model where Kana always listed it
+    used = FRAMEWORKS[:3] + ((ocr_fw,) if ocr_fw else ()) + FRAMEWORKS[3:]   # the text model where Kana always listed it
     LIC = os.path.join(app_dir, "assets", "licenses"); os.makedirs(LIC, exist_ok=True)
     with open(os.path.join(LIC, "ml-kit-notices.txt"), "w") as out:
         out.write("GOOGLE ML KIT (" + ", ".join(used) + ")\n"
@@ -210,8 +214,8 @@ for code, (ocr_fw, _, app) in OCR.items():
                   "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n\n"
                   "Notices for the software it contains, as Google ships them:\n\n")
         written = set()
-        for fw in ("MLKitDigitalInkRecognition", ocr_fw, "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
-                   "MLKitTranslate", "MLKitNaturalLanguage"):
+        for fw in [f for f in ("MLKitDigitalInkRecognition", ocr_fw, "MLKitTextRecognitionCommon", "MLKitVision", "MLImage",
+                               "MLKitTranslate", "MLKitNaturalLanguage") if f]:
             notices = os.path.join(PODS, fw, "NOTICES")
             if not os.path.isfile(notices):
                 continue
@@ -236,4 +240,6 @@ for code, (ocr_fw, _, app) in OCR.items():
             out.write("=" * 60 + "\n" + what + "\n" + "=" * 60 + "\n\n")
             for f in files:
                 out.write(open(os.path.join(root[pod], f), encoding="utf-8", errors="replace").read().strip() + "\n\n")
+        # Then the apps' own, on Android (PDFBox: a PDF's text and Share as PDF), kept in fude/android.
+        out.write(open(os.path.join(ROOT, "fude", "android", "libraries-android.txt"), encoding="utf-8").read().replace("{APP}", app.capitalize()))
 print("ML Kit ready in", OUT, "-", len(objs), "objects in libmlkit_deps.a,", len(os.listdir(BUNDLES)), "bundles, text models", ", ".join(OCR))

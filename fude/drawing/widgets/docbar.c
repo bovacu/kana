@@ -197,7 +197,7 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
     _bar->_insets_for = _insets;
     const b8 _idle   = _mode == FUDE_DOCBAR_IDLE;
     const b8 _search = _mode == FUDE_DOCBAR_SEARCH;
-    // Search and Export only where the platform reads a PDF's text and writes one (not yet Android).
+    // Search and Export only where the platform reads a PDF's text and writes one (PDFKit and Core Graphics; PDFBox on Android).
     const b8 _finds  = fude_pdf_text_available();
     const b8 _writes = fude_pdf_write_available();
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->search), _idle && _finds);

@@ -1,0 +1,28 @@
+LECTURES
+
+Arabic phrasebook, from Wikivoyage (lectures/phrasebook_en.pdf, _es, _fr, _pt)
+
+Wikivoyage's Arabic phrasebook, one for each language Arabic Learn! speaks that has
+one (English, Spanish, French, Portuguese; Japanese shows the English one), by
+Wikivoyage's contributors, licensed under the Creative Commons Attribution-ShareAlike
+4.0 International licence (CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/
+
+  English    "Arabic phrasebook", revision 5226910 (2026-03-12)
+             https://en.wikivoyage.org/wiki/Arabic_phrasebook
+  Spanish    "Guía de árabe" (Wikiviajes), revision 255611 (2026-07-19)
+             https://es.wikivoyage.org/wiki/Gu%C3%ADa_de_%C3%A1rabe
+  French     "Guide linguistique arabe", revision 640532 (2026-02-01)
+             https://fr.wikivoyage.org/wiki/Guide_linguistique_arabe
+  Portuguese "Guia de conversação árabe", revision 145068 (2025-10-27)
+             https://pt.wikivoyage.org/wiki/Guia_de_conversa%C3%A7%C3%A3o_%C3%A1rabe
+
+Who wrote each: its page's history (the link on its first page).
+
+Changes made for Arabic Learn!: each page's text only, as the wiki had it at that
+revision — its pictures (each under a licence of its own), its links, the boxes
+for editors and its sections of further links ("Learning more", "Approfondir",
+"Aprendendo mais", "Aprenda mais") left out where it has one, and headings with
+nothing under them; laid out as an A4 PDF with a title page giving the credit, the
+licence and these changes. Arabic Learn!'s editions are under CC BY-SA 4.0 too:
+anyone may share and adapt them, crediting Wikivoyage, under the same licence. How
+they were made: tools/lectures/phrasebook.py.

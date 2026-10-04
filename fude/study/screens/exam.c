@@ -428,7 +428,7 @@ RDE_INTERNAL void fude_exam_mark(fude_exam* _exam, fude_exam_item* _it, const fu
     const u32 _m = fude_match_rank(_exam->db, _exam->catalog, FUDE_FILTER_ALL, &_it->ink, _matched, 16u);
     const u32 _n = fude_recognize_candidates(_exam->db, _r, 0u, 1u, _exam->catalog, FUDE_FILTER_ALL, _matched, _m, _candidates, 8u);
     for(u32 _i = 0; _i < _n && _i < FUDE_EXAM_CANDIDATES; _i++) {
-        _it->correct = _it->correct || _candidates[_i].record == _it->record;
+        _it->correct = _it->correct || fude_recognize_same(_exam->db, _candidates[_i].record, _it->record);   // a joined form: its letter
     }
     _it->read_as = _n > 0 ? _candidates[0].record : UINT32_MAX;
 

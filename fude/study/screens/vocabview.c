@@ -76,6 +76,9 @@ RDE_INTERNAL void fude_vocabview_fold(const c8* _text, c8* _out, usize _size) {
             _cp += 'a' - 'A';
         } else {
             _cp = fude_lang_reading_fold(_cp);
+            if(_cp == 0u) {
+                continue;   // left out (lang.h)
+            }
         }
         c8 _one[5];
         fude_utf8_put(_cp, _one);

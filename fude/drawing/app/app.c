@@ -347,5 +347,10 @@ void fude_app_set_finger_writes(fude_app* _app, b8 _on) {
     }
     _app->finger_writes = _on;
     fude_toolbar_refresh(&_app->ui->bar);
-    fude_notice_show(fude_text(_on ? FUDE_TEXT_FINGER_ON : FUDE_TEXT_FINGER_OFF));   // whoever switched it
+#if defined(RDE_PLATFORM_ANDROID)
+    const FUDE_TEXT_ _off = FUDE_TEXT_FINGER_OFF_ANDROID;   // a stylus, not the Apple Pencil
+#else
+    const FUDE_TEXT_ _off = FUDE_TEXT_FINGER_OFF;
+#endif
+    fude_notice_show(fude_text(_on ? FUDE_TEXT_FINGER_ON : _off));   // whoever switched it
 }

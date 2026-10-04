@@ -18,6 +18,7 @@
 const c8* fude_lang_code(void)      { return "ko"; }
 const c8* fude_lang_ink_model(void) { return "ko"; }
 const c8* fude_lang_voice(void)     { return "ko-KR"; }
+b8        fude_lang_text_readable(void) { return true; }
 
 RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
     *_name = "\xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4";   // 한국어
@@ -106,6 +107,11 @@ b8 fude_lang_core(u32 _cp) {
     return true;   // the 40: 19 consonants, 21 vowels
 }
 
+b8 fude_lang_combining(u32 _cp) {
+    RDE_UNUSED(_cp);
+    return false;   // every letter stands alone
+}
+
 const c8* fude_lang_latin(u32 _cp) {
     if(_cp >= FUDE_KO_JAMO_FIRST && _cp <= FUDE_KO_JAMO_LAST) {
         return FUDE_KO_JAMO_LATIN[_cp - FUDE_KO_JAMO_FIRST];
@@ -126,6 +132,26 @@ const c8* fude_lang_latin(u32 _cp) {
         _made = true;
     }
     return _names[_cp - FUDE_KO_SYLLABLE_FIRST];
+}
+
+
+// --- writing direction and joined forms: left to right, each letter as itself -------------
+
+b8 fude_lang_rtl(void) {
+    return false;
+}
+
+u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
+    RDE_UNUSED(_before);
+    RDE_UNUSED(_after);
+    if(_with_after != NULL) {
+        *_with_after = false;
+    }
+    return _cp;
+}
+
+u32 fude_lang_letter(u32 _cp) {
+    return _cp;
 }
 
 // --- levels: the dictionary's beginner, intermediate, advanced (1..3) ------------------------

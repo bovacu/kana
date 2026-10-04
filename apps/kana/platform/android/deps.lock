@@ -81,3 +81,10 @@
   --android_dep=org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1
   --android_dep=org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.1
   --android_dep=org.jetbrains:annotations:13.0
+# PDFBox (PdfBox-Android, Apache License 2.0): a PDF's own text (Search) and a PDF
+# written with the ink over it (Share as PDF), on Android: fude/drawing/doc/
+# pdf_android.c, FudePdfBox.java. Added by hand, without what it resolves to besides:
+# BouncyCastle (bcprov, bcpkix, bcutil, some 8 MB) is only for certificate-encrypted
+# PDFs and signing, which the apps do not do. --android_deps_out writes this file
+# anew: add these lines back after it.
+  --android_dep=com.tom-roush:pdfbox-android:2.0.27.0

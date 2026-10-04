@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hindi's own Info.plist keys, merged over the engine template's by the builder
+     (--ios_plist): a key here replaces the template's. -->
+<plist version="1.0">
+<dict>
+    <!-- iPad only: written on with the Apple Pencil or a finger. -->
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>2</integer>
+    </array>
+    <!-- Portrait only, either way up (the app locks it too: app.c), and the
+         whole screen: no Split View or Slide Over, whose narrow windows the
+         screens are not laid out for. UIRequiresFullScreen is what lets an iPad
+         app leave the landscape orientations out. -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <!-- No encryption of its own (ML Kit's model comes over HTTPS: exempt). -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>CFBundleDisplayName</key>
+    <string>Hindi Learn!</string>
+    <!-- Text from a photo (scan.h): the live camera, asked for the first time it
+         is used. The photo library needs nothing: its picker hands over only the
+         photo chosen. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Hindi Learn! reads the Hindi text the camera sees, so you can write it on the page, and scans pages to read and write on.</string>
+    <!-- Hindi's languages (text.h): iOS shows the camera prompt in the device's
+         language from platform/ios/localized/<language>.lproj/InfoPlist.strings
+         (copied into the app with --ios_bundle), and the App Store lists these
+         languages on the app's page. -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>es</string>
+        <string>pt-BR</string>
+        <string>ja</string>
+        <string>fr</string>
+    </array>
+</dict>
+</plist>

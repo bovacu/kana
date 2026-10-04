@@ -12,6 +12,7 @@
 const c8* fude_lang_code(void)      { return "ja"; }
 const c8* fude_lang_ink_model(void) { return "ja"; }
 const c8* fude_lang_voice(void)     { return "ja-JP"; }
+b8        fude_lang_text_readable(void) { return true; }
 
 RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
     *_name = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";   // 日本語
@@ -55,8 +56,33 @@ b8 fude_lang_core(u32 _cp) {
     return fude_romaji_core(_cp);
 }
 
+b8 fude_lang_combining(u32 _cp) {
+    RDE_UNUSED(_cp);
+    return false;   // every letter stands alone
+}
+
 const c8* fude_lang_latin(u32 _cp) {
     return fude_romaji(_cp);
+}
+
+
+// --- writing direction and joined forms: left to right, each letter as itself -------------
+
+b8 fude_lang_rtl(void) {
+    return false;
+}
+
+u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
+    RDE_UNUSED(_before);
+    RDE_UNUSED(_after);
+    if(_with_after != NULL) {
+        *_with_after = false;
+    }
+    return _cp;
+}
+
+u32 fude_lang_letter(u32 _cp) {
+    return _cp;
 }
 
 // --- levels: the JLPT's N5 (easiest) to N1, stored as 5..1 ------------------------------

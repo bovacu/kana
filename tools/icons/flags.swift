@@ -1,5 +1,6 @@
-// swift tools/icons/flags.swift OUT_DIR — China's and South Korea's flags as the language list
-// draws the others (96x64, rounded 6, a 1-pixel 209 grey border): cn.png, kr.png.
+// swift tools/icons/flags.swift OUT_DIR — China's, South Korea's, Thailand's and India's flags
+// as the language list draws the others (96x64, rounded 6, a 1-pixel 209 grey border):
+// cn.png, kr.png, th.png, in.png; and Arabic's mark, ar.png (no one country's flag).
 import AppKit
 let W: CGFloat = 96, H: CGFloat = 64
 func make(_ name: String, _ draw: (CGContext) -> Void) {
@@ -74,5 +75,43 @@ make("kr.png") { c in
                 c.closePath(); c.fillPath()
             }
         }
+    }
+}
+// Thailand: five stripes, red, white, blue (twice as tall), white, red.
+make("th.png") { c in
+    let u = H / 6
+    for (y, h, col) in [(0.0, 1.0, 0xA51931), (1.0, 1.0, 0xF4F5F8), (2.0, 2.0, 0x2D2A4A), (4.0, 1.0, 0xF4F5F8), (5.0, 1.0, 0xA51931)] as [(CGFloat, CGFloat, UInt32)] {
+        c.setFillColor(rgb(col)); c.fill(CGRect(x: 0, y: y * u, width: W, height: h * u))
+    }
+}
+// India: saffron, white, green in thirds; the Ashoka Chakra in navy at the middle,
+// as wide as three quarters of the white band, with 24 spokes.
+make("in.png") { c in
+    let u = H / 3
+    for (i, col) in [0xFF9933, 0xFFFFFF, 0x138808].enumerated() {
+        c.setFillColor(rgb(UInt32(col))); c.fill(CGRect(x: 0, y: CGFloat(i) * u, width: W, height: u))
+    }
+    let cx = W / 2, cy = H / 2, R = u * 0.375
+    c.setStrokeColor(rgb(0x000080)); c.setFillColor(rgb(0x000080))
+    c.setLineWidth(max(1, R * 0.12)); c.strokeEllipse(in: CGRect(x: cx - R, y: cy - R, width: 2 * R, height: 2 * R))
+    c.setLineWidth(max(0.6, R * 0.06))
+    for i in 0..<24 {
+        let a = CGFloat(i) * .pi / 12
+        c.beginPath(); c.move(to: CGPoint(x: cx, y: cy)); c.addLine(to: CGPoint(x: cx + R * cos(a), y: cy + R * sin(a))); c.strokePath()
+    }
+    c.fillEllipse(in: CGRect(x: cx - R * 0.2, y: cy - R * 0.2, width: R * 0.4, height: R * 0.4))
+}
+// Arabic: no one country's flag (and the ones often used carry the shahada): a
+// green field with the letter ع (ʿayn, of العربية) in white, from Geeza Pro.
+make("ar.png") { c in
+    c.setFillColor(rgb(0x1E6B45)); c.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    let font = CTFontCreateWithName("GeezaPro-Bold" as CFString, 46, nil)
+    var ch: [UniChar] = [0x0639], glyph: [CGGlyph] = [0]
+    CTFontGetGlyphsForCharacters(font, &ch, &glyph, 1)
+    var flip = CGAffineTransform(scaleX: 1, y: -1)
+    if let path = CTFontCreatePathForGlyph(font, glyph[0], &flip) {
+        let b = path.boundingBoxOfPath
+        c.translateBy(x: W / 2 - b.midX, y: H / 2 - b.midY)
+        c.addPath(path); c.setFillColor(rgb(0xFFFFFF)); c.fillPath()
     }
 }

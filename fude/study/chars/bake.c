@@ -531,7 +531,7 @@ void fude_bake_choose_words(fude_bake* _bake) {
         for(u32 _j = _i; _j < _end && _count < FUDE_BAKE_WORDS_PER; _j++) {
             const fude_bake_word* _w       = &_words[_ref[_j].word];
             const b8              _numeral = fude_bake_counts(_w->written, _ref[_j].codepoint);
-            b8                    _ok      = _w->common && _w->chars <= FUDE_BAKE_EXAMPLE_CHARS && !(_numeral && _counted);
+            b8                    _ok      = _w->common && _w->chars <= _bake->example_chars && !(_numeral && _counted);
             for(u32 _k = 0; _ok && _k < _count; _k++) {
                 const fude_bake_word* _other = &_words[_kept[_k]];
                 // The same form again (another entry: 上手 じょうず and うわて), or a
@@ -612,6 +612,8 @@ void fude_bake_init(fude_bake* _bake, const c8* const* _lang_codes, u32 _lang_co
     _bake->sentences  = fude_bytes_new(1024u * 1024u);
     _bake->min_coord  = 1e9f;
     _bake->max_coord  = -1e9f;
+    _bake->word_chars    = FUDE_BAKE_WORD_CHARS;
+    _bake->example_chars = FUDE_BAKE_EXAMPLE_CHARS;
     _bake->lang_count = _lang_count < FUDE_BAKE_LANGS ? _lang_count : FUDE_BAKE_LANGS;
     for(u32 _l = 0; _l < FUDE_BAKE_LANGS; _l++) {
         if(_l < _bake->lang_count) {
@@ -993,7 +995,7 @@ b8 fude_bake_prepared(fude_bake* _bake, const c8* _dir) {
         u32 _none = UINT32_MAX;
         const u32 _chars = fude_bake_utf8_count(_f[0]);
         fude_bake_word _word = { .index = UINT32_MAX, .chars = (u8)(_chars < 255u ? _chars : 255u) };
-        if(_chars == 0u || strlen(_f[0]) >= sizeof(_word.written) || _chars > FUDE_BAKE_WORD_CHARS) {
+        if(_chars == 0u || strlen(_f[0]) >= sizeof(_word.written) || _chars > _bake->word_chars) {
             rde_arr_add(&_word_of, &_none);
             continue;
         }

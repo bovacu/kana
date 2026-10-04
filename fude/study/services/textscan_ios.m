@@ -205,7 +205,7 @@ static UIViewController* fude_textscan_top(void) {
 }
 
 b8 fude_textscan_available(void) {
-    return true;
+    return fude_lang_text_readable();   // a language ML Kit reads in pictures (Thai: none)
 }
 
 b8 fude_textscan_pick(rde_window* _window) {

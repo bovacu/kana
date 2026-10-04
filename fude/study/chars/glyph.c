@@ -1,6 +1,7 @@
 #include "study/chars/glyph.h"
 #include "drawing/widgets/draw.h"
 #include "drawing/base/theme.h"
+#include "lang/lang.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -80,6 +81,23 @@ rde_vec_2F fude_glyph_stroke(fude_glyph* _glyph, const fude_kanji_stroke* _strok
     return ((const rde_vec_2F*)_glyph->_points.memory)[_count - 1];
 }
 
+// A sign written on another letter, shown alone: a dotted circle where that letter
+// goes (the middle of the box), as fonts show one.
+RDE_INTERNAL void fude_glyph_base_hint(u32 _codepoint, rde_vec_2F _origin, f32 _scale) {
+    if(!fude_lang_combining(_codepoint)) {
+        return;
+    }
+    const rde_vec_2F _c    = { _origin.x + 54.5f * _scale, _origin.y - 56.0f * _scale };
+    const f32        _r    = 19.0f * _scale;
+    const f32        _line = fmaxf(0.6f, 0.45f * _scale);
+    for(u32 _i = 0; _i < 20u; _i++) {
+        const f32 _a = (f32)_i * 6.2831853f / 20.0f;
+        const f32 _b = _a + 6.2831853f / 48.0f;
+        fude_draw_line((rde_vec_2F){ _c.x + _r * cosf(_a), _c.y + _r * sinf(_a) }, (rde_vec_2F){ _c.x + _r * cosf(_b), _c.y + _r * sinf(_b) },
+                       _line, fude_theme_active()->sheet_guide);
+    }
+}
+
 b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, f32 _size, rde_color _color) {
     fude_kanji_info _info;
     if(_glyph->db == NULL || !fude_kanji_find(_glyph->db, _codepoint, &_info)) {
@@ -88,6 +106,7 @@ b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
 
     const f32 _scale  = _size / FUDE_KANJI_BOX;
     const f32 _radius = fmaxf(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
+    fude_glyph_base_hint(_codepoint, _origin, _scale);
     for(u32 _s = 0; _s < _info.strokes; _s++) {
         fude_kanji_stroke _stroke;
         if(fude_kanji_stroke_at(_glyph->db, &_info, _s, &_stroke)) {
@@ -116,6 +135,8 @@ b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_
                       rde_font* _font, f32 _font_px, f32 _number_px) {
     const f32 _scale  = _size / FUDE_KANJI_BOX;
     const f32 _radius = fmaxf(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
+
+    fude_glyph_base_hint(_info->codepoint, _tl, _scale);
 
     // Ghosts first: the whole shape, faint, so the eye knows where it is going.
     for(u32 _s = 0; _s < _info->strokes; _s++) {

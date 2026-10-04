@@ -300,7 +300,7 @@ core's sources alone. What it adds later goes through `extension.h`:
 - its side panel section
 - its own screens in its table
 
-**A study app** (Hanzi for Chinese, Hangul for Korean): copy Kana's shape.
+**A study app** (Hanzi for Chinese, Hangul for Korean, Thai, Hindi, Arabic): copy Kana's shape.
 - `apps/<app>/<app>.c`, the shell (Kana's, with its own screens and data).
 - `src/<app>_app.{h,c}`: its struct starting with `fude_study`, its screens'
   order, its info, its side panel's entries, its extension
@@ -314,7 +314,7 @@ core's sources alone. What it adds later goes through `extension.h`:
 The study layer teaches whichever language its app compiles: it asks
 `fude/lang/lang.h`, and each app compiles one implementation, in
 `fude/lang/<code>/` (Kana: `fude/lang/ja`; Hanzi: `fude/lang/zh`; Hangul:
-`fude/lang/ko`). The binding is at link time: a
+`fude/lang/ko`; Thai: `fude/lang/th`; Hindi: `fude/lang/hi`; Arabic: `fude/lang/ar`). The binding is at link time: a
 study app lists `fude/lang/<code>/lang.c` (and, on iOS, `lang_ios.m`) with its
 sources, and nothing else changes.
 
@@ -324,6 +324,9 @@ What a language gives (`lang.h` has each, with Japanese's answer):
 |---|---|---|
 | Codes: translation, the handwriting model, the voice | `services/` (`translate`, `mlkit_ios.m`, `speech_ios.m`), the screens that translate | `ja`, `ja`, `ja-JP` |
 | The text recognizer's options (iOS) | `services/textscan_ios.m` | `lang_ios.m`: `MLKJapaneseTextRecognizerOptions` (the only file that links the Japanese model) |
+| Whether ML Kit can read its printed text (`fude_lang_text_readable`) | Text from a photo, offered only then | yes (Thai: no; ML Kit has no Thai model) |
+| Which characters combine with the one before (`fude_lang_combining`): a vowel sign or mark, practised over a dotted circle, taken with its letter in a word test's box and written over it by Paste text | `chars/glyph.c`, `screens/wordexam.c`, `handwriting/textink.c` | none (Thai's ั ิ ่, Hindi's ि ् ं, Arabic's harakat) |
+| The writing direction (`fude_lang_rtl`), the form a letter takes between its neighbours (`fude_lang_form`) and the letter a form is of (`fude_lang_letter`) | the word test (boxes from the right, each letter's form), Paste text (joined forms meeting at their joins), exams and recognition (a form is right when its letter is read) | left to right, each letter itself (Arabic: right to left, its joined forms, ﻻ) |
 | Groups: the kinds of character, each a script's letters (read as themselves, with a Latin name) and/or a set learnt whole (an exam source, a statistics row, of its core characters) | the catalog, Browse's chips, exams, statistics, the viewer, sheets | hiragana and katakana (script, set), kanji |
 | Levels: how many, the byte each is stored as, short and long names | the catalog, Browse, exams, statistics, the viewer, practice, sheets | JLPT N5..N1 as 5..1, "N5" / "JLPT N5" |
 | Readings: up to two kinds, their names, how Latin letters read, how they are compared, which kind a one-character word is read by, whether words are read in Latin letters | the catalog's search and sorts, the word card, Check, Vocabulary's search, vocab | on and kun; romaji to hiragana; katakana as hiragana; kun then on; no (Korean: yes, 학교 hakgyo) |
@@ -331,7 +334,7 @@ What a language gives (`lang.h` has each, with Japanese's answer):
 | The word splitter (`fude/lang/wordsplit.h`) | Text from a photo, page text, the word card, the viewer | longest match plus conjugation (`wordsplit.c`) |
 | Strings (`strings.py`) | the study's ids that name the language (Text from a photo's hints, Into Japanese, ML Kit's model, the voice, the word form's reading, the exam intro, the sheet's credit) and the ids `lang.c` returns | `fude/lang/ja/strings.py` |
 | The character data (`bake.c`, the format in `study/chars/kanji.h`): its level byte and two reading lists are the language's to fill | Kana's `--bake` | KanjiVG, KANJIDIC2, JMdict, Tatoeba, the JLPT lists |
-| Its own screens, which its app puts in its table | the app | the kana chart (`chart.c`; Korean's: the Hangul chart) |
+| Its own screens, which its app puts in its table | the app | the kana chart (`chart.c`; Korean's: the Hangul chart; Thai's and Hindi's: their alphabets) |
 
 Numbers that are saved keep their meaning across languages because they are
 counted from the language's own lists: a filter (`catalog.h`) is all, each
@@ -354,12 +357,15 @@ language needs it):
   there; another app names its own.
 
 **A new language** (`docs/chinese_korean_data.md` has what Chinese and Korean
-use):
+use, `docs/hindi_thai_data.md` what Hindi and Thai use):
 1. `fude/lang/<code>/lang.c` answering `lang.h`, and `lang_ios.m` with its
    text recognizer's options (and its ML Kit text framework in the iOS build).
 2. `wordsplit.c` answering `fude/lang/wordsplit.h`.
 3. `strings.py`: every id `fude/lang/ja/strings.py` has, in the language's
    words, plus its own group, reading and prompt names.
-4. `bake.c`: its data, in `study/chars/kanji.h`'s format.
+4. `bake.c`: its data, in `study/chars/kanji.h`'s format — read from the
+   PREPARED tables (`study/chars/bake.h`) its tools write; Thai's and Hindi's
+   tools share `tools/data/prepared.py`. Romanization with letters Roboto
+   lacks needs the app's `latin_font` (`drawing/app/info.h`).
 5. The app (`docs/architecture.md`, "Making a new app"): its strings tool
    reads the core's, the study's, the language's, then its own.

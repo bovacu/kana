@@ -1,0 +1,3 @@
+/* The camera prompt (Text from a photo, Scan pages), in fr. UTF-8. */
+"NSCameraUsageDescription" = "Thai Learn! numérise des pages avec l’appareil photo pour que vous puissiez les lire et écrire dessus.";
+"CFBundleDisplayName" = "Thai Learn!";

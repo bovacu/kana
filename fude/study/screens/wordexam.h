@@ -50,7 +50,8 @@ typedef enum {
 RDE_STRUCT {
     u32      word;                              // its id (vocab.h)
     u32      count;                             // characters
-    u32      chars[FUDE_WORDEXAM_CHARS];        // code points
+    u32      chars[FUDE_WORDEXAM_CHARS];        // code points (a box's first: its letter)
+    c8       written[FUDE_WORDEXAM_CHARS][24];  // a box's whole syllable: its letter and the signs written on it (Thai, Hindi), UTF-8
     u32      records[FUDE_WORDEXAM_CHARS];      // the data's (UINT32_MAX: given, not written)
     fude_ink ink[FUDE_WORDEXAM_CHARS];          // a box each: FUDE_WORDEXAM_UNITS square, Y up
     b8       box_graded[FUDE_WORDEXAM_CHARS];

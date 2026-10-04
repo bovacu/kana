@@ -6,9 +6,9 @@
 // ===========================================================================
 // PDFs, by the platform's own renderer: opened, measured, and drawn into
 // pixels — the pages a document canvas shows under its ink (doc.h). Core
-// Graphics on Apple's (iOS, macOS: plain C, no Objective-C). Elsewhere none
-// yet (Android has PdfRenderer, Windows to choose): fude_pdf_available is false
-// and nothing opens.
+// Graphics on Apple's (iOS, macOS: plain C, no Objective-C); Android's
+// PdfRenderer (pdf_android.c). Elsewhere none yet (Windows to choose):
+// fude_pdf_available is false and nothing opens.
 //
 // A document is drawn on ONE thread at a time (doc.c keeps a single worker), and
 // only drawn there: what the main thread needs — how many pages, how big — is
@@ -51,11 +51,12 @@ b8         fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* 
 // drawn over them and, where a picture shows text (a scan's, read), that text
 // put in unseen — so any PDF reader finds and copies it. Positions as above:
 // points from the page's top-left, the page as read. Apple's (Core Graphics,
-// Core Text); elsewhere fude_pdf_write_begin is NULL.
+// Core Text) and Android's (PDFBox, pdf_android.c); elsewhere
+// fude_pdf_write_begin is NULL.
 
 typedef struct fude_pdf_writer fude_pdf_writer;
 
-// Can this platform write one (Apple's: yes; Android's: not yet)?
+// Can this platform write one (Apple's and Android's: yes)?
 b8               fude_pdf_write_available(void);
 fude_pdf_writer* fude_pdf_write_begin(const c8* _out);
 // A page: page _page of _pdf, as large, drawn as it is read.
@@ -71,8 +72,8 @@ void             fude_pdf_write_page_end(fude_pdf_writer* _w);
 b8               fude_pdf_write_end(fude_pdf_writer* _w);
 
 // --- its text: the PDF's own, where it has some (a scan has none) ---------------------
-// Apple's PDFKit (pdf_kit.m), on the main thread. Positions as above: points
-// from the page's top-left, the page as read.
+// Apple's PDFKit (pdf_kit.m), Android's PDFBox (pdf_android.c), on the main
+// thread. Positions as above: points from the page's top-left, the page as read.
 
 // A place the text was found: its page and its rectangle there.
 RDE_STRUCT {
@@ -92,7 +93,8 @@ b8    fude_pdf_page_has_text(fude_pdf* _pdf, u32 _page);
 usize fude_pdf_text_in(fude_pdf* _pdf, u32 _page, rde_vec_2F _from, rde_vec_2F _size, c8* _out, usize _out_size);
 // A search for _query (case, accents and full- or half-width alike): started (the
 // one before stopped); its matches come in as it goes, in page order — it goes
-// on a few milliseconds each time fude_pdf_find_matches is asked (once a frame).
+// on a few milliseconds each time fude_pdf_find_matches is asked (once a frame;
+// Android's, in a thread of its own).
 void  fude_pdf_find_start(fude_pdf* _pdf, const c8* _query);
 void  fude_pdf_find_stop(fude_pdf* _pdf);
 // The matches so far, at most _max into _out (NULL: just count): how many; *_done

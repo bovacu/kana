@@ -378,6 +378,12 @@ void fude_ui_init(fude_ui* _ui, fude_app* _app) {
     if(_ui->font != NULL && _ui->font_script != NULL) {
         rde_font_add_fallback(_ui->font, _ui->font_script);
     }
+    // Romanization's letters Roboto lacks (Hindi's ṭ ḍ ṅ, Thai's tones ǎ and vowels ɔ ʉ).
+    const c8* _latin = _app->info != NULL ? _app->info->latin_font : NULL;
+    _ui->font_latin  = _latin != NULL ? rde_font_load(_latin, FUDE_KIT_FONT_SIZE, NULL, &_slug, NULL) : NULL;
+    if(_ui->font != NULL && _ui->font_latin != NULL) {
+        rde_font_add_fallback(_ui->font, _ui->font_latin);
+    }
     // The icons (icons.h): Phosphor, last in line, and a font of its own for Fill.
     _ui->font_icons      = rde_font_load(FUDE_UI_FONT_ICONS_PATH, FUDE_KIT_FONT_SIZE, NULL, &_slug, NULL);
     _ui->font_icons_fill = rde_font_load(FUDE_UI_FONT_ICONS_FILL_PATH, FUDE_KIT_FONT_SIZE, NULL, &_slug, NULL);
@@ -429,7 +435,7 @@ void fude_ui_follow_language(fude_ui* _ui) {
 }
 
 void fude_ui_trim_fonts(fude_ui* _ui) {
-    rde_font* const _fonts[] = { _ui->font, _ui->font_script, _ui->font_icons, _ui->font_icons_fill };
+    rde_font* const _fonts[] = { _ui->font, _ui->font_script, _ui->font_latin, _ui->font_icons, _ui->font_icons_fill };
     for(u32 _i = 0; _i < sizeof(_fonts) / sizeof(_fonts[0]); _i++) {
         if(_fonts[_i] != NULL) {
             rde_font_trim(_fonts[_i]);
@@ -451,7 +457,7 @@ void fude_ui_destroy(fude_ui* _ui) {
         rde_font_unload(_ui->font);
         _ui->font = NULL;
     }
-    rde_font** const _fonts[] = { &_ui->font_script, &_ui->font_icons, &_ui->font_icons_fill };
+    rde_font** const _fonts[] = { &_ui->font_script, &_ui->font_latin, &_ui->font_icons, &_ui->font_icons_fill };
     for(u32 _i = 0; _i < sizeof(_fonts) / sizeof(_fonts[0]); _i++) {
         if(*_fonts[_i] != NULL) {
             rde_font_unload(*_fonts[_i]);

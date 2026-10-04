@@ -12,5 +12,9 @@
 u32  fude_utf8_next(const c8** _s);
 // A code point's UTF-8 into _out (at least 5 bytes), NUL-terminated.
 void fude_utf8_put(u32 _codepoint, c8* _out);
+// A Latin letter as a romanization is searched: lower case, without its accent
+// (ǎ ā ṭ → a a t; ɛ ɔ ʉ ə → e o u e); 0 for a combining accent or ʿ ʾ (left
+// out); anything else as it is.
+u32  fude_utf8_latin_base(u32 _codepoint);
 
 #endif

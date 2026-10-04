@@ -130,8 +130,16 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     const f32 _w     = fminf(FUDE_WELCOME_CARD_W, _sw - (f32)(_insets.x + _insets.z) - 32.0f);
     const f32 _inner = _w - 2.0f * FUDE_WELCOME_PAD;
     const u32 _page  = _welcome->page < FUDE_WELCOME_PAGES ? _welcome->page : FUDE_WELCOME_PAGES - 1u;
-    const c8* _title = fude_text(FUDE_WELCOME_PAGE[_page].title);
-    const c8* _body  = fude_text(FUDE_WELCOME_PAGE[_page].body);
+    FUDE_TEXT_ _title_id = FUDE_WELCOME_PAGE[_page].title, _body_id = FUDE_WELCOME_PAGE[_page].body;
+#if defined(RDE_PLATFORM_ANDROID)
+    // A stylus, not the Apple Pencil.
+    if(_body_id == FUDE_TEXT_WELCOME_2) {
+        _title_id = FUDE_TEXT_WELCOME_2_TITLE_ANDROID;
+        _body_id  = FUDE_TEXT_WELCOME_2_ANDROID;
+    }
+#endif
+    const c8* _title = fude_text(_title_id);
+    const c8* _body  = fude_text(_body_id);
     const f32 _title_px = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_WELCOME_TITLE, _inner, 0.6f);
     // On a phone the first page says the app is made for tablets, under its words.
     const c8* _phone = _page == 0u && fude_kit_compact(_window) ? fude_text(FUDE_TEXT_WELCOME_PHONE) : NULL;

@@ -40,7 +40,7 @@ public final class FudeText {
     static final int[]     width = new int[3], height = new int[3];
     static final boolean[] busy  = new boolean[3];
 
-    /** The recognizer for the language taught ("ja", "zh", "ko"), by name: each app has only its own. */
+    /** The recognizer for the language taught ("ja", "zh", "ko", "hi"), by name: each app has only its own (Thai has none: lang.h). */
     public static boolean start(byte[] code) {
         if(recognizer != null) {
             return true;
@@ -48,6 +48,7 @@ public final class FudeText {
         final String c = FudeAndroid.text(code);
         final String name = c.equals("zh") ? "com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions"
                           : c.equals("ko") ? "com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions"
+                          : c.equals("hi") ? "com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions"
                           : "com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions";
         try {
             Object builder = Class.forName(name + "$Builder").getConstructor().newInstance();

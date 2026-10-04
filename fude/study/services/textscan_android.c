@@ -118,7 +118,7 @@ RDE_INTERNAL void fude_textscan_result_of(u32 _channel, fude_textscan_result* _o
 }
 
 b8 fude_textscan_available(void) {
-    return fude_android_class(FUDE_JAVA_TEXT) != NULL;
+    return fude_lang_text_readable() && fude_android_class(FUDE_JAVA_TEXT) != NULL;   // a language ML Kit reads in pictures (Thai: none)
 }
 
 b8 fude_textscan_pick(rde_window* _window) {

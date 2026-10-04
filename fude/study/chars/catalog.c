@@ -97,7 +97,11 @@ RDE_INTERNAL u32 fude_catalog_reading_key(rde_arr* _pool, const c8* _text, b8 _s
             continue;
         }
 
-        fude_catalog_put_cp(_pool, fude_lang_reading_fold(_cp));
+        const u32 _folded = fude_lang_reading_fold(_cp);
+        if(_folded == 0u) {
+            continue;   // left out (lang.h)
+        }
+        fude_catalog_put_cp(_pool, _folded);
         _written = true;
     }
 
@@ -431,7 +435,11 @@ RDE_INTERNAL b8 fude_catalog_latin_reading(const c8* _latin, c8* _out, usize _si
     usize _n = 0;
     for(const c8* _p = _written; *_p != 0;) {
         c8 _one[5];
-        fude_utf8_put(fude_lang_reading_fold(fude_utf8_next(&_p)), _one);
+        const u32 _folded = fude_lang_reading_fold(fude_utf8_next(&_p));
+        if(_folded == 0u) {
+            continue;   // left out (lang.h)
+        }
+        fude_utf8_put(_folded, _one);
         const usize _len = strlen(_one);
         if(_n + _len >= _size) {
             break;

@@ -3,7 +3,7 @@
 #
 #   zsh tools/android/build.sh engine [--release]           # RDE for Android: FIRST, after any engine change,
 #                                                           # and after an engine build for another platform
-#   zsh tools/android/build.sh kana|hanzi|hangul [--release] [builder flags...]
+#   zsh tools/android/build.sh kana|hanzi|hangul|thai|hindi|arabic [--release] [builder flags...]
 #
 # The APK: build/<app>-android/<App>.apk, <App>-release.apk with --release (signed with the builder's keystore,
 # build/<app>-android/com.rde.<app>.keystore — KEEP A COPY of it outside build/:
@@ -21,7 +21,11 @@
 #     --android_dep_resolve=com.google.mlkit:text-recognition-japanese:16.0.1 \
 #     --android_dep_resolve=com.google.android.gms:play-services-mlkit-document-scanner:16.0.0 \
 #     --android_deps_out=apps/kana/platform/android/deps.lock
-# (every root in one command: chinese for hanzi, korean for hangul.)
+# (every root in one command: chinese for hanzi, korean for hangul, devanagari for hindi;
+# thai and arabic: text-recognition, the Latin one, only for FudeText.java to build — no
+# Thai or Arabic model.)
+# --android_deps_out writes the lock anew: add back by hand the PDFBox lines at its
+# end (com.tom-roush:pdfbox-android, without the BouncyCastle it would resolve to).
 #
 # Needs Android Studio (its JDK and the SDK at ~/Library/Android/sdk: build-tools
 # and platform 37, an NDK). The NDK is the newest installed unless ANDROID_NDK
@@ -83,7 +87,10 @@ case $WHAT in
     kana)   NAME="Kana";   LANG_SRC=(fude/lang/ja/bake.c fude/lang/ja/chart.c fude/lang/ja/romaji.c fude/lang/ja/lang.c fude/lang/ja/wordsplit.c) ;;
     hanzi)  NAME="Hanzi";  LANG_SRC=(fude/lang/zh/bake.c fude/lang/zh/lang.c fude/lang/zh/wordsplit.c) ;;
     hangul) NAME="Hangul"; LANG_SRC=(fude/lang/ko/bake.c fude/lang/ko/chart.c fude/lang/ko/lang.c fude/lang/ko/wordsplit.c) ;;
-    *) echo "usage: zsh tools/android/build.sh engine|kana|hanzi|hangul [--release] [builder flags...]" >&2; exit 1 ;;
+    thai)   NAME="Thai";   LANG_SRC=(fude/lang/th/bake.c fude/lang/th/chart.c fude/lang/th/lang.c fude/lang/th/wordsplit.c) ;;
+    hindi)  NAME="Hindi";  LANG_SRC=(fude/lang/hi/bake.c fude/lang/hi/chart.c fude/lang/hi/lang.c fude/lang/hi/wordsplit.c) ;;
+    arabic) NAME="Arabic"; LANG_SRC=(fude/lang/ar/bake.c fude/lang/ar/chart.c fude/lang/ar/lang.c fude/lang/ar/wordsplit.c) ;;
+    *) echo "usage: zsh tools/android/build.sh engine|kana|hanzi|hangul|thai|hindi|arabic [--release] [builder flags...]" >&2; exit 1 ;;
 esac
 OUT=$K/build/$WHAT-android
 cd $K

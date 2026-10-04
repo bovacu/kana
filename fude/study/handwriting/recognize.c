@@ -1,4 +1,5 @@
 #include "study/handwriting/recognize.h"
+#include "lang/lang.h"
 
 #include <string.h>
 
@@ -76,6 +77,15 @@ u32 fude_recognize_records(const fude_kanji_db* _db, const c8* _line, u32* _out,
         }
     }
     return _n;
+}
+
+b8 fude_recognize_same(const fude_kanji_db* _db, u32 _a, u32 _b) {
+    if(_a == _b) {
+        return true;
+    }
+    fude_kanji_info _ia, _ib;
+    return _db != NULL && fude_kanji_at(_db, _a, &_ia) && fude_kanji_at(_db, _b, &_ib) &&
+           fude_lang_letter(_ia.codepoint) == fude_lang_letter(_ib.codepoint);
 }
 
 // Adds _record to _out unless it is there already, or does not pass.

@@ -1,8 +1,9 @@
 # The study apps' lectures from Wikivoyage's phrasebooks (CC BY-SA 4.0), one per
 # language the app speaks that has one: Kana's Japanese ones (English, Spanish,
 # French, Portuguese), Hanzi's Chinese and Hangul's Korean ones (those and
-# Japanese):
-#   python3 tools/lectures/phrasebook.py OUT_DIR [--book=ja|zh|ko] [LANG...]
+# Japanese), Thai's (English, French, Portuguese), Hindi's and Arabic's
+# (English, Spanish, French, Portuguese):
+#   python3 tools/lectures/phrasebook.py OUT_DIR [--book=ja|zh|ko|th|hi|ar] [LANG...]
 # writes OUT_DIR/phrasebook_<lang>.pdf and .png (its cover, for the Library).
 # The book is Japanese (Kana's) unless --book says.
 # Needs a Mac (html2pdf.swift lays the pages out with AppKit; sips draws the
@@ -43,6 +44,23 @@ BOOKS = {
         'fr': ('Guide linguistique coréen', ['Approfondir']),
         'pt': ('Guia de conversação coreano', ['Aprendendo mais', 'Ligações externas']),
         'ja': ('朝鮮語会話集', ['もっとよく知る']),
+    }),
+    'th': dict(app='Thai Learn!', big='ภาษาไทย', font='Thonburi', pages={
+        'en': ('Thai phrasebook', ['Learning more']),
+        'fr': ('Guide linguistique thaï', ['Approfondir']),
+        'pt': ('Guia de conversação tailandês', ['Aprendendo mais', 'Aprenda mais']),
+    }),
+    'hi': dict(app='Hindi Learn!', big='हिंदी', font='Kohinoor Devanagari', pages={
+        'en': ('Hindi phrasebook', ['Learning more']),
+        'es': ('Guía de hindi', []),
+        'fr': ('Guide linguistique hindi', ['Approfondir']),
+        'pt': ('Guia de conversação hindi', ['Aprendendo mais', 'Aprenda mais']),
+    }),
+    'ar': dict(app='Arabic Learn!', big='العربية', font='Geeza Pro', pages={
+        'en': ('Arabic phrasebook', ['Learning more']),
+        'es': ('Guía de árabe', []),
+        'fr': ('Guide linguistique arabe', ['Approfondir']),
+        'pt': ('Guia de conversação árabe', ['Aprendendo mais', 'Aprenda mais']),
     }),
 }
 BOOK  = BOOKS['ja']

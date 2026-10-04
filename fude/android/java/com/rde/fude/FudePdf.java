@@ -23,10 +23,12 @@ import java.util.ArrayList;
  * PDFs (pdf.h): Android's PdfRenderer draws their pages; PdfDocument makes one of
  * pictures. A PDF in the app's own assets is copied out first (PdfRenderer wants
  * a file it can seek). Opened on the engine's thread, drawn on doc.c's worker —
- * one document drawn at a time, as PdfRenderer asks.
+ * one document drawn at a time, as PdfRenderer asks. Their own text and writing
+ * one anew: FudePdfBox's (PDFBox), for the same file; reached from C through here.
  */
 public final class FudePdf {
-    static final ArrayList<PdfRenderer> open = new ArrayList<>();
+    static final ArrayList<PdfRenderer> open  = new ArrayList<>();
+    static final ArrayList<File>        files = new ArrayList<>();   // ...and the file each reads (FudePdfBox's too)
 
     /** The PDF at _path (a file, or an asset path): a handle (>= 0), or -1. */
     public static int open(byte[] pathBytes) {
@@ -47,10 +49,12 @@ public final class FudePdf {
                 for(int i = 0; i < open.size(); i++) {
                     if(open.get(i) == null) {
                         open.set(i, r);
+                        files.set(i, file);
                         return i;
                     }
                 }
                 open.add(r);
+                files.add(file);
                 return open.size() - 1;
             }
         } catch(Exception e) {
@@ -83,12 +87,25 @@ public final class FudePdf {
         }
     }
 
+    /** The file document _h reads; null when none is open there. */
+    static File file(int h) {
+        synchronized(open) {
+            return h >= 0 && h < files.size() ? files.get(h) : null;
+        }
+    }
+
     public static void close(int h) {
+        try {
+            FudePdfBox.close(h);   // its text's first: the handle then free for another
+        } catch(Throwable e) {
+            Log.e(FudeAndroid.TAG, "could not let go of the text: " + e);
+        }
         synchronized(open) {
             PdfRenderer r = get(h);
             if(r != null) {
                 r.close();
                 open.set(h, null);
+                files.set(h, null);
             }
         }
     }
@@ -196,5 +213,67 @@ public final class FudePdf {
         } finally {
             doc.close();
         }
+    }
+
+    // --- a PDF's own text, and writing one anew: FudePdfBox's -------------------------------
+    // Positions: points from a page's top-left, the page as the PDF reads it (turned as it
+    // says; the learner's turns are pdf_android.c's). Text crosses as UTF-8 bytes.
+
+    /** Can its text be read, and one be written (PDFBox there and readied)? */
+    public static boolean textAvailable() {
+        return FudePdfBox.available();
+    }
+
+    /** Has page _page of document _h text of its own (not a picture of some: a scan's)? */
+    public static boolean pageHasText(int h, int page) {
+        return FudePdfBox.pageHasText(h, page);
+    }
+
+    /** The text in the rectangle at (_x, _y) of _w x _hh on page _page, its lines as \n. */
+    public static byte[] textIn(int h, int page, float x, float y, float w, float hh) {
+        return FudeAndroid.bytes(FudePdfBox.textIn(h, page, x, y, w, hh));
+    }
+
+    /** A search for _query (case, accents and full- or half-width alike), on a thread of its own; at most _max matches. */
+    public static void findStart(int h, byte[] query, int max) {
+        FudePdfBox.findStart(h, FudeAndroid.text(query), max);
+    }
+
+    public static void findStop(int h) {
+        FudePdfBox.findStop(h);
+    }
+
+    /** The search's matches so far — version, done (1 or 0), count, then page, x, y, w, h each — or null when none changed since version _known. */
+    public static float[] findMatches(int h, int known) {
+        return FudePdfBox.findMatches(h, known);
+    }
+
+    /** A new PDF to write at _path: a handle (>= 0), or -1. */
+    public static int writeBegin(byte[] path) {
+        return FudePdfBox.writeBegin(FudeAndroid.text(path));
+    }
+
+    /** A page: page _page of document _h, turned _turn quarter turns more than the PDF says. */
+    public static void writePage(int w, int h, int page, int turn) {
+        FudePdfBox.writePage(w, h, page, turn);
+    }
+
+    /** A stroke over it: x, y and half-width each point (_points), in _color (RGBA, a byte each from the top); _even: a marker's. */
+    public static void writeStroke(int w, float[] points, int color, boolean even) {
+        FudePdfBox.writeStroke(w, points, color, even);
+    }
+
+    /** Text put in unseen, filling the box at (_x, _y) of _sw x _sh. */
+    public static void writeHiddenText(int w, byte[] text, float x, float y, float sw, float sh) {
+        FudePdfBox.writeHiddenText(w, FudeAndroid.text(text), x, y, sw, sh);
+    }
+
+    public static void writePageEnd(int w) {
+        FudePdfBox.writePageEnd(w);
+    }
+
+    /** Written, and let go: false when it could not be. */
+    public static boolean writeEnd(int w) {
+        return FudePdfBox.writeEnd(w);
     }
 }

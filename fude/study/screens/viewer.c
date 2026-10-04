@@ -1056,7 +1056,16 @@ void fude_viewer_render(fude_viewer* _viewer, rde_window* _window, rde_font* _fo
     // --- meaning, readings, parts -------------------------------------------------------
     // The meaning first, as the title; then each reading and the parts behind a
     // label that is one of the language's characters (lang.h's badges: 音, 訓, 部), written from its strokes.
-    const c8* _meanings = _letter ? fude_lang_latin(_info.codepoint) : fude_kanji_meanings(_viewer->db, &_info);
+    // A letter's is its Latin name, and what it stands for when its data says
+    // (Thai's ก: ko kai · chicken).
+    const c8* _meanings = fude_kanji_meanings(_viewer->db, &_info);
+    c8        _named[192];
+    if(_letter && _meanings[0] != 0) {
+        snprintf(_named, sizeof(_named), "%s \xC2\xB7 %s", fude_lang_latin(_info.codepoint), _meanings);
+        _meanings = _named;
+    } else if(_letter) {
+        _meanings = fude_lang_latin(_info.codepoint);
+    }
     fude_draw_text_whole(_font, _font_px, _meanings[0] != 0 ? _meanings : fude_text(FUDE_TEXT_NO_MEANING), _x0, _y0 - FUDE_VIEWER_LINE * 0.5f - FUDE_VIEWER_MEANING_PX * 0.04f,
                          FUDE_VIEWER_MEANING_PX, _right - _x0, 1u, _theme->text);
 

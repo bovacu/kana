@@ -29,6 +29,7 @@ typedef struct {
     const c8*        version;      // shown, and written into a backup
     const c8*        store_id;     // the App Store's id, for Rate ("": the rating sheet until there is one)
     const c8*        script_font;  // the language's own script, behind the UI font (Kana: Noto Sans JP; NULL: none)
+    const c8*        latin_font;   // Latin letters Roboto has not, behind it (Hindi's ṭ ḍ, Thai's ǎ ɔ: Noto Sans; NULL: none)
     u32              credits;      // About's credits, under the version (FUDE_TEXT_; FUDE_TEXT_COUNT: none)
     fude_app_licence licences[FUDE_APP_LICENCES];
     u32              licence_count;

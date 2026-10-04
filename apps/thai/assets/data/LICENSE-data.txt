@@ -1,0 +1,67 @@
+Character data (characters.kana)
+================================
+
+characters.kana is baked from the works below and is a derived work of them.
+It is distributed under their licences, and this attribution must be shown to
+the app's users (Settings › Licences).
+
+
+Thai's strokes
+--------------
+The strokes of every letter, vowel sign, tone mark and digit, in writing
+order: drawn for Thai (apps/thai/tools/strokes/), following the school
+rules. No outside data. The letters' meanings (ก: chicken) are written for
+Thai too.
+
+
+Wiktionary
+----------
+Words: their tone romanization and meanings in English; meanings in Japanese,
+and in French and Portuguese where Volubilis has none.
+
+  From Wiktionary (https://www.wiktionary.org), the work of its contributors,
+  licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+  licence (https://creativecommons.org/licenses/by-sa/4.0/) and the GNU Free
+  Documentation License; extracted by wiktextract (Tatu Ylönen) and published
+  by kaikki.org (https://kaikki.org). Thai keeps its Thai words (not
+  names, letters or affixes), with their first meanings shortened.
+  Sources used: kaikki.org's Thai files from the English, Japanese, French and
+  Portuguese Wiktionaries (extracted from the dumps of 2026-09-02 to
+  2026-10-01), downloaded 2026-10-04.
+
+
+Volubilis
+---------
+Words: their levels (A0, A1, A2) and meanings in Spanish, French and
+Portuguese.
+
+  VOLUBILIS MULTILINGUAL THAI DICT. & DATABASE by Belisan (Francis Bastien),
+  https://belisan-volubilis.blogspot.com/, licensed under the Creative Commons
+  Attribution-ShareAlike 4.0 International licence:
+  https://creativecommons.org/licenses/by-sa/4.0/
+  Thai keeps the levels and the first meanings, shortened, without their
+  grammar notes.
+  Source used: VOLUBILIS Mundo, v. 26.2 (July 2026), downloaded 2026-10-04.
+
+
+PyThaiNLP
+---------
+How common each word and letter is.
+
+  The word frequency list of the Thai National Corpus (tnc_freq.txt) from
+  PyThaiNLP (https://github.com/PyThaiNLP/pythainlp), released under the
+  Creative Commons CC0 1.0 Universal dedication.
+
+
+Tatoeba
+-------
+Example sentences: a Thai sentence for a word, and its English, Spanish,
+French and Portuguese translations.
+
+  Sentences from Tatoeba (https://tatoeba.org), the work of its contributors,
+  used under the Creative Commons Attribution 2.0 France licence:
+  https://creativecommons.org/licenses/by/2.0/fr/
+  Thai keeps a selection of them (one for each word, chosen by length) and
+  changes none.
+  Source used: Tatoeba's per-language exports
+  (https://downloads.tatoeba.org/exports/per_language/), downloaded 2026-10-04.

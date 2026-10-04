@@ -74,10 +74,14 @@ void fude_wordexam_destroy(fude_wordexam* _exam) {
 
 // --- what is asked ---------------------------------------------------------------------
 
-// Is _cp written in a box: a kana or a kanji (what recognition reads)? The rest —
-// a letter, a digit, ー, 々 — is given.
+// Is _cp written in a box: a kana, a kanji, or one of the language's letters (a
+// hangul syllable, a Thai or Devanagari letter: what recognition reads)? The
+// rest — a Latin letter, a digit, ー, 々 — is given.
 RDE_INTERNAL b8 fude_wordexam_written(u32 _cp) {
-    return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu) || (_cp >= 0x4E00u && _cp <= 0x9FFFu) || (_cp >= 0x3400u && _cp <= 0x4DBFu);
+    if(_cp >= 0x3000u && _cp <= 0x30FFu) {
+        return (_cp >= 0x3041u && _cp <= 0x3096u) || (_cp >= 0x30A1u && _cp <= 0x30FAu);   // kana, not ー ・
+    }
+    return (_cp >= 0x4E00u && _cp <= 0x9FFFu) || (_cp >= 0x3400u && _cp <= 0x4DBFu) || fude_lang_group(_cp) != FUDE_LANG_NO_GROUP;
 }
 
 // Word _id as an item: its characters (at most FUDE_WORDEXAM_CHARS) and their
@@ -87,21 +91,53 @@ RDE_INTERNAL b8 fude_wordexam_item_set(fude_wordexam* _exam, fude_wordexam_item*
     if(_w == NULL || _exam->db == NULL) {
         return false;
     }
-    u32 _n       = 0;
-    b8  _writes  = false;
+    // Its letters, each with the signs written on it (Thai's, Hindi's vowel signs
+    // and tone marks, Arabic's harakat): a box is a syllable.
+    u32       _cps[FUDE_WORDEXAM_CHARS + 1u];
+    const c8* _from[FUDE_WORDEXAM_CHARS + 1u];
+    const c8* _to[FUDE_WORDEXAM_CHARS + 1u];
+    u32       _letters = 0;
     for(const c8* _p = _w->written; *_p != 0;) {
-        const u32 _cp = fude_utf8_next(&_p);
+        const c8* _was = _p;
+        const u32 _cp  = fude_utf8_next(&_p);
         if(_cp == 0u) {
             break;
         }
+        if(_letters > 0u && fude_lang_combining(_cp)) {
+            _to[_letters - 1u] = _p;
+            continue;
+        }
+        if(_letters == FUDE_WORDEXAM_CHARS + 1u) {
+            return false;   // too long to ask
+        }
+        _cps[_letters]  = _cp;
+        _from[_letters] = _was;
+        _to[_letters]   = _p;
+        _letters++;
+    }
+    // Each box: the letter as it is written there (lang.h: Arabic's joined forms;
+    // ل and ا as one, ﻻ), the text read back as its letters and signs.
+    u32 _n      = 0;
+    b8  _writes = false;
+    for(u32 _l = 0; _l < _letters; _l++) {
         if(_n == FUDE_WORDEXAM_CHARS) {
             return false;   // too long to ask
         }
+        b8        _with_after = false;
+        const u32 _cp         = fude_lang_form(_l > 0u ? _cps[_l - 1u] : 0u, _cps[_l], _l + 1u < _letters ? _cps[_l + 1u] : 0u, &_with_after);
+        const c8* _end        = _with_after ? _to[_l + 1u] : _to[_l];
+        const usize _len      = (usize)(_end - _from[_l]);
+        if(_len >= sizeof(_it->written[0])) {
+            return false;
+        }
+        memcpy(_it->written[_n], _from[_l], _len);
+        _it->written[_n][_len] = 0;
         u32 _record;
         _it->chars[_n]   = _cp;
         _it->records[_n] = fude_wordexam_written(_cp) && fude_kanji_find_index(_exam->db, _cp, &_record) ? _record : UINT32_MAX;
         _writes          = _writes || _it->records[_n] != UINT32_MAX;
         _n++;
+        _l += _with_after ? 1u : 0u;
     }
     if(_n == 0u || !_writes) {
         return false;
@@ -165,6 +201,9 @@ RDE_INTERNAL b8 fude_wordexam_can_ask(const fude_wordexam* _exam, u32 _id) {
     for(const c8* _p = _w->written; *_p != 0 && _n <= FUDE_WORDEXAM_CHARS;) {
         const u32 _cp = fude_utf8_next(&_p);
         u32       _record;
+        if(_n > 0u && fude_lang_combining(_cp)) {
+            continue;   // in the box before it
+        }
         _writes = _writes || (_cp != 0u && fude_wordexam_written(_cp) && fude_kanji_find_index(_exam->db, _cp, &_record));
         _n++;
     }
@@ -297,15 +336,29 @@ RDE_INTERNAL void fude_wordexam_mark_box(fude_wordexam* _exam, fude_wordexam_ite
     if(fude_ink_alive_strokes(&_it->ink[_b]) == 0) {
         return;   // nothing written: wrong
     }
+    // A syllable (a letter with signs on it): right when ML Kit read it whole, its
+    // points that. Without ML Kit, the matcher knows letters only: its letter.
+    c8 _letter[8];
+    fude_utf8_put(fude_lang_letter(_it->chars[_b]), _letter);
+    const b8 _syllable = strcmp(_it->written[_b], _letter) != 0 && _it->chars[_b] != 0xFEFBu && _it->chars[_b] != 0xFEFCu;
+    if(_syllable && _r != NULL) {
+        for(u32 _l = 0; _l < _r->line_count && _l < FUDE_WORDEXAM_CANDIDATES; _l++) {
+            _it->box_right[_b] = _it->box_right[_b] || strcmp(_r->lines[_l], _it->written[_b]) == 0;
+        }
+        _it->box_points[_b] = _it->box_right[_b] ? 100.0f : 0.0f;
+        return;
+    }
     fude_match_result _matched[16];
     fude_match_result _candidates[8];
     const u32 _m = fude_match_rank(_exam->db, _exam->catalog, FUDE_FILTER_ALL, &_it->ink[_b], _matched, 16u);
     const u32 _n = fude_recognize_candidates(_exam->db, _r, 0u, 1u, _exam->catalog, FUDE_FILTER_ALL, _matched, _m, _candidates, 8u);
     for(u32 _i = 0; _i < _n && _i < FUDE_WORDEXAM_CANDIDATES; _i++) {
-        _it->box_right[_b] = _it->box_right[_b] || _candidates[_i].record == _it->records[_b];
+        _it->box_right[_b] = _it->box_right[_b] || fude_recognize_same(_exam->db, _candidates[_i].record, _it->records[_b]);   // a joined form: its letter
     }
     fude_kanji_info _info;
-    if(fude_kanji_at(_exam->db, _it->records[_b], &_info)) {
+    if(_syllable) {
+        _it->box_points[_b] = _it->box_right[_b] ? 70.0f : 0.0f;   // its letter only: the signs not seen
+    } else if(fude_kanji_at(_exam->db, _it->records[_b], &_info)) {
         const fude_score _s = fude_score_drawing(_exam->db, &_info, &_it->ink[_b]);
         _it->box_points[_b] = _s.empty ? 0.0f : _s.score;
     }
@@ -428,10 +481,16 @@ RDE_INTERNAL b8 fude_wordexam_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F 
     return _p.x >= _min.x && _p.x <= _max.x && _p.y >= _min.y && _p.y <= _max.y && _max.x > _min.x;
 }
 
+// Box _b's place in the row (0 the leftmost): from the right in a right-to-left
+// language, its first letter at the right.
+RDE_INTERNAL f32 fude_wordexam_slot(const fude_wordexam_item* _it, u32 _b) {
+    return (f32)(fude_lang_rtl() ? _it->count - 1u - _b : _b);
+}
+
 // The box under _screen (writing), or UINT32_MAX.
 RDE_INTERNAL u32 fude_wordexam_box_at(const fude_wordexam* _exam, const fude_wordexam_item* _it, rde_vec_2F _screen) {
     for(u32 _b = 0; _b < _it->count && _exam->box > 0.0f; _b++) {
-        const f32 _x = _exam->boxes_tl.x + (f32)_b * (_exam->box + _exam->box_gap);
+        const f32 _x = _exam->boxes_tl.x + fude_wordexam_slot(_it, _b) * (_exam->box + _exam->box_gap);
         if(_screen.x >= _x && _screen.x <= _x + _exam->box && _screen.y <= _exam->boxes_tl.y && _screen.y >= _exam->boxes_tl.y - _exam->box) {
             return _b;
         }
@@ -439,9 +498,9 @@ RDE_INTERNAL u32 fude_wordexam_box_at(const fude_wordexam* _exam, const fude_wor
     return UINT32_MAX;
 }
 
-RDE_INTERNAL rde_vec_2F fude_wordexam_local(const fude_wordexam* _exam, u32 _b, rde_vec_2F _screen) {
+RDE_INTERNAL rde_vec_2F fude_wordexam_local(const fude_wordexam* _exam, const fude_wordexam_item* _it, u32 _b, rde_vec_2F _screen) {
     const f32 _k = FUDE_WORDEXAM_UNITS / _exam->box;
-    const f32 _x = _exam->boxes_tl.x + (f32)_b * (_exam->box + _exam->box_gap);
+    const f32 _x = _exam->boxes_tl.x + fude_wordexam_slot(_it, _b) * (_exam->box + _exam->box_gap);
     return (rde_vec_2F){
         rde_math_clamp_f32((_screen.x - _x) * _k, 0.0f, FUDE_WORDEXAM_UNITS),
         rde_math_clamp_f32((_screen.y - (_exam->boxes_tl.y - _exam->box)) * _k, 0.0f, FUDE_WORDEXAM_UNITS)
@@ -462,7 +521,7 @@ void fude_wordexam_pointer_down(fude_wordexam* _exam, rde_vec_2F _screen, b8 _pe
         const u32 _b = fude_wordexam_box_at(_exam, _it, _screen);
         if(_pen && _b != UINT32_MAX && _it->records[_b] != UINT32_MAX) {
             _it->ink[_b].zoom = _exam->box / FUDE_WORDEXAM_UNITS;
-            fude_ink_begin(&_it->ink[_b], fude_wordexam_local(_exam, _b, _screen), true, false);
+            fude_ink_begin(&_it->ink[_b], fude_wordexam_local(_exam, _it, _b, _screen), true, false);
             _exam->pen     = true;
             _exam->pen_box = _b;
         }
@@ -474,7 +533,7 @@ void fude_wordexam_pointer_down(fude_wordexam* _exam, rde_vec_2F _screen, b8 _pe
 void fude_wordexam_pointer_moved(fude_wordexam* _exam, rde_vec_2F _screen, f64 _time) {
     fude_wordexam_item* _it = fude_wordexam_current(_exam);
     if(_exam->pen && _it != NULL) {
-        fude_ink_extend(&_it->ink[_exam->pen_box], fude_wordexam_local(_exam, _exam->pen_box, _screen));
+        fude_ink_extend(&_it->ink[_exam->pen_box], fude_wordexam_local(_exam, _it, _exam->pen_box, _screen));
         return;
     }
     fude_scroller_moved(&_exam->scroller, _screen, _time);
@@ -618,12 +677,11 @@ RDE_INTERNAL void fude_wordexam_draw_boxes(fude_wordexam* _exam, rde_window* _wi
     const fude_theme* _theme = fude_theme_active();
     const rde_vec_2I  _size  = rde_window_get_size(_window);
     for(u32 _b = 0; _b < _it->count; _b++) {
-        const rde_vec_2F _btl = { _tl.x + (f32)_b * (_box + _gap), _tl.y };
+        const rde_vec_2F _btl = { _tl.x + fude_wordexam_slot(_it, _b) * (_box + _gap), _tl.y };
         fude_glyph_box(_btl, _box);
         if(_it->records[_b] == UINT32_MAX) {
             // Given: the character as text, grey.
-            c8 _ch[8];
-            fude_utf8_put(_it->chars[_b], _ch);
+            const c8* _ch = _it->written[_b];
             const f32 _px = _box * 0.5f;
             fude_draw_text(fude_wordexam_font, fude_wordexam_font_px, _ch, _btl.x + (_box - fude_draw_text_width(fude_wordexam_font, fude_wordexam_font_px, _ch, _px)) * 0.5f,
                            _btl.y - _box * 0.5f - _px * 0.38f, _px, _theme->text_soft);

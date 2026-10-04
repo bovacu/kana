@@ -52,6 +52,10 @@ void fude_recognize_forget(fude_recognition* _r);
 // spaces for one, skipped): how many, at most _max.
 u32  fude_recognize_records(const fude_kanji_db* _db, const c8* _line, u32* _out, u32 _max);
 
+// Are records _a and _b the same letter, a joined form as its letter (lang.h:
+// fude_lang_letter; Arabic's ﺑ is ب)? Recognition reads letters, not forms.
+b8   fude_recognize_same(const fude_kanji_db* _db, u32 _a, u32 _b);
+
 // One character's candidates, best first — character _index of a reading
 // _length characters long: first what ML Kit's readings of that length have
 // there, then _matched (the matcher's own ranking) — each character once, only

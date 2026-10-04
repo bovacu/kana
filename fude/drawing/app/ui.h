@@ -43,6 +43,7 @@ typedef struct fude_ui {
     rde_ui_canvas*      canvas;
     rde_font*           font;            // the UI font (and the screens'): Roboto
     rde_font*           font_script;     // the app's script font (info.h), its fallback: the language typed or shown as text
+    rde_font*           font_latin;      // the app's Latin beyond Roboto (info.h), the next fallback: readings' letters
     rde_font*           font_icons;      // Phosphor Regular, its last fallback: icons as text (icons.h)
     rde_font*           font_icons_fill; // Phosphor Fill, a font of its own: an icon showing something on
 

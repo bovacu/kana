@@ -1,0 +1,26 @@
+LECTURES
+
+Thai phrasebook, from Wikivoyage (lectures/phrasebook_en.pdf, _fr, _pt)
+
+Wikivoyage's Thai phrasebook, one for each language Thai Learn! speaks that has
+one (English, French, Portuguese; the others show the English one), by Wikivoyage's contributors, licensed under the Creative
+Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+
+  English    "Thai phrasebook", revision 5091744 (2025-07-11)
+             https://en.wikivoyage.org/wiki/Thai_phrasebook
+  French     "Guide linguistique thaï", revision 670962 (2026-09-06)
+             https://fr.wikivoyage.org/wiki/Guide_linguistique_tha%C3%AF
+  Portuguese "Guia de conversação tailandês", revision 144812 (2025-09-10)
+             https://pt.wikivoyage.org/wiki/Guia_de_conversa%C3%A7%C3%A3o_tailand%C3%AAs
+
+Who wrote each: its page's history (the link on its first page).
+
+Changes made for Thai Learn!: each page's text only, as the wiki had it at that
+revision — its pictures (each under a licence of its own), its links, the boxes
+for editors and its sections of further links ("Learning more", "Approfondir", "Aprendendo mais", "Aprenda mais") left out where
+it has one, and headings with nothing under them; laid out as an A4 PDF with a
+title page giving the credit, the licence and these changes. Thai Learn!'s editions
+are under CC BY-SA 4.0 too: anyone may share and adapt them, crediting
+Wikivoyage, under the same licence. How they were made:
+tools/lectures/phrasebook.py.

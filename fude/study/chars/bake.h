@@ -45,8 +45,9 @@
 // Example words.
 #define FUDE_BAKE_WORDS_PER     6u      // example words kept per character (shown)
 #define FUDE_BAKE_WORDS_ALL     20u     // words kept per character in all: after the examples, more to add (the viewer's Add)
-#define FUDE_BAKE_WORD_CHARS    5u      // longer words are not kept
-#define FUDE_BAKE_EXAMPLE_CHARS 4u      // ...and examples are shorter still
+#define FUDE_BAKE_WORD_CHARS    5u      // longer words are not kept (the bake's word_chars, unless the language says)
+#define FUDE_BAKE_EXAMPLE_CHARS 4u      // ...and examples are shorter still (example_chars)
+#define FUDE_BAKE_WORD_CHARS_MAX 20u    // the most a language may keep: Thai's and Hindi's signs and marks count
 
 // Meanings in other languages than English (kanji.h's 'LNxx'), at most.
 #define FUDE_BAKE_LANGS 4u
@@ -68,7 +69,7 @@ typedef struct {
 
 // A word that can be an example: its three strings.
 typedef struct {
-    c8  written[4u * FUDE_BAKE_WORD_CHARS + 1u];
+    c8  written[4u * FUDE_BAKE_WORD_CHARS_MAX + 1u];
     c8  reading[64];
     c8  meaning[128];
     c8  meaning_in[FUDE_BAKE_LANGS][128];   // in the other languages ("": none)
@@ -87,6 +88,12 @@ typedef struct {
 
 typedef struct {
     rde_arr TYPE(fude_bake_char) chars;
+    // Words longer (in code points) are not kept, and examples are at most so
+    // long: FUDE_BAKE_WORD_CHARS and FUDE_BAKE_EXAMPLE_CHARS after fude_bake_init,
+    // more for a language whose vowel signs and marks are code points of their
+    // own (Thai, Hindi: up to FUDE_BAKE_WORD_CHARS_MAX).
+    u32                          word_chars;
+    u32                          example_chars;
     fude_bytes                   geometry;
     fude_bytes                   text;
     fude_bytes                   parts;

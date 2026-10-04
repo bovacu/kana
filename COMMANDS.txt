@@ -599,6 +599,88 @@ a moon, over Kana's open book):
   python3 tools/icons/app_icon.py apps/hangul/platform/ios
 
 
+THAI, HINDI and ARABIC — on the Mac and the iPad
+------------------------------------------------
+apps/thai/ and apps/hindi/ are Kana's shell for Thai and for Hindi (in
+Devanagari), with fude/lang/th/ and fude/lang/hi/ (lang.c: the letters in four
+groups, three levels of their own, each letter's Latin name; wordsplit.c;
+bake.c; chart.c: the alphabet; lang_ios.m). Words are read in romanization:
+Thai's with its tones (ภาษา paa-sǎa), Hindi's without the silent a (कमल kamal).
+Their vowel signs and marks are practised over a dotted circle
+(lang.h: fude_lang_combining), and the word test takes a syllable as one box.
+docs/hindi_thai_data.md has their sources and their licences.
+
+apps/arabic/ is the same shell for Arabic (Modern Standard, the Naskh hand),
+with fude/lang/ar/: its letters alone, the joined forms each takes in a word
+(initial, medial, final: Unicode's presentation forms, each with strokes of
+its own), the vowel marks, the digits. Arabic is written right to left: the
+word test's boxes run from the right and ask each letter in the form it takes
+there, and Paste text writes joined forms meeting at their joins (lang.h:
+fude_lang_rtl, fude_lang_form, fude_lang_letter). ML Kit reads Arabic
+handwriting, not photo text. Its data: apps/arabic/tools/data/README.md; its
+sources' licences: docs/arabic_data.md.
+
+  - ML Kit reads Thai and Hindi handwriting; photo text only in Hindi (its
+    Devanagari model): Thai has none, so Text from photo is not offered
+    (lang.h: fude_lang_text_readable).
+  - Their romanization has letters Roboto lacks (ɛ ɔ ʉ ǎ, ṭ ḍ ṅ):
+    assets/fonts/NotoSansLatinExt-Regular.ttf, a subset of Noto Sans, is the UI
+    font's last fallback (info.h: latin_font). Thai's script font is Noto Sans
+    Thai Looped: learners are taught the looped letters.
+
+THE DATA, once (and again when a source is updated): the strokes drawn
+(each app's own: README.md there), the sources downloaded, the tables prepared
+(tools/data/prepared.py has what the two share), then baked:
+
+  python3 apps/thai/tools/strokes/compose.py     # data/raw/th/thaivg.xml
+  python3 apps/thai/tools/data/fetch.py          # data/raw/th/ (Wiktionary, Volubilis, the corpus's counts), Tatoeba's Thai
+  python3 apps/thai/tools/data/prepare.py        # data/raw/th/prepared/*.tsv
+  ./build/thai/osx-silicon/debug/project/exe/runnable --bake
+
+  python3 apps/hindi/tools/strokes/compose.py    # data/raw/hi/devanagarivg.xml
+  python3 apps/hindi/tools/data/fetch.py         # data/raw/hi/ (Wiktionary, wordfreq), Tatoeba's Hindi
+  python3 apps/hindi/tools/data/prepare.py       # data/raw/hi/prepared/*.tsv (needs msgpack)
+  ./build/hindi/osx-silicon/debug/project/exe/runnable --bake
+
+  python3 apps/arabic/tools/strokes/compose.py   # data/raw/ar/arabicvg.xml
+  python3 apps/arabic/tools/data/fetch.py        # data/raw/ar/ (Wiktionary, wordfreq), Tatoeba's Arabic
+  python3 apps/arabic/tools/data/prepare.py      # data/raw/ar/prepared/*.tsv (needs msgpack)
+  ./build/arabic/osx-silicon/debug/project/exe/runnable --bake
+
+THE STRINGS: python3 apps/<app>/tools/strings.py (fude/lang/th/, hi/, ar/
+strings.py have each language's words for the study's strings).
+
+ON THE MAC: Hangul's command, with thai (hindi, arabic) for hangul, and
+fude/lang/th/ (hi/, ar/) bake.c chart.c lang.c wordsplit.c for fude/lang/ko/'s.
+
+ON THE iPAD: Hangul's command, each with its own provisioning profile
+(com.rde.thai, com.rde.hindi: made in Xcode, as Kana's) and:
+  - Thai and Arabic (com.rde.arabic): no language's text recognition framework
+    (MLKitTextRecognitionCommon and MLKitVision stay: textscan_ios.m links
+    them), no --ios_bundle of ocr/;
+  - Hindi: MLKitTextRecognitionDevanagari.framework and
+    --ios_bundle=third_party/mlkit/ocr/hi.
+The Simulator: --ios_simulator for --ios, no signing, no ML Kit.
+
+ON ANDROID: zsh tools/android/build.sh thai (hindi, arabic) [--release].
+
+THE LECTURES (Wikivoyage's phrasebooks: Thai's in English, French and
+Portuguese; Hindi's and Arabic's in those and Spanish; the other languages
+show English):
+
+  python3 tools/lectures/phrasebook.py apps/thai/assets/lectures --book=th en fr pt
+  python3 tools/lectures/phrasebook.py apps/hindi/assets/lectures --book=hi en es fr pt
+  python3 tools/lectures/phrasebook.py apps/arabic/assets/lectures --book=ar en es fr pt
+
+THE ICON: apps/<app>/platform/ios/AppIcon.svg (ไทย, हिंदी, عربي in the apps' own
+strokes on the moon, over Kana's open book; tools/icons/script_icon.py writes
+it, its header has the three commands), then:
+
+  python3 tools/icons/app_icon.py apps/thai/platform/ios
+  python3 tools/icons/app_icon.py apps/hindi/platform/ios
+  python3 tools/icons/app_icon.py apps/arabic/platform/ios
+
+
 THE CHARACTER DATA BAKE
 -----------------------
 apps/kana/assets/data/characters.kana is BAKED from KanjiVG + KANJIDIC2, with the

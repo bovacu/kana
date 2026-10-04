@@ -1,0 +1,28 @@
+LECTURES
+
+Hindi phrasebook, from Wikivoyage (lectures/phrasebook_en.pdf, _es, _fr, _pt)
+
+Wikivoyage's Hindi phrasebook, one for each language Hindi Learn! speaks that has
+one (English, Spanish, French, Portuguese; Japanese shows the English one), by Wikivoyage's contributors, licensed under the Creative
+Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+
+  English    "Hindi phrasebook", revision 5347102 (2026-09-11)
+             https://en.wikivoyage.org/wiki/Hindi_phrasebook
+  Spanish    "Guía de hindi" (Wikiviajes), revision 208403 (2023-12-19)
+             https://es.wikivoyage.org/wiki/Gu%C3%ADa_de_hindi
+  French     "Guide linguistique hindi", revision 664573 (2026-04-29)
+             https://fr.wikivoyage.org/wiki/Guide_linguistique_hindi
+  Portuguese "Guia de conversação hindi", revision 143929 (2025-05-04)
+             https://pt.wikivoyage.org/wiki/Guia_de_conversa%C3%A7%C3%A3o_hindi
+
+Who wrote each: its page's history (the link on its first page).
+
+Changes made for Hindi Learn!: each page's text only, as the wiki had it at that
+revision — its pictures (each under a licence of its own), its links, the boxes
+for editors and its sections of further links ("Learning more", "Approfondir", "Aprendendo mais", "Aprenda mais") left out where
+it has one, and headings with nothing under them; laid out as an A4 PDF with a
+title page giving the credit, the licence and these changes. Hindi Learn!'s editions
+are under CC BY-SA 4.0 too: anyone may share and adapt them, crediting
+Wikivoyage, under the same licence. How they were made:
+tools/lectures/phrasebook.py.

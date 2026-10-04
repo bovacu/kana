@@ -525,14 +525,15 @@ RDE_INTERNAL void fude_browse_caption(fude_browse* _browse, const fude_kanji_inf
         const c8* _m = fude_kanji_meanings(_browse->db, _info);
         const c8* _comma = strstr(_m, ", ");
         const usize _n = _comma != NULL ? (usize)(_comma - _m) : strlen(_m);
-        const usize _fit = (usize)(_cell / (FUDE_BROWSE_CAPTION_PX * 0.6f));   // roughly what fits
-        snprintf(_line, sizeof(_line), "%.*s%s", (int)(_n < _fit ? _n : _fit), _m, _n > _fit ? "." : "");
+        snprintf(_line, sizeof(_line), "%.*s", (int)_n, _m);   // its first meaning, whole (shrunk to fit, below)
     } else if(_info->level != 0) {
         fude_lang_level_name(_info->level, false, _line, sizeof(_line));
     }
 
     if(_line[0] != 0) {
-        fude_draw_text(_font, _font_px, _line, _x + 6.0f, _y, FUDE_BROWSE_CAPTION_PX, fude_theme_active()->text_soft);
+        // Whole: a long one (Thai's "pho samphao", a meaning) smaller, never into the next cell.
+        fude_draw_text_whole(_font, _font_px, _line, _x + 6.0f, _y + FUDE_BROWSE_CAPTION_PX * 0.38f, FUDE_BROWSE_CAPTION_PX, _cell - 10.0f, 1u,
+                             fude_theme_active()->text_soft);
     }
 }
 

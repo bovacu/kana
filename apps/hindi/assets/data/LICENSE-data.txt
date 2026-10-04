@@ -1,0 +1,55 @@
+Character data (characters.kana)
+================================
+
+characters.kana is baked from the works below and is a derived work of them.
+It is distributed under their licences, and this attribution must be shown to
+the app's users (Settings › Licences).
+
+
+Hindi's strokes
+---------------
+The strokes of every letter, vowel sign, mark and digit, in writing order:
+drawn for Hindi (apps/hindi/tools/strokes/), following the standard
+Devanagari forms. No outside data. What each sign does (ि: the vowel i,
+written before its consonant) is written for Hindi too.
+
+
+Wiktionary
+----------
+Words: their romanization and meanings in English; meanings in Japanese, French
+and Portuguese where those Wiktionaries have the word; the inflected forms
+that lead a sentence's words to theirs.
+
+  From Wiktionary (https://www.wiktionary.org), the work of its contributors,
+  licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+  licence (https://creativecommons.org/licenses/by-sa/4.0/) and the GNU Free
+  Documentation License; extracted by wiktextract (Tatu Ylönen) and published
+  by kaikki.org (https://kaikki.org). Hindi keeps its Hindi words (not
+  names, letters, affixes or inflected forms), with their first meanings
+  shortened.
+  Sources used: kaikki.org's Hindi files from the English, Japanese, French and
+  Portuguese Wiktionaries (extracted from the dumps of 2026-09-02 to
+  2026-10-01), downloaded 2026-10-04.
+
+
+wordfreq
+--------
+How common each word and letter is.
+
+  wordfreq by Robyn Speer (https://github.com/rspeer/wordfreq), whose data is
+  licensed under Creative Commons Attribution-ShareAlike 4.0 International
+  (https://creativecommons.org/licenses/by-sa/4.0/).
+
+
+Tatoeba
+-------
+Example sentences: a Hindi sentence for a word, and its English, Spanish,
+French and Portuguese translations.
+
+  Sentences from Tatoeba (https://tatoeba.org), the work of its contributors,
+  used under the Creative Commons Attribution 2.0 France licence:
+  https://creativecommons.org/licenses/by/2.0/fr/
+  Hindi keeps a selection of them (one for each word, chosen by length) and
+  changes none.
+  Source used: Tatoeba's per-language exports
+  (https://downloads.tatoeba.org/exports/per_language/), downloaded 2026-10-04.

@@ -7,7 +7,8 @@
 // The language a study app teaches: everything the study layer (fude/study)
 // asks of it. One implementation per language, in fude/lang/<code>/lang.c, and
 // an app compiles exactly one: Kana fude/lang/ja, Hanzi fude/lang/zh, Hangul
-// fude/lang/ko. Its iOS side (the text recognizer's options) is
+// fude/lang/ko, Thai fude/lang/th, Hindi fude/lang/hi, Arabic fude/lang/ar. Its
+// iOS side (the text recognizer's options) is
 // fude/lang/<code>/lang_ios.m.
 //
 // Beside this interface a language has:
@@ -32,6 +33,9 @@ const c8* fude_lang_code(void);
 const c8* fude_lang_ink_model(void);
 // The voice reading aloud (iOS AVSpeechSynthesizer): "ja-JP".
 const c8* fude_lang_voice(void);
+// Can ML Kit Text Recognition read the language in pictures (Text from a photo,
+// a scanned page's lines)? Japanese, Chinese, Korean, Hindi: yes; Thai: no model.
+b8        fude_lang_text_readable(void);
 // The language as one of the app's UI languages (the fourth: text.h's taught
 // one): its RDE id, its name in itself ("日本語") and its flag (assets/flags/).
 RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag);
@@ -59,6 +63,24 @@ u32       fude_lang_group_prompt(u32 _group);   // FUDE_TEXT_: an exam's "WRITE 
 b8        fude_lang_core(u32 _codepoint);
 // A script letter's Latin name ("ka"; ー "long"); NULL for anything else.
 const c8* fude_lang_latin(u32 _codepoint);
+// Is it written on another letter (Thai's and Hindi's vowel signs and tone
+// marks)? Shown alone, it gets a dotted circle where that letter goes (glyph.h).
+b8        fude_lang_combining(u32 _codepoint);
+
+// --- writing direction and joined forms ---------------------------------------------
+
+// Is the language written right to left (Arabic)? A word's boxes then run from
+// the right.
+b8        fude_lang_rtl(void);
+// The character a letter is written as between the letters before and after it
+// in a word (0: none there; marks are not neighbours): Arabic's joined forms (ب
+// starting a word: ﺑ U+FE91; ل before ا: the ligature ﻻ, and *_with_after then
+// says _after is written in it). Every other language: the letter itself.
+u32       fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after);
+// The letter a character is a form of (Arabic: ﺑ U+FE91 → ب); itself elsewhere.
+// Recognition reads letters, not their forms: a form written is right when its
+// letter is read.
+u32       fude_lang_letter(u32 _cp);
 
 // --- levels --------------------------------------------------------------------------
 
@@ -83,7 +105,9 @@ u32       fude_lang_reading_name(u32 _kind);    // FUDE_TEXT_: a sort chip's "On
 // A reading typed in Latin letters, as the language writes readings (Japanese:
 // romaji → hiragana). False when it is not one; _out then holds what could be read.
 b8        fude_lang_reading_from_latin(const c8* _latin, c8* _out, usize _size);
-// A reading's character as readings are compared (Japanese: katakana as hiragana).
+// A reading's character as readings are compared (Japanese: katakana as hiragana;
+// Thai, Hindi, Arabic: a Latin letter without its accent, ǎ ā as a). 0: left out
+// (a tone's or a syllable's mark: paa-sǎa compares as paasaa).
 u32       fude_lang_reading_fold(u32 _codepoint);
 // Of a character's readings, the kind a one-character word is read by (Japanese:
 // kun, then on).
