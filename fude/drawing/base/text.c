@@ -175,9 +175,23 @@ void fude_text_set_taught_language(RDE_LANGUAGE_ _language, const c8* _name, con
     FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_TAUGHT] = (fude_text_language_info){ _language, _name, _flag };
 }
 
+RDE_INTERNAL b8 fude_text_no_taught = false;
+
+void fude_text_drop_taught_language(void) {
+    fude_text_no_taught = true;
+}
+
+b8 fude_text_language_shown(u32 _index) {
+    return _index < FUDE_TEXT_LANGUAGES && !(fude_text_no_taught && _index == FUDE_TEXT_TAUGHT);
+}
+
+u32 fude_text_language_count(void) {
+    return fude_text_no_taught ? FUDE_TEXT_LANGUAGES - 1u : FUDE_TEXT_LANGUAGES;
+}
+
 b8 fude_text_language_offered(RDE_LANGUAGE_ _language) {
     for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
-        if(FUDE_TEXT_LANGUAGE_LIST[_i].language == _language) {
+        if(fude_text_language_shown(_i) && FUDE_TEXT_LANGUAGE_LIST[_i].language == _language) {
             return true;
         }
     }
@@ -186,12 +200,7 @@ b8 fude_text_language_offered(RDE_LANGUAGE_ _language) {
 
 RDE_LANGUAGE_ fude_text_default_language(void) {
     const RDE_LANGUAGE_ _system = rde_localization_get_system_language();
-    for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
-        if(FUDE_TEXT_LANGUAGE_LIST[_i].language == _system) {
-            return _system;
-        }
-    }
-    return RDE_LANGUAGE_EN_US;
+    return fude_text_language_offered(_system) ? _system : RDE_LANGUAGE_EN_US;
 }
 
 u32 fude_text_revision(void) {

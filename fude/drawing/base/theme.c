@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/base/theme.h"
+#include "drawing/base/text.h"
 
 // ===========================================================================
 // See theme.h. Each theme is one table; add a theme by adding a row here and a
@@ -97,9 +98,25 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
 #undef CA
 
 RDE_INTERNAL FUDE_THEME_ fude_theme_current = FUDE_THEME_PAPER;
+RDE_INTERNAL const fude_theme* fude_theme_table = FUDE_THEMES;   // an app's own set (fude_theme_use), or these
+RDE_INTERNAL const u32*         fude_theme_texts = NULL;
+
+void fude_theme_use(const fude_theme* _themes, const u32* _texts) {
+    fude_theme_table = _themes != NULL ? _themes : FUDE_THEMES;
+    fude_theme_texts = _themes != NULL ? _texts : NULL;
+}
+
+const fude_theme* fude_theme_core(FUDE_THEME_ _theme) {
+    return &FUDE_THEMES[(_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER];
+}
+
+u32 fude_theme_text(FUDE_THEME_ _theme) {
+    const u32 _i = (_theme >= 0 && _theme < FUDE_THEME_COUNT) ? (u32)_theme : 0u;
+    return fude_theme_texts != NULL ? fude_theme_texts[_i] : (u32)FUDE_TEXT_THEME_PAPER + _i;
+}
 
 const fude_theme* fude_theme_active(void) {
-    return &FUDE_THEMES[fude_theme_current];
+    return &fude_theme_table[fude_theme_current];
 }
 
 FUDE_THEME_ fude_theme_index(void) {
@@ -111,7 +128,7 @@ void fude_theme_set(FUDE_THEME_ _theme) {
 }
 
 const fude_theme* fude_theme_get(FUDE_THEME_ _theme) {
-    return &FUDE_THEMES[(_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER];
+    return &fude_theme_table[(_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER];
 }
 
 b8 fude_theme_is_ink(rde_color _color) {
@@ -119,6 +136,9 @@ b8 fude_theme_is_ink(rde_color _color) {
 }
 
 rde_color fude_theme_resolve(rde_color _color) {
+    if(_color.a == 1u && _color.r == 255u && _color.g == 254u && _color.b == 253u) {
+        return fude_theme_active()->page;   // (FUDE_THEME_PAGE_FILL)
+    }
     return fude_theme_is_ink(_color) ? fude_theme_active()->ink : _color;
 }
 

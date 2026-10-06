@@ -27,6 +27,9 @@ typedef enum {
 
 // "Use the theme's ink": fully transparent, which no real stroke colour is.
 #define FUDE_THEME_INK (rde_color){ 0, 0, 0, 0 }
+// "Use the theme's page": a fill as the page under it, whatever the theme (Sketching's diagram
+// shapes, so lines behind them do not show through) — a value no real colour has.
+#define FUDE_THEME_PAGE_FILL (rde_color){ 255, 254, 253, 1 }
 
 RDE_STRUCT {
     const c8* name;
@@ -95,6 +98,13 @@ const fude_theme* fude_theme_active(void);
 FUDE_THEME_       fude_theme_index(void);
 void              fude_theme_set(FUDE_THEME_ _theme);
 const fude_theme* fude_theme_get(FUDE_THEME_ _theme);
+// An app's own themes in place of the core's (FUDE_THEME_COUNT of them, the
+// same places: Paper first, Night third, as exports and the core count on), and
+// the FUDE_TEXT_ of each one's name; NULL: the core's again. Before the UI is built.
+void              fude_theme_use(const fude_theme* _themes, const u32* _texts);
+// A theme's name (FUDE_TEXT_), and the core's own theme at that place (what an app's set starts from).
+u32               fude_theme_text(FUDE_THEME_ _theme);
+const fude_theme* fude_theme_core(FUDE_THEME_ _theme);
 
 // A score's colour (0..100): good from 80, fair from 55, poor below — Practice
 // and the Album grade alike.

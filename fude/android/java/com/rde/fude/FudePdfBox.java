@@ -65,7 +65,8 @@ import java.util.concurrent.ThreadFactory;
  * Positions: points from the page's top-left, the page as the PDF reads it (turned
  * as it says); the learner's turns are pdf_android.c's. Every use of PDFBox holds
  * LOCK: the engine's thread asks, and a search goes on in a thread of its own — its
- * matches read without waiting for it (each document's own lock, found).
+ * matches read without waiting for it (each document's own lock, found; the documents'
+ * map has its own too, so finding one never waits for a page being read).
  */
 final class FudePdfBox {
     static final Object LOCK = new Object();
@@ -153,16 +154,25 @@ final class FudePdfBox {
 
     // --- a document's text ------------------------------------------------------------------
 
+    /** FudePdf's document _h's text if made (LOCK not needed: never waits for a page being read). */
+    static Text known(int h) {
+        synchronized(texts) {
+            return texts.get(h);
+        }
+    }
+
     /** FudePdf's document _h's text (LOCK held): made the first time, for its file. */
     static Text text(int h) {
-        Text t = texts.get(h);
+        Text t = known(h);
         if(t == null) {
             File file = FudePdf.file(h);
             if(file == null) {
                 return null;
             }
             t = new Text(file);
-            texts.put(h, t);
+            synchronized(texts) {
+                texts.put(h, t);
+            }
         }
         return t;
     }
@@ -171,7 +181,9 @@ final class FudePdfBox {
     static void close(int h) {
         Text t;
         synchronized(LOCK) {
-            t = texts.remove(h);
+            synchronized(texts) {
+                t = texts.remove(h);
+            }
         }
         if(t != null) {
             t.close();
@@ -212,9 +224,11 @@ final class FudePdfBox {
         if(!available()) {
             return;
         }
-        Text t;
-        synchronized(LOCK) {
-            t = text(h);
+        Text t = known(h);
+        if(t == null) {
+            synchronized(LOCK) {
+                t = text(h);
+            }
         }
         if(t != null) {
             t.findStart(query, max);
@@ -222,20 +236,14 @@ final class FudePdfBox {
     }
 
     static void findStop(int h) {
-        Text t;
-        synchronized(LOCK) {
-            t = texts.get(h);
-        }
+        Text t = known(h);   // (never waiting for the search's page: a frame's)
         if(t != null) {
             t.findStop();
         }
     }
 
     static float[] findMatches(int h, int known) {
-        Text t;
-        synchronized(LOCK) {
-            t = texts.get(h);
-        }
+        Text t = known(h);   // (asked every frame while a search goes on: never waiting for it)
         return t != null ? t.matches(known) : new float[]{ known + 1, 1, 0 };
     }
 
@@ -814,6 +822,8 @@ final class FudePdfBox {
         StringBuilder    over;        // ...what goes over it, in the page as read
         HashMap<Integer, COSName> alphas;   // ...its see-through states, by alpha
         COSName          fontName;    // ...the unseen text's font, as its resources name it
+        com.tom_roush.pdfbox.pdmodel.font.PDType0Font seen;   // the seen text's (the app's Roboto, whole: one for the document)
+        COSName          seenName;    // ...as the page's resources name it
         COSDictionary    font;        // that font (one for the whole document)
         COSStream        unicode;     // ...its codes' characters, written at the end
         final HashMap<Integer, Integer> far = new HashMap<>();   // characters past U+FFFF: the code each is written with
@@ -907,6 +917,7 @@ final class FudePdfBox {
                 o.over      = new StringBuilder();
                 o.alphas    = new HashMap<>();
                 o.fontName  = null;
+                o.seenName  = null;
             } catch(Throwable e) {
                 Log.e(FudeAndroid.TAG, "could not copy page " + page + ": " + e);
                 o.ok   = false;
@@ -1020,6 +1031,34 @@ final class FudePdfBox {
     }
 
     /**
+     * A shape over the page: triangles (_t: x, y each corner, three a triangle, each
+     * the same way round), in _color (RGBA), painted as one (nonzero: no seams).
+     */
+    static void writeFill(int w, float[] t, int color) {
+        synchronized(LOCK) {
+            Out o = out(w);
+            int n = t != null ? t.length / 6 : 0;
+            if(o == null || o.page == null || n == 0) {
+                return;
+            }
+            StringBuilder s = o.over;
+            int           a = color & 255;
+            s.append("q ");
+            rgb(s, color);
+            s.append("rg ");
+            if(a < 255) {
+                s.append('/').append(alpha(o, a).getName()).append(" gs ");
+            }
+            for(int i = 0; i < n; i++) {
+                num(s, t[6 * i]);     num(s, t[6 * i + 1]); s.append("m ");
+                num(s, t[6 * i + 2]); num(s, t[6 * i + 3]); s.append("l ");
+                num(s, t[6 * i + 4]); num(s, t[6 * i + 5]); s.append("l h ");
+            }
+            s.append("f Q\n");
+        }
+    }
+
+    /**
      * The code character _cp is written with (Identity-H, two bytes): its own, or
      * for one past U+FFFF one from 0xD800 (a surrogate's: no character's), mapped
      * back in the font's character map. -1: none (a lone surrogate, or too many).
@@ -1053,6 +1092,93 @@ final class FudePdfBox {
      * stretched across it. Every character as wide as an em, in a font of no glyphs
      * (glyphless): a reader finds and copies the text by the font's character map.
      */
+    /**
+     * A picture over the page (a JPEG's or a PNG's bytes), its bottom-left, bottom-right
+     * and top-left corners at _c (x, y each, the page as read): so turned, so stretched.
+     */
+    static void writeImage(int w, byte[] bytes, float[] c) {
+        synchronized(LOCK) {
+            Out o = out(w);
+            if(o == null || o.page == null || bytes == null || bytes.length == 0 || c == null || c.length < 6) {
+                return;
+            }
+            try {
+                com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject img =
+                    com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject.createFromByteArray(o.doc, bytes, "picture");
+                COSName name = o.resources.add(img);
+                StringBuilder s = o.over;
+                s.append("q ");
+                num(s, c[2] - c[0]); num(s, c[3] - c[1]);   // the unit square: across to the bottom-right...
+                num(s, c[4] - c[0]); num(s, c[5] - c[1]);   // ...up to the top-left...
+                num(s, c[0]); num(s, c[1]);                 // ...from the bottom-left
+                s.append("cm /").append(name.getName()).append(" Do Q\n");
+            } catch(Throwable e) {
+                Log.e(FudeAndroid.TAG, "could not put a picture in: " + e);
+            }
+        }
+    }
+
+    /**
+     * A line of text seen: _size points tall, its baseline's left end at x, y (the page
+     * as read), in _color (RGBA) — in the app's font (Roboto, embedded whole), a letter
+     * it has no glyph for left out.
+     */
+    static void writeText(int w, String text, float x, float y, float size, int color) {
+        synchronized(LOCK) {
+            Out o = out(w);
+            if(o == null || o.page == null || text == null || text.isEmpty() || !(size > 0f)) {
+                return;
+            }
+            try {
+                if(o.seen == null) {
+                    InputStream in;
+                    try {
+                        in = FudeAndroid.context.getAssets().open("assets/fonts/Roboto-Regular.ttf");
+                    } catch(IOException e) {
+                        in = FudeAndroid.context.getAssets().open("fonts/Roboto-Regular.ttf");
+                    }
+                    try(InputStream f = in) {
+                        o.seen = com.tom_roush.pdfbox.pdmodel.font.PDType0Font.load(o.doc, f, false);
+                    }
+                }
+                if(o.seenName == null) {
+                    o.seenName = o.resources.add(o.seen);
+                }
+                StringBuilder hex = new StringBuilder();
+                for(int i = 0; i < text.length();) {
+                    int cp = text.codePointAt(i);
+                    i += Character.charCount(cp);
+                    try {
+                        for(byte b : o.seen.encode(new String(Character.toChars(cp)))) {
+                            hex.append(String.format("%02X", b & 255));
+                        }
+                    } catch(IllegalArgumentException e) {
+                        // (no glyph for it: left out)
+                    }
+                }
+                if(hex.length() == 0) {
+                    return;
+                }
+                StringBuilder s = o.over;
+                int           a = color & 255;
+                s.append("q ");
+                rgb(s, color);
+                s.append("rg ");
+                if(a < 255) {
+                    s.append('/').append(alpha(o, a).getName()).append(" gs ");
+                }
+                s.append("BT /").append(o.seenName.getName()).append(' ');
+                num(s, size);
+                s.append("Tf 1 0 0 -1 ");   // the page as read has Y down: the glyphs up again
+                num(s, x);
+                num(s, y);
+                s.append("Tm <").append(hex).append("> Tj ET Q\n");
+            } catch(IOException e) {
+                Log.e(FudeAndroid.TAG, "could not put text in: " + e);
+            }
+        }
+    }
+
     static void writeHiddenText(int w, String text, float x, float y, float sw, float sh) {
         synchronized(LOCK) {
             Out o = out(w);

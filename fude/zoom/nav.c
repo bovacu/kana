@@ -142,7 +142,8 @@ b8 fude_zoom_fly_step(fude_zoom_flight* _f, fude_zoom_scene* _s, fude_zoom_v2 _h
 
 fude_zoom_camera fude_zoom_nav_framing(fude_zoom_v2 _half, u32 _frame, fude_zoom_box _box, f64 _fill) {
     const f64 _w = _box.max_x - _box.min_x, _h = _box.max_y - _box.min_y;
-    const f64 _big = fmax(fmax(_w, _h), 1e-300);
+    // (A box with nothing in it, a point: framed as one 1/1000 of the frame's unit across — never a zoom without end.)
+    const f64 _big = fmax(fmax(_w, _h), 1e-3);
     const f64 _z = fmin(2.0 * _half.x * _fill / fmax(_w, _big * 1e-3), 2.0 * _half.y * _fill / fmax(_h, _big * 1e-3));
     return (fude_zoom_camera){ _frame, { (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 }, _z };
 }
@@ -164,18 +165,53 @@ typedef struct {
     u32                    ring_count;
 } fude_zoom_nav_search;
 
+// Something drawn in frame _frame, or deeper (alive, not a bookmark or a layer's record, not
+// hidden)? A frame whose drawing was all rubbed out is still "used" (its undo keeps it), and
+// nothing would be seen at the end of an arrow to it.
+RDE_INTERNAL b8 fude_zoom_nav_frame_shows(const fude_zoom_scene* _s, u32 _frame, u32 _depth) {
+    if(_frame == FUDE_ZOOM_NONE || _depth > 16u) {
+        return false;
+    }
+    const fude_zoom_frame* _f = fude_zoom_scene_frame(_s, _frame);
+    if(_f->removed) {
+        return false;
+    }
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_f->order); _i++) {
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, ((const u32*)_f->order.memory)[_i]);
+        if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER) {
+            continue;
+        }
+        if(_o->kind == FUDE_ZOOM_KIND_FRAME) {
+            if(fude_zoom_nav_frame_shows(_s, _o->child, _depth + 1u)) {
+                return true;
+            }
+            continue;
+        }
+        if(!fude_zoom_scene_hides(_s, _o)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 RDE_INTERNAL b8 fude_zoom_nav_visit(any _user, u32 _value, fude_zoom_box _box, fude_zoom_box _leaf, f64 _d2) {
     fude_zoom_nav_search*   _q = (fude_zoom_nav_search*)_user;
     const fude_zoom_object* _o = fude_zoom_scene_object(_q->s, _value);
     if(++_q->seen > 4096u) {
         return false;
     }
-    if(_value == _q->skip || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind == FUDE_ZOOM_KIND_MARK ||
-       (_o->kind == FUDE_ZOOM_KIND_FRAME && fude_zoom_scene_frame(_q->s, _o->child)->removed)) {
+    // Only what is drawn: not a bookmark, not a layer's record (nothing to see, nowhere: its box is a
+    // point at the origin — an arrow to it flew there zoomed in without end), not what a hidden layer
+    // hides, not a frame let go of.
+    if(_value == _q->skip || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER ||
+       fude_zoom_scene_hides(_q->s, _o) || (_o->kind == FUDE_ZOOM_KIND_FRAME && !fude_zoom_nav_frame_shows(_q->s, _o->child, 0u))) {
         return true;
     }
     // What a tap shows: it and its neighbours (its leaf), unless they spread far wider.
     const f64     _size = fmax(_box.max_x - _box.min_x, _box.max_y - _box.min_y);
+    if(!(_size > 0.0)) {
+        return true;   // (nothing there to show)
+    }
     const f64     _wide = fmax(_leaf.max_x - _leaf.min_x, _leaf.max_y - _leaf.min_y);
     fude_zoom_box _show = _wide <= _size * 16.0 ? _leaf : _box;
     const fude_zoom_v2 _c = fude_zoom_sim_apply(_q->to_screen, (fude_zoom_v2){ (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 });

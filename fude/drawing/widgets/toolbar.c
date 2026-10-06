@@ -265,15 +265,24 @@ RDE_INTERNAL void fude_toolbar_place_tool_panel(fude_toolbar* _toolbar) {
     }
     const fude_extension* _ext = fude_app_ext(_toolbar->app);
     const u32  _count = _ext->tools[_t].choice_count < FUDE_EXTENSION_CHOICES ? _ext->tools[_t].choice_count : FUDE_EXTENSION_CHOICES;
-    const f32  _n     = (f32)_count;
+    // As many across as the screen has room for (beside a standing bar, less its width); the rest in rows under them.
+    const rde_vec_2F _screen = fude_kit_screen_size(_toolbar->app->window);
+    const f32  _room  = _screen.x - 2.0f * FUDE_KIT_SCREEN_EDGE - (_toolbar->vertical ? _toolbar->panel_size.x + FUDE_KIT_SCREEN_EDGE : 0.0f);
+    u32        _per   = (u32)fmaxf(1.0f, floorf((_room - 2.0f * FUDE_TOOLBAR_PADDING + FUDE_TOOLBAR_SPACING) / (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING)));
+    _per = _per < _count ? _per : (_count > 0 ? _count : 1u);
+    const u32  _rows  = (_count + _per - 1u) / _per;
+    _per = (_count + _rows - 1u) / _rows;   // (the rows evened out)
+    const f32  _n     = (f32)_per;
     const rde_vec_2F _size = { _n * FUDE_TOOLBAR_CHOICE_W + (_n - 1.0f) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING,
-                               FUDE_TOOLBAR_CHOICE_H + 2.0f * FUDE_TOOLBAR_PADDING };
+                               (f32)_rows * FUDE_TOOLBAR_CHOICE_H + (f32)(_rows - 1u) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING };
     _toolbar->tool_panel_center = fude_toolbar_beside(_toolbar, fude_toolbar_center_of(_toolbar->tools[_t]), _size);
     _toolbar->tool_panel_size   = _size;
     fude_kit_place_at(rde_ui_image_as_node(_toolbar->tool_panels[_t]), _toolbar->tool_panel_center, _size);
     for(u32 _c = 0; _c < _count; _c++) {
+        const u32 _r = _c / _per, _i = _c % _per;
         fude_kit_place(rde_ui_button_as_node(_toolbar->tool_choices[_t][_c]),
-                       (rde_vec_2F){ FUDE_TOOLBAR_PADDING + (f32)_c * (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING) + FUDE_TOOLBAR_CHOICE_W * 0.5f, _size.y * 0.5f },
+                       (rde_vec_2F){ FUDE_TOOLBAR_PADDING + (f32)_i * (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING) + FUDE_TOOLBAR_CHOICE_W * 0.5f,
+                                     _size.y - FUDE_TOOLBAR_PADDING - (f32)_r * (FUDE_TOOLBAR_CHOICE_H + FUDE_TOOLBAR_SPACING) - FUDE_TOOLBAR_CHOICE_H * 0.5f },
                        (rde_vec_2F){ FUDE_TOOLBAR_CHOICE_W, FUDE_TOOLBAR_CHOICE_H });
     }
 }
@@ -321,6 +330,8 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
         { _toolbar->tools[3] != NULL ? rde_ui_button_as_node(_toolbar->tools[3]) : NULL, _tool },
         { _toolbar->tools[4] != NULL ? rde_ui_button_as_node(_toolbar->tools[4]) : NULL, _tool },
         { _toolbar->tools[5] != NULL ? rde_ui_button_as_node(_toolbar->tools[5]) : NULL, _tool },
+        { _toolbar->tools[6] != NULL ? rde_ui_button_as_node(_toolbar->tools[6]) : NULL, _tool },
+        { _toolbar->tools[7] != NULL ? rde_ui_button_as_node(_toolbar->tools[7]) : NULL, _tool },
         { rde_ui_image_as_node(_toolbar->separators[4]), _sep },
         { rde_ui_button_as_node(_toolbar->rotate),       _tool },
         { rde_ui_button_as_node(_toolbar->reset_view),   _tool },
@@ -531,6 +542,17 @@ void fude_toolbar_set_tool_open(fude_toolbar* _toolbar, i32 _tool) {
 
 // Leaving the Lasso tool drops the selection: it would otherwise sit there with
 // no way to act on it.
+b8 fude_toolbar_close_panels(fude_toolbar* _toolbar) {
+    const b8 _open = _toolbar->palette_open || _toolbar->paper_open || _toolbar->tool_open >= 0;
+    if(_open) {
+        fude_toolbar_set_palette_open(_toolbar, false);
+        fude_toolbar_set_paper_open(_toolbar, false);
+        fude_toolbar_set_tool_open(_toolbar, -1);
+        fude_toolbar_refresh(_toolbar);
+    }
+    return _open;
+}
+
 void fude_toolbar_set_tool(fude_toolbar* _toolbar, FUDE_TOOL_ _tool) {
     _toolbar->tool_taps++;   // an app's own tool lets go (extension.h)
     if(_tool != FUDE_TOOL_LASSO) {
@@ -665,6 +687,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_toolbar_on_tool(rde_ui_node* _node, const
         fude_toolbar_set_tool_open(_toolbar, -1);
         fude_app_ext(_app)->tools[_ref->index].press(_app);
     }
+    fude_toolbar_refresh(_toolbar);   // shown as the press has left it (on, or off again), not as it was
     fude_ui_update(_app->ui);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }

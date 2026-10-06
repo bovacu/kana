@@ -41,10 +41,13 @@ NAMES = {'EN-US': 'English', 'ES-ES': 'Spanish', 'PT-BR': 'Portuguese (Brazil)',
 T = []          # [id, en, es, pt, ja, fr], in order
 OVERRIDDEN = set()
 FOURTH = None   # the app's own fourth language (fourth()): [tag, name, locale lines, {id: text}]
+NO_FOURTH = False   # an app that teaches no language (no_fourth()): the fourth not written
 
 P = lambda one, other: '{0,plural, one{%s} other{%s}}' % (one, other)
 
 def t(i, en, es, pt, ja, fr):
+    if any('\n' in s for s in (en, es, pt, ja, fr)):
+        print('t(): a line break in', i, '(the .rdel format is a line a string)'); sys.exit(1)
     T.append([i, en, es, pt, ja, fr])
 
 # A string of a layer's, in the app's own words (its place in the order kept).
@@ -105,6 +108,10 @@ def check():
 
 # The app's name in, checked, then the app's two files written: _app_dir its
 # folder (apps/<app>), _tool its tool's path (the files' notes).
+def no_fourth():
+    global NO_FOURTH
+    NO_FOURTH = True
+
 def write(_app_dir, _tool):
     _name = app_name(_app_dir)
     if FOURTH is not None:
@@ -140,9 +147,11 @@ def write(_app_dir, _tool):
         f.write('// (# the number); an ASCII apostrophe quotes the next character, so write the\n')
         f.write('// typographic one (U+2019).\n')
         for k, lang in enumerate(L):
+            if NO_FOURTH and k == 3:
+                continue   # (its strings are kept in the tables, not shipped)
             f.write('\n// %s\n%s:\n' % (NAMES[lang], lang))
             for loc in LOCALES[lang]:
                 f.write(loc + '\n')
             for row in T:
                 f.write('%s=%s\n' % (row[0], row[1 + k]))
-    print(len(T), 'strings,', len(L), 'languages')
+    print(len(T), 'strings,', len(L) - (1 if NO_FOURTH else 0), 'languages')

@@ -207,6 +207,13 @@ int main(void) {
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
         CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.eraser_radius == 24.5f);
         s.eraser_radius = 0.0f;
+        s.units = 3; s.true_mm_per_point = 0.16f; s.print_x = 0.985f; s.print_y = 1.012f; s.kerf_mm = 2.5f;   // Sketching's measurements, printer and saw: saved too
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.units == 3 && t.print_x == 0.985f && t.print_y == 1.012f && t.kerf_mm == 2.5f);
+        s.print_x = 3.0f;                                                                             // a printer factor out of reach: never checked
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK && t.print_x == 0.0f && t.print_y == 0.0f && t.true_mm_per_point == 0.16f);
+        s.units = 0; s.true_mm_per_point = 0.0f; s.print_x = 0.0f; s.print_y = 0.0f; s.kerf_mm = 0.0f;
 
         u8 buf[64]; u32 n = 0;
         P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');
@@ -227,6 +234,8 @@ int main(void) {
         CHECK(fude_load_settings(set, &g) == FUDE_LOAD_OK && g.smoothing == 3);
         fude_settings er = s; er.eraser_radius = 7.0f;                                                // from before the eraser's size: as it was
         CHECK(fude_load_settings(set, &er) == FUDE_LOAD_OK && er.eraser_radius == 7.0f);
+        fude_settings pr = s; pr.print_x = 1.01f; pr.print_y = 0.99f;                                 // from before the printer's check: as it was
+        CHECK(fude_load_settings(set, &pr) == FUDE_LOAD_OK && pr.print_x == 1.01f && pr.print_y == 0.99f);
 
         // An out-of-range theme (a newer build's) keeps the current one.
         n = 0;

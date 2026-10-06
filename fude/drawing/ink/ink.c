@@ -39,6 +39,7 @@ void fude_ink_init(fude_ink* _ink) {
     _ink->constant_radius = FUDE_INK_RADIUS_DEFAULT;
     _ink->marker_color    = (rde_color){ 255, 214, 0, FUDE_INK_MARKER_ALPHA };   // the classic yellow
     _ink->marker_radius   = FUDE_INK_MARKER_RADIUS;
+    _ink->page_scale      = 1.0f;
     _ink->eraser_radius   = FUDE_INK_ERASER_RADIUS;
     _ink->zoom            = 1.0f;
 
@@ -414,10 +415,11 @@ RDE_INTERNAL f32 fude_ink_to_canvas_units(const fude_ink* _ink, f32 _screen_unit
     return _ink->zoom > 0.0f ? _screen_units / _ink->zoom : _screen_units;
 }
 
-// A brush WIDTH → the canvas units it is stored in. PAGE widths already are;
-// SCREEN widths are held constant on screen, so they shrink by the zoom.
+// A brush WIDTH → the canvas units it is stored in. PAGE widths already are
+// (times page_scale, where the page's units are not the canvas's); SCREEN
+// widths are held constant on screen, so they shrink by the zoom.
 RDE_INTERNAL f32 fude_ink_width_to_canvas(const fude_ink* _ink, f32 _radius) {
-    return _ink->brush_scale == FUDE_INK_BRUSH_SCALE_SCREEN ? fude_ink_to_canvas_units(_ink, _radius) : _radius;
+    return _ink->brush_scale == FUDE_INK_BRUSH_SCALE_SCREEN ? fude_ink_to_canvas_units(_ink, _radius) : _radius * _ink->page_scale;
 }
 
 void fude_ink_clear(fude_ink* _ink) {

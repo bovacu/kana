@@ -137,6 +137,11 @@ RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
         return;
     }
     const fude_screen_slot* _top = fude_app_top(_app);
+    const fude_page_kind*   _pk  = fude_app_ext(_app)->page_kind;
+    if(_top == NULL && _pk != NULL && _pk->back != NULL && _pk->back(_app)) {
+        fude_ui_update(_ui);
+        return;
+    }
     if(_top != NULL) {
         if(!fude_ui_press_back(_ui) && _top->vt->close != NULL) {
             _top->vt->close(_top->self);
@@ -170,12 +175,13 @@ RDE_INTERNAL void fude_app_back(fude_app* _app, b8 _system) {
 b8 fude_app_update(fude_app* _app, f32 _dt) {
     fude_app_apply_ui_size(_app);   // before anything reads the window's size
 #if defined(RDE_PLATFORM_MOBILE)
-    // Portrait only, either way up, on every phone and tablet. Asked once the
+    // Portrait only, either way up, on every phone and tablet — or, an app that
+    // turns (fude_app_info.turns: Sketching), any way round. Asked once the
     // window has its size: SDL's own request at its creation can come too early
     // and do nothing (Android then rotates freely).
     static b8 _portrait = false;
     if(!_portrait) {
-        _portrait = rde_window_set_orientation_lock(RDE_ORIENTATION_LOCK_PORTRAIT_ANY);
+        _portrait = rde_window_set_orientation_lock(_app->info != NULL && _app->info->turns ? RDE_ORIENTATION_LOCK_NONE : RDE_ORIENTATION_LOCK_PORTRAIT_ANY);
     }
 #endif
 

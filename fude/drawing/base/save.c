@@ -374,6 +374,11 @@ b8 fude_save_settings(const c8* _path, const fude_settings* _settings) {
     fude_put_u8(&_b, _settings->ui_size);
     fude_put_u8(&_b, _settings->smoothing);
     fude_put_f32(&_b, _settings->eraser_radius);
+    fude_put_u8(&_b, _settings->units);
+    fude_put_f32(&_b, _settings->true_mm_per_point);
+    fude_put_f32(&_b, _settings->print_x);
+    fude_put_f32(&_b, _settings->print_y);
+    fude_put_f32(&_b, _settings->kerf_mm);
     fude_chunk_end(&_b, _chunk);
 
     return fude_bytes_write_and_free(&_b, _path, NULL);
@@ -465,6 +470,19 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         if(_c.ok && _smoothing < 16u) { _s.smoothing = _smoothing; }
         const f32 _eraser = fude_get_f32(&_c);   // from before it: never chosen (0)
         if(_c.ok && fude_finite(_eraser) && _eraser > 0.0f) { _s.eraser_radius = _eraser; }
+        const u8 _units = fude_get_u8(&_c);   // from before them: millimetres
+        if(_c.ok && _units < 8u) { _s.units = _units; }
+        const f32 _true = fude_get_f32(&_c);   // ...not calibrated
+        if(_c.ok && fude_finite(_true) && _true > 0.0f && _true < 10.0f) { _s.true_mm_per_point = _true; }
+        const f32 _print_x = fude_get_f32(&_c), _print_y = fude_get_f32(&_c);   // ...the printer never checked
+        if(_c.ok && fude_finite(_print_x) && fude_finite(_print_y) && _print_x > 0.5f && _print_x < 2.0f && _print_y > 0.5f && _print_y < 2.0f) {
+            _s.print_x = _print_x;
+            _s.print_y = _print_y;
+        }
+        const f32 _kerf = fude_get_f32(&_c);   // ...the saw's never set
+        if(_c.ok && fude_finite(_kerf) && _kerf >= 0.0f && _kerf <= 50.0f) {
+            _s.kerf_mm = _kerf;
+        }
     }
 
     fude_file_free(_data);
@@ -486,5 +504,7 @@ b8 fude_settings_equal(const fude_settings* _a, const fude_settings* _b) {
            _a->theme == _b->theme && _a->mlkit == _b->mlkit && _a->toolbar_minimized == _b->toolbar_minimized &&
            _a->paper_size == _b->paper_size && _a->language == _b->language && _a->finger_writes == _b->finger_writes &&
            _a->pen_ever == _b->pen_ever && _a->cards_read == _b->cards_read && _a->ui_size == _b->ui_size &&
-           _a->smoothing == _b->smoothing && fude_same_f32(_a->eraser_radius, _b->eraser_radius);
+           _a->smoothing == _b->smoothing && fude_same_f32(_a->eraser_radius, _b->eraser_radius) &&
+           _a->units == _b->units && fude_same_f32(_a->true_mm_per_point, _b->true_mm_per_point) &&
+           fude_same_f32(_a->print_x, _b->print_x) && fude_same_f32(_a->print_y, _b->print_y) && fude_same_f32(_a->kerf_mm, _b->kerf_mm);
 }

@@ -48,6 +48,13 @@ WHAT=$1; shift || true
 MODE=--debug
 if [ "$1" = "--release" ]; then MODE=--release; shift; fi
 ANDROID=(--android --abi_armv8a --android_ndk=$NDK --android_sdk=$SDK/ --android_api_level=$API)
+# The app's version: apps/<app>/src/version.h's <APP>_VERSION, given to the builder
+# (versionName, versionCode, the assets' config.rdef) unless a --version is passed.
+VERSION=()
+if [ -f $K/apps/$WHAT/src/version.h ] && [[ " $* " != *" --version="* ]]; then
+    V=$(sed -n 's/^#define [A-Z_]*_VERSION "\([0-9.]*\)".*/\1/p' $K/apps/$WHAT/src/version.h | head -1)
+    if [ -n "$V" ]; then VERSION=(--version=$V); fi
+fi
 
 if [ "$WHAT" = "engine" ]; then
     cd ~/RDE && ./builder --engine $MODE $ANDROID
@@ -67,9 +74,10 @@ if [ "$WHAT" = "sketching" ]; then
         --android_java=$K/fude/android/java \
         --android_deps_file=$K/apps/sketching/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
         --android_internet --android_network_state --android_wake_lock --android_camera \
-        "$@" \
+        $VERSION "$@" \
         apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) \
         fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c \
+        fude/study/services/mlkit.c fude/study/services/mlkit_android.c \
         -I$K/fude -I$K/apps/sketching/src -Wall -Wextra \
         --output_path=$OUT/
     APK=$OUT/Sketching.apk
@@ -128,7 +136,7 @@ cd $K
     --android_deps_file=$K/apps/$WHAT/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
     --android_internet --android_network_state --android_wake_lock --android_camera \
     --android_query_intent=android.intent.action.TTS_SERVICE \
-    "$@" \
+    $VERSION "$@" \
     apps/$WHAT/$WHAT.c apps/$WHAT/src/${WHAT}_app.c $COMMON $LANG_SRC $ANDROID_SRC \
     -I$K/fude -I$K/apps/$WHAT/src -Wall -Wextra \
     --output_path=$OUT/

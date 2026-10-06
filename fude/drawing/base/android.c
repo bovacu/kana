@@ -13,7 +13,7 @@
 
 static const c8* const FUDE_JAVA_NAMES[FUDE_JAVA_COUNT] = {
     "com/rde/fude/FudeAndroid", "com/rde/fude/FudeSpeech", "com/rde/fude/FudeInk", "com/rde/fude/FudeTranslate",
-    "com/rde/fude/FudeText", "com/rde/fude/FudePdf", "com/rde/fude/FudeImport",
+    "com/rde/fude/FudeText", "com/rde/fude/FudePdf", "com/rde/fude/FudeImport", "com/rde/fude/FudeVideo",
 };
 static jclass fude_android_classes[FUDE_JAVA_COUNT];
 static b8     fude_android_ready = false;

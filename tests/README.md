@@ -31,7 +31,7 @@ its first argument). It prints `ALL PASSED` last, or how many checks failed and 
 | `check` | Check: a selection read character by character, "I meant…" |
 | `textink` | text written in the characters' own strokes, then read back |
 | `lasso` | the lasso: select, drag, copy, paste, delete, undo |
-| `save` | the page and the settings files: round trip, older files, damaged ones |
+| `save` | the page and the settings files: round trip, older files, damaged ones (Sketching's units, true size, printer and saw kerf included) |
 | `notes` | the canvases and folders: add, move, remove, saved and read back |
 | `backup` | Your data: export, inspect, restore |
 | `history` | Practice's history: sessions saved, read back, summed up |
@@ -47,7 +47,11 @@ its first argument). It prints `ALL PASSED` last, or how many checks failed and 
 | `scan` | Text from a photo: lines kept, rotation, translations, word taps |
 | `sheet` | practice sheets as PDF: every page's structure checked |
 | `text` | the strings: every language has every id; templates render |
-| `zoom` | the deep-zoom canvas: the codec exact, the index against brute force, 20 levels deep and back, the erasers, undo, moves, shapes and hold to snap, pictures, smoothing (drawn live the same as smoothed whole), flights (exact, in range, no frames made), the empty screen's marks, home, fills (triangulation areas, clipping, the file, the eraser cutting them, a figure 8's lobe), the SVG export, the file reopened and cut at every byte |
+| `zoom` | the deep-zoom canvas: the codec exact, the index against brute force, 20 levels deep and back, the erasers, undo, moves, shapes and hold to snap, pictures, smoothing (drawn live the same as smoothed whole), flights (exact, in range, no frames made), the empty screen's marks, home, fills (triangulation areas, clipping, the file, the eraser cutting them, a figure 8's lobe), the close-up eraser (exact cuts, an "o" keeps its middle), instruments (docking, drawing along an edge, several of a kind, each compass its own radius, put away by its ×, a dozen at most, a ruler made longer by its tab, the circle and ellipse templates, the French curve, chained edges turning at their crossings), layers' ranks (what is drawn over what), texts, layers (hidden, locked, through the file) and moving things onto one, connectors following moves, driving (what meets a dimension's end follows), boards and the cut list, cutting boards (splits, slots, notches, holes, cuts snapped onto edges, hand-drawn loops, the eraser), snapping onto crossings, fitting parts onto a board (kerf, grain, what does not fit), paths (smooth through their nodes, corners) and Sculpt, the paint bucket (gaps, leaks, islands), offsets, the SVG, PDF and DXF exports, A4 templates with a printer's correction, the file reopened and cut at every byte |
+| `units` | lengths and angles typed (fractions, feet-inches, arithmetic, variables) and written back, "≈" when rounded |
+| `pdf` | the vector PDF writer: its structure, text, pictures (JPEG passed through, PNG with alpha) |
+| `dxf` | the DXF R12 writer for cutting: layers, units, entities, the pre-flight |
+| `graph` | Mermaid flowcharts read (node shapes, edges, subgraphs, errors) and laid out (stable layers) |
 
 ## `support/`
 

@@ -1,4 +1,5 @@
 [core]
+version=0.1.4
 flush_logs_immediately=true
 
 [window]

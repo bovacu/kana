@@ -201,6 +201,7 @@ RDE_STRUCT {
     FUDE_INK_BRUSH_SCALE_ brush_scale;
     rde_color             color;             // brush colour for NEW strokes (FUDE_THEME_INK by default)
     f32                   constant_radius;   // for FUDE_INK_WIDTH_MODE_CONSTANT; units per brush_scale
+    f32                   page_scale;        // PAGE widths times this into the canvas units points are stored in (1: the same units)
     // The marker (the toolbar's): new strokes are its while marking — its colour
     // (see-through: its alpha is kept), its half-width in canvas units (it marks
     // the page, so it zooms with it), pressure and speed not coming into it.

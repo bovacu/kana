@@ -25,8 +25,8 @@ struct fude_ui;
 struct fude_doc_line;   // doc.h
 
 // A tool of the app's on the toolbar, after Paper (Kana's camera).
-#define FUDE_EXTENSION_TOOLS   6u
-#define FUDE_EXTENSION_CHOICES 8u
+#define FUDE_EXTENSION_TOOLS   8u
+#define FUDE_EXTENSION_CHOICES 16u
 
 // One of a tool's choices, in its panel: its name, its icon, and what choosing
 // it does — true: the panel stays open (a toggle among its choices).
@@ -132,6 +132,9 @@ typedef struct fude_page_kind {
     // the page — Sketching's pictures — instead of a canvas of its own. _paths:
     // the files, in order (the pickers' copies are deleted after).
     void (*imported)(struct fude_app* _app, u8 _kind, const c8* const* _paths, u32 _count);
+    // Back (Android's, the desktop's Escape) for a mode of the page's own — Sketching's presenting, its map —
+    // before a selection is let go: true, it closed one (optional).
+    b8   (*back)(struct fude_app* _app);
 } fude_page_kind;
 
 typedef enum {

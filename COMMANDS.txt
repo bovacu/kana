@@ -469,10 +469,15 @@ of the core and every .c of the canvas:
     --assets_path=/Users/borjavazquez/kana/apps/sketching/assets/ \
     --output_path=/Users/borjavazquez/kana/build/sketching/ \
     --osx_framework=CoreFoundation --osx_framework=CoreGraphics --osx_framework=ImageIO --osx_framework=Foundation --osx_framework=PDFKit --osx_framework=CoreText \
-    apps/sketching/sketching.c $(ls fude/drawing/*/*.c) $(ls fude/zoom/*.c) fude/drawing/doc/pdf_kit.m \
+    --osx_framework=AVFoundation --osx_framework=CoreMedia --osx_framework=CoreVideo \
+    apps/sketching/sketching.c $(ls fude/drawing/*/*.c) $(ls fude/zoom/*.c) fude/drawing/doc/pdf_kit.m fude/zoom/video_apple.m fude/study/services/mlkit.c \
     -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/sketching/src -Wall -Wextra
+  (fude/zoom/video_apple.m and the three frameworks after CoreText: the zoom video's encoder, AVFoundation's.)
 
   ./build/sketching/osx-silicon/debug/project/exe/runnable
+
+(fude/study/services/mlkit.c: the lasso's To text reads handwriting with ML Kit;
+on the Mac it is its stand-in, which says there is none, so the button is not shown.)
 
 On a computer: the left button draws, the right drags the page, the wheel zooms
 where the mouse is; Z undo, Y redo, C clear, R back to the start (flown there),
@@ -505,6 +510,26 @@ a zoom): the gate's kill test runs it, kills it with kill -9 at a random moment,
 opens the canvas again, and checks it is never damaged and never holds fewer
 strokes than the last time it was opened.
 
+Looks added the night of 4–5 October (docs/infinite_canvas_design.md §15):
+--draw-at=X1,Y1,X2,Y2@N / --erase-at=... a pen line drawn (or rubbed out) across
+the screen at frame N; --clear-at=N Clear pressed at frame N; --instruments=01234
+instruments brought out at frame 8 (0 ruler, 1 45° set square, 2 30/60° set
+square, 3 protractor, 4 compass); --instrument-at=K,X,Y,DEG where instrument K lies (screen,
+degrees; repeatable); --finger-drag=X1,Y1,X2,Y2,X3,Y3@N one finger down at the
+first point, through the second to the third, from frame N; --measure=1|2 the
+pen in --draw-at measures (1 tape, 2 dimension); --numpad=TYPED@N the numpad open
+with that typed at frame N; --text=X,Y,STICKY,WORDS@N a text (1: a sticky note) at
+frame N (up to four); --find=WORDS@N Find run at frame N; --calibrate the true-size
+card open; --mermaid=FILE a Mermaid flowchart brought in as Diagram from text;
+--demo-layers=2|3|4 (2: everything moved to the new layer by To layer; 3: then the layer's name on the card; 4: renamed "Cortes CNC"); --demo-drive[=2] a line, its dimension, a square on its end and a line up from it (2: the dimension then typed half as long again: what met its end follows); --demo-sculpt[=2|3] a line drawn, then a bump over its middle with Sculpt on (2: off, a stroke of its own; 3: Nudge, the pen pushing its middle up); --to-curve=N everything lassoed and To curve at frame N (with --demo-smooth: the waves made paths); --nodes=STEP (with --demo-curve) the curve lassoed, its nodes shown (1: its second node dragged; 2: a node added on its first stretch; 3: a node held, the line as it would be); --home-view the camera at home, x1, before anything else (frame 2: zoom looks then start from there, not from the saved view); --tool-panel=N app tool N's choices open (5: Instruments); --saw the Instruments' Saw on (with --draw-at or --loop-at: cuts); --loop-at=X,Y,R@N a round loop drawn with the pen at frame N (up to four); --instruments=4 the compass; --holes=MM a row of 32 mm holes that long put down; --demo-board[=1|2] Insert's Board asked (1: a side and a top put down, the side lassoed; 2: both lassoed); --fit=LIST@N the lassoed board's parts fitted at frame N ("Side 600 x 300 x2; Top 800 x 300"; "@N" alone: Fit parts pressed, its card up); --anchor=K,ACROSS,UP@N instrument K snapped where it lies at frame N (as if let go there), then moved that many mm by the offset pad; --tap-at=X,Y@N a tap with the Lasso there at frame N (a whole thing selected); --bar-tool=N the bar's tool N at frame 8 (0 pen, 1 eraser, 2 lasso, 3 marker); --units=N the page's units at frame 4 (0 mm, 1 cm, 2 m, 3 in, 4 ft); --demo-lasso=3 the left half looped and turned 37°, still held (its angle shown); --instruments=0,0,4,4 two rulers and two compasses (a kind given twice: two of it; 5: a circle template, 6: an ellipse template, 7: a French curve); --kerf=MM the saw's kerf at frame 4; --parts=ROWS@N[!] Fit parts' card filled at frame N ("600 x 300; 200 x 100"; "!": then Cut; open it first with --fit=@M); --grip=DX,DY@N the offset pad's grip dragged; --grow=K,BY@N[!] instrument K's size tab dragged BY points ("!": still held, its length shown); --handwrite=N every text written out by hand at frame N; --path-at=X,Y;X,Y;...@N the pen drawn through those points at frame N (with --bar-tool=0 and instruments: chained along their edges); --pan-later=X,Y@N the camera moved X, Y screen points at frame N (after --home-view: an empty screen's arrows and their previews); --demo-layers=5 the new layer moved under the first; --export=csv:PATH the cut list written there; --export=letter:PATH the template on Letter paper; --export=check:PATH the printer's check page written there (and the numpad asking for its lines); --arrange=K the left half lassoed and arranged (0 left, 1 centre, 2 right, 3 top,
+4 middle, 5 bottom, 6 across, 7 down); --demo-bucket strokes that close an area,
+the bucket tapped in it; --demo-layers a second layer, hidden then shown; --offset=MM
+the lasso's Offset on what is drawn; --demo-curve a curve tapped point by point (a PATH);
+--demo-loop a lasso through the pen's own path; --export=pdf:PATH, dxf:PATH or
+print:PATH (the A4 template, a PDF of its pages) as png:/svg:.
+
+  ./build/sketching/osx-silicon/debug/project/exe/runnable --size=1024x768 --text=200,-150,1,Mesa de roble 1200 x 800@12 --zoom-later=0.002@16 --find=ROBLE@30 --shot-at=150 --shot=/tmp/find.png
+
   ./build/sketching/osx-silicon/debug/project/exe/runnable --size=1024x768 --demo-deep=4 --zoom=0.03 --shot=/tmp/deep.png
   ./build/sketching/osx-silicon/debug/project/exe/runnable --demo-erase --pan=200,-194.0000001 --zoom=1000000000 --shot=/tmp/edge.png
   ./build/sketching/osx-silicon/debug/project/exe/runnable --size=1024x768 --demo-picture=$HOME/photo.jpg --zoom-later=100 --shot-at=20 --shot=/tmp/pic.png
@@ -529,8 +554,17 @@ connected, as for Hanzi and Hangul). Then, the engine built for iOS first:
     --ios_assets=/Users/borjavazquez/kana/apps/sketching/platform/ios/Assets.xcassets \
     --ios_launch_storyboard=/Users/borjavazquez/kana/apps/sketching/platform/ios/LaunchScreen.storyboard \
     --ios_plist=/Users/borjavazquez/kana/apps/sketching/platform/ios/Info.plist \
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitDigitalInkRecognition.framework \
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitCommon.framework \
+    --ios_framework=/Users/borjavazquez/kana/third_party/mlkit/frameworks/MLKitMDD.framework \
+    --ios_bundle=/Users/borjavazquez/kana/third_party/mlkit/bundles \
     apps/sketching/sketching.c $(ls fude/drawing/*/*.c) $(ls fude/zoom/*.c) fude/drawing/doc/import_ios.m fude/drawing/doc/pdf_kit.m \
-    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/sketching/src -Wall -Wextra
+    fude/study/services/mlkit.c fude/study/services/mlkit_ios.m \
+    -I/Users/borjavazquez/kana/fude -I/Users/borjavazquez/kana/apps/sketching/src -I/Users/borjavazquez/kana/third_party/mlkit/include \
+    -L/Users/borjavazquez/kana/third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -Wall -Wextra
+
+(Not built yet for iOS: the ML Kit part — To text — follows Kana's line, untried.
+tools/android/build.sh adds mlkit.c and mlkit_android.c for Sketching itself.)
 
 Its icon (platform/ios/AppIcon.svg, a pen stroke spiralling inward) is a
 placeholder until the app has its real name.

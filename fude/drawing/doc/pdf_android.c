@@ -440,6 +440,76 @@ void fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const
     (*_env)->DeleteLocalRef(_env, _a);
 }
 
+void fude_pdf_write_fill(fude_pdf_writer* _w, const rde_vec_2F* _t, u32 _count, rde_color _color) {
+    static jmethodID _fill = NULL;
+    JNIEnv*          _env  = fude_android_env();
+    if(_w == NULL || _count == 0u || _t == NULL || _env == NULL || fude_pdf_method(&_fill, "writeFill", "(I[FI)V") == NULL) {
+        return;
+    }
+    // x, y each corner, three a triangle, each the same way round; the colour RGBA, a byte each from the top.
+    jfloatArray _a = (*_env)->NewFloatArray(_env, (jsize)(6u * _count));
+    jfloat*     _f = _a != NULL ? (*_env)->GetFloatArrayElements(_env, _a, NULL) : NULL;
+    if(_f == NULL) {
+        fude_android_threw(_env, "NewFloatArray");
+        if(_a != NULL) {
+            (*_env)->DeleteLocalRef(_env, _a);
+        }
+        return;
+    }
+    for(u32 _i = 0; _i < _count; _i++) {
+        rde_vec_2F _p = _t[_i * 3u], _q = _t[_i * 3u + 1u], _r = _t[_i * 3u + 2u];
+        if((_q.x - _p.x) * (_r.y - _p.y) - (_r.x - _p.x) * (_q.y - _p.y) < 0.0f) {
+            const rde_vec_2F _s = _q;
+            _q = _r;
+            _r = _s;
+        }
+        jfloat* _o = &_f[6u * _i];
+        _o[0] = _p.x; _o[1] = _p.y; _o[2] = _q.x; _o[3] = _q.y; _o[4] = _r.x; _o[5] = _r.y;
+    }
+    (*_env)->ReleaseFloatArrayElements(_env, _a, _f, 0);
+    const u32 _rgba = ((u32)_color.r << 24) | ((u32)_color.g << 16) | ((u32)_color.b << 8) | (u32)_color.a;
+    (*_env)->CallStaticVoidMethod(_env, fude_android_class(FUDE_JAVA_PDF), _fill, _w->handle, _a, (jint)_rgba);
+    fude_android_threw(_env, "FudePdf.writeFill");
+    (*_env)->DeleteLocalRef(_env, _a);
+}
+
+void fude_pdf_write_image(fude_pdf_writer* _w, const u8* _bytes, u32 _size, const rde_vec_2F _corners[3]) {
+    static jmethodID _image = NULL;
+    JNIEnv*          _env   = fude_android_env();
+    if(_w == NULL || _bytes == NULL || _size == 0u || _env == NULL || fude_pdf_method(&_image, "writeImage", "(I[B[F)V") == NULL) {
+        return;
+    }
+    jbyteArray  _b = (*_env)->NewByteArray(_env, (jsize)_size);
+    jfloatArray _c = (*_env)->NewFloatArray(_env, 6);
+    if(_b == NULL || _c == NULL) {
+        fude_android_threw(_env, "NewByteArray");
+        if(_b != NULL) { (*_env)->DeleteLocalRef(_env, _b); }
+        if(_c != NULL) { (*_env)->DeleteLocalRef(_env, _c); }
+        return;
+    }
+    (*_env)->SetByteArrayRegion(_env, _b, 0, (jsize)_size, (const jbyte*)_bytes);
+    const jfloat _xy[6] = { _corners[0].x, _corners[0].y, _corners[1].x, _corners[1].y, _corners[2].x, _corners[2].y };
+    (*_env)->SetFloatArrayRegion(_env, _c, 0, 6, _xy);
+    (*_env)->CallStaticVoidMethod(_env, fude_android_class(FUDE_JAVA_PDF), _image, _w->handle, _b, _c);
+    fude_android_threw(_env, "FudePdf.writeImage");
+    (*_env)->DeleteLocalRef(_env, _b);
+    (*_env)->DeleteLocalRef(_env, _c);
+}
+
+void fude_pdf_write_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _at, f32 _size, rde_color _color) {
+    static jmethodID _seen = NULL;
+    JNIEnv*          _env  = fude_android_env();
+    if(_w == NULL || _text == NULL || _text[0] == 0 || !(_size > 0.0f) || _env == NULL ||
+       fude_pdf_method(&_seen, "writeText", "(I[BFFFI)V") == NULL) {
+        return;
+    }
+    jbyteArray _t = fude_android_bytes(_env, _text);
+    const u32 _rgba = ((u32)_color.r << 24) | ((u32)_color.g << 16) | ((u32)_color.b << 8) | (u32)_color.a;
+    (*_env)->CallStaticVoidMethod(_env, fude_android_class(FUDE_JAVA_PDF), _seen, _w->handle, _t, _at.x, _at.y, _size, (jint)_rgba);
+    fude_android_threw(_env, "FudePdf.writeText");
+    (*_env)->DeleteLocalRef(_env, _t);
+}
+
 void fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size) {
     static jmethodID _hidden = NULL;
     JNIEnv*          _env    = fude_android_env();

@@ -48,6 +48,13 @@ extern fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES];
 // fude_text_set_language. Taken only when the strings file has that language;
 // until then the fourth stays Japanese.
 void          fude_text_set_taught_language(RDE_LANGUAGE_ _language, const c8* _name, const c8* _flag);
+// An app that teaches no language (Sketching): the fourth not offered at all —
+// not in Settings, not taken from the device, a saved choice of it let go. At
+// start, before the first fude_text_set_language.
+void          fude_text_drop_taught_language(void);
+// The list's _index-th, offered? How many are.
+b8            fude_text_language_shown(u32 _index);
+u32           fude_text_language_count(void);
 // Is _language one of the list's (a saved choice may name one the app no longer offers)?
 b8            fude_text_language_offered(RDE_LANGUAGE_ _language);
 

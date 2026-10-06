@@ -275,6 +275,7 @@ void fude_page_event(fude_page_input* _page, rde_event* _event) {
                 _page->pen_on_ui = true;
                 break;
             }
+            fude_toolbar_close_panels(&_ui->bar);   // a press on the page closes the bar's panels
             fude_page_write_down(_page, _screen, true, _pen->eraser);
         } break;
 
@@ -329,6 +330,7 @@ void fude_page_event(fude_page_input* _page, rde_event* _event) {
             if(fude_ui_hit(_ui, _pos)) {
                 break;
             }
+            fude_toolbar_close_panels(&_ui->bar);
             if(_app->finger_writes) {
                 fude_page_finger_down(_page, _touch->finger_id, _pos);   // one finger writes; two move the page
                 break;
@@ -382,6 +384,7 @@ void fude_page_event(fude_page_input* _page, rde_event* _event) {
             if(_event->handled || fude_ui_hit(_ui, _screen)) {
                 break;
             }
+            fude_toolbar_close_panels(&_ui->bar);
             // Right-click stands in for the long press.
             if(_event->data.mouse_event_data.button == RDE_MOUSE_BUTTON_RIGHT) {
                 fude_pagemenu_open_context(&_ui->page, _screen, fude_canvas_from_screen(_app->canvas, _screen));

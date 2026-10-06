@@ -632,6 +632,19 @@ u32 fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, 
     return fude_draw_text_wrap_do(_font, _font_px, _text, _x, _y, _px, _width, _line, _color, true);
 }
 
+u32 fude_draw_text_wrap_spans(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, u32* _from, u32* _to, u32 _max) {
+    if(_text == NULL || _text[0] == 0) {
+        return 0;
+    }
+    const fude_draw_wrapped* _w = fude_draw_wrap_layout(_font, _font_px, _text, _px, _width);
+    const u32 _n = _w->lines < _max ? _w->lines : _max;
+    for(u32 _i = 0; _i < _n; _i++) {
+        _from[_i] = _w->from[_i];
+        _to[_i]   = _w->to[_i];
+    }
+    return _n;
+}
+
 u32 fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) {
     return fude_draw_text_wrap_do(_font, _font_px, _text, 0.0f, 0.0f, _px, _width, 0.0f, (rde_color){ 0, 0, 0, 0 }, false);
 }

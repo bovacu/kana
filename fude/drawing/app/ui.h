@@ -58,6 +58,7 @@ typedef struct fude_ui {
     rde_ui_text_editor* fields[FUDE_APP_SCREENS];      // a screen's field, where it declares one
     fude_ui_field_ref   field_refs[FUDE_APP_SCREENS];
     fude_side           side;
+    b8                  chrome_hidden;   // the page alone on the screen (Sketching presenting): the bar, the menus, the menu button away
 
     u32                 _text_revision;                // the language the widgets were built in (fude_text_revision)
     rde_vec_4I          _insets_seen;                  // the safe area the bar is laid out for

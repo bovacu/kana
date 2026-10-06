@@ -73,10 +73,37 @@ typedef enum {
     FUDE_ZOOM_KIND_FILL   = 5,    // a filled region (fill.h): its outline's points (the codec, x
                                   // and y), a closed polygon, even-odd, in its colour — drawn just
                                   // under the stroke it fills
-    FUDE_ZOOM_KIND_MARK   = 6     // a bookmark (page.h's Places): the view at its translation, its
+    FUDE_ZOOM_KIND_MARK   = 6,    // a bookmark (page.h's Places): the view at its translation, its
                                   // payload f64 zoom, u32 number — never drawn; an object so that
                                   // making and letting one go are undo steps, kept as any
+    FUDE_ZOOM_KIND_TEXT   = 7,    // a text box or a sticky note: its payload f64 size (a line's
+                                  // letters, frame units), f64 width, f64 height (its box, from its
+                                  // translation at its top left, down and right, before its scale),
+                                  // u32 style (FUDE_ZOOM_TEXT_), then its words (UTF-8); in its
+                                  // colour, a note on its fill colour
+    FUDE_ZOOM_KIND_LAYER  = 8     // a layer's name and state (as a bookmark, never drawn; the latest
+                                  // alive one for an index wins): its payload u16 index, u8 flags
+                                  // (FUDE_ZOOM_LAYER_), then its name (UTF-8)
 } FUDE_ZOOM_KIND_;
+
+// Layers (research §2.11) are the document's, not a region's: every object's
+// `layer` is an index, and a hidden layer's things are drawn nowhere and
+// touched by no tool at any depth, a locked one's drawn but not touched. Up to
+// FUDE_ZOOM_LAYERS of them; layer 0 is there from the start, unnamed.
+#define FUDE_ZOOM_LAYERS 16u
+typedef enum {
+    FUDE_ZOOM_LAYER_HIDDEN = 1,
+    FUDE_ZOOM_LAYER_LOCKED = 2,
+    // Its place in the pile (what of it is drawn over what of the others, in a
+    // frame), in bits 2 to 6 as one more than its rank, the highest on top; 0:
+    // never moved — its index (a file from before has its layers in that order).
+    FUDE_ZOOM_LAYER_RANK   = 0x7C
+} FUDE_ZOOM_LAYER_;
+
+typedef enum {
+    FUDE_ZOOM_TEXT_PLAIN = 0,
+    FUDE_ZOOM_TEXT_STICKY
+} FUDE_ZOOM_TEXT_;
 
 #define FUDE_ZOOM_FLAG_ALIVE     0x01u
 #define FUDE_ZOOM_FLAG_CONTINUES 0x02u   // a piece of the stroke before it (same gesture)
@@ -107,7 +134,7 @@ typedef struct {
     u8            kind;       // FUDE_ZOOM_KIND_
     u8            flags;      // FUDE_ZOOM_FLAG_
     u8            channels;   // FUDE_ZOOM_CHANNEL_ (codec.h)
-    i8            q;          // quantum: 2^q frame units
+    i8            q;          // quantum: 2^q frame units (a shape: its line's style, shape.h's FUDE_ZOOM_LINE_)
     f64           rotation;   // radians, round its translation (a stroke's points stay as they were drawn)
     f64           scale;      // times its points' size, round its translation (1: as drawn)
 } fude_zoom_object;
@@ -204,11 +231,48 @@ typedef struct {
     rde_arr TYPE(fude_zoom_place)  places;     // the MOVED actions' befores and afters, in pairs
     u64                            history_bytes;
     u64                            history_budget;
+    u64                            history_pushes;    // steps ever pushed (this session's count: a new one ends any redo)
+    u64                            history_dropped;   // ...and dropped from the oldest end (a step's place in all of them: this + its index)
 
     fude_bytes                     journal;
     b8                             replaying;  // changes come from the file: not journaled
     u32                            revision;   // bumped by every change worth saving
+
+    // Layers: the one new things go on (pieces an eraser cuts keep their
+    // own's), and those hidden and locked — a bit each, from the LAYER objects
+    // (fude_zoom_scene_layers_refresh).
+    u16                            layer;
+    u32                            layers_hidden;
+    u32                            layers_locked;
+    u8                             layer_rank[FUDE_ZOOM_LAYERS];   // each layer's place in the pile (0 the bottom)
+    // The line style new shapes are drawn in (shape.h's FUDE_ZOOM_LINE_: kept in a shape's q, which a shape has no
+    // other use for), as the layer: set round making one (a shape made again: its own).
+    i8                             style;
 } fude_zoom_scene;
+
+#define FUDE_ZOOM_LAYER_RANK_SHIFT 2u
+// A layer's rank as its flags keep it (FUDE_ZOOM_LAYER_RANK; -1: never moved) and the flags with another.
+static inline i32 fude_zoom_layer_rank_of(u8 _flags) {
+    const u32 _r = ((u32)_flags & FUDE_ZOOM_LAYER_RANK) >> FUDE_ZOOM_LAYER_RANK_SHIFT;
+    return _r > 0u ? (i32)_r - 1 : -1;
+}
+static inline u8 fude_zoom_layer_with_rank(u8 _flags, u32 _rank) {
+    return (u8)((_flags & ~FUDE_ZOOM_LAYER_RANK) | (((_rank + 1u) << FUDE_ZOOM_LAYER_RANK_SHIFT) & FUDE_ZOOM_LAYER_RANK));
+}
+
+// Hidden: not drawn, not touched. Touchable: neither hidden nor locked. A
+// frame is on no layer (what is in it is on theirs): never hidden by one.
+static inline b8 fude_zoom_scene_hides(const fude_zoom_scene* _s, const fude_zoom_object* _o) {
+    return _o->kind != FUDE_ZOOM_KIND_FRAME && _o->layer < 32u && ((_s->layers_hidden >> _o->layer) & 1u) != 0;
+}
+static inline b8 fude_zoom_scene_touchable(const fude_zoom_scene* _s, const fude_zoom_object* _o) {
+    return _o->kind == FUDE_ZOOM_KIND_FRAME || _o->layer >= 32u || (((_s->layers_hidden | _s->layers_locked) >> _o->layer) & 1u) == 0;
+}
+// What draws it over what in a frame: its layer's rank, then when it was put there.
+static inline u64 fude_zoom_scene_draw_key(const fude_zoom_scene* _s, const fude_zoom_object* _o) {
+    const u64 _rank = _o->layer < FUDE_ZOOM_LAYERS ? (u64)_s->layer_rank[_o->layer] : 0u;
+    return (_rank << 56) | (_o->z & 0x00FFFFFFFFFFFFFFull);
+}
 
 // --- the scene ---------------------------------------------------------------------------
 
@@ -240,6 +304,9 @@ u32  fude_zoom_scene_new_root(fude_zoom_scene* _s);
 fude_zoom_sim fude_zoom_scene_sim(const fude_zoom_scene* _s, u32 _from, u32 _to);
 // Does the frame hold anything worth keeping (alive or undoable objects, frames)?
 b8   fude_zoom_scene_frame_used(const fude_zoom_scene* _s, u32 _frame);
+// Whether what is in _frame shows at all: neither it nor any frame round it
+// removed, nor any of their FRAME objects on a hidden layer.
+b8   fude_zoom_scene_frame_shown(const fude_zoom_scene* _s, u32 _frame);
 // A frame's anchor grown to hold _box (its own units) — content drawn past it.
 void fude_zoom_scene_frame_reach(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box);
 
@@ -263,11 +330,13 @@ u32  fude_zoom_scene_add_shape_fill(fude_zoom_scene* _s, u32 _frame, fude_zoom_p
 // _z (0: on top). Its index. Not an undo step by itself.
 u32  fude_zoom_scene_add_fill(fude_zoom_scene* _s, u32 _frame, fude_zoom_place _place, i8 _q, const fude_zoom_qpoint* _points, u32 _count,
                               rde_color _color, u64 _z);
-// The same with flags kept (FUDE_ZOOM_FLAG_MARKER: drawn with the markers, under the ink).
+// The same with flags kept (FUDE_ZOOM_FLAG_MARKER: a marker's, see-through).
 u32  fude_zoom_scene_add_fill_flags(fude_zoom_scene* _s, u32 _frame, fude_zoom_place _place, i8 _q, const fude_zoom_qpoint* _points, u32 _count,
                                     rde_color _color, u8 _flags, u64 _z);
 // A shape's numbers into _out (at most _max). How many (0: not a shape, or damaged).
 u32  fude_zoom_scene_shape_numbers(const fude_zoom_scene* _s, u32 _object, f64* _out, u32 _max);
+// All a shape's numbers, however many, into _out (f64s; cleared first). How many.
+u32  fude_zoom_scene_shape_numbers_all(const fude_zoom_scene* _s, u32 _object, rde_arr* _out);
 // A shape's outline where it is, its frame's units, into _out (fude_zoom_v2).
 void fude_zoom_scene_shape_outline(const fude_zoom_scene* _s, u32 _object, u32 _segments, rde_arr* _out, b8* _closed);
 
@@ -282,6 +351,19 @@ b8   fude_zoom_scene_image(const fude_zoom_scene* _s, u32 _object, f64* _hw, f64
 // A picture's corners where it is, its frame's units (bottom-left, bottom-right,
 // top-right, top-left of the picture as it stands).
 void fude_zoom_scene_image_corners(const fude_zoom_scene* _s, u32 _object, fude_zoom_v2 _out[4]);
+// A text (kind TEXT): _size its letters' height, _w by _h its box (the page
+// lays it out and measures it), _style FUDE_ZOOM_TEXT_, _fill a note's paper.
+u32  fude_zoom_scene_add_text(fude_zoom_scene* _s, u32 _frame, fude_zoom_place _place, f64 _size, f64 _w, f64 _h, u8 _style,
+                              rde_color _color, rde_color _fill, const c8* _text, u32 _len, u64 _z);
+// ...its numbers and its words (not NUL-ended: _len bytes). False: not a text.
+b8   fude_zoom_scene_text(const fude_zoom_scene* _s, u32 _object, f64* _size, f64* _w, f64* _h, u8* _style, const c8** _text, u32* _len);
+// ...and its box's corners in its frame (its top left first, then round counter-clockwise: bottom left...).
+void fude_zoom_scene_text_corners(const fude_zoom_scene* _s, u32 _object, fude_zoom_v2 _out[4]);
+// A layer's state as an object (kind LAYER, in _frame: the home frame's), its index, flags and name.
+u32  fude_zoom_scene_add_layer(fude_zoom_scene* _s, u32 _frame, u16 _index, u8 _flags, const c8* _name);
+b8   fude_zoom_scene_layer_of(const fude_zoom_scene* _s, u32 _object, u16* _index, u8* _flags, c8* _name, usize _size);
+// The hidden and locked bits worked out again from the layers' objects.
+void fude_zoom_scene_layers_refresh(fude_zoom_scene* _s);
 
 // The same, rotated and scaled round its translation (_place).
 u32  fude_zoom_scene_add_stroke_at(fude_zoom_scene* _s, u32 _frame, fude_zoom_place _place, i8 _q, const fude_zoom_qpoint* _points, u32 _count,
@@ -302,6 +384,10 @@ fude_zoom_sim   fude_zoom_object_sim(const fude_zoom_object* _o);
 // A copy of an object into _frame at _place, alive, on top (its points shared,
 // not copied). Its index. Not an undo step by itself.
 u32             fude_zoom_scene_copy_stroke(fude_zoom_scene* _s, u32 _object, u32 _frame, fude_zoom_place _place);
+// A copy of an object where it is, in its order, on _layer: its own gesture
+// (_gesture 0) or a later piece of _gesture (the copy of its first piece's id).
+// Not an undo step by itself (the caller lets the original go, in one step).
+u32             fude_zoom_scene_copy_to_layer(fude_zoom_scene* _s, u32 _object, u16 _layer, fude_zoom_id _gesture);
 
 // A stroke's points, decoded into _out (object->count of them). False: damaged.
 b8   fude_zoom_scene_points(const fude_zoom_scene* _s, u32 _object, fude_zoom_qpoint* _out);
@@ -349,6 +435,10 @@ fude_zoom_sim fude_zoom_camera_sim(const fude_zoom_camera* _c);
 u32  fude_zoom_scene_add_mark(fude_zoom_scene* _s, u32 _frame, fude_zoom_v2 _at, f64 _z, u32 _number);
 // A bookmark's zoom and number. False: not a bookmark.
 b8   fude_zoom_scene_mark_of(const fude_zoom_scene* _s, u32 _object, f64* _z, u32* _number);
+
+// The file to keep frame _frame (and those it is in) though nothing is drawn in it — the
+// camera is there, an instrument lies there: they are named by it (journaled now, if not yet).
+void fude_zoom_scene_keep_frame(fude_zoom_scene* _s, u32 _frame);
 
 // --- the history -------------------------------------------------------------------------
 

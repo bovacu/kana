@@ -95,6 +95,10 @@ RDE_STRUCT {
     u8         ui_size;           // FUDE_UI_SIZE_ (app.h; 0: the device's)
     u8         smoothing;         // Sketching's smoothing (zoom/smooth.h): its level + 1 (0: never chosen)
     f32        eraser_radius;     // the eraser's reach (ink.h; 0: never chosen)
+    u8         units;             // Sketching's lengths (zoom/page.h): 0 mm, 1 cm, 2 inches, 3 feet and inches
+    f32        true_mm_per_point; // Sketching's true size: millimetres a screen point really is (0: not calibrated)
+    f32        print_x, print_y;  // Sketching's printer: how long a printed millimetre comes out, across and down (0: never checked)
+    f32        kerf_mm;           // Sketching's saw: how wide its cut is, millimetres (0: never set — 3)
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

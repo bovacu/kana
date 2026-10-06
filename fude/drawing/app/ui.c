@@ -106,7 +106,7 @@ void fude_ui_update(fude_ui* _ui) {
     }
     fude_app*               _app  = _ui->app;
     const fude_screen_slot* _top  = fude_app_top(_app);
-    const b8                _full = _top != NULL;   // a screen is up: the page's widgets make way
+    const b8                _full = _top != NULL || _ui->chrome_hidden;   // a screen is up (or the page alone): the page's widgets make way
 
     // The safe area changed — at start iOS reports none (SDL has the whole
     // window until the view is laid out) and the real one arrives a frame or two

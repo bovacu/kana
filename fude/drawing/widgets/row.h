@@ -25,7 +25,7 @@
 
 struct fude_app;
 
-#define FUDE_ROW_BUTTONS 8u            // a row's buttons, at most
+#define FUDE_ROW_BUTTONS 10u           // a row's buttons, at most
 #define FUDE_ROW_NONE    UINT32_MAX    // no row (screen.h: row)
 #define FUDE_ROW_LABEL   128u
 
@@ -71,6 +71,7 @@ typedef struct {
     const c8* icon;                    // NULL: its own icon
     b8        disabled;
     b8        selected;                // chosen (a toggle on, the sort shown): the accent's tint, a Fill icon
+    b8        hidden;                  // left out of the row for now (nothing it does applies): the rest close up
 } fude_row_face;
 
 // --- the widget ------------------------------------------------------------------------

@@ -30,6 +30,7 @@ typedef enum {
     FUDE_JAVA_TEXT,
     FUDE_JAVA_PDF,
     FUDE_JAVA_IMPORT,
+    FUDE_JAVA_VIDEO,
     FUDE_JAVA_COUNT
 } FUDE_JAVA_;
 

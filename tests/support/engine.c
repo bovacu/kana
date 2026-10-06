@@ -43,6 +43,11 @@ FUDE_STUB f64  rde_engine_get_time_now(void) { return fake_now; }
 FUDE_STUB void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)n; (void)c; }
 FUDE_STUB void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
 FUDE_STUB void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)t; (void)p; (void)s; (void)r; (void)c; }
+FUDE_STUB u8* rde_image_decode(const u8* b, usize n, u32* w, u32* h, rde_memory_allocator* a) { (void)b; (void)n; (void)a; if(w) *w = 0; if(h) *h = 0; return NULL; }
+FUDE_STUB void rde_rendering_2d_draw_line_1(rde_vec_2F a, rde_vec_2F b, rde_color c, f32 t) { (void)a; (void)b; (void)c; (void)t; }
+FUDE_STUB void rde_rendering_2d_draw_polygon(const rde_vec_2F* p, u32 n, const rde_color c, rde_shader* sh) { (void)p; (void)n; (void)c; (void)sh; }
+FUDE_STUB void rde_rendering_2d_draw_circle_with_border(const rde_vec_2F p, f32 r, u32 s, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)p; (void)r; (void)s; (void)f; (void)t; (void)b; (void)sh; }
+FUDE_STUB void rde_rendering_2d_draw_rounded_rectangle_with_border(const rde_vec_2F c, const rde_vec_2F s, f32 r, u32 p, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)c; (void)s; (void)r; (void)p; (void)f; (void)t; (void)b; (void)sh; }
 FUDE_STUB b8   rde_file_delete(const c8* p) { return remove(p) == 0; }
 FUDE_STUB u64  rde_file_get_size(const rde_file* f) { long at = ftell(f->f); fseek(f->f, 0, SEEK_END); long sz = ftell(f->f); fseek(f->f, at, SEEK_SET); return (u64)sz; }
 FUDE_STUB usize rde_file_read_at(rde_file* f, u64 o, u8* out, usize n) { if(fseeko(f->f, (off_t)o, SEEK_SET) != 0) return 0; return fread(out, 1, n, f->f); }

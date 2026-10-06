@@ -44,6 +44,7 @@ typedef struct {
     fude_app_licence licences[FUDE_APP_LICENCES];
     u32              licence_count;
     const c8*        faq_url;      // FAQ & Contact's page (NULL: FUDE_APP_FAQ_URL)
+    b8               turns;        // the screen turns with the device, landscape too (Sketching); false: portrait, either way up
 } fude_app_info;
 
 #endif

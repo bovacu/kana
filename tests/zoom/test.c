@@ -10,6 +10,23 @@
 #include "zoom/nav.h"
 #include "zoom/fill.h"
 #include "zoom/export.h"
+#include "zoom/instrument.h"
+#include "zoom/connect.h"
+#include "zoom/bucket.h"
+#include "zoom/shape.h"
+#include "zoom/video.h"
+#include "zoom/handfind.h"
+#include "zoom/pdf.h"
+#include "zoom/map.h"
+#include "zoom/piece.h"
+#include "zoom/sheet.h"
+#include "zoom/stl.h"
+#include "zoom/symbol.h"
+#include "zoom/select.h"
+#include "zoom/render.h"
+#include "zoom/cut.h"
+#include "zoom/snap.h"
+#include "zoom/nest.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +35,12 @@
 #include <time.h>
 
 static int fails = 0;
+
+static f64 fude_zoom_select_wrap_test(f64 a) {
+    while(a > 3.14159265358979323846)  { a -= 2.0 * 3.14159265358979323846; }
+    while(a < -3.14159265358979323846) { a += 2.0 * 3.14159265358979323846; }
+    return a;
+}
 #define CHECK(c) do { if(!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while(0)
 
 static u32 rng = 12345u;
@@ -374,6 +397,431 @@ static void test_erasers(void) {
 
     fude_zoom_eraser_destroy(&e);
     fude_zoom_scene_destroy(&s);
+}
+
+// --- the instruments ------------------------------------------------------------------------
+
+// The text's width, for the instruments' numbers (draw.c is not in this suite).
+f32 fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px) { (void)_font; (void)_font_px; return (f32)strlen(_text) * _px * 0.5f; }
+u32 fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) { (void)_font; (void)_font_px; (void)_text; (void)_x; (void)_y; (void)_px; (void)_width; (void)_line; (void)_color; return 1u; }
+
+// The lasso's drawing (render.c is not in this suite: nothing picked by drawing here).
+void fude_zoom_render_object(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half) { (void)_r; (void)_s; (void)_object; (void)_to_screen; (void)_half; }
+void fude_zoom_render_glow(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, f32 _extra, rde_color _color) { (void)_r; (void)_s; (void)_object; (void)_to_screen; (void)_half; (void)_extra; (void)_color; }
+u32 fude_zoom_render_editable(const fude_zoom_renderer* _r, const fude_zoom_scene* _s, rde_arr* _out) { (void)_r; (void)_s; (void)_out; return 0; }
+void rde_rendering_2d_draw_line_segmented(rde_vec_2F _init, rde_vec_2F _end, rde_color _color, f32 _thickness, f32 _segment_len, f32 _gap) { (void)_init; (void)_end; (void)_color; (void)_thickness; (void)_segment_len; (void)_gap; }
+
+static void test_instruments(void) {
+    fude_zoom_instruments ins; fude_zoom_instruments_init(&ins);
+    const fude_zoom_v2 half = { 500, 400 };
+    CHECK(!fude_zoom_instruments_any(&ins));
+    CHECK(fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half) == 0);
+    CHECK(fude_zoom_instruments_any(&ins) && ins.tools[0].shown && ins.tools[0].kind == FUDE_ZOOM_INSTRUMENT_RULER);
+    ins.tools[0].at = (fude_zoom_v2){ 0, -100 };
+    fude_zoom_instrument_edge e[FUDE_ZOOM_INSTRUMENT_EDGES];
+    CHECK(fude_zoom_instrument_edges(&ins, 0, e) == 4u);
+    CHECK(fabs(e[0].a.x + 280) < 1e-9 && fabs(e[0].a.y + 132) < 1e-9 && fabs(e[0].b.x - 280) < 1e-9);   // its bottom edge
+
+    // The pen near an edge draws along it, never past its end.
+    fude_zoom_v2 on;
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 10, -140 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED);
+    CHECK(fabs(on.x - 10) < 1e-9 && fabs(on.y + 132) < 1e-9 && fude_zoom_instruments_ruled_straight(&ins));
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 200, -160 });
+    CHECK(fabs(on.x - 200) < 1e-9 && fabs(on.y + 132) < 1e-9);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 400, -140 });
+    CHECK(fabs(on.x - 280) < 1e-9);
+    f64 along; b8 deg; fude_zoom_v2 lab;
+    CHECK(fude_zoom_instruments_ruled(&ins, &along, &deg, &lab) && !deg && fabs(along - 270) < 1e-9);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(!fude_zoom_instruments_ruled(&ins, &along, &deg, &lab));
+    // Far from both edges, on its body: the pen moves it.
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -100, -100 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -50, -90 });
+    CHECK(fabs(ins.tools[0].at.x - 50) < 1e-9 && fabs(ins.tools[0].at.y + 90) < 1e-9);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(ins.held < 0);
+    // Off it: nothing.
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, 300 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_NONE);
+    fude_zoom_instruments_pen_up(&ins);
+    // On its body near an edge it is held (a pencil draws from outside it); a hair inside the edge still draws.
+    ins.tools[0].at = (fude_zoom_v2){ 0, -100 };
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -150, -122 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -150, -130 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && fabs(on.y + 132) < 1e-9);
+    fude_zoom_instruments_pen_up(&ins);
+    // A thin one (a true-size ruler zoomed out: its band 12 points): held on it and a little round it, drawn along past that.
+    ins.tools[0].at    = (fude_zoom_v2){ 0, 0 };
+    ins.tools[0].thick = 12.0 / FUDE_ZOOM_INSTRUMENT_RULER_WIDTH;
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -150, 0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -150, -12 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -150, -18 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && fabs(on.y + 6) < 1e-9);
+    fude_zoom_instruments_pen_up(&ins);
+    ins.tools[0].thick = 0.0;
+    ins.tools[0].at    = (fude_zoom_v2){ 50, -90 };
+    // Its knob turns it round its middle, resting at 30°.
+    ins.tools[0].at = (fude_zoom_v2){ 0, 0 };
+    const fude_zoom_v2 knob = fude_zoom_instrument_knob(&ins, 0);
+    CHECK(fude_zoom_instruments_pen_down(&ins, knob, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.turning);
+    const f64 r = hypot(knob.x, knob.y), a30 = 30.6 * 3.14159265358979 / 180.0;
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ cos(a30) * r, sin(a30) * r });
+    CHECK(fabs(ins.tools[0].angle - 3.14159265358979 / 6.0) < 1e-9);   // within 1.5° of 30°: 30° exactly
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ cos(0.7) * r, sin(0.7) * r });
+    CHECK(fabs(ins.tools[0].angle - 0.7) < 1e-9);   // further: as the pen has it
+    fude_zoom_instruments_pen_up(&ins);
+    // Two fingers turn it a quarter round the middle between them (never scaling it).
+    ins.tools[0].angle = 0.0;
+    CHECK(fude_zoom_instruments_finger_down(&ins, 1, (fude_zoom_v2){ -100, 0 }));
+    CHECK(fude_zoom_instruments_finger_down(&ins, 2, (fude_zoom_v2){ 100, 0 }));
+    fude_zoom_instruments_finger_moved(&ins, 1, (fude_zoom_v2){ 0, -100 });
+    fude_zoom_instruments_finger_moved(&ins, 2, (fude_zoom_v2){ 0, 100 });
+    CHECK(fabs(ins.tools[0].angle - 3.14159265358979 / 2.0) < 1e-9 && hypot(ins.tools[0].at.x, ins.tools[0].at.y) < 1e-9);
+    CHECK(fude_zoom_instruments_finger_up(&ins, 1) && ins.held == 0 && ins.hands == 1u);
+    CHECK(fude_zoom_instruments_finger_up(&ins, 2) && ins.held < 0);
+    CHECK(!fude_zoom_instruments_finger_down(&ins, 3, (fude_zoom_v2){ 300, 300 }));   // not on one: the page's
+
+    // Docking: the 45° set square dragged onto the ruler's top edge lies on it,
+    // then slides along it, and lets go when pulled well away.
+    ins.tools[0].angle = 0.0; ins.tools[0].at = (fude_zoom_v2){ 0, -150 };   // its top edge at y -118
+    CHECK(fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_SQUARE_45, half) == 1);
+    ins.tools[1].at = (fude_zoom_v2){ 0, 50 }; ins.tools[1].angle = 0.03;   // its bottom leg a little turned
+    CHECK(fude_zoom_instruments_finger_down(&ins, 5, (fude_zoom_v2){ 0, 50 }));
+    fude_zoom_instruments_finger_moved(&ins, 5, (fude_zoom_v2){ 0, -25 });   // the leg near the edge
+    CHECK(ins.docked == 0 && fabs(ins.tools[1].angle) < 1e-9);
+    fude_zoom_instrument_edges(&ins, 1, e);
+    CHECK(fabs(e[0].a.y + 118) < 1e-6 && fabs(e[0].b.y + 118) < 1e-6);   // on the ruler's edge
+    fude_zoom_instruments_finger_moved(&ins, 5, (fude_zoom_v2){ 60, -5 });   // sideways, and a little up
+    fude_zoom_instrument_edges(&ins, 1, e);
+    CHECK(ins.docked == 0 && fabs(e[0].a.y + 118) < 1e-6);
+    fude_zoom_instruments_finger_moved(&ins, 5, (fude_zoom_v2){ 60, 80 });   // pulled away
+    CHECK(ins.docked < 0);
+    fude_zoom_instruments_finger_up(&ins, 5);
+
+    // The protractor's round edge: an arc, its angle told in degrees.
+    fude_zoom_instrument_remove(&ins, 1);
+    fude_zoom_instrument_remove(&ins, 0);
+    CHECK(!fude_zoom_instruments_any(&ins));
+    const i32 pro = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_PROTRACTOR, half);
+    CHECK(pro == 0 && ins.tools[0].serial == 3u);   // the slot again, another one in it
+    ins.tools[pro].at = (fude_zoom_v2){ 0, 0 }; ins.tools[pro].angle = 0.0;
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 165, 4 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 0, 300 });
+    CHECK(fabs(on.x) < 1e-6 && fabs(on.y - 160) < 1e-6);
+    CHECK(fude_zoom_instruments_ruled(&ins, &along, &deg, &lab) && deg && fabs(along - (90.0 - atan2(4, 165) * 180 / 3.14159265358979)) < 0.01);
+    fude_zoom_instruments_pen_up(&ins);
+    // Drawn, with the stand-ins: nothing to see, but it runs through.
+    const fude_zoom_instruments_look look = { NULL, 32.0f, 0.37, { 1, 1, 1, 200 }, { 0, 0, 0, 255 }, { 0, 0, 0, 255 }, { 0, 0, 0, 255 }, { 0, 0, 255, 255 }, NULL };
+    fude_zoom_instruments_render(&ins, &look, 0.0);
+
+    // Several of a kind, each a little further on; at most a dozen in all.
+    fude_zoom_instruments_init(&ins);
+    const i32 r1 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 r2 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 c1 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_COMPASS, half);
+    const i32 c2 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_COMPASS, half);
+    CHECK(r1 == 0 && r2 == 1 && c1 == 2 && c2 == 3);
+    CHECK(fude_zoom_instruments_count(&ins, FUDE_ZOOM_INSTRUMENT_RULER) == 2u && fude_zoom_instruments_count(&ins, FUDE_ZOOM_INSTRUMENT_COMPASS) == 2u);
+    CHECK(fabs(ins.tools[r2].at.x - ins.tools[r1].at.x - 36.0) < 1e-9 && fabs(ins.tools[r2].at.y - ins.tools[r1].at.y + 36.0) < 1e-9);
+    // Each compass its own radius.
+    ins.tools[c2].at = (fude_zoom_v2){ 300, 200 };
+    const fude_zoom_v2 hinge = fude_zoom_instrument_knob(&ins, (u32)c2);
+    CHECK(fude_zoom_instruments_pen_down(&ins, hinge, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.held == c2 && ins.turning);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ hinge.x + 40, hinge.y });
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(ins.tools[c2].radius > FUDE_ZOOM_COMPASS_R + 1.0 && fabs(ins.tools[c1].radius - FUDE_ZOOM_COMPASS_R) < 1e-9);
+    for(u32 i = 4; i < FUDE_ZOOM_INSTRUMENT_MOST; i++) {
+        CHECK(fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_SQUARE_45, half) == (i32)i);
+    }
+    CHECK(fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half) < 0);   // full
+    // Its ×: a finger down and up on it puts it away; one sliding off it does not.
+    ins.tools[r1].at = (fude_zoom_v2){ -2000, 0 };   // (out from under the others)
+    const fude_zoom_v2 x1 = fude_zoom_instrument_close_at(&ins, (u32)r1);
+    CHECK(fude_zoom_instruments_finger_down(&ins, 9, x1) && ins.closing == r1 && ins.held < 0);
+    CHECK(fude_zoom_instruments_finger_moved(&ins, 9, (fude_zoom_v2){ x1.x + 60, x1.y }) && ins.closing < 0);
+    CHECK(fude_zoom_instruments_finger_up(&ins, 9) && ins.tools[r1].shown);
+    CHECK(fude_zoom_instruments_finger_down(&ins, 10, x1));
+    CHECK(fude_zoom_instruments_finger_up(&ins, 10) && !ins.tools[r1].shown && ins.closing_hand == 0u);
+    CHECK(fude_zoom_instruments_count(&ins, FUDE_ZOOM_INSTRUMENT_RULER) == 1u);
+    // ...and the pen's: the compass put away, the other left.
+    ins.tools[c1].at = (fude_zoom_v2){ 2000, 0 };
+    const fude_zoom_v2 xc = fude_zoom_instrument_close_at(&ins, (u32)c1);
+    CHECK(fude_zoom_instruments_pen_down(&ins, xc, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.closing == c1);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(!ins.tools[c1].shown && ins.tools[c2].shown);
+    CHECK(fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half) == r1);   // room again: the first free slot
+    // A docked one whose partner is put away is free again.
+    ins.docked = c2; ins.held = r2;
+    fude_zoom_instrument_remove(&ins, (u32)c2);
+    CHECK(ins.docked < 0);
+    ins.held = -1;
+    // A ruler's size tab: dragged out, the ruler longer, its zero end where it was; a compass has none.
+    fude_zoom_instruments_init(&ins);
+    const i32 gr = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    ins.tools[gr].at = (fude_zoom_v2){ 0, 0 };
+    fude_zoom_v2 tab;
+    CHECK(fude_zoom_instrument_grow_at(&ins, (u32)gr, &tab) && fabs(tab.x - 310.0) < 1e-9 && fabs(tab.y) < 1e-9);
+    CHECK(fude_zoom_instruments_pen_down(&ins, tab, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.growing && ins.held == gr);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 610, 40 });   // (sideways: only along it counts)
+    CHECK(fabs(fude_zoom_instrument_extent(&ins, (u32)gr) - 860.0) < 1e-6);
+    CHECK(fabs(ins.tools[gr].at.x - (-280.0 + 430.0)) < 1e-6 && fabs(ins.tools[gr].at.y) < 1e-9);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -400, 0 });   // past its other end: as short as it goes
+    CHECK(fabs(ins.tools[gr].size - 0.3) < 1e-9);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(!ins.growing && ins.held < 0);
+    const i32 gc = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_COMPASS, half);
+    CHECK(!fude_zoom_instrument_grow_at(&ins, (u32)gc, &tab));
+
+    // A circle template: near its hole's edge the pen draws round it (beside it: inside the
+    // hole); on its plate it moves it; in the middle of the hole it draws as ever.
+    fude_zoom_instruments_init(&ins);
+    const i32 ct = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_CIRCLE, half);
+    ins.tools[ct].at = (fude_zoom_v2){ 0, 0 }; ins.tools[ct].radius = 100.0; ins.tools[ct].angle = 0.0;
+    CHECK(fude_zoom_instrument_round(FUDE_ZOOM_INSTRUMENT_CIRCLE) && !fude_zoom_instrument_round(FUDE_ZOOM_INSTRUMENT_RULER));
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, 95 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && fabs(on.y - 100.0) < 1e-6);
+    const fude_zoom_v2 inward = fude_zoom_instruments_ruled_outward(&ins);
+    CHECK(fabs(inward.x) < 1e-6 && fabs(inward.y + 1.0) < 1e-6);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -150, 0 });   // round to the left: a quarter
+    CHECK(fabs(on.x + 100.0) < 1e-6 && fabs(on.y) < 1e-6);
+    CHECK(fude_zoom_instruments_ruled(&ins, &along, &deg, &lab) && deg && fabs(along - 90.0) < 1e-6);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, 0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_NONE);
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, -125 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.held == ct);
+    fude_zoom_instruments_pen_up(&ins);
+    fude_zoom_v2 ck[FUDE_ZOOM_INSTRUMENT_KEYS];
+    CHECK(fude_zoom_instrument_keys(&ins, (u32)ct, ck) == 1u && fabs(ck[0].x) < 1e-9);   // snapped by its centre
+
+    // Chained: two rulers crossing square — along the first's lower edge, past where the second
+    // crosses it and toward the second's edge, the line turns onto it at the crossing (the corner
+    // exactly there); kept near the first, it waits at the crossing a little, then goes on.
+    fude_zoom_instruments_init(&ins);
+    const i32 ra = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 rb = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    ins.tools[ra].at = (fude_zoom_v2){ 0, 0 };   ins.tools[ra].angle = 0.0;                    // lower edge y -32, x -280..280
+    ins.tools[rb].at = (fude_zoom_v2){ 200, 0 }; ins.tools[rb].angle = 3.14159265358979 / 2.0;   // edges x 168 and 232
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, -40 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == ra);
+    CHECK(ins.cross_n >= 2u);
+    fude_zoom_v2 corner, n1;
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 150, -40 });
+    CHECK(fabs(on.y + 32.0) < 1e-6 && !fude_zoom_instruments_ruled_turn(&ins, &corner, &n1));
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 170, -80 });   // past x 168, near the second's edge
+    CHECK(ins.ruled == rb && fude_zoom_instruments_ruled_turn(&ins, &corner, &n1));
+    CHECK(fabs(corner.x - 168.0) < 1e-6 && fabs(corner.y + 32.0) < 1e-6 && fabs(n1.y + 1.0) < 1e-9);   // left: out of the first was down
+    CHECK(fabs(on.x - 168.0) < 1e-6 && fabs(on.y + 80.0) < 1e-6);
+    // Turned, it cannot go back past the corner along the second into the first (from the
+    // tablet: it went on under the first's body): held at the corner, then on the right way.
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 165, 10 });
+    CHECK(ins.ruled == rb && fabs(on.x - 168.0) < 1e-6 && fabs(on.y + 32.0) < 1e-6);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 165, -120 });
+    CHECK(ins.ruled == rb && fabs(on.x - 168.0) < 1e-6 && fabs(on.y + 120.0) < 1e-6);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 172, -200 });
+    CHECK(fabs(on.x - 168.0) < 1e-6 && fabs(on.y + 200.0) < 1e-6);   // along the second
+    fude_zoom_instruments_pen_up(&ins);
+    // Kept near the first: it cannot go on into the second (as real ones): it stays at the crossing;
+    // back before it, it goes back along the first.
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, -40 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == ra);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 150, -33 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 178, -33 });
+    CHECK(ins.ruled == ra && fabs(on.x - 168.0) < 1e-6 && fabs(on.y + 32.0) < 1e-6);   // at the crossing
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 260, -33 });
+    CHECK(ins.ruled == ra && fabs(on.x - 168.0) < 1e-6 && !fude_zoom_instruments_ruled_turn(&ins, &corner, &n1));   // still there
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 120, -33 });
+    CHECK(ins.ruled == ra && fabs(on.x - 120.0) < 1e-6);   // back along the first
+    fude_zoom_instruments_pen_up(&ins);
+    // Begun under the second (inside its body): leaving it, nothing in the way — on along the first.
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 200, -36 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == ra);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 230, -34 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 260, -34 });
+    CHECK(ins.ruled == ra && fabs(on.x - 260.0) < 1e-6);
+    fude_zoom_instruments_pen_up(&ins);
+
+    // Three crossing at (nearly) one point: the line turns onto the one the pen goes along, not the first met
+    // (found on the tablet: round the outside of three set squares, it turned in along one under the others).
+    fude_zoom_instruments_init(&ins);
+    const i32 r3a = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 r3b = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 r3c = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    ins.tools[r3a].at = (fude_zoom_v2){ 0, 0 };   ins.tools[r3a].angle = 0.0;                     // its lower edge along y -32
+    ins.tools[r3b].at = (fude_zoom_v2){ 100, 0 }; ins.tools[r3b].angle = 3.14159265358979 / 2.0;  // an edge up x 68
+    ins.tools[r3c].at = (fude_zoom_v2){ 70.0 + 32.0 * 0.70710678, -32.0 + 32.0 * 0.70710678 };   // (its body up and right of that edge)
+    ins.tools[r3c].angle = -3.14159265358979 / 4.0;                                               // an edge down through (70, -32)
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -100, -40 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == r3a);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 0, -40 });
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 60, -40 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 90, -60 });
+    CHECK(ins.ruled == r3c && ins.ruled != r3b);   // down along the slanting one: the pen is by it
+    fude_zoom_instruments_pen_up(&ins);
+
+    // Resting against two at once (Borja: "rulers need to be able to snap to more than one"): a short ruler
+    // lying on a long one, slid along it up to an upright one, stops flush against that too.
+    fude_zoom_instruments_init(&ins);
+    const i32 ra2 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 rb2 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    const i32 rc2 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_RULER, half);
+    ins.tools[ra2].at = (fude_zoom_v2){ 0, 0 };     ins.tools[ra2].angle = 0.0;                     // its top edge along y 32
+    ins.tools[rb2].at = (fude_zoom_v2){ 150, 300 }; ins.tools[rb2].angle = 3.14159265358979 / 2.0;  // an edge up x 118, from y 20
+    ins.tools[rc2].at = (fude_zoom_v2){ -50, 66 };  ins.tools[rc2].angle = 0.0; ins.tools[rc2].size = 0.3;   // 168 long, a hair over the first
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -50, 66 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.held == rc2);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -50, 67 });
+    CHECK(ins.docked == ra2 && fabs(ins.tools[rc2].at.y - 64.0) < 1e-6);   // lying on the first
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 30, 67 });
+    CHECK(ins.docked == ra2 && fabs(ins.tools[rc2].at.y - 64.0) < 1e-6 && fabs(ins.tools[rc2].at.x - 34.0) < 1e-6);   // and flush against the upright one
+    b8 touching = false;
+    for(u32 c = 0; c < ins.contacts; c++) {
+        touching = touching || ins.contact_slot[c] == rb2;
+    }
+    CHECK(touching);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -60, 67 });
+    CHECK(fabs(ins.tools[rc2].at.x + 60.0) < 1e-6 && ins.contacts == 0u);   // slid back away from it: free of it
+    fude_zoom_instruments_pen_up(&ins);
+
+    // Round the outside of three set squares lying flush (Borja, from the tablet: "look at the suggested direction,
+    // and look at 3, there is no even direction at all"): a 30° one along a 45°'s long side and on past its corner,
+    // another 30° along the first one's short leg and on past its end. Along the 45°'s foot, past its corner, the
+    // line goes on down the 30° (whose edge runs through that very corner: the same crossing as the 45°'s own side,
+    // once dropped as found twice); up that one's long side, past its top, on along the other 30° (it stopped there).
+    fude_zoom_instruments_init(&ins);
+    const i32 s45 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_SQUARE_45, half);
+    const i32 s30 = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_SQUARE_30, half);
+    const i32 s3b = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_SQUARE_30, half);
+    const f64 sq = 0.70710678118654752;
+    ins.tools[s45].at = (fude_zoom_v2){ 0, 0 }; ins.tools[s45].angle = 0.0;   // right angle (-93.3, -93.3), foot to (186.7, -93.3), up to (-93.3, 186.7)
+    fude_zoom_instrument_edge se[FUDE_ZOOM_INSTRUMENT_EDGES];
+    fude_zoom_instrument_edges(&ins, (u32)s45, se);
+    const fude_zoom_v2 k1 = se[0].b, k2 = se[1].b;
+    const fude_zoom_v2 p0 = { k2.x + (k1.x - k2.x) * 0.45, k2.y + (k1.y - k2.y) * 0.45 };
+    ins.tools[s30].at = (fude_zoom_v2){ 0, 0 }; ins.tools[s30].angle = -3.14159265358979 / 4.0;   // its long leg down along the 45°'s, on past it
+    fude_zoom_instrument_edges(&ins, (u32)s30, se);
+    ins.tools[s30].at = (fude_zoom_v2){ p0.x - se[0].a.x, p0.y - se[0].a.y };                    // its right angle on the 45°'s long side
+    fude_zoom_instrument_edges(&ins, (u32)s30, se);
+    const fude_zoom_v2 d1 = se[1].a, d2 = se[1].b;   // its long side, up to its top
+    const fude_zoom_v2 mid = { (se[2].a.x + se[2].b.x) * 0.5, (se[2].a.y + se[2].b.y) * 0.5 };
+    ins.tools[s3b].at = (fude_zoom_v2){ 0, 0 }; ins.tools[s3b].angle = 3.14159265358979 / 4.0;   // its long leg up along the first 30°'s short one
+    fude_zoom_instrument_edges(&ins, (u32)s3b, se);
+    ins.tools[s3b].at = (fude_zoom_v2){ mid.x - se[0].a.x, mid.y - se[0].a.y };
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, k1.y - 6.0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == s45 && ins.ruled_edge == 0u);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 150, k1.y - 6.0 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k1.x + 15.0 * sq - 4.0 * sq, k1.y - 15.0 * sq - 4.0 * sq });   // past its corner, down by the 30°
+    CHECK(ins.ruled == s30 && ins.ruled_edge == 0u && fabs(on.x - (k1.x + 15.0 * sq)) < 1e-6 && fabs(on.y - (k1.y - 15.0 * sq)) < 1e-6);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k1.x + 60.0 * sq - 4.0 * sq, k1.y - 60.0 * sq - 4.0 * sq });
+    CHECK(ins.ruled == s30 && fabs(on.x - (k1.x + 60.0 * sq)) < 1e-6 && fabs(on.y - (k1.y - 60.0 * sq)) < 1e-6);   // on down it
+    fude_zoom_instruments_pen_up(&ins);
+    const f64          hl = hypot(d2.x - d1.x, d2.y - d1.y);
+    fude_zoom_v2       hn = { -(d2.y - d1.y) / hl, (d2.x - d1.x) / hl };   // out of its long side
+    if(hn.x * ((d1.x + d2.x) * 0.5 - ins.tools[s30].at.x) + hn.y * ((d1.y + d2.y) * 0.5 - ins.tools[s30].at.y) < 0.0) {
+        hn = (fude_zoom_v2){ -hn.x, -hn.y };
+    }
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ d1.x + (d2.x - d1.x) * 0.3 + hn.x * 5.0, d1.y + (d2.y - d1.y) * 0.3 + hn.y * 5.0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED &&
+          ins.ruled == s30 && ins.ruled_edge == 1u);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ d1.x + (d2.x - d1.x) * 0.95 + hn.x * 5.0, d1.y + (d2.y - d1.y) * 0.95 + hn.y * 5.0 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ d2.x + 12.0 * sq + 4.0 * sq, d2.y + 12.0 * sq - 4.0 * sq });   // past its top, by the other 30°
+    CHECK(ins.ruled == s3b && ins.ruled_edge == 0u && fabs(on.x - (d2.x + 12.0 * sq)) < 1e-6 && fabs(on.y - (d2.y + 12.0 * sq)) < 1e-6);
+    fude_zoom_instruments_pen_up(&ins);
+    // Round the outside of one's corner: up its side, past the corner (where both its sides are as near: it waits
+    // there), then round by its other side — on along that (it stayed at the corner for good).
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ k2.x - 6.0, 0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == s45 && ins.ruled_edge == 2u);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k2.x - 6.0, k2.y - 20.0 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k2.x - 2.0, k2.y + 6.0 });
+    CHECK(fabs(on.x - k2.x) < 1e-6 && fabs(on.y - k2.y) < 1e-6);   // at the corner
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k2.x + 8.0, k2.y + 2.0 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ k2.x + 40.0 * sq + 4.0 * sq, k2.y - 40.0 * sq + 4.0 * sq });
+    CHECK(ins.ruled == s45 && ins.ruled_edge == 1u && fabs(on.x - (k2.x + 40.0 * sq)) < 1e-6 && fabs(on.y - (k2.y - 40.0 * sq)) < 1e-6);   // round it, down its long side
+    fude_zoom_instruments_pen_up(&ins);
+
+    // A stencil (a piece laid as an instrument): an open line across its middle and a closed square — the pen near
+    // the line draws ON it (traced), held at its ends (a line with two, not a loop); on the plate away from its
+    // lines, the plate is held.
+    fude_zoom_instruments_init(&ins);
+    const i32 sn = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_STENCIL, half);
+    fude_zoom_stencil* st = &ins.stencils[sn];
+    memset(st, 0, sizeof(*st));
+    st->points[0] = (fude_zoom_v2){ -100, 0 }; st->points[1] = (fude_zoom_v2){ 0, 0 }; st->points[2] = (fude_zoom_v2){ 100, 0 };
+    st->first[0] = 0; st->count[0] = 3; st->closed[0] = false;
+    const fude_zoom_v2 sqr[4] = { { -140, -100 }, { 140, -100 }, { 140, 100 }, { -140, 100 } };
+    for(u32 i = 0; i < 4u; i++) st->points[3 + i] = sqr[i];
+    st->first[1] = 3; st->count[1] = 4; st->closed[1] = true;
+    st->lines = 2; st->hw = 160; st->hh = 120;
+    ins.tools[sn].at = (fude_zoom_v2){ 0, 0 }; ins.tools[sn].angle = 0.0; ins.tools[sn].radius = 160; ins.tools[sn].radius2 = 120;
+    fude_zoom_instrument_edge sne[FUDE_ZOOM_INSTRUMENT_EDGES];
+    CHECK(fude_zoom_instrument_edges(&ins, (u32)sn, sne) == 2u && sne[0].curve && sne[0].open && sne[0].trace && sne[1].curve && !sne[1].open);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -50, 6 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == sn && ins.ruled_edge == 0u);
+    CHECK(fabs(on.x + 50.0) < 1e-6 && fabs(on.y) < 1e-6 && fude_zoom_instruments_ruled_traced(&ins));
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 0, 5 });   // (as a pen goes: a little at a time)
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 60, 5 });
+    CHECK(fabs(on.x - 60.0) < 1e-6 && fabs(on.y) < 1e-6);
+    fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 100, 4 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 130, 4 });
+    CHECK(fabs(on.x - 100.0) < 1e-6 && fabs(on.y) < 1e-6);   // held at its end (no way round)
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 141, 50 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled_edge == 1u && fabs(on.x - 140.0) < 1e-6);   // its square's side
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 60, 60 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.held == sn);   // on its plate, away from its lines
+    fude_zoom_instruments_pen_up(&ins);
+    fude_zoom_instrument_remove(&ins, (u32)sn);
+
+    // A corner radius gauge: its round a quarter turn at its lower left, the pen along it staying
+    // on it, and past its end on along the side it meets; snapped by the corner its round rounds.
+    fude_zoom_instruments_init(&ins);
+    const i32 cg = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_CORNER, half);
+    ins.tools[cg].at = (fude_zoom_v2){ 0, 0 }; ins.tools[cg].angle = 0.0; ins.tools[cg].radius = 60.0;   // half side 54: round about (6, 6)
+    fude_zoom_instrument_edge ce[FUDE_ZOOM_INSTRUMENT_EDGES];
+    CHECK(fude_zoom_instrument_edges(&ins, (u32)cg, ce) == 5u && ce[4].arc && fabs(ce[4].span - 3.14159265358979 / 2.0) < 1e-9);
+    fude_zoom_v2 cks[FUDE_ZOOM_INSTRUMENT_KEYS];
+    CHECK(fude_zoom_instrument_keys(&ins, (u32)cg, cks) >= 1u && fabs(cks[0].x + 54.0) < 1e-9 && fabs(cks[0].y + 54.0) < 1e-9);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -38, -38 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled == cg && ins.ruled_edge == 4u);
+    CHECK(fabs(hypot(on.x - 6.0, on.y - 6.0) - 60.0) < 1e-6);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -60, -10 });
+    CHECK(fabs(hypot(on.x - 6.0, on.y - 6.0) - 60.0) < 1e-6 && on.x < -50.0);   // round it, towards its left side
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -70, 40 });
+    CHECK(ins.ruled_edge == 3u && fabs(on.x + 54.0) < 1e-6 && fabs(on.y - 40.0) < 1e-6);   // past its end: on along its side (chained), as a corner rounded goes on
+    const fude_zoom_v2 cout = fude_zoom_instruments_ruled_outward(&ins);
+    CHECK(cout.x < -0.99);   // the line outside it (away from the round's centre)
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_at(&ins, (fude_zoom_v2){ 20, 20 }) == cg && fude_zoom_instruments_at(&ins, (fude_zoom_v2){ -50, -50 }) < 0);   // its plate, not past its round
+    // Down its side and round its round (found on the tablet: once round, the line jumped back to where the
+    // side meets the round — its own corner taken for another's — the pen in over the plate made it worse).
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -62, 40 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && ins.ruled_edge == 3u);
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -62, 0 });
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -50, -30 });
+    CHECK(ins.ruled_edge == 4u && fabs(hypot(on.x - 6.0, on.y - 6.0) - 60.0) < 1e-6 && on.y < -20.0);   // turned onto its round
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -10, -40 });
+    const fude_zoom_v2 was = on;
+    CHECK(ins.ruled_edge == 4u && fabs(hypot(on.x - 6.0, on.y - 6.0) - 60.0) < 1e-6 && on.y < -40.0);   // on round it, not back at the side
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ -20, -10 });
+    CHECK(ins.ruled_edge == 4u && fabs(on.x - was.x) < 1e-6 && fabs(on.y - was.y) < 1e-6);   // the pen in over the plate: it stays
+    fude_zoom_instruments_pen_up(&ins);
+    fude_zoom_instrument_remove(&ins, (u32)cg);
+
+    // An ellipse template: its hole's edge drawn along from inside; a French curve's, from outside,
+    // the pen going on along it (never jumping across), its body held by the pen.
+    fude_zoom_instruments_init(&ins);
+    const i32 el = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_ELLIPSE, half);
+    ins.tools[el].at = (fude_zoom_v2){ 0, 0 }; ins.tools[el].radius = 120.0; ins.tools[el].radius2 = 60.0; ins.tools[el].angle = 0.0;
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, 52 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED && fabs(on.y - 60.0) < 0.5);
+    const fude_zoom_v2 ein = fude_zoom_instruments_ruled_outward(&ins);
+    CHECK(ein.y < -0.95);   // into the hole
+    on = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 100, 30 });
+    CHECK(fabs((on.x * on.x) / (120.0 * 120.0) + (on.y * on.y) / (60.0 * 60.0) - 1.0) < 0.02);   // on the ellipse
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ 0, 0 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_NONE);
+    fude_zoom_instruments_pen_up(&ins);
+    fude_zoom_instrument_remove(&ins, (u32)el);
+    const i32 fc = fude_zoom_instrument_add(&ins, FUDE_ZOOM_INSTRUMENT_CURVE, half);
+    ins.tools[fc].at = (fude_zoom_v2){ 0, 0 }; ins.tools[fc].angle = 0.0;
+    fude_zoom_v2 cv[FUDE_ZOOM_INSTRUMENT_CURVE_POINTS];
+    const u32 cn = fude_zoom_instrument_curve(&ins, (u32)fc, cv, FUDE_ZOOM_INSTRUMENT_CURVE_POINTS);
+    CHECK(cn >= 150u && fude_zoom_fill_inside(cv, cn, (fude_zoom_v2){ -70, -30 }));
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -26, -90 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_RULED);
+    CHECK(!fude_zoom_instruments_ruled_straight(&ins));   // a curve: its line keeps every point (not its two ends)
+    const fude_zoom_v2 fout = fude_zoom_instruments_ruled_outward(&ins);
+    CHECK(!fude_zoom_fill_inside(cv, cn, (fude_zoom_v2){ on.x + fout.x * 6.0, on.y + fout.y * 6.0 }) &&
+          fude_zoom_fill_inside(cv, cn, (fude_zoom_v2){ on.x - fout.x * 6.0, on.y - fout.y * 6.0 }));
+    const fude_zoom_v2 step = fude_zoom_instruments_pen_moved(&ins, (fude_zoom_v2){ 30, -75 });
+    CHECK(hypot(step.x - 30.0, step.y + 66.0) < 15.0);   // along its lower side, not over to the upper
+    fude_zoom_instruments_pen_up(&ins);
+    CHECK(fude_zoom_instruments_pen_down(&ins, (fude_zoom_v2){ -70, -20 }, &on) == FUDE_ZOOM_INSTRUMENT_PEN_HELD && ins.held == fc);
+    fude_zoom_instruments_pen_up(&ins);
 }
 
 // Random strokes and sweeps; the alive set after every step, then every undo
@@ -782,6 +1230,31 @@ static void test_navigation(void) {
         right = right || (!marks[i].ring && fabsf(marks[i].angle) < 0.05f && fabsf(marks[i].at.x - 470.0f) < 1.0f);
     }
     CHECK(left && right);
+    // A layer's record (a point at the origin, never drawn) and what a hidden layer has: no arrow to
+    // either (an arrow to the record flew there zoomed in without end).
+    {
+        fude_zoom_camera_look_at(&m, m.root, (fude_zoom_v2){ 0, 4000 }, 1.0);
+        const u32 rec = fude_zoom_scene_add_layer(&m, m.root, 2, FUDE_ZOOM_LAYER_HIDDEN, "Hidden");
+        m.layer = 2;
+        const u32 hid = line(&m, 0, 2800, 100, 2800, 2.0, 2.0f);   // straight below the camera, on the hidden layer
+        m.layer = 0;
+        fude_zoom_scene_layers_refresh(&m);
+        n = fude_zoom_nav_marks(&m, half, 30.0f, marks);
+        b8 below = false;
+        for(u32 i = 0; i < n; i++) {
+            below = below || (!marks[i].ring && fabsf(marks[i].angle + 1.5708f) < 0.3f);
+        }
+        CHECK(!below && n == 2);   // only the two lines still drawn (down-left and down-right)
+        fude_zoom_scene_set_alive(&m, rec, false);
+        fude_zoom_scene_layers_refresh(&m);
+        n = fude_zoom_nav_marks(&m, half, 30.0f, marks);
+        CHECK(n == 3);   // shown again: an arrow to it
+        // A box with nothing in it is framed sanely (never a zoom without end).
+        const fude_zoom_camera p = fude_zoom_nav_framing(half, m.root, (fude_zoom_box){ 0, 0, 0, 0 }, 0.6);
+        CHECK(isfinite(p.z) && p.z < 1e9);
+        fude_zoom_scene_set_alive(&m, hid, false);
+        fude_zoom_camera_look_at(&m, m.root, (fude_zoom_v2){ 0, 0 }, 1.0);
+    }
     // Far out, both on screen but specks (a point across): a ring round each, no arrows.
     fude_zoom_camera_look_at(&m, m.root, (fude_zoom_v2){ 0, 0 }, 0.01);
     n = fude_zoom_nav_marks(&m, half, 30.0f, marks);
@@ -873,6 +1346,64 @@ static f64 tri_area(const rde_arr* t) {
     for(u32 i = 0; i + 2 < (u32)rde_arr_length(t); i += 3)
         a += fabs((v[i + 1].x - v[i].x) * (v[i + 2].y - v[i].y) - (v[i + 2].x - v[i].x) * (v[i + 1].y - v[i].y)) * 0.5;
     return a;
+}
+
+// A cut fill's edge as it shows (fill.h's edges_rings): how long, how many
+// lines, and none of it inside a cut or outside the outline.
+static f64 edges_length(const fude_zoom_v2* p, const u32* rings, u32 n, u32* lines, b8 (*bad)(fude_zoom_v2)) {
+    rde_arr e = rde_arr_new(sizeof(fude_zoom_v2), NULL), l = rde_arr_new(sizeof(u32), NULL);
+    const u32 k = fude_zoom_fill_edges_rings(p, rings, n, &e, &l);
+    const fude_zoom_v2* v = (const fude_zoom_v2*)e.memory;
+    const u32*          w = (const u32*)l.memory;
+    f64 len = 0;
+    *lines = k > 0 ? 1u : 0u;
+    for(u32 i = 0; i + 1 < k; i++) {
+        if(w[i + 1] != w[i]) { (*lines)++; continue; }
+        len += hypot(v[i + 1].x - v[i].x, v[i + 1].y - v[i].y);
+        if(bad((fude_zoom_v2){ (v[i].x + v[i + 1].x) * 0.5, (v[i].y + v[i + 1].y) * 0.5 })) len += 1000.0;
+    }
+    rde_arr_free(&e); rde_arr_free(&l);
+    return len;
+}
+static b8 edges_in_band(fude_zoom_v2 q) { return (q.x > 4.0 + 1e-9 && q.x < 6.0 - 1e-9) || q.y < -1e-9 || q.y > 10.0 + 1e-9 || q.x < -1e-9 || q.x > 10.0 + 1e-9; }
+static b8 edges_never(fude_zoom_v2 q) { (void)q; return false; }
+static b8 edges_in_cap(fude_zoom_v2 q) { return q.x > 4.0 + 1e-9 && q.x < 6.0 - 1e-9 && q.y > -1e-9 && q.y < 3.0 - 1e-9; }
+
+static void test_fill_edges(void) {
+    // A square, a band cut right through it (its level ends outside): two
+    // rectangles' edges, all round each (the square's stretches and the band's
+    // sides: four lines) — not the square's across the band, nor the band's
+    // beyond the square.
+    const fude_zoom_v2 sq[8] = { {0,0},{10,0},{10,10},{0,10}, {4,-5},{6,-5},{6,15},{4,15} };
+    const u32          sr[8] = { 0,0,0,0, 1,1,1,1 };
+    u32 lines = 0;
+    f64 len = edges_length(sq, sr, 8, &lines, edges_in_band);
+    CHECK(fabs(len - 56.0) < 1e-9 && lines == 4);
+    // The band only part way in from the bottom (a bite): the square's line
+    // round from one side of it to the other, and the bite's.
+    const fude_zoom_v2 bi[8] = { {0,0},{10,0},{10,10},{0,10}, {4,-5},{6,-5},{6,3},{4,3} };
+    len = edges_length(bi, sr, 8, &lines, edges_in_cap);
+    CHECK(fabs(len - (40.0 - 2.0 + 3.0 + 3.0 + 2.0)) < 1e-9 && lines == 2);
+    // Uncut: the outline as it is.
+    len = edges_length(sq, sr, 4, &lines, edges_never);
+    CHECK(fabs(len - 40.0) < 1e-9 && lines == 1);
+    // A level stroke rubbed through the middle (the eraser's way slanted, its
+    // own ends round): no hairline left bridging the gap.
+    const fude_zoom_v2 ln[10] = { {-50,-2},{50,-2},{50,2},{-50,2}, {-3,-9},{1,-9},{3,9},{-1,9},{-2,0},{2,0} };
+    const u32          lr[10] = { 0,0,0,0, 1,1,1,1,1,1 };
+    rde_arr e = rde_arr_new(sizeof(fude_zoom_v2), NULL), l = rde_arr_new(sizeof(u32), NULL);
+    const u32 k = fude_zoom_fill_edges_rings(ln, lr, 8, &e, &l);
+    const fude_zoom_v2* v = (const fude_zoom_v2*)e.memory;
+    const u32*          w = (const u32*)l.memory;
+    b8 bridged = false;
+    for(u32 i = 0; i + 1 < k; i++) {
+        if(w[i + 1] != w[i]) continue;
+        const fude_zoom_v2 m = { (v[i].x + v[i + 1].x) * 0.5, (v[i].y + v[i + 1].y) * 0.5 };
+        const f64 cut_x = m.y / 9.0;   // the band's middle at that height
+        if(fabs(m.x - cut_x) < 1.9) bridged = true;
+    }
+    CHECK(!bridged && k > 0);
+    rde_arr_free(&e); rde_arr_free(&l);
 }
 
 static void test_filling(void) {
@@ -1061,6 +1592,18 @@ static void test_filling(void) {
 
 // --- export ----------------------------------------------------------------------------------------
 
+// What an export walk hands on, in order: each thing's colour's red (the test's marks).
+static u8  walked[16];
+static u32 walked_n;
+static void walked_stroke(void* self, const fude_zoom_v2* p, const f64* r, u32 n, rde_color color) {
+    (void)self; (void)p; (void)r; (void)n;
+    if(walked_n < 16u) walked[walked_n++] = color.r;
+}
+static void walked_shape(void* self, const fude_zoom_v2* p, u32 n, b8 closed, f64 radius, rde_color line_color, rde_color fill) {
+    (void)self; (void)p; (void)n; (void)closed; (void)radius; (void)fill;
+    if(walked_n < 16u) walked[walked_n++] = line_color.r;
+}
+
 static void test_export(void) {
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
     const fude_zoom_v2 half = { 500, 400 };
@@ -1088,6 +1631,1594 @@ static void test_export(void) {
     u32 paths = 0; for(const c8* p = svg; (p = strstr(p, "<path")) != NULL; p++) paths++;
     CHECK(paths == 3);
     rde_arr_free(&b);
+
+    // The same view as a PDF: a page the screen's size, the things on it as paths.
+    fude_bytes pb = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf(&s, half, (rde_color){ 240, 230, 210, 255 }, &pb));
+    rde_arr_add(&pb, &(u8){ 0 });
+    const c8* pdf = (const c8*)pb.memory;
+    CHECK(strncmp(pdf, "%PDF-1.4", 8) == 0 && strstr(pdf, "/MediaBox [0 0 1000 800]") != NULL && strstr(pdf, "%%EOF") != NULL);
+    CHECK(strstr(pdf, "400 400 m") != NULL && strstr(pdf, "600 400 l") != NULL);   // the stroke at the middle (its origin bottom left)
+    rde_arr_free(&pb);
+
+    // ...and for cutting: millimetres (here 2 a point), a layer for its colour, the far stroke left out.
+    fude_bytes db = fude_bytes_new(4096);
+    fude_zoom_export_check check;
+    CHECK(fude_zoom_export_dxf(&s, half, 2.0, &db, &check));
+    rde_arr_add(&db, &(u8){ 0 });
+    const c8* dxf = (const c8*)db.memory;
+    CHECK(strstr(dxf, "AC1009") != NULL && strstr(dxf, "$INSUNITS") != NULL && strstr(dxf, "POLYLINE") != NULL);
+    CHECK(strstr(dxf, "-200") != NULL && strstr(dxf, "\r\n 10\r\n200\r\n") != NULL);   // the stroke, x from -200 mm to 200 mm
+    CHECK(check.paths == 3u && check.open_paths == 2u);   // two strokes open; the rectangle closed
+    rde_arr_free(&db);
+
+    // A template to print: a tenth of a millimetre a point, 100 x 80 mm, one A4 page, as it is...
+    fude_bytes tb = fude_bytes_new(4096);
+    u32 pages = 0;
+    CHECK(fude_zoom_export_tiles(&s, half, 0.1, 210.0, 297.0, (fude_zoom_v2){ 0.0, 0.0 }, &tb, &pages) && pages == 1u);
+    rde_arr_add(&tb, &(u8){ 0 });
+    CHECK(strstr((const c8*)tb.memory, "/MediaBox [0 0 595.2756 841.8898]") != NULL);   // A4 exactly
+    CHECK(strstr((const c8*)tb.memory, "1.020408 0 0 0.980392") == NULL);
+    rde_arr_free(&tb);
+    // ...and for a printer that prints 2% short across and 2% long down: drawn that much longer across, shorter down.
+    tb = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_tiles(&s, half, 0.1, 210.0, 297.0, (fude_zoom_v2){ 0.98, 1.02 }, &tb, &pages) && pages == 1u);
+    rde_arr_add(&tb, &(u8){ 0 });
+    CHECK(strstr((const c8*)tb.memory, "1.020408 0 0 0.980392") != NULL);
+    rde_arr_free(&tb);
+    // The printer's check: one page, its two lines and their lengths.
+    tb = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_print_check(210.0, 297.0, &tb));
+    rde_arr_add(&tb, &(u8){ 0 });
+    const c8* chk = (const c8*)tb.memory;
+    CHECK(strstr(chk, "/Count 1") != NULL && strstr(chk, "Printer check") != NULL && strstr(chk, "X  150 mm") != NULL && strstr(chk, "Y  200 mm") != NULL);
+    rde_arr_free(&tb);
+    fude_zoom_scene_destroy(&s);
+
+    // In the order drawn, highlights too (Borja, from the tablet: "marker draws behind everything even if it is used
+    // after what is painted on"; then "still behind others": under the writing it went over): writing, highlighted;
+    // a board painted over it; highlighted again over the board, written on — each over what was there before it.
+    fude_zoom_scene_init(&s, 7);
+    const u32 ink1 = line(&s, -100, 0, 100, 0, 2.0, 2.0f);
+    const u32 hi1  = line(&s, -100, 4, 100, 4, 2.0, 6.0f);
+    const f64 brd[3] = { 120, 40, 0 };
+    fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, brd, 3, (rde_color){ 3, 0, 0, 255 }, 1.0f,
+                                   FUDE_ZOOM_FLAG_FILLED | FUDE_ZOOM_FLAG_FILL_OWN, (rde_color){ 200, 160, 90, 255 }, 0);
+    const u32 hi2  = line(&s, -100, -4, 100, -4, 2.0, 6.0f);
+    const u32 ink2 = line(&s, -100, -8, 100, -8, 2.0, 2.0f);
+    const u32 marks[4] = { ink1, hi1, hi2, ink2 };
+    const u8  reds[4]  = { 1, 2, 4, 5 };
+    for(u32 k = 0; k < 4u; k++) {
+        fude_zoom_object* o = (fude_zoom_object*)fude_zoom_scene_object(&s, marks[k]);
+        o->color.r = reds[k];
+        if(k == 1u || k == 2u) o->flags |= FUDE_ZOOM_FLAG_MARKER;
+    }
+    const fude_zoom_export_sink rec = { NULL, walked_stroke, walked_shape, NULL, NULL, NULL };
+    walked_n = 0;
+    fude_zoom_export_walk(&s, half, &rec);
+    CHECK(walked_n == 5u && walked[0] == 1u && walked[1] == 2u && walked[2] == 3u && walked[3] == 4u && walked[4] == 5u);
+    fude_zoom_scene_destroy(&s);
+}
+
+// --- the paint bucket -------------------------------------------------------------------------
+
+static void test_bucket(void) {
+    // A square of four separate lines, a gap of 4 at one corner; an island inside.
+    const fude_zoom_bucket_ink ink[8] = {
+        { { -100, -100 }, { 100, -100 }, 1.5 }, { { 100, -100 }, { 100, 100 }, 1.5 },
+        { { 100, 100 }, { -100, 100 }, 1.5 },   { { -100, 100 }, { -100, -92 }, 1.5 },   // a gap of 5 between their edges
+        { { 20, 20 }, { 50, 20 }, 1.5 }, { { 50, 20 }, { 50, 50 }, 1.5 }, { { 50, 50 }, { 20, 50 }, 1.5 }, { { 20, 50 }, { 20, 20 }, 1.5 },
+    };
+    const fude_zoom_box bounds = { -300, -300, 300, 300 };
+    rde_arr out = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    rde_arr rings = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    // The gap closed (8 wide): filled to the lines' middles, the island left out.
+    CHECK(fude_zoom_bucket_region(ink, 8, bounds, (fude_zoom_v2){ -50, -50 }, 1.0, 8.0, 1.5, &out, &rings) == FUDE_ZOOM_BUCKET_FILLED);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)out.memory;
+    const u32* r = (const u32*)rings.memory;
+    const u32 n = (u32)rde_arr_length(&out);
+    CHECK(fude_zoom_fill_inside_rings(p, r, n, (fude_zoom_v2){ -50, -50 }) && fude_zoom_fill_inside_rings(p, r, n, (fude_zoom_v2){ 90, 90 }));
+    CHECK(fude_zoom_fill_inside_rings(p, r, n, (fude_zoom_v2){ -99.5, 0 }));    // under the line: no seam
+    CHECK(!fude_zoom_fill_inside_rings(p, r, n, (fude_zoom_v2){ -120, 0 }) && !fude_zoom_fill_inside_rings(p, r, n, (fude_zoom_v2){ 35, 35 }));   // outside; the island
+    // A gap wider than closed: it runs out, nothing filled.
+    CHECK(fude_zoom_bucket_region(ink, 8, bounds, (fude_zoom_v2){ -50, -50 }, 1.0, 2.0, 1.5, &out, &rings) == FUDE_ZOOM_BUCKET_OPEN);
+    CHECK(rde_arr_length(&out) == 0);
+    // On the ink itself.
+    CHECK(fude_zoom_bucket_region(ink, 8, bounds, (fude_zoom_v2){ 0, -100 }, 1.0, 8.0, 1.5, &out, &rings) == FUDE_ZOOM_BUCKET_ON_INK);
+    rde_arr_free(&out); rde_arr_free(&rings);
+}
+
+// --- offsets ------------------------------------------------------------------------------------
+
+static void test_offsets(void) {
+    const fude_zoom_v2 sq[4] = { { 0, 0 }, { 100, 0 }, { 100, 100 }, { 0, 100 } };
+    rde_arr out = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    // Out by 5: 5 past each side, its corners round.
+    CHECK(fude_zoom_fill_offset(sq, 4, 5.0, &out) > 8u);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)out.memory;
+    u32 n = (u32)rde_arr_length(&out);
+    CHECK(fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 104, 50 }) && !fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 106, 50 }));
+    CHECK(fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 102, 102 }) && !fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 104.5, 104.5 }));   // round: under 5 from the corner
+    // In by 5.
+    CHECK(fude_zoom_fill_offset(sq, 4, -5.0, &out) >= 4u);
+    p = (const fude_zoom_v2*)out.memory;
+    n = (u32)rde_arr_length(&out);
+    CHECK(fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 50, 50 }) && fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 94, 50 }) && !fude_zoom_fill_inside(p, n, (fude_zoom_v2){ 96, 50 }));
+    rde_arr_free(&out);
+}
+
+// --- connectors ---------------------------------------------------------------------------------
+
+static void test_connectors(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const f64 box[3] = { 20, 10, 0 };
+    const u32 a = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    const u32 b = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    // Its ends on their edges, aimed at their middles: x 20 to x 80.
+    const fude_zoom_v2 ea = fude_zoom_connect_edge(&s, a, fude_zoom_connect_middle(&s, b));
+    const fude_zoom_v2 eb = fude_zoom_connect_edge(&s, b, fude_zoom_connect_middle(&s, a));
+    CHECK(fabs(ea.x - 20) < 1e-6 && fabs(ea.y) < 1e-6 && fabs(eb.x - 80) < 1e-6);
+    const u32 c = fude_zoom_connect_add(&s, s.root, ea, eb, a, b, FUDE_ZOOM_ARROW_END, (rde_color){ 1, 1, 1, 255 }, 0.5f);
+    // b moved up 100 (as the lasso does): the connector follows, its end on b's bottom edge, its start on a's top.
+    const fude_zoom_place bb = fude_zoom_scene_place_of(&s, b);
+    const fude_zoom_place ba = fude_zoom_place_moved(bb, (fude_zoom_sim){ 1.0, 0.0, -100.0, 100.0 });   // to (0, 100)
+    fude_zoom_scene_set_place(&s, b, ba);
+    rde_arr ids = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr bef = rde_arr_new(sizeof(fude_zoom_place), rde_memory_allocator_get_default_std());
+    rde_arr aft = rde_arr_new(sizeof(fude_zoom_place), rde_memory_allocator_get_default_std());
+    CHECK(fude_zoom_connect_follow(&s, s.root, &b, 1, &ids, &bef, &aft) == 1u);
+    CHECK(((const u32*)ids.memory)[0] == c);
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    CHECK(fude_zoom_scene_shape_numbers(&s, c, n, FUDE_ZOOM_SHAPE_NUMBERS) == 8u);
+    const fude_zoom_sim cs = fude_zoom_object_sim(fude_zoom_scene_object(&s, c));
+    const fude_zoom_v2 p0 = fude_zoom_sim_apply(cs, (fude_zoom_v2){ n[1], n[2] }), p1 = fude_zoom_sim_apply(cs, (fude_zoom_v2){ n[3], n[4] });
+    CHECK(fabs(p0.x) < 1e-6 && fabs(p0.y - 10) < 1e-6 && fabs(p1.x) < 1e-6 && fabs(p1.y - 90) < 1e-6);
+    // Undone with the move as one step: the connector back where it was.
+    const u32 moved[2] = { b, c };
+    const fude_zoom_place before[2] = { bb, ((const fude_zoom_place*)bef.memory)[0] }, after[2] = { ba, ((const fude_zoom_place*)aft.memory)[0] };
+    fude_zoom_history_push_moved(&s, s.root, (fude_zoom_box){ 0, 0, 1, 1 }, moved, before, after, 2);
+    CHECK(fude_zoom_history_undo(&s));
+    const fude_zoom_sim cu = fude_zoom_object_sim(fude_zoom_scene_object(&s, c));
+    CHECK(fabs(fude_zoom_sim_apply(cu, (fude_zoom_v2){ n[3], n[4] }).x - 80) < 1e-6);
+    // Not joined to what moved: left alone.
+    rde_arr_clear(&ids);
+    const u32 lone = fude_zoom_connect_add(&s, s.root, (fude_zoom_v2){ 0, 300 }, (fude_zoom_v2){ 50, 300 }, FUDE_ZOOM_NONE, FUDE_ZOOM_NONE, 0u, (rde_color){ 1, 1, 1, 255 }, 0.5f);
+    (void)lone;
+    CHECK(fude_zoom_connect_follow(&s, s.root, &a, 1, &ids, &bef, &aft) == 1u);   // only the joined one
+    rde_arr_free(&ids); rde_arr_free(&bef); rde_arr_free(&aft);
+    fude_zoom_scene_destroy(&s);
+}
+
+// What the lasso holds moved onto another layer: copies where they were, in
+// their order; a connector joined to one joined to its copy; one undo step.
+static void test_layer_moves(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const f64 box[3] = { 20, 10, 0 };
+    const u32 a = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    const u32 b = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    const u32 c = fude_zoom_connect_add(&s, s.root, (fude_zoom_v2){ 20, 0 }, (fude_zoom_v2){ 80, 0 }, a, b, FUDE_ZOOM_ARROW_END, (rde_color){ 1, 1, 1, 255 }, 0.5f);
+    const u32 l = line(&s, 0, 50, 100, 50, 1.0, 1.0f);
+    const u64 za = fude_zoom_scene_object(&s, a)->z;
+    fude_zoom_selection sel; fude_zoom_select_init(&sel);
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ a });
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ l });
+    CHECK(fude_zoom_select_to_layer(&sel, &s, 3) == 3u);   // a, the line, and the connector joined again
+    CHECK(!alive(&s, a) && !alive(&s, l) && !alive(&s, c) && alive(&s, b));
+    const u32 a2 = ((const fude_zoom_pick*)sel.picks.memory)[0].object, l2 = ((const fude_zoom_pick*)sel.picks.memory)[1].object;
+    CHECK(alive(&s, a2) && alive(&s, l2) && fude_zoom_scene_object(&s, a2)->layer == 3 && fude_zoom_scene_object(&s, l2)->layer == 3);
+    CHECK(fude_zoom_scene_object(&s, a2)->z == za && fude_zoom_scene_object(&s, a2)->box.max_x == fude_zoom_scene_object(&s, a)->box.max_x);
+    u32 arrows = 0;
+    for(u32 i = 0; i < fude_zoom_scene_object_count(&s); i++) {
+        const fude_zoom_object* o = fude_zoom_scene_object(&s, i);
+        if(!(o->flags & FUDE_ZOOM_FLAG_ALIVE) || o->kind != FUDE_ZOOM_KIND_SHAPE || o->channels != FUDE_ZOOM_SHAPE_ARROW) continue;
+        f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+        CHECK(fude_zoom_scene_shape_numbers(&s, i, n, FUDE_ZOOM_SHAPE_NUMBERS) == 8u);
+        fude_zoom_id from, to;
+        memcpy(&from, &n[6], sizeof from); memcpy(&to, &n[7], sizeof to);
+        CHECK(from == fude_zoom_scene_object(&s, a2)->id && to == fude_zoom_scene_object(&s, b)->id && o->layer == 0);
+        arrows++;
+    }
+    CHECK(arrows == 1u);
+    // Moving b now: the joined-again connector follows it.
+    rde_arr ids = rde_arr_new(sizeof(u32), NULL), bef = rde_arr_new(sizeof(fude_zoom_place), NULL), aft = rde_arr_new(sizeof(fude_zoom_place), NULL);
+    fude_zoom_scene_set_place(&s, b, fude_zoom_place_moved(fude_zoom_scene_place_of(&s, b), (fude_zoom_sim){ 1.0, 0.0, 0.0, 100.0 }));
+    CHECK(fude_zoom_connect_follow(&s, s.root, &b, 1, &ids, &bef, &aft) == 1u);
+    rde_arr_free(&ids); rde_arr_free(&bef); rde_arr_free(&aft);
+    fude_zoom_scene_set_place(&s, b, fude_zoom_place_moved(fude_zoom_scene_place_of(&s, b), (fude_zoom_sim){ 1.0, 0.0, 0.0, -100.0 }));
+    // Already there: nothing to do.
+    CHECK(fude_zoom_select_to_layer(&sel, &s, 3) == 0u);
+    // One undo: as it was.
+    CHECK(fude_zoom_history_undo(&s));
+    CHECK(alive(&s, a) && alive(&s, l) && alive(&s, c) && !alive(&s, a2) && !alive(&s, l2));
+    CHECK(fude_zoom_history_redo(&s));
+    CHECK(!alive(&s, a) && alive(&s, a2) && alive(&s, l2) && !alive(&s, c));
+    fude_zoom_select_destroy(&sel);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Driving: the point at a dimension's end moved, and everything with an end or a corner there with it.
+static void test_driving(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    const f64 ln[2] = { 100, 0 }, dim[3] = { 100, 0, 10 }, poly[6] = { 100, 0, 150, 50, 100, 50 }, rect[3] = { 25, 25, 0 }, up[2] = { 0, 100 };
+    const u32 l = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, ln, 2, c, 1.0f, 0u, 0);
+    const u32 d = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_DIMENSION, dim, 3, c, 0.5f, 0u, 0);
+    const u32 p = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_POLYGON, poly, 6, c, 1.0f, 0u, 0);
+    const u32 r = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 125, -25 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, rect, 3, c, 1.0f, 0u, 0);
+    const u32 v = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, up, 2, c, 1.0f, 0u, 0);
+    const u32 far = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 300, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, ln, 2, c, 1.0f, 0u, 0);
+    rde_arr died = rde_arr_new(sizeof(u32), NULL), born = rde_arr_new(sizeof(u32), NULL);
+    CHECK(fude_zoom_connect_drive(&s, s.root, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 120, 0 }, 1e-6, d, &died, &born) == 4u);   // the dimension itself skipped
+    CHECK(!alive(&s, l) && !alive(&s, p) && !alive(&s, r) && !alive(&s, v) && alive(&s, d) && alive(&s, far));
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32* b = (const u32*)born.memory;
+    // The line ends at 120 now; the polygon's corner is there; the rectangle's far corner stayed (150, -50).
+    CHECK(fude_zoom_scene_shape_numbers(&s, b[0], n, 8) == 2u && fabs(n[0] - 120) < 1e-9 && fabs(n[1]) < 1e-9);
+    CHECK(fude_zoom_scene_shape_numbers(&s, b[1], n, 8) == 6u && fabs(n[0] - 120) < 1e-9 && fabs(n[2] - 150) < 1e-9);
+    CHECK(fude_zoom_scene_shape_numbers(&s, b[2], n, 8) == 3u && fabs(n[0] - 15) < 1e-9 && fabs(n[1] - 25) < 1e-9);
+    const fude_zoom_place rp = fude_zoom_scene_place_of(&s, b[2]);
+    CHECK(fabs(rp.t.x - 135) < 1e-9 && fabs(rp.t.y + 25) < 1e-9);
+    // The line that started there starts at 120, its end where it was (100, 100).
+    const fude_zoom_place vp = fude_zoom_scene_place_of(&s, b[3]);
+    CHECK(fude_zoom_scene_shape_numbers(&s, b[3], n, 8) == 2u && fabs(vp.t.x - 120) < 1e-9 && fabs(vp.t.x + n[0] - 100) < 1e-9 && fabs(vp.t.y + n[1] - 100) < 1e-9);
+    // Turned and scaled, the same: a line at 90 degrees, twice its size, its end at (0, 100).
+    const f64 half[2] = { 0, -50 };
+    const u32 t = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 50 }, 3.14159265358979323846 / 2.0, 2.0 }, FUDE_ZOOM_SHAPE_LINE, half, 2, c, 1.0f, 0u, 0);
+    rde_arr_clear(&died); rde_arr_clear(&born);
+    CHECK(fude_zoom_connect_drive(&s, s.root, (fude_zoom_v2){ 100, 50 }, (fude_zoom_v2){ 110, 50 }, 1e-6, FUDE_ZOOM_NONE, &died, &born) >= 1u);   // (and the polygon's corner)
+    CHECK(!alive(&s, t));
+    for(u32 i = 0; i < (u32)rde_arr_length(&born); i++) {
+        const u32 o = ((const u32*)born.memory)[i];
+        if(fude_zoom_scene_object(&s, o)->channels != FUDE_ZOOM_SHAPE_LINE) continue;
+        const fude_zoom_sim os = fude_zoom_object_sim(fude_zoom_scene_object(&s, o));
+        CHECK(fude_zoom_scene_shape_numbers(&s, o, n, 8) == 2u);
+        const fude_zoom_v2 e = fude_zoom_sim_apply(os, (fude_zoom_v2){ n[0], n[1] }), a = fude_zoom_sim_apply(os, (fude_zoom_v2){ 0, 0 });
+        CHECK(fabs(e.x - 110) < 1e-9 && fabs(e.y - 50) < 1e-9 && fabs(a.x) < 1e-9 && fabs(a.y - 50) < 1e-9);
+    }
+    // A rectangle's corner driven onto the line of the one across from it: flattened to nothing, so left as it was.
+    const f64 sq[3] = { 10, 10, 0 };
+    const u32 flat = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 500, 500 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, sq, 3, c, 1.0f, 0u, 0);
+    rde_arr_clear(&died); rde_arr_clear(&born);
+    CHECK(fude_zoom_connect_drive(&s, s.root, (fude_zoom_v2){ 510, 510 }, (fude_zoom_v2){ 490, 530 }, 1e-6, FUDE_ZOOM_NONE, &died, &born) == 0u && alive(&s, flat));
+    rde_arr_free(&died); rde_arr_free(&born);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Boards: their numbers (a name kept in them), their outline, and the cut list.
+static void test_boards(void) {
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    c8 name[FUDE_ZOOM_BOARD_NAME];
+    u32 count = fude_zoom_board_numbers(n, 300, 150, 18, 0, "Lateral izquierdo");
+    CHECK(count == 4u + 3u && n[0] == 300 && n[1] == 150 && n[2] == 18 && n[3] == 0);
+    fude_zoom_board_name(n, count, name, sizeof name);
+    CHECK(strcmp(name, "Lateral izquierdo") == 0);
+    // Its look: its grain, its material over it; one from before materials (its grain alone) of none said.
+    CHECK(fude_zoom_board_look(n, count) == 0u && fude_zoom_board_material(n, count) == FUDE_ZOOM_MATERIAL_NONE);
+    count = fude_zoom_board_numbers(n, 300, 150, 18, (u8)(1u | (FUDE_ZOOM_MATERIAL_WALNUT << 1)), "Lateral izquierdo");
+    CHECK(fude_zoom_board_grain(n, count) == 1u && fude_zoom_board_material(n, count) == FUDE_ZOOM_MATERIAL_WALNUT);
+    fude_zoom_board_name(n, count, name, sizeof name);
+    CHECK(strcmp(name, "Lateral izquierdo") == 0);
+    n[3] = (f64)(fude_zoom_board_look(n, count) ^ 1u);   // (its grain turned: its material kept)
+    CHECK(fude_zoom_board_grain(n, count) == 0u && fude_zoom_board_material(n, count) == FUDE_ZOOM_MATERIAL_WALNUT);
+    n[3] = 1.0;
+    CHECK(fude_zoom_board_grain(n, count) == 1u && fude_zoom_board_material(n, count) == FUDE_ZOOM_MATERIAL_NONE);
+    count = fude_zoom_board_numbers(n, 300, 150, 18, (u8)(FUDE_ZOOM_MATERIAL_COUNT << 1), "Odd");   // (one it does not know: none said)
+    CHECK(fude_zoom_board_material(n, count) == FUDE_ZOOM_MATERIAL_NONE);
+    CHECK(fude_zoom_material_wood(FUDE_ZOOM_MATERIAL_WALNUT).r < fude_zoom_material_wood(FUDE_ZOOM_MATERIAL_MAPLE).r);
+    // Too long: cut at a whole character, NUL kept.
+    c8 longer[300] = { 0 };
+    for(u32 i = 0; i < 120; i++) { longer[i * 2] = (c8)0xC3; longer[i * 2 + 1] = (c8)0xA1; }   // "á" 120 times
+    count = fude_zoom_board_numbers(n, 1, 1, 1, 1, longer);
+    CHECK(count == 4u + FUDE_ZOOM_BOARD_NAME / 8u);
+    fude_zoom_board_name(n, count, name, sizeof name);
+    CHECK(strlen(name) == FUDE_ZOOM_BOARD_NAME - 2u && ((u8)name[strlen(name) - 1u] == 0xA1));
+    // Its outline: a rectangle, never a round-cornered one (its third number is its thickness).
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    b8 closed = false;
+    count = fude_zoom_board_numbers(n, 300, 150, 18, 0, "Side");
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_BOARD, n, count, 64, &pts, &closed);
+    CHECK(rde_arr_length(&pts) == 4u && closed && ((const fude_zoom_v2*)pts.memory)[2].x == 300 && ((const fude_zoom_v2*)pts.memory)[2].y == 150);
+    rde_arr_free(&pts);
+    // The cut list: two sides alike, a top (its width longer than its length: turned), one on a hidden layer left out.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    count = fude_zoom_board_numbers(n, 300, 150, 18, 0, "Side");
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, n, count, c, 0.5f, 0u, 0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 400 }, 0.7, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, n, count, c, 0.5f, 0u, 0);   // (turned: the same part)
+    count = fude_zoom_board_numbers(n, 150, 400, 18, 0, "Top, oak");
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 900, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, n, count, c, 0.5f, 0u, 0);
+    count = fude_zoom_board_numbers(n, 300, 150, 18, (u8)(FUDE_ZOOM_MATERIAL_WALNUT << 1), "Side");   // (the same part in walnut: a row of its own)
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 900 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, n, count, c, 0.5f, 0u, 0);
+    s.layer = 2;
+    count = fude_zoom_board_numbers(n, 100, 100, 9, 0, "Hidden");
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, -900 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, n, count, c, 0.5f, 0u, 0);
+    s.layer = 0;
+    s.layers_hidden = 4u;
+    const c8* const header[7] = { "Part", "Qty", "Length (mm)", "Width (mm)", "Thickness (mm)", "Material", "Grain" };
+    const c8* const grain[2] = { "along", "across" };
+    const c8* const materials[FUDE_ZOOM_MATERIAL_COUNT] = { "", "Pine", "Oak", "Walnut", "Maple", "Beech", "Cherry", "Birch plywood", "MDF", "Melamine" };
+    fude_bytes out = fude_bytes_new(256);
+    CHECK(fude_zoom_export_cutlist(&s, 1.0, header, grain, materials, &out) == 4u);
+    rde_arr_add(&out, &(u8){ 0 });
+    const c8* csv = (const c8*)out.memory;
+    CHECK(strstr(csv, "Part,Qty,Length (mm),Width (mm),Thickness (mm),Material,Grain\r\n") == csv);
+    CHECK(strstr(csv, "Side,2,600.0,300.0,18.0,,along\r\n") != NULL);
+    CHECK(strstr(csv, "Side,1,600.0,300.0,18.0,Walnut,along\r\n") != NULL);
+    CHECK(strstr(csv, "\"Top, oak\",1,800.0,300.0,18.0,,across\r\n") != NULL);
+    CHECK(strstr(csv, "Hidden") == NULL);
+    rde_arr_free(&out);
+    // Its name in an export, in its middle.
+    s.layers_hidden = 0u;
+    fude_bytes svg = fude_bytes_new(256);
+    CHECK(fude_zoom_export_svg(&s, (fude_zoom_v2){ 2000, 2000 }, (rde_color){ 255, 255, 255, 255 }, &svg));
+    rde_arr_add(&svg, &(u8){ 0 });
+    CHECK(strstr((const c8*)svg.memory, ">Side<") != NULL && strstr((const c8*)svg.memory, "Top, oak") != NULL);
+    rde_arr_free(&svg);
+    // A template on Letter paper: its pages Letter's size.
+    fude_bytes letter = fude_bytes_new(256);
+    u32 pages = 0;
+    CHECK(fude_zoom_export_tiles(&s, (fude_zoom_v2){ 500, 400 }, 0.1, 215.9, 279.4, (fude_zoom_v2){ 0, 0 }, &letter, &pages) && pages == 1u);
+    rde_arr_add(&letter, &(u8){ 0 });
+    CHECK(strstr((const c8*)letter.memory, "/MediaBox [0 0 612 792]") != NULL);
+    rde_arr_free(&letter);
+    // More than 26 rows (they go by letter): not made, even within 64 pages.
+    letter = fude_bytes_new(256);
+    CHECK(!fude_zoom_export_tiles(&s, (fude_zoom_v2){ 50, 3610 }, 1.0, 210.0, 297.0, (fude_zoom_v2){ 0, 0 }, &letter, &pages));
+    rde_arr_free(&letter);
+    // A board two frames down, the frame between deleted: not on the cut list any more.
+    {
+        fude_zoom_scene d; fude_zoom_scene_init(&d, 9);
+        const fude_zoom_v2 half = { 500, 400 };
+        for(u32 k = 0; k < 24; k++) { fude_zoom_camera_zoom_at(&d, (fude_zoom_v2){ 0, 0 }, 2.0); fude_zoom_camera_settle(&d, half); }   // (two frames down)
+        const u32 deep = d.camera.frame;
+        CHECK(deep != d.root && fude_zoom_scene_frame(&d, deep)->parent != d.root && fude_zoom_scene_frame(&d, deep)->parent != FUDE_ZOOM_NONE);
+        f64 bn[FUDE_ZOOM_SHAPE_NUMBERS];
+        const u32 bc = fude_zoom_board_numbers(bn, 1, 1, 18, 0, "Deep");
+        const u32 b = fude_zoom_scene_add_shape(&d, deep, (fude_zoom_place){ d.camera.at, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, bn, bc, c, 0.1f, 0u, 0);
+        fude_zoom_history_push(&d, deep, fude_zoom_scene_object(&d, b)->box, NULL, 0, &b, 1);
+        fude_bytes list = fude_bytes_new(256);
+        CHECK(fude_zoom_export_cutlist(&d, 1.0, header, grain, materials, &list) == 1u);
+        rde_arr_free(&list);
+        const u32 middle = fude_zoom_scene_frame(&d, deep)->parent;
+        fude_zoom_scene_set_alive(&d, fude_zoom_scene_frame(&d, middle)->object, false);   // the frame between, deleted
+        CHECK(!fude_zoom_scene_frame_shown(&d, deep) && fude_zoom_scene_frame_shown(&d, d.root));
+        list = fude_bytes_new(256);
+        CHECK(fude_zoom_export_cutlist(&d, 1.0, header, grain, materials, &list) == 0u);
+        rde_arr_free(&list);
+        fude_zoom_scene_destroy(&d);
+    }
+    fude_zoom_scene_destroy(&s);
+}
+
+// The diagram library: every symbol drawn (its outline closed and in its box), its text kept and split,
+// a class's compartments; a connector's ends.
+// The map (map.h): what is drawn and the view, root units; the areas by name, in order; the places by number;
+// what a map of a shape shows; where a tap flies.
+static void test_map(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const fude_zoom_v2 half = { 500, 400 };
+    CHECK(fude_zoom_box_is_empty(fude_zoom_map_contents(&s)));
+    line(&s, 0, 0, 100, 0, 2.0, 2.0f);
+    line(&s, 3000, 1000, 3100, 1000, 2.0, 2.0f);   // far off, at the same depth
+    fude_zoom_box c = fude_zoom_map_contents(&s);
+    CHECK(c.min_x < 1.0 && c.max_x > 3099.0 && c.min_y < 1.0 && c.max_y > 999.0);
+    // Two areas, the second made first is not: in the order made; a name its first line.
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 area = fude_zoom_symbol_find("area");
+    CHECK(area != FUDE_ZOOM_NONE && fude_zoom_symbol_info_of(area)->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER);
+    u32 cnt = fude_zoom_symbol_numbers(n, area, 200, 100, 20, "Kitchen\nfirst floor");
+    const u32 a1 = fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 50, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, n, cnt, (rde_color){ 1, 2, 3, 255 }, 1.0f, 0, (rde_color){ 0, 0, 0, 0 }, 0);
+    cnt = fude_zoom_symbol_numbers(n, area, 300, 300, 20, "Garden");
+    const u32 a2 = fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 3050, 1000 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, n, cnt, (rde_color){ 1, 2, 3, 255 }, 1.0f, 0, (rde_color){ 0, 0, 0, 0 }, 0);
+    cnt = fude_zoom_symbol_numbers(n, fude_zoom_symbol_find("process"), 60, 35, 15, "Not an area");
+    fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 0, 500 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, n, cnt, (rde_color){ 1, 2, 3, 255 }, 1.0f, 0, (rde_color){ 0, 0, 0, 0 }, 0);
+    fude_zoom_map_area areas[FUDE_ZOOM_MAP_AREAS];
+    CHECK(fude_zoom_map_areas(&s, areas, FUDE_ZOOM_MAP_AREAS) == 2u && areas[0].object == a1 && areas[1].object == a2);
+    CHECK(strcmp(areas[0].name, "Kitchen") == 0 && strcmp(areas[1].name, "Garden") == 0);
+    CHECK(areas[0].box.min_x <= -150.0 + 1e-6 && areas[0].box.max_x >= 250.0 - 1e-6 && areas[1].box.max_y >= 1300.0 - 1e-6);
+    CHECK(fude_zoom_map_is_area(&s, a1) && !fude_zoom_map_is_area(&s, a1 + 2u));
+    // Places by number, not as marked.
+    fude_zoom_scene_add_mark(&s, s.root, (fude_zoom_v2){ 10, 20 }, 2.0, 3u);
+    fude_zoom_scene_add_mark(&s, s.root, (fude_zoom_v2){ 30, 40 }, 2.0, 1u);
+    fude_zoom_scene_add_mark(&s, s.root, (fude_zoom_v2){ 50, 60 }, 2.0, 2u);
+    fude_zoom_map_place places[2];
+    CHECK(fude_zoom_map_places(&s, places, 2u) == 2u && places[0].number == 1u && places[1].number == 2u && places[0].at.x == 30.0);
+    // ...and left out of what is drawn.
+    c = fude_zoom_map_contents(&s);
+    CHECK(c.min_x <= -150.0 + 1e-6 && c.max_x >= 3350.0 - 1e-6);
+    // A map half as tall as wide: all of it, a margin round, that shape, the view in it.
+    const fude_zoom_box view = fude_zoom_map_view(&s, half);
+    CHECK(fabs(view.min_x + 500.0) < 1e-9 && fabs(view.max_y - 400.0) < 1e-9);
+    const fude_zoom_box w = fude_zoom_map_world(c, view, 0.5);
+    CHECK(fabs((w.max_y - w.min_y) / (w.max_x - w.min_x) - 0.5) < 1e-9);
+    CHECK(w.min_x < c.min_x && w.max_x > c.max_x && w.min_y < view.min_y && w.max_y > c.max_y);
+    // A tap far off: there, as far in as now (the view a fair part of the map); deep in, out to a ninth of it.
+    fude_zoom_camera t = fude_zoom_map_tap_view(&s, half, w, (fude_zoom_v2){ 3000, 1000 });
+    CHECK(t.frame == s.root && t.at.x == 3000.0 && fabs(t.z - 1.0) < 1e-9);
+    s.camera.z = 1000.0;
+    t = fude_zoom_map_tap_view(&s, half, w, (fude_zoom_v2){ 3000, 1000 });
+    CHECK(fabs(2.0 * half.x / t.z - (w.max_x - w.min_x) / 9.0) < 1e-6);
+    // Presented in order: the numbered first, by their numbers; the rest as made.
+    fude_zoom_map_area order[4];
+    memset(order, 0, sizeof(order));
+    snprintf(order[0].name, sizeof(order[0].name), "Garden");
+    snprintf(order[1].name, sizeof(order[1].name), "10 Shed");
+    snprintf(order[2].name, sizeof(order[2].name), "Attic");
+    snprintf(order[3].name, sizeof(order[3].name), " 2. Kitchen");
+    fude_zoom_map_areas_order(order, 4u);
+    CHECK(strcmp(order[0].name, " 2. Kitchen") == 0 && strcmp(order[1].name, "10 Shed") == 0 && strcmp(order[2].name, "Garden") == 0 && strcmp(order[3].name, "Attic") == 0);
+    // The areas as a PDF, a page each, each its own size.
+    const fude_zoom_camera views[2] = { fude_zoom_nav_framing((fude_zoom_v2){ 421, 210.5 }, s.root, areas[0].box, 0.96), fude_zoom_nav_framing((fude_zoom_v2){ 421, 421 }, s.root, areas[1].box, 0.96) };
+    const fude_zoom_v2 halves[2] = { { 421, 210.5 }, { 421, 421 } };
+    const fude_zoom_camera was = s.camera;
+    fude_bytes pdf = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf_views(&s, (rde_color){ 255, 255, 255, 255 }, views, halves, 2u, &pdf));
+    rde_arr_add(&pdf, &(u8){ 0 });
+    CHECK(strstr((const c8*)pdf.memory, "/Count 2") != NULL && strstr((const c8*)pdf.memory, "/MediaBox [0 0 842 421]") != NULL && strstr((const c8*)pdf.memory, "/MediaBox [0 0 842 842]") != NULL);
+    CHECK(memcmp(&s.camera, &was, sizeof(was)) == 0);   // (the camera put back)
+    rde_arr_free(&pdf);
+    // Exported: a symbol's text centred as on the screen; an area's name from its corner.
+    s.camera = (fude_zoom_camera){ s.root, { 1500, 500 }, 0.25 };
+    fude_bytes svg = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_svg(&s, half, (rde_color){ 255, 255, 255, 255 }, &svg));
+    rde_arr_add(&svg, &(u8){ 0 });
+    const c8* centred = strstr((const c8*)svg.memory, ">Not an area<");
+    const c8* garden  = strstr((const c8*)svg.memory, ">Garden<");
+    CHECK(centred != NULL && garden != NULL);
+    const c8* t1 = centred; while(t1 > (const c8*)svg.memory && strncmp(t1, "<text", 5) != 0) t1--;
+    const c8* t2 = garden;  while(t2 > (const c8*)svg.memory && strncmp(t2, "<text", 5) != 0) t2--;
+    CHECK(strstr(t1, "text-anchor=\"middle\"") != NULL && strstr(t1, "text-anchor=\"middle\"") < centred);
+    CHECK(strstr(t2, "text-anchor") == NULL || strstr(t2, "text-anchor") > garden);
+    rde_arr_free(&svg);
+    CHECK(fabs(fude_zoom_pdf_text_width(10.0, "Hi") - (0.722 + 0.222) * 10.0) < 1e-9);
+    s.camera = was;
+    // Nothing drawn: the view's surroundings.
+    const fude_zoom_box e = fude_zoom_map_world(fude_zoom_box_empty(), view, 0.8);
+    CHECK(e.min_x < view.min_x - 900.0 && e.max_x > view.max_x + 900.0);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Measured sheets (sheet.h): their rulers' steps at any zoom (metric and inches), their marks on the screen (each
+// side's ticks and numbers, the grid's lines, what is off the screen left out), the grid snapped to, papers found;
+// exported: their rulers in a drawing, never in a cutting file, a page each at its scale; a dimension's number written.
+static void test_sheets(void) {
+    fude_zoom_sheet_step st;
+    CHECK(fude_zoom_sheet_step_for(0.5, FUDE_ZOOM_SHEET_TICK_PT, false, &st) && st.step_mm == 5.0 && st.major == 2u && st.mid == 0u && strcmp(st.unit, "cm") == 0 && st.per_mm == 10.0);
+    CHECK(fude_zoom_sheet_step_for(0.1, FUDE_ZOOM_SHEET_TICK_PT, false, &st) && fabs(st.step_mm - 1.0) < 1e-12 && st.major == 10u && st.mid == 5u && strcmp(st.unit, "cm") == 0);
+    CHECK(fude_zoom_sheet_tick(&st, 10u) == 14.0 && fude_zoom_sheet_tick(&st, 5u) == 10.0 && fude_zoom_sheet_tick(&st, 3u) == 6.0);
+    CHECK(fude_zoom_sheet_step_for(20.0, FUDE_ZOOM_SHEET_TICK_PT, false, &st) && fabs(st.step_mm - 200.0) < 1e-9 && st.major == 5u && strcmp(st.unit, "m") == 0 && st.per_mm == 1000.0);
+    CHECK(fude_zoom_sheet_step_for(0.1, FUDE_ZOOM_SHEET_TICK_PT, true, &st) && fabs(st.step_mm - 25.4 / 16.0) < 1e-12 && st.major == 16u && st.halves && strcmp(st.unit, "in") == 0);
+    CHECK(fude_zoom_sheet_tick(&st, 16u) == 14.0 && fude_zoom_sheet_tick(&st, 8u) == 11.5 && fude_zoom_sheet_tick(&st, 4u) == 9.0 && fude_zoom_sheet_tick(&st, 1u) == 4.5);
+    CHECK(fude_zoom_sheet_step_for(10.0, FUDE_ZOOM_SHEET_TICK_PT, true, &st) && fabs(st.step_mm - 76.2) < 1e-9 && st.major == 4u && strcmp(st.unit, "ft") == 0);
+    CHECK(!fude_zoom_sheet_step_for(0.0, 7.0, false, &st));
+    c8 num[24];
+    fude_zoom_sheet_number(2.50, num, sizeof(num));
+    CHECK(strcmp(num, "2.5") == 0);
+    // Its numbers, and back.
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    fude_zoom_sheet sh;
+    CHECK(fude_zoom_sheet_numbers(n, -210.0, 148.5, 0.0, FUDE_ZOOM_SHEET_GRID) == 4u && fude_zoom_sheet_of(n, 4u, &sh));
+    CHECK(sh.hw == 210.0 && sh.hh == 148.5 && sh.scale == 1.0 && sh.flags == FUDE_ZOOM_SHEET_GRID);
+    // A3 across, a millimetre a unit, 2 points a millimetre: ticks 5 mm apart on all four sides, numbered every 2 cm
+    // (not at its corners, nor by the far ones); its unit by its first corner.
+    sh.flags = 0u;
+    rde_arr lines = rde_arr_new(sizeof(fude_zoom_sheet_line), rde_memory_allocator_get_default_std());
+    rde_arr labels = rde_arr_new(sizeof(fude_zoom_sheet_label), rde_memory_allocator_get_default_std());
+    fude_zoom_sheet_label unit;
+    const fude_zoom_sim two = { 2.0, 0.0, 0.0, 0.0 };
+    const fude_zoom_box big = { -2000, -2000, 2000, 2000 };
+    fude_zoom_sheet_marks(&sh, two, 1.0, false, big, &lines, &labels, &unit);
+    CHECK(rde_arr_length(&lines) == 85u + 85u + 60u + 60u);
+    CHECK(rde_arr_length(&labels) == 20u + 20u + 14u + 14u);
+    const fude_zoom_sheet_label* lb = (const fude_zoom_sheet_label*)labels.memory;
+    CHECK(strcmp(lb[0].text, "2") == 0 && lb[0].in.x == 0.0 && lb[0].in.y == 1.0 && fabs(lb[0].at.x - (-420.0 + 40.0)) < 1e-9 && fabs(lb[0].at.y - (-297.0 + 17.0)) < 1e-9);
+    CHECK(strcmp(unit.text, "cm") == 0 && unit.at.x > -420.0 && unit.at.y > -297.0);
+    // ...with its grid: a line a centimetre each way (its sides not: they are its outline), every tenth stronger.
+    sh.flags = FUDE_ZOOM_SHEET_GRID;
+    fude_zoom_sheet_marks(&sh, two, 1.0, false, big, &lines, &labels, NULL);
+    u32 grid = 0, strong = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+        const u8 w = ((const fude_zoom_sheet_line*)lines.memory)[i].weight;
+        grid += w != 0u ? 1u : 0u;
+        strong += w == 2u ? 1u : 0u;
+    }
+    CHECK(grid == 41u + 29u && strong == 4u + 2u);
+    // Only what is on the screen: a corner's.
+    fude_zoom_sheet_marks(&sh, two, 1.0, false, (fude_zoom_box){ -430, -310, -300, -200 }, &lines, &labels, NULL);
+    CHECK(rde_arr_length(&lines) > 0u && rde_arr_length(&lines) < 60u);
+    // Too small on the screen: no rulers; small, their ticks only.
+    fude_zoom_sheet_marks(&sh, (fude_zoom_sim){ 0.1, 0.0, 0.0, 0.0 }, 1.0, false, big, &lines, &labels, &unit);
+    CHECK(rde_arr_length(&labels) == 0u && unit.text[0] == 0);
+    fude_zoom_sheet_marks(&sh, (fude_zoom_sim){ 0.3, 0.0, 0.0, 0.0 }, 1.0, false, big, &lines, &labels, &unit);
+    CHECK(rde_arr_length(&labels) == 0u && rde_arr_length(&lines) > 0u);
+    // Turned a quarter: the bottom ruler's numbers go into it the way its own up is.
+    fude_zoom_sheet_marks(&sh, (fude_zoom_sim){ 0.0, 2.0, 0.0, 0.0 }, 1.0, false, big, &lines, &labels, NULL);
+    lb = (const fude_zoom_sheet_label*)labels.memory;
+    CHECK(rde_arr_length(&labels) > 0u && fabs(lb[0].in.x + 1.0) < 1e-12 && fabs(lb[0].in.y) < 1e-12);
+    rde_arr_free(&lines);
+    rde_arr_free(&labels);
+    // The grid snapped to (from its bottom left corner), off it nothing; a side's length to the ruler's ticks.
+    fude_zoom_v2 g;
+    CHECK(fude_zoom_sheet_grid_snap(&sh, 1.0, 0.5, false, (fude_zoom_v2){ 3.2, -7.9 }, &g) && fabs(g.x) < 1e-9 && fabs(g.y + 8.5) < 1e-9);
+    CHECK(!fude_zoom_sheet_grid_snap(&sh, 1.0, 0.5, false, (fude_zoom_v2){ 300.0, 0.0 }, &g));
+    sh.flags = 0u;
+    CHECK(!fude_zoom_sheet_grid_snap(&sh, 1.0, 0.5, false, (fude_zoom_v2){ 3.2, -7.9 }, &g));
+    CHECK(fabs(fude_zoom_sheet_round(123.4, 0.5, false) - 125.0) < 1e-9 && fabs(fude_zoom_sheet_round(1.0, 0.5, false) - 5.0) < 1e-9);
+    // Papers, either way up.
+    CHECK(fude_zoom_paper_find(297.0, 210.0) == FUDE_ZOOM_PAPER_A4 && fude_zoom_paper_find(420.2, 297.3) == FUDE_ZOOM_PAPER_A3 && fude_zoom_paper_find(100, 100) == FUDE_ZOOM_NONE);
+    CHECK(fude_zoom_paper_find(215.9, 279.4) == FUDE_ZOOM_PAPER_LETTER);
+    // On a canvas: a sheet (A3 across, its grid) and a dimension 100 mm long.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 cnt = fude_zoom_sheet_numbers(n, 210.0, 148.5, 1.0, FUDE_ZOOM_SHEET_GRID);
+    const u32 sheet = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SHEET, n, cnt, (rde_color){ 10, 20, 30, 255 }, 0.5f, 0, 0);
+    CHECK(fabs(fude_zoom_scene_object(&s, sheet)->box.max_x - 210.0) < 1.0 && fabs(fude_zoom_scene_object(&s, sheet)->box.min_y + 148.5) < 1.0);
+    const f64 dim[3] = { 100.0, 0.0, 10.0 };
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { -50, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_DIMENSION, dim, 3u, (rde_color){ 10, 20, 30, 255 }, 0.5f, 0, 0);
+    fude_zoom_units_style mm = { FUDE_ZOOM_UNIT_MM, 1u, 16u, false };
+    fude_zoom_export_units(1.0, &mm);
+    s.camera = (fude_zoom_camera){ s.root, { 0, 0 }, 2.0 };
+    fude_bytes svg = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_svg(&s, (fude_zoom_v2){ 500, 400 }, (rde_color){ 255, 255, 255, 255 }, &svg));
+    rde_arr_add(&svg, &(u8){ 0 });
+    CHECK(strstr((const c8*)svg.memory, ">100 mm<") != NULL && strstr((const c8*)svg.memory, ">40<") != NULL && strstr((const c8*)svg.memory, ">cm<") != NULL);
+    rde_arr_free(&svg);
+    fude_bytes dxf = fude_bytes_new(4096);
+    fude_zoom_export_check check;
+    memset(&check, 0, sizeof(check));
+    CHECK(fude_zoom_export_dxf(&s, (fude_zoom_v2){ 500, 400 }, 0.5, &dxf, &check));
+    CHECK(check.paths == 0u);   // (neither the sheet nor the dimension is a cut)
+    rde_arr_free(&dxf);
+    // A page the sheet's size at its scale: A3 at 1:1 is 1190.55 × 841.89 points; the camera put back.
+    const fude_zoom_camera was = s.camera;
+    const fude_zoom_v2 half3 = { 420.0 * 72.0 / 25.4 * 0.5, 297.0 * 72.0 / 25.4 * 0.5 };
+    const fude_zoom_camera view = fude_zoom_nav_framing(half3, s.root, (fude_zoom_box){ -210, -148.5, 210, 148.5 }, 1.0);
+    CHECK(fabs(view.z - 72.0 / 25.4) < 1e-9);
+    fude_bytes pdf = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf_pages(&s, &view, &half3, 1u, (fude_zoom_v2){ 0.0, 0.0 }, &pdf));
+    rde_arr_add(&pdf, &(u8){ 0 });
+    CHECK(strstr((const c8*)pdf.memory, "/MediaBox [0 0 1190.55") != NULL && strstr((const c8*)pdf.memory, " 841.88") != NULL);
+    CHECK(memcmp(&s.camera, &was, sizeof(was)) == 0);
+    rde_arr_free(&pdf);
+    fude_zoom_export_units(0.0, NULL);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Pieces (piece.h): kept and read back whole; their lines; the list on disk — added first, read again in order,
+// one let go.
+static void test_pieces(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 st = line(&s, 0, 0, 100, 0, 2.0, 2.0f);
+    const f64 rect[3] = { 50, 30, 0 };
+    const u32 sh = fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 0, 200 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, rect, 3, (rde_color){ 1, 2, 3, 255 }, 2.0f,
+                                                  FUDE_ZOOM_FLAG_FILLED | FUDE_ZOOM_FLAG_FILL_OWN, (rde_color){ 255, 0, 0, 255 }, 0);
+    const u32 objs[2] = { st, sh };
+    rde_arr clips = rde_arr_new(sizeof(fude_zoom_clip), NULL);
+    fude_zoom_select_clips_of(&s, objs, 2u, &clips);
+    CHECK(rde_arr_length(&clips) == 2u);
+    fude_zoom_piece piece;
+    memset(&piece, 0, sizeof(piece));
+    snprintf(piece.name, sizeof(piece.name), "Jig");
+    piece.box = (fude_zoom_box){ -60, -40, 110, 240 };
+    piece.items = clips;
+    fude_bytes b = fude_bytes_new(256);
+    fude_zoom_piece_write(&piece, &b);
+    fude_zoom_piece back;
+    memset(&back, 0, sizeof(back));
+    CHECK(fude_zoom_piece_read(&back, (const u8*)b.memory, (u32)rde_arr_length(&b)));
+    CHECK(strcmp(back.name, "Jig") == 0 && back.box.max_y == 240.0 && rde_arr_length(&back.items) == 2u);
+    const fude_zoom_clip* c0 = (const fude_zoom_clip*)clips.memory;
+    const fude_zoom_clip* r0 = (const fude_zoom_clip*)back.items.memory;
+    CHECK(r0[0].look.kind == FUDE_ZOOM_KIND_STROKE && r0[0].size == c0[0].size && memcmp(r0[0].bytes, c0[0].bytes, c0[0].size) == 0 && r0[0].look.count == c0[0].look.count);
+    CHECK(r0[1].look.kind == FUDE_ZOOM_KIND_SHAPE && r0[1].look.channels == FUDE_ZOOM_SHAPE_RECT && r0[1].look.fill.r == 255 && r0[1].on_screen.ty == c0[1].on_screen.ty);
+    // Its lines: the stroke's middle (open, from 0 to 100), the rectangle's outline (closed).
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL), lines = rde_arr_new(sizeof(fude_zoom_piece_line), NULL);
+    CHECK(fude_zoom_piece_lines(&back, true, &pts, &lines) == 2u);
+    const fude_zoom_piece_line* l = (const fude_zoom_piece_line*)lines.memory;
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    CHECK(!l[0].closed && l[1].closed && l[1].count >= 4u);
+    fude_zoom_box lb = fude_zoom_box_empty();
+    for(u32 i = 0; i < l[0].count; i++) lb = fude_zoom_box_union(lb, (fude_zoom_box){ p[l[0].first + i].x, p[l[0].first + i].y, p[l[0].first + i].x, p[l[0].first + i].y });
+    const fude_zoom_v2 o0 = fude_zoom_sim_apply(c0[0].on_screen, (fude_zoom_v2){ 0, 0 });
+    CHECK(fabs(lb.min_x - o0.x) < 1e-6 && fabs((lb.max_x - lb.min_x) - 100.0 * fude_zoom_sim_scale(c0[0].on_screen)) < 1.0);
+    rde_arr_free(&pts); rde_arr_free(&lines);
+    // On disk: two kept (the newest first), read again, the first let go.
+    const c8* dir = "./pieces_test/";
+    rde_file_create_missing_dirs("./pieces_test/x.piece");
+    rde_file_delete("./pieces_test/index.kana");
+    fude_zoom_pieces lib;
+    memset(&lib, 0, sizeof(lib));
+    fude_zoom_pieces_load(&lib, dir);
+    CHECK(lib.count == 0u);
+    CHECK(fude_zoom_pieces_add(&lib, dir, "One", (const fude_zoom_clip*)clips.memory, 1u, piece.box) == 0u);
+    CHECK(fude_zoom_pieces_add(&lib, dir, "Two", (const fude_zoom_clip*)clips.memory, 2u, piece.box) == 0u);
+    CHECK(lib.count == 2u && strcmp(lib.list[0].name, "Two") == 0);
+    fude_zoom_pieces again;
+    memset(&again, 0, sizeof(again));
+    fude_zoom_pieces_load(&again, dir);
+    CHECK(again.count == 2u && strcmp(again.list[0].name, "Two") == 0 && strcmp(again.list[1].name, "One") == 0 && rde_arr_length(&again.list[0].items) == 2u);
+    fude_zoom_pieces_rename(&again, dir, 1u, "Uno");
+    fude_zoom_pieces_remove(&again, dir, 0u);
+    CHECK(again.count == 1u && strcmp(again.list[0].name, "Uno") == 0);
+    fude_zoom_pieces third;
+    memset(&third, 0, sizeof(third));
+    fude_zoom_pieces_load(&third, dir);
+    CHECK(third.count == 1u && strcmp(third.list[0].name, "Uno") == 0 && third.next_id >= 3u);
+    fude_zoom_pieces_free(&lib); fude_zoom_pieces_free(&again); fude_zoom_pieces_free(&third);
+    fude_zoom_piece_clear(&back);
+    rde_arr_free(&b);
+    fude_zoom_select_clips_free(&clips);
+    rde_arr_free(&clips);
+    fude_zoom_scene_destroy(&s);
+}
+
+static void test_symbols(void) {
+    CHECK(fude_zoom_symbol_count() >= 130u && fude_zoom_symbol_info_of(fude_zoom_symbol_count()) == NULL);
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), NULL), outline = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    u32 bad = 0;
+    for(u32 k = 0; k < fude_zoom_symbol_count(); k++) {
+        const fude_zoom_symbol_info* info = fude_zoom_symbol_info_of(k);
+        const f64 hw = info->w * 0.5, hh = info->h * 0.5;
+        const u32 np = fude_zoom_symbol_parts(k, hw, hh, 64, &pts, &parts);
+        const u32 no = fude_zoom_symbol_outline(k, hw, hh, 64, &outline);
+        b8 inside = np > 0u && no >= 2u && fude_zoom_symbol_find(info->id) == k;
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&pts); i++) {
+            inside = inside && fabs(p[i].x) <= hw * 1.25 + 1e-6 && fabs(p[i].y) <= hh * 1.25 + 1e-6;   // (a brace's curl a hair out)
+        }
+        if(!inside) {
+            printf("symbol %u (%s): %u parts, outline %u\n", k, info->id, np, no);
+            bad++;
+        }
+    }
+    CHECK(bad == 0u);
+    CHECK(fude_zoom_symbol_find("no such one") == FUDE_ZOOM_NONE);
+    // Its numbers and text: a class's three parts.
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 cls = fude_zoom_symbol_find("class");
+    const u32 count = fude_zoom_symbol_numbers(n, cls, 90, 65, 15, "User\n---\n+ id: int\n+ name: String\n---\n+ save()");
+    CHECK(count <= FUDE_ZOOM_SHAPE_NUMBERS && (u32)n[0] == cls && n[1] == 90 && n[2] == 65 && n[3] == 15);
+    c8 text[FUDE_ZOOM_SYMBOL_TEXT];
+    fude_zoom_symbol_text(n, count, text, sizeof text);
+    CHECK(strcmp(text, "User\n---\n+ id: int\n+ name: String\n---\n+ save()") == 0);
+    u32 from[8], len[8];
+    CHECK(fude_zoom_symbol_text_split(text, from, len, 8) == 3u);
+    CHECK(len[0] == 4u && strncmp(&text[from[0]], "User", 4) == 0 && strncmp(&text[from[1]], "+ id: int\n+ name: String", len[1]) == 0 && len[1] == 24u);
+    CHECK(strncmp(&text[from[2]], "+ save()", len[2]) == 0 && len[2] == 8u);
+    CHECK(fude_zoom_symbol_text_split("", from, len, 8) == 1u && len[0] == 0u);
+    fude_zoom_box boxes[8];
+    CHECK(fude_zoom_symbol_text_boxes(cls, 90, 65, 3, boxes, 8) == 3u && boxes[0].max_y == 65 && boxes[1].max_y <= boxes[0].min_y + 1e-9 && boxes[2].min_y >= -65 - 1e-9);
+    // Too long a text: cut at a whole character.
+    c8 longer[1200];
+    for(u32 i = 0; i < 590u; i++) { longer[2 * i] = (c8)0xC3; longer[2 * i + 1] = (c8)0xA9; }   // "é"s
+    longer[1180] = 0;
+    const u32 c2 = fude_zoom_symbol_numbers(n, cls, 1, 1, 1, longer);
+    fude_zoom_symbol_text(n, c2, text, sizeof text);
+    CHECK(c2 <= FUDE_ZOOM_SHAPE_NUMBERS && strlen(text) == FUDE_ZOOM_SYMBOL_TEXT - 2u && ((u8)text[strlen(text) - 1u]) == 0xA9u);
+    // A connector's ends: each style something, the hollow and diamond ones the line stopping short.
+    for(u32 st = 0; st < FUDE_ZOOM_HEAD_COUNT; st++) {
+        fude_zoom_symbol_head(st, false, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 0 }, 10, &pts, &parts);
+        CHECK(rde_arr_length(&parts) > 0u);
+    }
+    CHECK(fude_zoom_symbol_head(FUDE_ZOOM_HEAD_HOLLOW, false, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 0 }, 10, &pts, &parts) > 9.0);
+    CHECK(fude_zoom_symbol_head(FUDE_ZOOM_HEAD_DIAMOND, false, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 0 }, 10, &pts, &parts) > 15.0);
+    CHECK(fude_zoom_symbol_head(FUDE_ZOOM_HEAD_ONE_MANY, false, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 0 }, 10, &pts, &parts) == 0.0 && rde_arr_length(&parts) == 4u);
+    const u32 heads = FUDE_ZOOM_ARROW_END | FUDE_ZOOM_ARROW_START | FUDE_ZOOM_ARROW_STYLES(FUDE_ZOOM_HEAD_ZERO_MANY, FUDE_ZOOM_HEAD_ONLY_ONE);
+    CHECK(FUDE_ZOOM_ARROW_END_STYLE(heads) == FUDE_ZOOM_HEAD_ZERO_MANY && FUDE_ZOOM_ARROW_START_STYLE(heads) == FUDE_ZOOM_HEAD_ONLY_ONE && (heads & 15u) == (FUDE_ZOOM_ARROW_END | FUDE_ZOOM_ARROW_START));
+    rde_arr_free(&pts);
+    rde_arr_free(&parts);
+    rde_arr_free(&outline);
+}
+
+// Handwriting for Find: pen strokes grouped into lines of writing, keyed by their strokes.
+static void test_hand_lines(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    // "hello": five letters 10 tall, 8 apart; "world" 30 under it; a drawing's long line; a marker's stroke.
+    u32 hello[5], world[5];
+    for(u32 i = 0; i < 5u; i++) {
+        hello[i] = line(&s, 100 + 8.0 * i, 0, 104 + 8.0 * i, 10, 1.0, 1.0f);
+        world[i] = line(&s, 100 + 8.0 * i, -30, 104 + 8.0 * i, -20, 1.0, 1.0f);
+    }
+    line(&s, 0, -200, 300, -200, 1.0, 1.0f);
+    const u32 marker = line(&s, 100, 50, 104, 60, 1.0, 1.0f);
+    ((fude_zoom_object*)fude_zoom_scene_object(&s, marker))->flags |= FUDE_ZOOM_FLAG_MARKER;   // (a marker's)
+    rde_arr lines = rde_arr_new(sizeof(fude_zoom_hand_line), NULL), strokes = rde_arr_new(sizeof(u32), NULL);
+    CHECK(fude_zoom_hand_lines(&s, &lines, &strokes) == 2u);
+    const fude_zoom_hand_line* l = (const fude_zoom_hand_line*)lines.memory;
+    const u32* st = (const u32*)strokes.memory;
+    CHECK(l[0].count == 5u && l[1].count == 5u && l[0].key != l[1].key && l[0].frame == s.root);
+    b8 in_order = true;
+    for(u32 i = 0; i < 5u; i++) {
+        in_order = in_order && st[l[0].first + i] == hello[i] && st[l[1].first + i] == world[i];
+    }
+    CHECK(in_order);
+    CHECK(l[0].box.min_y > l[1].box.max_y && fabs(l[0].height - 12.0) < 1e-9);
+    const u64 k_hello = l[0].key, k_world = l[1].key;
+    // The same again: the same keys. A letter more on "hello": its key changes, "world"'s does not.
+    CHECK(fude_zoom_hand_lines(&s, &lines, &strokes) == 2u && ((const fude_zoom_hand_line*)lines.memory)[0].key == k_hello);
+    line(&s, 140, 0, 144, 10, 1.0, 1.0f);
+    CHECK(fude_zoom_hand_lines(&s, &lines, &strokes) == 2u);
+    l = (const fude_zoom_hand_line*)lines.memory;
+    CHECK(l[0].count == 6u && l[0].key != k_hello && l[1].key == k_world);
+    // A word far to the right: a line of its own; one erased away: gone from its line.
+    line(&s, 300, 0, 304, 10, 1.0, 1.0f);
+    fude_zoom_scene_set_alive(&s, world[4], false);
+    CHECK(fude_zoom_hand_lines(&s, &lines, &strokes) == 3u);
+    l = (const fude_zoom_hand_line*)lines.memory;
+    CHECK(l[1].count == 4u && l[1].key != k_world && l[2].count == 1u);
+    rde_arr_free(&lines);
+    rde_arr_free(&strokes);
+    fude_zoom_scene_destroy(&s);
+}
+
+// The zoom video's frames as Android's encoder takes them: I420, BT.601 video range.
+static void test_video_yuv(void) {
+    // 4 × 2: white, black; red, blue (top row); the bottom row the same — two 2 × 2 blocks, each averaged.
+    const u8 px[2][4][4] = {
+        { { 255, 255, 255, 255 }, { 255, 255, 255, 255 }, { 255, 0, 0, 255 }, { 255, 0, 0, 255 } },
+        { { 0, 0, 0, 255 },       { 0, 0, 0, 255 },       { 255, 0, 0, 255 }, { 255, 0, 0, 255 } },
+    };
+    u8 out[4 * 2 * 3 / 2];
+    fude_zoom_video_i420(&px[0][0][0], 4, 2, 16, out);
+    CHECK(out[0] == 235 && out[1] == 235 && out[4] == 16 && out[5] == 16);   // white, black: video range
+    CHECK(out[2] == 82 && out[3] == 82);                                     // red
+    CHECK(out[8] == 128 && out[10] == 128);                                  // grey's colour: none (white and black averaged)
+    CHECK(out[9] == 90 && out[11] == 240);                                   // red's U and V
+}
+
+// Arcs: kept exact (an outline on its circle, its ends where it says), found from points on a
+// circle (a line drawn along a compass), and a fillet's (two lines' corner rounded).
+static void test_arcs(void) {
+    const f64 pi = 3.141592653589793;
+    // A quarter round, r 50, from 0: its ends at (50, 0) and (0, 50), every point on the circle; snapping's three.
+    const f64 n[3] = { 50.0, 0.0, pi * 0.5 };
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    b8 closed = true;
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_ARC, n, 3, 96, &pts, &closed);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    u32 k = (u32)rde_arr_length(&pts);
+    CHECK(!closed && k == 25u && fabs(p[0].x - 50) < 1e-9 && fabs(p[0].y) < 1e-9 && fabs(p[k - 1u].x) < 1e-9 && fabs(p[k - 1u].y - 50) < 1e-9);
+    b8 on = true;
+    for(u32 i = 0; i < k; i++) {
+        on = on && fabs(hypot(p[i].x, p[i].y) - 50) < 1e-9;
+    }
+    CHECK(on);
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_ARC, n, 3, 1, &pts, &closed);
+    p = (const fude_zoom_v2*)pts.memory;
+    CHECK(rde_arr_length(&pts) == 3u && fabs(p[1].x - 50 * cos(pi * 0.25)) < 1e-9 && fabs(p[1].y - 50 * sin(pi * 0.25)) < 1e-9);
+    // Found: points round (300, -200), r 80, from 30° clockwise 200° (as a compass's pencil put them, f32 a hair off).
+    fude_zoom_v2 q[120];
+    for(u32 i = 0; i < 120u; i++) {
+        const f64 a = pi / 6.0 - (200.0 * pi / 180.0) * (f64)i / 119.0;
+        q[i] = (fude_zoom_v2){ (f64)(f32)(300.0 + 80.0 * cos(a)), (f64)(f32)(-200.0 + 80.0 * sin(a)) };
+    }
+    fude_zoom_v2 c;
+    f64 r, from, sweep;
+    CHECK(fude_zoom_shape_fit_arc(q, 120, 0.01, &c, &r, &from, &sweep));
+    CHECK(fabs(c.x - 300) < 1e-3 && fabs(c.y + 200) < 1e-3 && fabs(r - 80) < 1e-3 && fabs(from - pi / 6.0) < 1e-4 && fabs(sweep + 200.0 * pi / 180.0) < 1e-4);
+    // All the way round (and a little past): a whole turn, no more.
+    for(u32 i = 0; i < 120u; i++) {
+        const f64 a = 2.1 * pi * (f64)i / 119.0;
+        q[i] = (fude_zoom_v2){ 10.0 * cos(a), 10.0 * sin(a) };
+    }
+    CHECK(fude_zoom_shape_fit_arc(q, 120, 0.01, &c, &r, &from, &sweep) && fabs(sweep - 2.0 * pi) < 1e-12);
+    // A line is on no circle; nor a wobbly hand.
+    for(u32 i = 0; i < 120u; i++) {
+        q[i] = (fude_zoom_v2){ (f64)i, 2.0 * (f64)i };
+    }
+    CHECK(!fude_zoom_shape_fit_arc(q, 120, 0.01, &c, &r, &from, &sweep));
+    for(u32 i = 0; i < 120u; i++) {
+        const f64 a = pi * (f64)i / 119.0;
+        q[i] = (fude_zoom_v2){ (50.0 + 3.0 * sin(7.0 * a)) * cos(a), (50.0 + 3.0 * sin(7.0 * a)) * sin(a) };
+    }
+    CHECK(!fude_zoom_shape_fit_arc(q, 120, 0.5, &c, &r, &from, &sweep));
+    // A fillet: a box's corner (the x axis from 100 to 0, the y axis 0 to 100), r 20 — the lines cut back
+    // to 20 from the corner, the arc round (20, 20) a quarter turn between them, touching both.
+    fude_zoom_v2 ak, ae, bk, be;
+    CHECK(fude_zoom_shape_fillet((fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 0, 100 }, 20.0, &ak, &ae, &bk, &be, &c, &from, &sweep));
+    CHECK(ak.x == 100 && ak.y == 0 && fabs(ae.x - 20) < 1e-9 && fabs(ae.y) < 1e-9 && bk.x == 0 && bk.y == 100 && fabs(be.x) < 1e-9 && fabs(be.y - 20) < 1e-9);
+    CHECK(fabs(c.x - 20) < 1e-9 && fabs(c.y - 20) < 1e-9 && fabs(fabs(sweep) - pi * 0.5) < 1e-9);
+    const f64 fn[3] = { 20.0, from, sweep };
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_ARC, fn, 3, 1, &pts, &closed);
+    p = (const fude_zoom_v2*)pts.memory;
+    CHECK(fabs(p[0].x + c.x - ae.x) < 1e-9 && fabs(p[0].y + c.y - ae.y) < 1e-9 && fabs(p[2].x + c.x - be.x) < 1e-9 && fabs(p[2].y + c.y - be.y) < 1e-9);
+    CHECK(hypot(p[1].x + c.x, p[1].y + c.y) < hypot(c.x, c.y));   // (its middle towards the corner: the round inside it)
+    // Lines that only meet carried on (a gap at the corner), at 60°: the same, from where they would meet.
+    const fude_zoom_v2 u = { cos(pi / 3.0), sin(pi / 3.0) };
+    CHECK(fude_zoom_shape_fillet((fude_zoom_v2){ 10, 0 }, (fude_zoom_v2){ 200, 0 }, (fude_zoom_v2){ u.x * 200, u.y * 200 }, (fude_zoom_v2){ u.x * 10, u.y * 10 }, 15.0, &ak, &ae, &bk, &be, &c, &from, &sweep));
+    const f64 back = 15.0 / tan(pi / 6.0);
+    CHECK(fabs(ae.x - back) < 1e-9 && fabs(ae.y) < 1e-9 && fabs(be.x - u.x * back) < 1e-9 && fabs(be.y - u.y * back) < 1e-9 && fabs(c.y - 15.0) < 1e-9);
+    CHECK(fabs(fabs(sweep) - (pi - pi / 3.0)) < 1e-9);
+    // Too short for the radius; parallel.
+    CHECK(!fude_zoom_shape_fillet((fude_zoom_v2){ 10, 0 }, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 0, 100 }, 20.0, &ak, &ae, &bk, &be, &c, &from, &sweep));
+    CHECK(!fude_zoom_shape_fillet((fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 0, 10 }, (fude_zoom_v2){ 100, 10 }, 5.0, &ak, &ae, &bk, &be, &c, &from, &sweep));
+    rde_arr_free(&pts);
+}
+
+// Paths: a smooth line through their nodes, closed or not; their nodes alone for snapping; driven by a node.
+static void test_paths(void) {
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS] = { 0, 0, 0, 100, 50, 200, 0, 300, 50 };
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    b8 closed = true;
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, n, 9, 120, &pts, &closed);
+    const u32 k = (u32)rde_arr_length(&pts);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    CHECK(!closed && k == 3u * 40u + 1u);
+    // Through every node: the stretches start on them, the last ends on the last.
+    CHECK(p[0].x == 0 && p[0].y == 0 && fabs(p[40].x - 100) < 1e-9 && fabs(p[40].y - 50) < 1e-9 && fabs(p[80].x - 200) < 1e-9 && p[k - 1].x == 300 && p[k - 1].y == 50);
+    // Smooth between them: past the node a little way it keeps on (no corner), never wildly off.
+    for(u32 i = 0; i < k; i++) CHECK(p[i].y > -15 && p[i].y < 65);
+    // Closed: as many stretches as nodes, no end point repeated.
+    n[0] = FUDE_ZOOM_PATH_CLOSED;
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, n, 9, 120, &pts, &closed);
+    CHECK(closed && rde_arr_length(&pts) == 4u * 30u);
+    // Its nodes alone, for snapping (segments 1).
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, n, 9, 1, &pts, &closed);
+    CHECK(rde_arr_length(&pts) == 4u && ((const fude_zoom_v2*)pts.memory)[3].x == 300);
+    // Most of them: what a renderer takes.
+    f64 many[FUDE_ZOOM_SHAPE_NUMBERS];
+    many[0] = 0;
+    for(u32 i = 0; i < FUDE_ZOOM_PATH_NODES; i++) { many[1 + 2 * i] = i * 10.0; many[2 + 2 * i] = (i & 1u) ? 10.0 : 0.0; }
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, many, 1 + 2 * FUDE_ZOOM_PATH_NODES, 360, &pts, &closed);
+    CHECK(rde_arr_length(&pts) >= 2u * FUDE_ZOOM_PATH_NODES && rde_arr_length(&pts) <= 721u);
+    rde_arr_free(&pts);
+    // A corner: the line arrives at it straight along its stretch (smooth, it bends on the way).
+    const f64 l3[7] = { 0, 0, 0, 100, 0, 100, 100 };
+    f64 c3[7]; memcpy(c3, l3, sizeof c3);
+    c3[0] = (f64)FUDE_ZOOM_PATH_CORNER(1);
+    rde_arr ps = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    f64 bend_smooth = 0, bend_corner = 0;
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, l3, 7, 64, &ps, &closed);
+    for(u32 i = 0; i <= 32u; i++) bend_smooth = fmax(bend_smooth, fabs(((const fude_zoom_v2*)ps.memory)[i].y));
+    fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, c3, 7, 64, &ps, &closed);
+    for(u32 i = 0; i <= 32u; i++) bend_corner = fmax(bend_corner, fabs(((const fude_zoom_v2*)ps.memory)[i].y));
+    CHECK(bend_smooth > 2.0 && bend_corner < 1e-9);
+    // Its curve as Catmull-Rom's (what it always was), sampled the same: no handle kept, no change.
+    {
+        const fude_zoom_v2 nd[4] = { { 0, 0 }, { 100, 50 }, { 200, 0 }, { 300, 50 } };
+        fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, (f64[9]){ 0, 0, 0, 100, 50, 200, 0, 300, 50 }, 9, 120, &ps, &closed);
+        b8 same = rde_arr_length(&ps) == 121u;
+        for(u32 i = 0; same && i < 3u; i++) {
+            const fude_zoom_v2 a = nd[i > 0 ? i - 1u : 0u], b = nd[i], c = nd[i + 1u], d = nd[i + 2u < 4u ? i + 2u : 3u];
+            for(u32 k = 0; k < 40u; k++) {
+                const fude_zoom_v2 q = fude_zoom_shape_catmull(a, b, c, d, (f64)k / 40.0);
+                const fude_zoom_v2 r = ((const fude_zoom_v2*)ps.memory)[i * 40u + k];
+                same = same && fabs(q.x - r.x) < 1e-9 && fabs(q.y - r.y) < 1e-9;
+            }
+        }
+        CHECK(same);
+    }
+    // A handle dragged out at the middle node: still through every node, leaving it the way the
+    // handle points (flat out to the right: level there), the stretches bent by it; packed and back.
+    {
+        const fude_zoom_v2 nd[3] = { { 0, 0 }, { 100, 50 }, { 200, 0 } };
+        const fude_zoom_v2 hd[3] = { { 0, 0 }, { 60, 0 }, { 0, 0 } };
+        f64 hn[FUDE_ZOOM_SHAPE_NUMBERS];
+        const u32 hc = fude_zoom_path_pack(0u, nd, hd, 3u, hn);
+        CHECK(hc == 13u && ((u64)hn[0] & FUDE_ZOOM_PATH_HANDLES));
+        u64 bits; fude_zoom_v2 bn[FUDE_ZOOM_PATH_NODES], bh[FUDE_ZOOM_PATH_NODES];
+        CHECK(fude_zoom_path_unpack(hn, hc, &bits, bn, bh) == 3u && bn[1].x == 100 && bh[1].x == 60 && bh[0].x == 0);
+        fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_PATH, hn, hc, 80, &ps, &closed);
+        const fude_zoom_v2* hp = (const fude_zoom_v2*)ps.memory;
+        const u32 hk = (u32)rde_arr_length(&ps);
+        CHECK(hk == 81u && fabs(hp[40].x - 100) < 1e-9 && fabs(hp[40].y - 50) < 1e-9 && hp[80].x == 200);
+        CHECK(fabs(hp[41].y - 50) < 0.5 && hp[41].x > 100);   // just past it: level, going right
+        // ...and without the handle (packed with none): its own curve again, no handles kept.
+        const fude_zoom_v2 none[3] = { { 0, 0 }, { 0, 0 }, { 0, 0 } };
+        CHECK(fude_zoom_path_pack(0u, nd, none, 3u, hn) == 7u && !((u64)hn[0] & FUDE_ZOOM_PATH_HANDLES));
+    }
+    rde_arr_free(&ps);
+    // Driven: the node at (200, 0) moved to (200, 40).
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    n[0] = 0;
+    const u32 path = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 10, 10 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_PATH, n, 9, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    rde_arr died = rde_arr_new(sizeof(u32), NULL), born = rde_arr_new(sizeof(u32), NULL);
+    CHECK(fude_zoom_connect_drive(&s, s.root, (fude_zoom_v2){ 210, 10 }, (fude_zoom_v2){ 210, 50 }, 1e-6, FUDE_ZOOM_NONE, &died, &born) == 1u);
+    CHECK(!alive(&s, path));
+    f64 got[FUDE_ZOOM_SHAPE_NUMBERS];
+    CHECK(fude_zoom_scene_shape_numbers(&s, ((const u32*)born.memory)[0], got, FUDE_ZOOM_SHAPE_NUMBERS) == 9u && got[5] == 200 && fabs(got[6] - 40) < 1e-9 && got[3] == 100);
+    rde_arr_free(&died); rde_arr_free(&born);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Sculpt: a stretch of a line redrawn.
+static void test_sculpt(void) {
+    fude_zoom_v2 line[101], bump[21], back[21], tail[21], head[21], off[5];
+    for(u32 i = 0; i <= 100; i++) line[i] = (fude_zoom_v2){ (f64)i, 0.0 };
+    for(u32 i = 0; i <= 20; i++) {
+        const f64 t = (f64)i / 20.0;
+        bump[i] = (fude_zoom_v2){ 30.0 + 40.0 * t, 20.0 * sin(3.14159265358979323846 * t) };
+        back[20 - i] = bump[i];
+        tail[i] = (fude_zoom_v2){ 60.0 + 20.0 * t, 40.0 * t };
+        head[i] = (fude_zoom_v2){ 40.0 - 20.0 * t, 40.0 * t };
+    }
+    for(u32 i = 0; i < 5; i++) off[i] = (fude_zoom_v2){ 50.0 + i, 30.0 };
+    rde_arr out = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    // Begun and ended on it: the stretch between replaced.
+    CHECK(fude_zoom_shape_sculpt(line, 101, bump, 21, 2.0, &out));
+    const fude_zoom_v2* o = (const fude_zoom_v2*)out.memory;
+    CHECK(rde_arr_length(&out) == 30u + 21u + 30u && o[29].x == 29 && o[30].x == 30 && fabs(o[40].y - 20) < 1e-9 && o[51].x == 71 && o[80].x == 100);
+    // Drawn against its way: the same line.
+    CHECK(fude_zoom_shape_sculpt(line, 101, back, 21, 2.0, &out));
+    o = (const fude_zoom_v2*)out.memory;
+    CHECK(rde_arr_length(&out) == 81u && o[30].x == 30 && o[50].x == 70 && o[51].x == 71);
+    // Ending off it, onwards: its tail goes the new way.
+    CHECK(fude_zoom_shape_sculpt(line, 101, tail, 21, 2.0, &out));
+    o = (const fude_zoom_v2*)out.memory;
+    CHECK(rde_arr_length(&out) == 60u + 21u && o[59].x == 59 && o[80].x == 80 && o[80].y == 40);
+    // ...backwards: its head.
+    CHECK(fude_zoom_shape_sculpt(line, 101, head, 21, 2.0, &out));
+    o = (const fude_zoom_v2*)out.memory;
+    CHECK(rde_arr_length(&out) == 21u + 60u && o[0].x == 20 && o[0].y == 40 && o[20].x == 40 && o[21].x == 41 && o[80].x == 100);
+    // Begun off it: nothing.
+    CHECK(!fude_zoom_shape_sculpt(line, 101, off, 5, 2.0, &out) && rde_arr_length(&out) == 0u);
+    rde_arr_free(&out);
+}
+
+// Cutting a board: what is left of a region less its cuts, as pieces.
+typedef struct { u32 pieces; f64 area[8]; u32 points[8]; u32 rings[8]; } cut_result;
+
+static cut_result cut_run(const fude_zoom_v2* region, const u32* rings, u32 n, const fude_zoom_v2* cut, const u32* cut_rings, u32 cut_n) {
+    cut_result r; memset(&r, 0, sizeof r);
+    rde_arr out = rde_arr_new(sizeof(fude_zoom_v2), NULL), out_rings = rde_arr_new(sizeof(u32), NULL), out_piece = rde_arr_new(sizeof(u32), NULL);
+    r.pieces = fude_zoom_cut_region(region, rings, n, cut, cut_rings, cut_n, &out, &out_rings, &out_piece);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)out.memory;
+    const u32* rg = (const u32*)out_rings.memory;
+    const u32* pc = (const u32*)out_piece.memory;
+    for(u32 from = 0; from < (u32)rde_arr_length(&out);) {
+        u32 to = from;
+        while(to < (u32)rde_arr_length(&out) && pc[to] == pc[from] && rg[to] == rg[from]) to++;
+        if(pc[from] < 8u) {
+            r.area[pc[from]] += fude_zoom_cut_area(&p[from], to - from);
+            r.points[pc[from]] += to - from;
+            r.rings[pc[from]]++;
+        }
+        from = to;
+    }
+    rde_arr_free(&out); rde_arr_free(&out_rings); rde_arr_free(&out_piece);
+    return r;
+}
+
+static void test_cuts(void) {
+    const fude_zoom_v2 board[4] = { { 0, 0 }, { 100, 0 }, { 100, 50 }, { 0, 50 } };
+    rde_arr band = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    // A saw's cut right across, 2 wide: two pieces, each 49 x 50.
+    const fude_zoom_v2 across[2] = { { 50, -10 }, { 50, 60 } };
+    CHECK(fude_zoom_cut_band(across, 2, 2.0, &band) == 4u);
+    cut_result r = cut_run(board, NULL, 4, (const fude_zoom_v2*)band.memory, NULL, 4);
+    CHECK(r.pieces == 2u && fabs(r.area[0] - 2450) < 1e-6 && fabs(r.area[1] - 2450) < 1e-6 && r.points[0] == 4u && r.points[1] == 4u);
+    // Partway in (a slot): one piece, the slot out of it.
+    rde_arr_clear(&band);
+    const fude_zoom_v2 partway[2] = { { 50, -10 }, { 50, 25 } };
+    fude_zoom_cut_band(partway, 2, 2.0, &band);
+    r = cut_run(board, NULL, 4, (const fude_zoom_v2*)band.memory, NULL, 4);
+    CHECK(r.pieces == 1u && fabs(r.area[0] - (5000 - 50)) < 1e-6 && r.points[0] == 8u);
+    // A notch over a corner; and the same snapped exactly onto the corner (edges along edges).
+    const fude_zoom_v2 notch[4] = { { 80, -10 }, { 120, -10 }, { 120, 20 }, { 80, 20 } };
+    r = cut_run(board, NULL, 4, notch, NULL, 4);
+    CHECK(r.pieces == 1u && fabs(r.area[0] - 4600) < 1e-6 && r.points[0] == 6u);
+    const fude_zoom_v2 snapped[4] = { { 80, 0 }, { 100, 0 }, { 100, 20 }, { 80, 20 } };
+    r = cut_run(board, NULL, 4, snapped, NULL, 4);
+    CHECK(r.pieces == 1u && fabs(r.area[0] - 4600) < 1e-6 && r.points[0] == 6u);
+    // A hole inside: one piece, its outline and a hole.
+    const fude_zoom_v2 hole[4] = { { 40, 20 }, { 60, 20 }, { 60, 30 }, { 40, 30 } };
+    r = cut_run(board, NULL, 4, hole, NULL, 4);
+    CHECK(r.pieces == 1u && r.rings[0] == 2u && fabs(r.area[0] - (5000 - 200)) < 1e-6);
+    // Along an edge, outside: nothing taken.
+    const fude_zoom_v2 along[4] = { { -10, 50 }, { 110, 50 }, { 110, 60 }, { -10, 60 } };
+    r = cut_run(board, NULL, 4, along, NULL, 4);
+    CHECK(r.pieces == 1u && fabs(r.area[0] - 5000) < 1e-6 && r.points[0] == 4u);
+    // Two cuts at once (a notch's two saw cuts): the corner falls off as a piece of its own.
+    rde_arr_clear(&band);
+    const fude_zoom_v2 down[2] = { { 80, -10 }, { 80, 21 } }, side[2] = { { 79, 20 }, { 110, 20 } };
+    fude_zoom_cut_band(down, 2, 2.0, &band);
+    fude_zoom_cut_band(side, 2, 2.0, &band);
+    const u32 two_rings[8] = { 1, 1, 1, 1, 2, 2, 2, 2 };
+    r = cut_run(board, NULL, 4, (const fude_zoom_v2*)band.memory, two_rings, 8);
+    CHECK(r.pieces == 2u);
+    const f64 big = fmax(r.area[0], r.area[1]), small = fmin(r.area[0], r.area[1]);
+    if(!(fabs(small - 19 * 19) < 1e-6 && fabs(big - (5000 - 80 - 361)) < 1e-6)) printf("two cuts: %g %g\n", r.area[0], r.area[1]);
+    CHECK(fabs(small - 19 * 19) < 1e-6 && fabs(big - (5000 - 80 - 361)) < 1e-6);   // (the bands took 42 + 42 - 4)
+    // A cut through a piece with a hole: across the hole, two pieces, each with a bite out (no holes).
+    const fude_zoom_v2 holed[8] = { { 0, 0 }, { 100, 0 }, { 100, 50 }, { 0, 50 }, { 40, 20 }, { 40, 30 }, { 60, 30 }, { 60, 20 } };
+    const u32 holed_rings[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    rde_arr_clear(&band);
+    fude_zoom_cut_band(across, 2, 2.0, &band);
+    r = cut_run(holed, holed_rings, 8, (const fude_zoom_v2*)band.memory, NULL, 4);
+    CHECK(r.pieces == 2u && r.rings[0] == 1u && r.rings[1] == 1u && fabs(r.area[0] + r.area[1] - (5000 - 100 - 200 + 20)) < 1e-6);
+    rde_arr_free(&band);
+
+    // Round loops (a pen's): a hole inside, a notch over the edge.
+    {
+        fude_zoom_v2 ring[49];
+        for(u32 i = 0; i <= 48u; i++) { const f64 a = 6.283185307179586 * i / 48.0; ring[i] = (fude_zoom_v2){ 30 + cos(a) * 10, 25 + sin(a) * 10 }; }
+        r = cut_run(board, NULL, 4, ring, NULL, 49);
+        CHECK(r.pieces == 1u && r.rings[0] == 2u && r.area[0] > 5000 - 320 && r.area[0] < 5000 - 300);
+        for(u32 i = 0; i <= 48u; i++) { const f64 a = 6.283185307179586 * i / 48.0; ring[i] = (fude_zoom_v2){ 80 + cos(a) * 10, 45 + sin(a) * 10 }; }
+        r = cut_run(board, NULL, 4, ring, NULL, 49);
+        CHECK(r.pieces == 1u && r.rings[0] == 1u && fabs(r.area[0] - 4747.86) < 1.0);   // (the circle less its cap above the edge: about 252.8 taken)
+    }
+    // A loop drawn by hand over a board's edge (its points as the app had them): a notch, the board kept.
+    {
+        static const fude_zoom_v2 hand[] = { { 276.49389851396484, 78.99825671827567 }, { 275.81808108394546, 89.309596096632603 }, { 273.80208027666015, 99.444507633803013 }, { 270.48049128358764, 109.22958377516044 }, { 265.91014969652099, 118.49738696729911 }, { 260.16916668718261, 127.08934787428153 }, { 253.35584461992187, 134.85845950758232 }, { 245.58674633806152, 141.67179874098076 }, { 236.9947682649414, 147.4127617231585 }, { 227.72697651689452, 151.98311999952568 }, { 217.94187748735351, 155.3047066084124 }, { 207.80696308916015, 157.32068256056084 }, { 197.49563801591796, 157.99651721632256 }, { 187.18432057207031, 157.32068256056084 }, { 177.04940998857421, 155.3047066084124 }, { 167.26430714433593, 151.98313525831475 }, { 157.99651539628906, 147.41274646436943 }, { 149.40453541582031, 141.6717834821917 }, { 141.63543904130859, 134.85845950758232 }, { 134.82211506669921, 127.08934787428153 }, { 129.08113301103515, 118.49737170851004 }, { 124.51072895830077, 109.22956851637137 }, { 121.18921101396484, 99.444500004408482 }, { 119.17320454423827, 89.309611355421666 }, { 118.49737751787109, 78.998249184414917 }, { 119.17320454423827, 68.686909710524205 }, { 121.18921101396484, 58.55200198805106 }, { 124.51078999345702, 48.766914402601856 }, { 129.08113301103515, 39.499115025160449 }, { 134.82211506669921, 30.90716937696709 }, { 141.63543904130859, 23.138057743666309 }, { 149.40453541582031, 16.324729954359668 }, { 157.99651539628906, 10.583759342787403 }, { 167.26436817949218, 6.0133705488420901 }, { 177.04940998857421, 2.6917991987444339 }, { 187.18432057207031, 0.67583850538505885 }, { 197.49563801591796, -3.7797711911480292e-06 }, { 207.8070241243164, 0.6758461347795901 }, { 217.94187748735351, 2.6917991987444339 }, { 227.72697651689452, 6.0133934370256839 }, { 236.9947682649414, 10.583774601576465 }, { 245.58674633806152, 16.324729954359668 }, { 253.35584461992187, 23.138073002455371 }, { 260.16916668718261, 30.90716937696709 }, { 265.91014969652099, 39.499145542738574 }, { 270.48049128358764, 48.766933476088184 }, { 273.80208027666015, 58.551982914564732 }, { 275.81808108394546, 68.686947857496861 }, { 276.49389851396484, 78.998271785997176 } };
+        const fude_zoom_v2 wide[4] = { { -400, -150 }, { 400, -150 }, { 400, 150 }, { -400, 150 } };
+        r = cut_run(wide, NULL, 4, hand, NULL, (u32)(sizeof(hand) / sizeof(hand[0])));   // (its last point a hair past its first: it crosses itself there)
+        CHECK(r.pieces == 1u && fabs(r.area[0] - 220815) < 1.0 && r.points[0] == 47u);
+        // A cut crossing itself (a figure 8): both its lobes out.
+        const fude_zoom_v2 bowtie[4] = { { 100, 100 }, { 200, 200 }, { 200, 100 }, { 100, 200 } };
+        r = cut_run(wide, NULL, 4, bowtie, NULL, 4);
+        CHECK(r.pieces == 1u && fabs(r.area[0] - 237500) < 1e-6);
+    }
+    // A board sawn across (kerf 3): two plain boards, its name on both, in its place and order; the cut list counts them as one part twice.
+    fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
+    const rde_color ink = { 1, 1, 1, 255 };
+    f64 bn[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 bc = fude_zoom_board_numbers(bn, 300, 150, 18, (u8)(FUDE_ZOOM_MATERIAL_OAK << 1), "Side");
+    const u32 bd = fude_zoom_scene_add_shape_fill(&sc, sc.root, (fude_zoom_place){ { 1000, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, bn, bc, ink, 0.5f,
+                                                  FUDE_ZOOM_FLAG_FILLED | FUDE_ZOOM_FLAG_FILL_OWN, (rde_color){ 226, 202, 160, 255 }, 0);
+    const u64 bz = fude_zoom_scene_object(&sc, bd)->z;
+    rde_arr saw = rde_arr_new(sizeof(fude_zoom_v2), NULL), born = rde_arr_new(sizeof(u32), NULL);
+    const fude_zoom_v2 cut_line[2] = { { 1000, -400 }, { 1000, 400 } };
+    fude_zoom_cut_band(cut_line, 2, 3.0, &saw);
+    CHECK(fude_zoom_cut_board(&sc, bd, (const fude_zoom_v2*)saw.memory, NULL, (u32)rde_arr_length(&saw), &born) == 2u);
+    fude_zoom_scene_set_alive(&sc, bd, false);
+    fude_zoom_history_push(&sc, sc.root, (fude_zoom_box){ 0, 0, 1, 1 }, &bd, 1, (const u32*)born.memory, 2);
+    for(u32 i = 0; i < 2u; i++) {
+        const u32 piece = ((const u32*)born.memory)[i];
+        f64 pn[FUDE_ZOOM_SHAPE_NUMBERS];
+        const u32 pc = fude_zoom_scene_shape_numbers(&sc, piece, pn, FUDE_ZOOM_SHAPE_NUMBERS);
+        c8 nm[FUDE_ZOOM_BOARD_NAME];
+        fude_zoom_board_name(pn, pc, nm, sizeof nm);
+        CHECK(!fude_zoom_board_is_cut(pn, pc) && fabs(pn[0] - 149.25) < 1e-9 && fabs(pn[1] - 150) < 1e-9 && pn[2] == 18 && strcmp(nm, "Side") == 0);   // ((600 - 3) / 2 long)
+        CHECK(fude_zoom_board_material(pn, pc) == FUDE_ZOOM_MATERIAL_OAK);   // (each piece still oak)
+        CHECK(fude_zoom_scene_object(&sc, piece)->z == bz && fabs(fabs(fude_zoom_scene_place_of(&sc, piece).t.x - 1000) - 150.75) < 1e-9);
+    }
+    const c8* const ch[7] = { "Part", "Qty", "L", "W", "T", "Material", "Grain" };
+    const c8* const cg[2] = { "along", "across" };
+    const c8* const cm[FUDE_ZOOM_MATERIAL_COUNT] = { "", "Pine", "Oak", "Walnut", "Maple", "Beech", "Cherry", "Birch plywood", "MDF", "Melamine" };
+    fude_bytes list = fude_bytes_new(64);
+    CHECK(fude_zoom_export_cutlist(&sc, 1.0, ch, cg, cm, &list) == 2u);
+    rde_arr_add(&list, &(u8){ 0 });
+    CHECK(strstr((const c8*)list.memory, "Side,2,300.0,298.5,18.0,Oak,across") != NULL);
+    rde_arr_free(&list);
+    // A notch out of one: a cut board, its outline its own (six corners).
+    const u32 left = ((const u32*)born.memory)[0];
+    const fude_zoom_v2 notch2[4] = { { 600, 100 }, { 760, 100 }, { 760, 200 }, { 600, 200 } };
+    rde_arr_clear(&born);
+    CHECK(fude_zoom_cut_board(&sc, left, notch2, NULL, 4, &born) == 1u);
+    const u32 notched = ((const u32*)born.memory)[0];
+    rde_arr all = rde_arr_new(sizeof(f64), NULL);
+    const u32 an = fude_zoom_scene_shape_numbers_all(&sc, notched, &all);
+    CHECK(fude_zoom_board_is_cut((const f64*)all.memory, an));
+    rde_arr outline = rde_arr_new(sizeof(fude_zoom_v2), NULL);
+    b8 oc = false;
+    fude_zoom_scene_shape_outline(&sc, notched, 64, &outline, &oc);
+    CHECK(oc && rde_arr_length(&outline) == 6u);
+    rde_arr_free(&outline); rde_arr_free(&all);
+    // The eraser across a board: two pieces; undone, the board back.
+    fude_zoom_scene_set_alive(&sc, left, false);
+    fude_zoom_history_push(&sc, sc.root, (fude_zoom_box){ 0, 0, 1, 1 }, &left, 1, &notched, 1);
+    const u32 other = fude_zoom_scene_add_shape_fill(&sc, sc.root, (fude_zoom_place){ { 3000, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, bn, bc, ink, 0.5f, FUDE_ZOOM_FLAG_FILLED, ink, 0);
+    fude_zoom_history_push(&sc, sc.root, (fude_zoom_box){ 0, 0, 1, 1 }, NULL, 0, &other, 1);
+    const u32 before = fude_zoom_scene_object_count(&sc);
+    fude_zoom_eraser er; fude_zoom_eraser_init(&er);
+    fude_zoom_erase_begin(&er, FUDE_ZOOM_ERASE_PARTIAL);
+    CHECK(fude_zoom_erase_step(&sc, &er, sc.root, (fude_zoom_v2){ 3000, -300 }, (fude_zoom_v2){ 3000, 300 }, 2.0, 0.5) >= 1u);
+    fude_zoom_erase_end(&sc, &er, sc.root, (fude_zoom_box){ 2600, -300, 3400, 300 });
+    u32 boards_after = 0;
+    for(u32 i = before; i < fude_zoom_scene_object_count(&sc); i++) {
+        const fude_zoom_object* o = fude_zoom_scene_object(&sc, i);
+        boards_after += (o->flags & FUDE_ZOOM_FLAG_ALIVE) && o->kind == FUDE_ZOOM_KIND_SHAPE && o->channels == FUDE_ZOOM_SHAPE_BOARD ? 1u : 0u;
+    }
+    CHECK(!alive(&sc, other) && boards_after == 2u);
+    CHECK(fude_zoom_history_undo(&sc) && alive(&sc, other));
+    fude_zoom_eraser_destroy(&er);
+    rde_arr_free(&saw); rde_arr_free(&born);
+    fude_zoom_scene_destroy(&sc);
+}
+
+// Snapping onto where two things cross (a compass's constructions): ends and corners first.
+static void test_snap_cross(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    const f64 diag[2] = { 100, 100 }, back[2] = { 100, -100 };
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, diag, 2, c, 1.0f, 0u, 0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 100 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, back, 2, c, 1.0f, 0u, 0);
+    line(&s, 30, 0, 30, 100, 1.0, 1.0f);   // a stroke up through x 30 (crossing the first at (30, 30))
+    fude_zoom_visible v; memset(&v, 0, sizeof v);
+    v.frame = s.root; v.to_screen = (fude_zoom_sim){ 1.0, 0.0, 0.0, 0.0 };
+    fude_zoom_snap h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 53, 48 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_CROSS && fabs(h.at.x - 50) < 1e-9 && fabs(h.at.y - 50) < 1e-9);
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 33, 27 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_CROSS && fabs(h.at.x - 30) < 1e-6 && fabs(h.at.y - 30) < 1e-6);
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 4, 3 }, 14.0);   // the lines' and the stroke's ends there: an end wins
+    CHECK(h.kind == FUDE_ZOOM_SNAP_END);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Repeat (select.h's put): copies moved, all in one undo step, the lasso on them too; mirrored — a polygon's corners
+// and a stroke's points turned over across the line, a text kept the right way round in its mirrored place, the
+// originals let go in the same step (a flip); and what the lasso holds moved without the pen (begin, end).
+static void test_repeat(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    s.camera = (fude_zoom_camera){ s.root, { 0, 0 }, 1.0 };
+    const f64 tri[6] = { 0, 0, 10, 0, 0, 20 };
+    const u32 p = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_POLYGON, tri, 6u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    const u32 l = line(&s, 0, 40, 10, 45, 1.0, 1.0f);
+    const u32 t = fude_zoom_scene_add_text(&s, s.root, (fude_zoom_place){ { 0, 80 }, 0.0, 1.0 }, 9.0, 30.0, 12.0, FUDE_ZOOM_TEXT_PLAIN,
+                                           (rde_color){ 1, 1, 1, 255 }, (rde_color){ 0, 0, 0, 0 }, "Hi", 2u, 0);
+    fude_zoom_selection sel; fude_zoom_select_init(&sel);
+    const u32 objs[3] = { p, l, t };
+    for(u32 i = 0; i < 3u; i++) {
+        rde_arr_add(&sel.picks, &(fude_zoom_pick){ objs[i] });
+    }
+    fude_zoom_select_update(&sel, &s);
+    rde_arr clips = rde_arr_new(sizeof(fude_zoom_clip), rde_memory_allocator_get_default_std());
+    fude_zoom_select_clips_of(&s, objs, 3u, &clips);
+    CHECK(rde_arr_length(&clips) == 3u);
+    // Two copies 100 and 200 across: six things, one step, all held.
+    const u32 before = fude_zoom_scene_object_count(&s);
+    const fude_zoom_sim moves[2] = { { 1, 0, 100, 0 }, { 1, 0, 200, 0 } };
+    CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 3u, moves, 2u, NULL, NULL, 0u) == 6u);
+    CHECK(rde_arr_length(&sel.picks) == 9u && fude_zoom_scene_object_count(&s) == before + 6u);
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    b8 closed;
+    fude_zoom_scene_shape_outline(&s, before + 3u, 1u, &pts, &closed);   // (the second copy's polygon)
+    CHECK(rde_arr_length(&pts) == 3u && fabs(((const fude_zoom_v2*)pts.memory)[1].x - 210.0) < 1e-9);
+    CHECK(fude_zoom_history_undo(&s) && !alive(&s, before) && !alive(&s, before + 5u) && alive(&s, p));
+    // Mirrored across the upright line x = 50, the originals let go: the polygon's corners there turned over...
+    fude_zoom_select_clear(&sel);
+    for(u32 i = 0; i < 3u; i++) {
+        rde_arr_add(&sel.picks, &(fude_zoom_pick){ objs[i] });
+    }
+    const fude_zoom_select_mirror m = { { 50, 0 }, 3.14159265358979323846 * 0.5 };
+    const u32 base = fude_zoom_scene_object_count(&s);
+    CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 3u, NULL, 0u, &m, objs, 3u) == 3u);
+    CHECK(!alive(&s, p) && !alive(&s, l) && !alive(&s, t) && rde_arr_length(&sel.picks) == 3u);
+    rde_arr_clear(&pts);
+    fude_zoom_scene_shape_outline(&s, base, 1u, &pts, &closed);
+    const fude_zoom_v2* q = (const fude_zoom_v2*)pts.memory;
+    CHECK(rde_arr_length(&pts) == 3u && fabs(q[0].x - 100.0) < 1e-9 && fabs(q[1].x - 90.0) < 1e-9 && fabs(q[2].x - 100.0) < 1e-9 && fabs(q[2].y - 20.0) < 1e-9);
+    // ...the stroke's points (from 100, 40 back to 90, 45)...
+    const fude_zoom_object* so = fude_zoom_scene_object(&s, base + 1u);
+    fude_zoom_qpoint* sq = calloc(so->count, sizeof(*sq));
+    CHECK(fude_zoom_scene_points(&s, base + 1u, sq));
+    const fude_zoom_v2 s0 = fude_zoom_scene_point_at(so, &sq[0]), s1 = fude_zoom_scene_point_at(so, &sq[so->count - 1u]);
+    CHECK(fabs(s0.x - 100.0) < 0.1 && fabs(s0.y - 40.0) < 0.1 && fabs(s1.x - 90.0) < 0.1 && fabs(s1.y - 45.0) < 0.1);
+    free(sq);
+    // ...the text upright, its box where the mirror puts it (its top left the mirror of its top right).
+    const fude_zoom_object* to = fude_zoom_scene_object(&s, base + 2u);
+    CHECK(to->kind == FUDE_ZOOM_KIND_TEXT && fabs(fude_zoom_select_wrap_test(to->rotation)) < 1e-9 && fabs(to->t.x - 70.0) < 1e-9 && fabs(to->t.y - 80.0) < 1e-9);
+    // One step: undone, the originals are back and the mirrored ones gone.
+    CHECK(fude_zoom_history_undo(&s) && alive(&s, p) && alive(&s, l) && alive(&s, t) && !alive(&s, base));
+    // Moved without the pen: one step, as a drag would.
+    fude_zoom_select_clear(&sel);
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ p });
+    fude_zoom_select_update(&sel, &s);
+    fude_zoom_select_begin(&sel, &s);
+    fude_zoom_select_end(&sel, &s, (fude_zoom_sim){ 0.0, 2.0, 5.0, 0.0 });   // (doubled, a quarter turn, 5 across)
+    const fude_zoom_place pp = fude_zoom_scene_place_of(&s, p);
+    CHECK(fabs(pp.scale - 2.0) < 1e-12 && fabs(pp.rotation - 3.14159265358979323846 * 0.5) < 1e-12 && fabs(pp.t.x - 5.0) < 1e-9 && sel.grab == FUDE_ZOOM_GRAB_NONE);
+    CHECK(fude_zoom_history_undo(&s) && fabs(fude_zoom_scene_place_of(&s, p).scale - 1.0) < 1e-12);
+    rde_arr_free(&pts);
+    fude_zoom_select_clips_free(&clips);
+    rde_arr_free(&clips);
+    fude_zoom_select_destroy(&sel);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Dimensions that follow (connect.h): drawn between two corners of a rectangle, a dimension keeps them — moved with
+// it (the lasso's move), it measures where they are; made again (stretched), it is measured again in the same step;
+// copied with what it measures, the copy is joined to the copies. A circle's size follows its circle.
+static void test_dims(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    s.camera = (fude_zoom_camera){ s.root, { 0, 0 }, 1.0 };
+    const f64 box[3] = { 50, 20, 0 };
+    const u32 r = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    // Its corners (one segment's outline): bottom left 0, bottom right 1; its centre.
+    fude_zoom_v2 p;
+    CHECK(fude_zoom_connect_point(&s, r, 0, &p) && p.x == -50.0 && p.y == -20.0);
+    CHECK(fude_zoom_connect_point(&s, r, 1, &p) && p.x == 50.0 && p.y == -20.0);
+    CHECK(fude_zoom_connect_point(&s, r, FUDE_ZOOM_SNAP_CENTRE_KEY, &p) && fabs(p.x) < 1e-12 && fabs(p.y) < 1e-12);
+    CHECK(!fude_zoom_connect_point(&s, r, 9, &p) && !fude_zoom_connect_point(&s, r, FUDE_ZOOM_SNAP_NO_KEY, &p));
+    const u32 d = fude_zoom_connect_dimension(&s, s.root, (fude_zoom_v2){ -50, -20 }, (fude_zoom_v2){ 50, -20 }, -15.0, r, 0, r, 1, (rde_color){ 1, 1, 1, 255 }, 0.5f);
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    CHECK(fude_zoom_scene_shape_numbers(&s, d, n, FUDE_ZOOM_SHAPE_NUMBERS) == FUDE_ZOOM_DIMENSION_REFS && n[0] == 100.0 && n[2] == -15.0);
+    // A dimension not on anything: its three numbers only.
+    const u32 loose = fude_zoom_connect_dimension(&s, s.root, (fude_zoom_v2){ 0, 100 }, (fude_zoom_v2){ 10, 100 }, 5.0, FUDE_ZOOM_NONE, 0, FUDE_ZOOM_NONE, 0, (rde_color){ 1, 1, 1, 255 }, 0.5f);
+    CHECK(fude_zoom_scene_shape_numbers(&s, loose, n, FUDE_ZOOM_SHAPE_NUMBERS) == 3u);
+    // The rectangle moved 30 across and turned a quarter (the lasso's): the dimension's ends on its corners, one step.
+    fude_zoom_selection sel; fude_zoom_select_init(&sel);
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ r });
+    fude_zoom_select_update(&sel, &s);
+    fude_zoom_select_begin(&sel, &s);
+    fude_zoom_select_end(&sel, &s, (fude_zoom_sim){ 0.0, 1.0, 30.0, 0.0 });
+    const fude_zoom_object* od = fude_zoom_scene_object(&s, d);
+    CHECK(fude_zoom_scene_shape_numbers(&s, d, n, FUDE_ZOOM_SHAPE_NUMBERS) == FUDE_ZOOM_DIMENSION_REFS);
+    const fude_zoom_v2 a = fude_zoom_sim_apply(fude_zoom_object_sim(od), (fude_zoom_v2){ 0, 0 }), b = fude_zoom_sim_apply(fude_zoom_object_sim(od), (fude_zoom_v2){ n[0], n[1] });
+    fude_zoom_v2 c0, c1;
+    CHECK(fude_zoom_connect_point(&s, r, 0, &c0) && fude_zoom_connect_point(&s, r, 1, &c1));
+    CHECK(fabs(a.x - c0.x) < 1e-9 && fabs(a.y - c0.y) < 1e-9 && fabs(b.x - c1.x) < 1e-9 && fabs(b.y - c1.y) < 1e-9);
+    CHECK(fabs(c0.x - 50.0) < 1e-9 && fabs(c0.y + 50.0) < 1e-9);   // (bottom left turned: (20, -50) + 30 across)
+    CHECK(fude_zoom_history_undo(&s));
+    od = fude_zoom_scene_object(&s, d);
+    CHECK(fabs(od->t.x + 50.0) < 1e-9 && fabs(od->rotation) < 1e-12);
+    // Made again (stretched to 70 a side): measured again, its offset as it was.
+    const u32 r2 = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 20, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, (const f64[3]){ 70, 20, 0 }, 3u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    fude_zoom_scene_set_alive(&s, r, false);
+    const fude_zoom_id oid = fude_zoom_scene_object(&s, r)->id, nid = fude_zoom_scene_object(&s, r2)->id;
+    const u32 d2 = fude_zoom_connect_dim_remap(&s, d, &oid, &nid, 1u);
+    CHECK(d2 != FUDE_ZOOM_NONE && fude_zoom_connect_dim_remap(&s, loose, &oid, &nid, 1u) == FUDE_ZOOM_NONE);
+    CHECK(fude_zoom_scene_shape_numbers(&s, d2, n, FUDE_ZOOM_SHAPE_NUMBERS) == FUDE_ZOOM_DIMENSION_REFS && fabs(n[0] - 140.0) < 1e-9 && n[2] == -15.0);
+    CHECK(fabs(fude_zoom_scene_object(&s, d2)->t.x + 50.0) < 1e-9);
+    // Copied with it (put): the copy joined to the copy; copied without it: joined to nothing.
+    rde_arr clips = rde_arr_new(sizeof(fude_zoom_clip), rde_memory_allocator_get_default_std());
+    const u32 both[2] = { d2, r2 };
+    fude_zoom_select_clips_of(&s, both, 2u, &clips);
+    fude_zoom_select_clear(&sel);
+    const fude_zoom_sim up = { 1, 0, 0, 200 };
+    const u32 base = fude_zoom_scene_object_count(&s);
+    CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 2u, &up, 1u, NULL, NULL, 0u) == 2u);
+    // (the rectangle made first, then the dimension joined to it)
+    CHECK(fude_zoom_scene_object(&s, base)->channels == FUDE_ZOOM_SHAPE_RECT && fude_zoom_scene_object(&s, base + 1u)->channels == FUDE_ZOOM_SHAPE_DIMENSION);
+    fude_zoom_scene_shape_numbers(&s, base + 1u, n, FUDE_ZOOM_SHAPE_NUMBERS);
+    fude_zoom_id joined;
+    memcpy(&joined, &n[4], sizeof(joined));
+    CHECK(joined == fude_zoom_scene_object(&s, base)->id);
+    fude_zoom_select_clips_free(&clips);
+    fude_zoom_select_clips_of(&s, &d2, 1u, &clips);
+    fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 1u, &up, 1u, NULL, NULL, 0u);
+    fude_zoom_scene_shape_numbers(&s, base + 2u, n, FUDE_ZOOM_SHAPE_NUMBERS);
+    memcpy(&joined, &n[4], sizeof(joined));
+    CHECK(joined == 0u);
+    fude_zoom_select_clips_free(&clips);
+    rde_arr_free(&clips);
+    // A circle's size: its circle moved and grown, it goes along (its centre, its radius).
+    const u32 ci = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 500, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_ELLIPSE, (const f64[2]){ 20, 20 }, 2u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    f64 rn[4] = { 20, 0.0, 1.0, 0.0 };
+    const fude_zoom_id cid = fude_zoom_scene_object(&s, ci)->id;
+    memcpy(&rn[3], &cid, sizeof(cid));
+    const u32 ra = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 500, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RADIAL, rn, 4u, (rde_color){ 1, 1, 1, 255 }, 0.5f, 0u, 0);
+    fude_zoom_select_clear(&sel);
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ ci });
+    fude_zoom_select_update(&sel, &s);
+    fude_zoom_select_begin(&sel, &s);
+    fude_zoom_select_end(&sel, &s, (fude_zoom_sim){ 2.0, 0.0, -490.0, 10.0 });   // (twice as big round the origin: centre to (510, 10))
+    const fude_zoom_object* oa = fude_zoom_scene_object(&s, ra);
+    CHECK(fabs(oa->t.x - 510.0) < 1e-9 && fabs(oa->t.y - 10.0) < 1e-9 && fabs(oa->scale - 2.0) < 1e-12);
+    fude_zoom_v2 cc; f64 cr;
+    CHECK(fude_zoom_connect_round(&s, ci, &cc, &cr) && fabs(cr - 40.0) < 1e-12);
+    fude_zoom_select_destroy(&sel);
+    fude_zoom_scene_destroy(&s);
+}
+
+// 3D (stl.h): rings inside rings take turns — a plate with a hole, a peg in the hole — each solid as tall as asked,
+// closed (every edge two triangles', once each way) and facing out (its volume the plate's less the hole's, and
+// the peg's); from the view: a rectangle and a board solids (the board its thickness), a line and a symbol not.
+static f64 stl_volume(const f32* t, u32 n) {
+    f64 v = 0.0;
+    for(u32 i = 0; i < n; i++, t += 9) {
+        v += ((f64)t[0] * ((f64)t[4] * t[8] - (f64)t[5] * t[7]) - (f64)t[1] * ((f64)t[3] * t[8] - (f64)t[5] * t[6]) + (f64)t[2] * ((f64)t[3] * t[7] - (f64)t[4] * t[6])) / 6.0;
+    }
+    return v;
+}
+
+static b8 stl_closed(const f32* t, u32 n) {
+    // Each edge's way round must be met once the other way (a closed surface, facing one way).
+    for(u32 i = 0; i < n; i++) {
+        for(u32 e = 0; e < 3u; e++) {
+            const f32* a = &t[i * 9u + e * 3u];
+            const f32* b = &t[i * 9u + ((e + 1u) % 3u) * 3u];
+            u32 back = 0;
+            for(u32 j = 0; j < n; j++) {
+                for(u32 f = 0; f < 3u; f++) {
+                    const f32* c = &t[j * 9u + f * 3u];
+                    const f32* d = &t[j * 9u + ((f + 1u) % 3u) * 3u];
+                    back += (memcmp(c, b, 12u) == 0 && memcmp(d, a, 12u) == 0) ? 1u : 0u;
+                }
+            }
+            if(back != 1u) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void test_stl(void) {
+    // A plate (counter-clockwise), a hole in it (clockwise as given: turned as needed), a peg in the hole.
+    const fude_zoom_v2 pts[12] = {
+        { 0, 0 }, { 100, 0 }, { 100, 100 }, { 0, 100 },
+        { 20, 20 }, { 20, 40 }, { 40, 40 }, { 40, 20 },
+        { 25, 25 }, { 35, 25 }, { 35, 35 }, { 25, 35 },
+    };
+    const u32 rings[12] = { 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2 };
+    const f64 heights[3] = { 5.0, 5.0, 8.0 };
+    rde_arr tris = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
+    u32 solids = 0;
+    const u32 n = fude_zoom_stl_solids(pts, rings, 12u, heights, &tris, &solids);
+    CHECK(solids == 2u && n > 0u);
+    CHECK(fabs(stl_volume((const f32*)tris.memory, n) - ((100.0 * 100.0 - 20.0 * 20.0) * 5.0 + 10.0 * 10.0 * 8.0)) < 1e-3);
+    CHECK(stl_closed((const f32*)tris.memory, n));
+    // A round plate (64 corners) with two round holes (32 each, either way round): closed, its volume the polygons'.
+    fude_zoom_v2 disc[128];
+    u32 dr[128];
+    f64 want = 0.0;
+    for(u32 i = 0; i < 64u; i++) {
+        disc[i] = (fude_zoom_v2){ 50.0 * cos(i * 6.283185307179586 / 64.0), 50.0 * sin(i * 6.283185307179586 / 64.0) };
+        dr[i] = 0u;
+    }
+    for(u32 h = 0; h < 2u; h++) {
+        for(u32 i = 0; i < 32u; i++) {
+            const f64 a = (h == 0u ? 1.0 : -1.0) * i * 6.283185307179586 / 32.0;
+            disc[64u + 32u * h + i] = (fude_zoom_v2){ (h == 0u ? -20.0 : 20.0) + 10.0 * cos(a), 10.0 * sin(a) };
+            dr[64u + 32u * h + i] = 1u + h;
+        }
+    }
+    for(u32 ring = 0; ring < 3u; ring++) {
+        const u32 first = ring == 0u ? 0u : 64u + 32u * (ring - 1u), count = ring == 0u ? 64u : 32u;
+        f64 area = 0.0;
+        for(u32 i = 0; i < count; i++) {
+            const fude_zoom_v2 u = disc[first + i], v = disc[first + (i + 1u) % count];
+            area += (u.x * v.y - v.x * u.y) * 0.5;
+        }
+        want += ring == 0u ? fabs(area) : -fabs(area);
+    }
+    rde_arr_clear(&tris);
+    const f64 dh[3] = { 4.0, 4.0, 4.0 };
+    const u32 dn = fude_zoom_stl_solids(disc, dr, 128u, dh, &tris, &solids);
+    CHECK(solids == 1u && fabs(stl_volume((const f32*)tris.memory, dn) - want * 4.0) < 1e-2 && stl_closed((const f32*)tris.memory, dn));
+    rde_arr_free(&tris);
+    // From the view: a rectangle (3 mm), a board 18 mm thick, a line and a symbol left out.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    s.camera = (fude_zoom_camera){ s.root, { 0, 0 }, 1.0 };
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { -100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, (const f64[3]){ 30, 20, 0 }, 3u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    f64 bn[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 bc = fude_zoom_board_numbers(bn, 40, 25, 18.0, 0u, "Shelf");
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_BOARD, bn, bc, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 100 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 50, 0 }, 2u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    f64 sn[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 sc = fude_zoom_symbol_numbers(sn, fude_zoom_symbol_find("process"), 30, 20, 10, "Step");
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, -100 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, sn, sc, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    fude_bytes stl = fude_bytes_new(4096);
+    fude_zoom_stl_said said;
+    CHECK(fude_zoom_export_stl(&s, (fude_zoom_v2){ 400, 300 }, 1.0, 3.0, &stl, &said));
+    CHECK(said.solids == 2u && rde_arr_length(&stl) == 84u + 50u * said.triangles);
+    u32 count;
+    memcpy(&count, (const u8*)stl.memory + 80u, 4u);
+    CHECK(count == said.triangles);
+    // Its volume: the rectangle 60 × 40 × 3, the board 80 × 50 × 18 (each triangle: its facing, then its corners).
+    f32* corners = malloc((usize)count * 9u * sizeof(f32));
+    for(u32 i = 0; i < count; i++) {
+        memcpy(&corners[i * 9u], (const u8*)stl.memory + 84u + i * 50u + 12u, 36u);
+    }
+    CHECK(fabs(stl_volume(corners, count) - (60.0 * 40.0 * 3.0 + 80.0 * 50.0 * 18.0)) < 1e-1);
+    free(corners);
+    rde_arr_free(&stl);
+    fude_zoom_scene_destroy(&s);
+    // A shape's line: dashed, its pieces 7 widths long and 3.5 apart along it; a centre line's dash and dot.
+    rde_arr d = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    const fude_zoom_v2 line[2] = { { 0, 0 }, { 105, 0 } };
+    CHECK(fude_zoom_line_dashes(line, 2u, false, FUDE_ZOOM_LINE_DASHED, 2.0, (fude_zoom_box){ -1000, -1000, 1000, 1000 }, &d) == 5u);
+    const fude_zoom_v2* q = (const fude_zoom_v2*)d.memory;
+    CHECK(fabs(q[1].x - 14.0) < 1e-9 && fabs(q[2].x - 21.0) < 1e-9);
+    CHECK(fude_zoom_line_dashes(line, 2u, false, FUDE_ZOOM_LINE_DASH_DOT, 2.0, (fude_zoom_box){ -1000, -1000, 1000, 1000 }, &d) == 6u);
+    CHECK(fude_zoom_line_dashes(line, 2u, false, FUDE_ZOOM_LINE_SOLID, 2.0, (fude_zoom_box){ -1000, -1000, 1000, 1000 }, &d) == 0u);
+    // Off the screen: none; partly on it: the pattern as counted from the line's start.
+    CHECK(fude_zoom_line_dashes(line, 2u, false, FUDE_ZOOM_LINE_DASHED, 2.0, (fude_zoom_box){ 200, -10, 300, 10 }, &d) == 0u);
+    CHECK(fude_zoom_line_dashes(line, 2u, false, FUDE_ZOOM_LINE_DASHED, 2.0, (fude_zoom_box){ 18, -10, 60, 10 }, &d) == 2u);   // (21-35, 42-56)
+    q = (const fude_zoom_v2*)d.memory;
+    CHECK(fabs(q[0].x - 21.0) < 1e-9 && fabs(q[1].x - 35.0) < 1e-9);
+    rde_arr_free(&d);
+}
+
+// Reached from a point: square to what the pen is near (its foot), along a straight thing near or a way asked for;
+// nothing of either far off; what is drawn there first.
+static void test_snap_from(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    const f64 base[2] = { 500, 30 };
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { -250, -120 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, base, 2, c, 1.0f, 0u, 0);
+    fude_zoom_visible v; memset(&v, 0, sizeof v);
+    v.frame = s.root; v.to_screen = (fude_zoom_sim){ 1.0, 0.0, 0.0, 0.0 };
+    const fude_zoom_v2 ways[2] = { { 1, 0 }, { 0, 1 } };
+    // From (10, 150) to near the line: its foot, where the line from there is square to it.
+    fude_zoom_snap h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 30, -95 }, 14.0, (fude_zoom_v2){ 10, 150 }, ways, 2u);
+    const f64 t = (260.0 * 500.0 + 270.0 * 30.0) / (500.0 * 500.0 + 30.0 * 30.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_PERP && fabs(h.at.x - (-250.0 + 500.0 * t)) < 1e-9 && fabs(h.at.y - (-120.0 + 30.0 * t)) < 1e-9);
+    CHECK(fabs((h.at.x - 10.0) * 500.0 + (h.at.y - 150.0) * 30.0) < 1e-6 && h.a.x == -250.0 && h.b.x == 250.0);
+    // Along it, from above: brought onto the line from there its way.
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 150, 124 }, 14.0, (fude_zoom_v2){ -200, 100 }, ways, 2u);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_PARALLEL && fabs((h.at.y - 100.0) / (h.at.x + 200.0) - 30.0 / 500.0) < 1e-9);
+    // Across (a way asked for), far from the line.
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 703 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_PARALLEL && fabs(h.at.y - 700.0) < 1e-9 && fabs(h.at.x - 300.0) < 1e-9 && h.a.x == h.b.x);
+    // Nothing there, no way near: none.
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 760 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_NONE);
+    // The line's end there: an end, not its foot.
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 248, -92 }, 14.0, (fude_zoom_v2){ 240, 150 }, ways, 2u);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_END);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Fitting parts into a board: all that fit, inside it, never over each other, a kerf apart.
+static b8 nest_ok(f64 bw, f64 bh, f64 kerf, const fude_zoom_nest_place* p, u32 n) {
+    for(u32 i = 0; i < n; i++) {
+        if(!p[i].placed) continue;
+        if(p[i].x < -1e-9 || p[i].y < -1e-9 || p[i].x + p[i].w > bw + 1e-9 || p[i].y + p[i].h > bh + 1e-9) return false;
+        for(u32 j = i + 1; j < n; j++) {
+            if(!p[j].placed) continue;
+            const b8 apart = p[i].x + p[i].w + kerf <= p[j].x + 1e-9 || p[j].x + p[j].w + kerf <= p[i].x + 1e-9 ||
+                             p[i].y + p[i].h + kerf <= p[j].y + 1e-9 || p[j].y + p[j].h + kerf <= p[i].y + 1e-9;
+            if(!apart) return false;
+        }
+    }
+    return true;
+}
+
+static void test_nest(void) {
+    fude_zoom_nest_part parts[40];
+    fude_zoom_nest_place out[40];
+    // Four quarters of a board, no kerf: all of it.
+    for(u32 i = 0; i < 4; i++) parts[i] = (fude_zoom_nest_part){ 500, 500, false };
+    CHECK(fude_zoom_nest(1000, 1000, 0.0, parts, 4, out) == 4u && nest_ok(1000, 1000, 0.0, out, 4));
+    // With a 3 mm kerf they no longer do; 498.5 each, they do again.
+    CHECK(fude_zoom_nest(1000, 1000, 3.0, parts, 4, out) == 1u);
+    for(u32 i = 0; i < 4; i++) parts[i] = (fude_zoom_nest_part){ 498.5, 498.5, false };
+    CHECK(fude_zoom_nest(1000, 1000, 3.0, parts, 4, out) == 4u && nest_ok(1000, 1000, 3.0, out, 4));
+    // Turned to fit, when it may be; not when its grain must run along the board.
+    parts[0] = (fude_zoom_nest_part){ 300, 800, true };
+    CHECK(fude_zoom_nest(1000, 300, 0.0, parts, 1, out) == 1u && out[0].turned && out[0].w == 800 && out[0].h == 300);
+    parts[0].can_turn = false;
+    CHECK(fude_zoom_nest(1000, 300, 0.0, parts, 1, out) == 0u && !out[0].placed);
+    // Many at random: what fits is inside, apart, and as much wood as any order put down.
+    const u32 kept = rng;   // (the other tests' numbers left as they were)
+    rng = 99u;
+    for(u32 round = 0; round < 20u; round++) {
+        const u32 n = 5u + rnd() % 30u;
+        for(u32 i = 0; i < n; i++) parts[i] = (fude_zoom_nest_part){ 50.0 + rndf() * 700.0, 50.0 + rndf() * 500.0, (rnd() & 1u) != 0 };
+        const u32 fit = fude_zoom_nest(2440, 1220, 3.2, parts, n, out);
+        CHECK(fit >= 1u && nest_ok(2440, 1220, 3.2, out, n));
+        u32 placed = 0;
+        for(u32 i = 0; i < n; i++) {
+            placed += out[i].placed ? 1u : 0u;
+            if(out[i].placed) CHECK((out[i].turned ? out[i].w == parts[i].h : out[i].w == parts[i].w) && (!out[i].turned || parts[i].can_turn));
+        }
+        CHECK(placed == fit);
+    }
+    rng = kept;
+    // A sheet of 2440 x 1220 and a cabinet's parts: a good share of it used.
+    const f64 cab[][2] = { { 720, 560 }, { 720, 560 }, { 764, 560 }, { 764, 560 }, { 720, 764 }, { 700, 300 }, { 700, 300 }, { 700, 300 } };
+    for(u32 i = 0; i < 8; i++) parts[i] = (fude_zoom_nest_part){ cab[i][0], cab[i][1], false };
+    CHECK(fude_zoom_nest(2440, 1220, 3.2, parts, 8, out) >= 6u && nest_ok(2440, 1220, 3.2, out, 8));
+}
+
+// --- texts ------------------------------------------------------------------------------------------
+
+// --- layers ----------------------------------------------------------------------------------------
+
+static void test_layers(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    fude_zoom_eraser e; fude_zoom_eraser_init(&e);
+    // New things go on the current layer.
+    const u32 front = line(&s, 0, 0, 100, 0, 1.0, 1.0f);
+    s.layer = 1;
+    const u32 back = line(&s, 0, 20, 100, 20, 1.0, 1.0f);
+    s.layer = 0;
+    CHECK(fude_zoom_scene_object(&s, front)->layer == 0 && fude_zoom_scene_object(&s, back)->layer == 1);
+    // The pile: never moved, a layer's index is its place (layer 1 over 0, whatever was drawn first);
+    // ranked, as the ranks say; the flags' other bits untouched by a rank.
+    CHECK(fude_zoom_scene_draw_key(&s, fude_zoom_scene_object(&s, back)) > fude_zoom_scene_draw_key(&s, fude_zoom_scene_object(&s, front)));
+    CHECK(fude_zoom_layer_rank_of(0u) == -1 && fude_zoom_layer_rank_of(fude_zoom_layer_with_rank(FUDE_ZOOM_LAYER_LOCKED, 0u)) == 0);
+    CHECK((fude_zoom_layer_with_rank(FUDE_ZOOM_LAYER_LOCKED | FUDE_ZOOM_LAYER_HIDDEN, 5u) & 3u) == 3u);
+    {
+        const u32 r0 = fude_zoom_scene_add_layer(&s, s.root, 0, fude_zoom_layer_with_rank(0u, 1u), "");
+        const u32 r1 = fude_zoom_scene_add_layer(&s, s.root, 1, fude_zoom_layer_with_rank(0u, 0u), "");
+        fude_zoom_scene_layers_refresh(&s);
+        CHECK(s.layer_rank[0] == 1u && s.layer_rank[1] == 0u);
+        CHECK(fude_zoom_scene_draw_key(&s, fude_zoom_scene_object(&s, front)) > fude_zoom_scene_draw_key(&s, fude_zoom_scene_object(&s, back)));
+        fude_zoom_scene_set_alive(&s, r0, false);
+        fude_zoom_scene_set_alive(&s, r1, false);
+        fude_zoom_scene_layers_refresh(&s);
+        CHECK(s.layer_rank[0] == 0u && s.layer_rank[1] == 1u);   // gone: back to their indexes
+    }
+    // Its state an object: hidden, then refreshed into the scene's bits.
+    const u32 l1 = fude_zoom_scene_add_layer(&s, s.root, 1, FUDE_ZOOM_LAYER_HIDDEN, "Back");
+    fude_zoom_history_push(&s, s.root, (fude_zoom_box){ 0, 0, 0, 0 }, NULL, 0, &l1, 1);
+    fude_zoom_scene_layers_refresh(&s);
+    CHECK(s.layers_hidden == 2u && s.layers_locked == 0u);
+    CHECK(fude_zoom_scene_hides(&s, fude_zoom_scene_object(&s, back)) && !fude_zoom_scene_touchable(&s, fude_zoom_scene_object(&s, back)));
+    CHECK(!fude_zoom_scene_hides(&s, fude_zoom_scene_object(&s, front)) && fude_zoom_scene_touchable(&s, fude_zoom_scene_object(&s, front)));
+    u16 index; u8 flags; c8 name[16];
+    CHECK(fude_zoom_scene_layer_of(&s, l1, &index, &flags, name, sizeof name) && index == 1 && flags == FUDE_ZOOM_LAYER_HIDDEN && strcmp(name, "Back") == 0);
+    // A sweep across both: the hidden one is not touched.
+    fude_zoom_erase_begin(&e, FUDE_ZOOM_ERASE_STROKE);
+    fude_zoom_erase_step(&s, &e, s.root, (fude_zoom_v2){ 50, -10 }, (fude_zoom_v2){ 50, 30 }, 3.0, 0.5);
+    fude_zoom_erase_end(&s, &e, s.root, (fude_zoom_box){ 0, -10, 100, 30 });
+    CHECK(!alive(&s, front) && alive(&s, back));
+    // Locked instead (shown, still not touched); then a close-up cut of it, unlocked, stays on its layer.
+    const u32 l1b = fude_zoom_scene_add_layer(&s, s.root, 1, FUDE_ZOOM_LAYER_LOCKED, "Back");
+    fude_zoom_scene_set_alive(&s, l1, false);
+    fude_zoom_history_push(&s, s.root, (fude_zoom_box){ 0, 0, 0, 0 }, &l1, 1, &l1b, 1);
+    fude_zoom_scene_layers_refresh(&s);
+    CHECK(s.layers_hidden == 0u && s.layers_locked == 2u);
+    CHECK(!fude_zoom_scene_hides(&s, fude_zoom_scene_object(&s, back)) && !fude_zoom_scene_touchable(&s, fude_zoom_scene_object(&s, back)));
+    fude_zoom_erase_begin(&e, FUDE_ZOOM_ERASE_PARTIAL);
+    fude_zoom_erase_step(&s, &e, s.root, (fude_zoom_v2){ 50, 10 }, (fude_zoom_v2){ 50, 30 }, 2.0, 0.5);
+    fude_zoom_erase_end(&s, &e, s.root, (fude_zoom_box){ 0, 10, 100, 30 });
+    CHECK(alive(&s, back));
+    CHECK(fude_zoom_history_undo(&s));   // unlocked again (the step that locked it undone)
+    fude_zoom_scene_layers_refresh(&s);
+    CHECK(s.layers_hidden == 2u && s.layers_locked == 0u);
+    CHECK(fude_zoom_history_undo(&s));   // the sweep: the front line back, the back still hidden
+    CHECK(alive(&s, front));
+    CHECK(fude_zoom_history_undo(&s));   // the hiding
+    fude_zoom_scene_layers_refresh(&s);
+    CHECK(s.layers_hidden == 0u && s.layers_locked == 0u);
+    const u32 mark = fude_zoom_scene_object_count(&s);
+    fude_zoom_erase_begin(&e, FUDE_ZOOM_ERASE_PARTIAL);
+    fude_zoom_erase_step(&s, &e, s.root, (fude_zoom_v2){ 50, 10 }, (fude_zoom_v2){ 50, 30 }, 2.0, 0.5);
+    fude_zoom_erase_end(&s, &e, s.root, (fude_zoom_box){ 0, 10, 100, 30 });
+    CHECK(!alive(&s, back));
+    u32 cut = 0;
+    for(u32 i = mark; i < fude_zoom_scene_object_count(&s); i++) {
+        const fude_zoom_object* o = fude_zoom_scene_object(&s, i);
+        if((o->flags & FUDE_ZOOM_FLAG_ALIVE) && o->kind == FUDE_ZOOM_KIND_FILL) {
+            CHECK(o->layer == 1);
+            cut++;
+        }
+    }
+    CHECK(cut >= 1u && s.layer == 0);
+    // Through the file: the layer's state and each thing's layer kept.
+    CHECK(fude_zoom_history_undo(&s));   // the cut undone: the line back
+    const u32 l1c = fude_zoom_scene_add_layer(&s, s.root, 1, FUDE_ZOOM_LAYER_HIDDEN | FUDE_ZOOM_LAYER_LOCKED, "Back");
+    fude_zoom_history_push(&s, s.root, (fude_zoom_box){ 0, 0, 0, 0 }, NULL, 0, &l1c, 1);
+    mkdir("./saves", 0755);
+    remove("./saves/layers.zoom"); remove("./saves/layers.zoom.bak");
+    fude_zoom_file fz; memset(&fz, 0, sizeof fz); snprintf(fz.path, sizeof fz.path, "%s", "./saves/layers.zoom");
+    CHECK(fude_zoom_file_flush(&fz, &s));
+    fude_zoom_scene r; fude_zoom_scene_init(&r, 8); fude_zoom_file g;
+    CHECK(fude_zoom_file_open(&g, "./saves/layers.zoom", &r) == FUDE_LOAD_OK);
+    fude_zoom_scene_layers_refresh(&r);
+    CHECK(r.layers_hidden == 2u && r.layers_locked == 2u);
+    u32 on_back = 0;
+    for(u32 i = 0; i < fude_zoom_scene_object_count(&r); i++) {
+        const fude_zoom_object* o = fude_zoom_scene_object(&r, i);
+        on_back += (o->flags & FUDE_ZOOM_FLAG_ALIVE) && o->kind == FUDE_ZOOM_KIND_STROKE && o->layer == 1 ? 1u : 0u;
+    }
+    CHECK(on_back == 1u);
+    fude_zoom_scene_destroy(&r);
+    fude_zoom_eraser_destroy(&e);
+    fude_zoom_scene_destroy(&s);
+}
+
+static void test_texts(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const c8* words = "Mesa de roble\nTablero 1200 x 800";
+    const u32 t = fude_zoom_scene_add_text(&s, s.root, (fude_zoom_place){ { 10, 50 }, 0.0, 2.0 }, 9.0, 100.0, 24.0, FUDE_ZOOM_TEXT_STICKY,
+                                           (rde_color){ 1, 2, 3, 255 }, (rde_color){ 255, 233, 140, 255 }, words, (u32)strlen(words), 0);
+    f64 size, w, h; u8 style; const c8* back; u32 len;
+    CHECK(fude_zoom_scene_text(&s, t, &size, &w, &h, &style, &back, &len));
+    CHECK(size == 9.0 && w == 100.0 && h == 24.0 && style == FUDE_ZOOM_TEXT_STICKY && len == strlen(words) && memcmp(back, words, len) == 0);
+    // Its box: from its top left, down and right, at its scale.
+    const fude_zoom_object* o = fude_zoom_scene_object(&s, t);
+    CHECK(fabs(o->box.min_x - 10) < 1e-9 && fabs(o->box.max_x - 210) < 1e-9 && fabs(o->box.max_y - 50) < 1e-9 && fabs(o->box.min_y - 2) < 1e-9);
+    CHECK(fude_zoom_scene_object(&s, t)->fill.g == 233);
+    // Through the file and back (a picture's way: its payload kept as it came).
+    mkdir("./saves", 0755);
+    remove("./saves/texts.zoom"); remove("./saves/texts.zoom.bak");
+    fude_zoom_file fz; memset(&fz, 0, sizeof fz); snprintf(fz.path, sizeof fz.path, "%s", "./saves/texts.zoom");
+    CHECK(fude_zoom_file_flush(&fz, &s));
+    fude_zoom_scene r; fude_zoom_scene_init(&r, 8); fude_zoom_file g;
+    CHECK(fude_zoom_file_open(&g, "./saves/texts.zoom", &r) == FUDE_LOAD_OK);
+    u32 found = 0;
+    for(u32 i = 0; i < fude_zoom_scene_object_count(&r); i++) {
+        if(fude_zoom_scene_object(&r, i)->kind == FUDE_ZOOM_KIND_TEXT && fude_zoom_scene_text(&r, i, &size, NULL, NULL, &style, &back, &len)) {
+            found += size == 9.0 && style == FUDE_ZOOM_TEXT_STICKY && len == strlen(words) && memcmp(back, words, len) == 0 ? 1u : 0u;
+        }
+    }
+    CHECK(found == 1u);
+    fude_zoom_scene_destroy(&r);
     fude_zoom_scene_destroy(&s);
 }
 
@@ -1352,6 +3483,31 @@ int main(void) {
     test_sim_and_index();
     test_frames();
     test_erasers();
+    test_instruments();
+    test_texts();
+    test_layers();
+    test_connectors();
+    test_layer_moves();
+    test_driving();
+    test_boards();
+    test_paths();
+    test_arcs();
+    test_video_yuv();
+    test_hand_lines();
+    test_symbols();
+    test_map();
+    test_sheets();
+    test_pieces();
+    test_sculpt();
+    test_cuts();
+    test_snap_cross();
+    test_snap_from();
+    test_repeat();
+    test_dims();
+    test_stl();
+    test_nest();
+    test_bucket();
+    test_offsets();
     test_history();
     test_moves();
     test_shapes();
@@ -1359,6 +3515,7 @@ int main(void) {
     test_smoothing();
     test_navigation();
     test_filling();
+    test_fill_edges();
     test_export();
     test_file();
     if(fails == 0) printf("ALL PASSED\n"); else printf("%d FAILED\n", fails);

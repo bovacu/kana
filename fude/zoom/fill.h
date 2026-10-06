@@ -37,6 +37,11 @@ b8   fude_zoom_fill_inside(const fude_zoom_v2* _points, u32 _n, fude_zoom_v2 _p)
 // it — all the cuts together, however they overlap.
 u32  fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _points, const u32* _rings, u32 _n, rde_arr* _out);
 b8   fude_zoom_fill_inside_rings(const fude_zoom_v2* _points, const u32* _rings, u32 _n, fude_zoom_v2 _p);
+// Its edge as it shows: only where inside meets outside — an outline's stretch
+// a cut took, and a cut's beyond the outline, left out — as open lines, each
+// point appended to _out and its line's number (0, 1, ...) to _lines (a line
+// all round ends where it began). How many points.
+u32  fude_zoom_fill_edges_rings(const fude_zoom_v2* _points, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _lines);
 // The eraser's reach over one step, a to b at radius _r: a capsule (convex),
 // its points appended to _out. How many.
 #define FUDE_ZOOM_FILL_ROUND 8u   // segments to each half turn of a capsule's ends
@@ -55,6 +60,16 @@ u32  fude_zoom_fill_sweep(const fude_zoom_v2* _path, u32 _n, f64 _r, rde_arr* _o
 // into _rings (0 the outline, 1... the holes: fill.h's cuts).
 f64  fude_zoom_fill_widths_cell(const f64* _radii, u32 _n);
 u32  fude_zoom_fill_sweep_widths(const fude_zoom_v2* _path, const f64* _radii, u32 _n, rde_arr* _out, rde_arr* _rings);
+// The marching squares those use, on a field of one's own: its 0 line (below
+// 0 is inside) sampled on a grid _w by _h, _cell apart from (_x0, _y0) — the
+// outermost loop, simplified to a sixth of a cell, and with _rings its holes
+// after it (each point's ring into _rings). How many points.
+u32  fude_zoom_fill_contour(const f32* _field, u32 _w, u32 _h, f64 _x0, f64 _y0, f64 _cell, rde_arr* _out, rde_arr* _rings);
+// A closed outline offset by _d (out; inside when negative), as one loop (its
+// outermost): what a router's bit or a saw's kerf leaves round a part. The
+// signed distance to the outline sampled finely (about a quarter of _d, never
+// coarser than a two-hundredth of its size), its _d line traced. How many points.
+u32  fude_zoom_fill_offset(const fude_zoom_v2* _poly, u32 _n, f64 _d, rde_arr* _out);
 // The part of a closed line round _tap: the line split at its crossings into
 // simple loops (walking it, each time it runs into itself the loop it just
 // closed is taken out), and of those round _tap, the smallest — a figure 8's

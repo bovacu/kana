@@ -2,9 +2,14 @@
 
 #include "zoom/render.h"
 #include "zoom/fill.h"
+#include "zoom/shape.h"
+#include "zoom/sheet.h"
+#include "zoom/symbol.h"
 #include "drawing/base/theme.h"
+#include "drawing/widgets/draw.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +39,8 @@ void fude_zoom_render_init(fude_zoom_renderer* _r) {
     _r->shape        = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     _r->fill         = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     _r->cut          = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    _r->mm_per_unit  = 1.0;
+    _r->units        = (fude_zoom_units_style){ FUDE_ZOOM_UNIT_MM, 1u, 16u, false };
     _r->pictures     = rde_arr_new(sizeof(fude_zoom_picture), _heap);
     _r->cache_budget = FUDE_ZOOM_RENDER_CACHE;
 }
@@ -60,6 +67,10 @@ void fude_zoom_render_trim(fude_zoom_renderer* _r) {
         }
         if(_d[_i].rings != NULL) {
             _heap->free(_heap->allocator, _d[_i].rings);
+        }
+        if(_d[_i].edges != NULL) {
+            _heap->free(_heap->allocator, _d[_i].edges);
+            _heap->free(_heap->allocator, _d[_i].edge_lines);
         }
     }
     rde_arr_clear(&_r->cache);
@@ -91,7 +102,7 @@ RDE_INTERNAL void fude_zoom_render_evict(fude_zoom_renderer* _r, u32 _entry) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fude_zoom_decoded*    _d    = (fude_zoom_decoded*)_r->cache.memory;
     u32*                  _slot = (u32*)_r->slot_of.memory;
-    _r->cache_bytes -= (u64)_d[_entry].count * 12u + (u64)_d[_entry].tri_count * 24u;
+    _r->cache_bytes -= (u64)_d[_entry].count * 12u + (u64)_d[_entry].tri_count * 24u + (u64)_d[_entry].edge_count * 12u;
     _heap->free(_heap->allocator, _d[_entry].xy);
     _heap->free(_heap->allocator, _d[_entry].radius);
     if(_d[_entry].tris != NULL) {
@@ -99,6 +110,10 @@ RDE_INTERNAL void fude_zoom_render_evict(fude_zoom_renderer* _r, u32 _entry) {
     }
     if(_d[_entry].rings != NULL) {
         _heap->free(_heap->allocator, _d[_entry].rings);
+    }
+    if(_d[_entry].edges != NULL) {
+        _heap->free(_heap->allocator, _d[_entry].edges);
+        _heap->free(_heap->allocator, _d[_entry].edge_lines);
     }
     _slot[_d[_entry].object] = 0;
     const u32 _last = (u32)rde_arr_length(&_r->cache) - 1u;
@@ -425,6 +440,63 @@ RDE_INTERNAL void fude_zoom_render_polygon_fill(fude_zoom_renderer* _r, const fu
 
 // A FILL: its triangles (made once, kept with its points) through its place; a
 // fill far bigger than the screen cut to it first. _as: a glow — its outline.
+#define FUDE_ZOOM_RENDER_EDGE 0.55f   // the soft edge round a fill (pt): a hairline of its own colour along its edge
+
+// A fill's edges made soft: its triangles end hard, so its edge is drawn over
+// them as a hairline of its colour, which the stroke renderer smooths as it does
+// a pen's line (a line rubbed out keeps the look of a line). Only the edge as it
+// shows: a cut fill's (fill.h's edges_rings, made once and kept with it) leaves
+// out its outline where the eraser took it and its cuts beyond the outline.
+RDE_INTERNAL void fude_zoom_render_fill_edges(fude_zoom_renderer* _r, fude_zoom_decoded* _d, fude_zoom_sim _all, rde_color _color, f32 _radius) {
+    if(_d->rings != NULL && _d->edges == NULL) {
+        rde_arr_clear(&_r->shape);
+        fude_zoom_v2* _p = rde_arr_add_n(&_r->shape, _d->count);
+        for(u32 _i = 0; _i < _d->count; _i++) {
+            _p[_i] = (fude_zoom_v2){ _d->xy[_i * 2u], _d->xy[_i * 2u + 1u] };
+        }
+        rde_arr_clear(&_r->fill);
+        rde_arr _lines = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        const u32 _k = fude_zoom_fill_edges_rings((const fude_zoom_v2*)_r->shape.memory, _d->rings, _d->count, &_r->fill, &_lines);
+        rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+        _d->edges      = _heap->malloc(_heap->allocator, (usize)(_k > 0 ? _k : 1u) * 2u * sizeof(f32));
+        _d->edge_lines = _heap->malloc(_heap->allocator, (usize)(_k > 0 ? _k : 1u) * sizeof(u32));
+        _d->edge_count = _k;
+        const fude_zoom_v2* _e = (const fude_zoom_v2*)_r->fill.memory;
+        for(u32 _i = 0; _i < _k; _i++) {
+            _d->edges[_i * 2u]      = (f32)_e[_i].x;
+            _d->edges[_i * 2u + 1u] = (f32)_e[_i].y;
+            _d->edge_lines[_i]      = ((const u32*)_lines.memory)[_i];
+        }
+        rde_arr_free(&_lines);
+        _r->cache_bytes += (u64)_k * 12u;
+    }
+    const b8   _cut   = _d->rings != NULL;
+    const u32  _count = _cut ? _d->edge_count : _d->count;
+    const f32* _xy    = _cut ? _d->edges : _d->xy;
+    for(u32 _start = 0; _start < _count;) {
+        u32 _end = _start + 1u;
+        while(_end < _count && (!_cut || _d->edge_lines[_end] == _d->edge_lines[_start])) {
+            _end++;
+        }
+        const u32 _k = _end - _start;
+        const u32 _m = _cut ? _k : _k + 1u;   // (an uncut fill's outline: all round, back to its first point)
+        if(_k >= 2u) {
+            rde_arr_clear(&_r->screen);
+            rde_arr_clear(&_r->radii);
+            rde_vec_2F* _pts = rde_arr_add_n(&_r->screen, _m);
+            f32*        _rr  = rde_arr_add_n(&_r->radii, _m);
+            for(u32 _i = 0; _i < _m; _i++) {
+                const u32 _j = _start + _i % _k;
+                const fude_zoom_v2 _p = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _xy[_j * 2u], _xy[_j * 2u + 1u] });
+                _pts[_i] = (rde_vec_2F){ (f32)_p.x, (f32)_p.y };
+                _rr[_i]  = _radius;
+            }
+            rde_rendering_2d_draw_stroke(_pts, _rr, _m, _color);
+        }
+        _start = _end;
+    }
+}
+
 RDE_INTERNAL void fude_zoom_render_fill(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, const rde_color* _as, f32 _extra) {
     const fude_zoom_object* _o    = fude_zoom_scene_object(_s, _object);
     const f64               _size = fmax(_o->box.max_x - _o->box.min_x, _o->box.max_y - _o->box.min_y) * fude_zoom_sim_scale(_to_screen);
@@ -437,21 +509,7 @@ RDE_INTERNAL void fude_zoom_render_fill(fude_zoom_renderer* _r, const fude_zoom_
     }
     const fude_zoom_sim _all = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
     if(_as != NULL) {
-        rde_arr_clear(&_r->screen);
-        rde_arr_clear(&_r->radii);
-        u32 _outline = 0;   // the outline's points: the first ring
-        while(_outline < _d->count && (_d->rings == NULL || _d->rings[_outline] == _d->rings[0])) {
-            _outline++;
-        }
-        rde_vec_2F* _pts = rde_arr_add_n(&_r->screen, _outline + 1u);
-        f32*        _rr  = rde_arr_add_n(&_r->radii, _outline + 1u);
-        for(u32 _i = 0; _i <= _outline; _i++) {
-            const u32 _j = _i % _outline;
-            const fude_zoom_v2 _p = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _d->xy[_j * 2u], _d->xy[_j * 2u + 1u] });
-            _pts[_i] = (rde_vec_2F){ (f32)_p.x, (f32)_p.y };
-            _rr[_i]  = 1.5f + _extra;
-        }
-        rde_rendering_2d_draw_stroke(_pts, _rr, _outline + 1u, *_as);
+        fude_zoom_render_fill_edges(_r, _d, _all, *_as, 1.5f + _extra);   // (its edge as it shows: not where the eraser took it)
         return;
     }
     const rde_color    _color = fude_theme_resolve(_o->color);
@@ -517,9 +575,699 @@ RDE_INTERNAL void fude_zoom_render_fill(fude_zoom_renderer* _r, const fude_zoom_
             const fude_zoom_v2 _e = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _c[4], _c[5] });
             rde_rendering_2d_draw_triangle((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_b.x, (f32)_b.y }, (rde_vec_2F){ (f32)_e.x, (f32)_e.y }, _color, NULL);
         }
+        if(_color.a == 255u && _size >= 3.0) {
+            fude_zoom_render_fill_edges(_r, _d, _all, _color, FUDE_ZOOM_RENDER_EDGE);   // (a see-through marker's would show darker where they overlap)
+        }
     }
     _r->strokes_drawn++;
     _r->points_drawn += _d->count;
+}
+
+void fude_zoom_render_dimension(const fude_zoom_renderer* _r, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _offset, f32 _width, rde_color _color, const c8* _label) {
+    const f64 _len = hypot(_b.x - _a.x, _b.y - _a.y);
+    if(_len < 1.0) {
+        return;
+    }
+    const fude_zoom_v2 _d    = { (_b.x - _a.x) / _len, (_b.y - _a.y) / _len };
+    const fude_zoom_v2 _left = { -_d.y, _d.x };
+    const f64          _side = _offset >= 0.0 ? 1.0 : -1.0;
+    const fude_zoom_v2 _a2   = { _a.x + _left.x * _offset, _a.y + _left.y * _offset };
+    const fude_zoom_v2 _b2   = { _b.x + _left.x * _offset, _b.y + _left.y * _offset };
+    // The extension lines: from just off what it measures to just past its line.
+    if(fabs(_offset) > 3.0) {
+        const f64 _gap = 3.0 * _side, _over = _offset + 5.0 * _side;
+        rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)(_a.x + _left.x * _gap), (f32)(_a.y + _left.y * _gap) }, (rde_vec_2F){ (f32)(_a.x + _left.x * _over), (f32)(_a.y + _left.y * _over) }, _color, 1.0f);
+        rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)(_b.x + _left.x * _gap), (f32)(_b.y + _left.y * _gap) }, (rde_vec_2F){ (f32)(_b.x + _left.x * _over), (f32)(_b.y + _left.y * _over) }, _color, 1.0f);
+    }
+    rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_a2.x, (f32)_a2.y }, (rde_vec_2F){ (f32)_b2.x, (f32)_b2.y }, _color, fmaxf(_width, 1.0f));
+    // Its arrows, inside while there is room for them, else outside pointing in.
+    const f64 _al = 9.0, _aw = 3.5;
+    const f64 _in = _len >= 2.5 * _al ? 1.0 : -1.0;
+    for(u32 _end = 0; _end < 2u; _end++) {
+        const fude_zoom_v2 _tip = _end == 0u ? _a2 : _b2;
+        const f64          _k   = (_end == 0u ? 1.0 : -1.0) * _in;
+        const rde_vec_2F   _t[3] = {
+            { (f32)_tip.x, (f32)_tip.y },
+            { (f32)(_tip.x + _d.x * _al * _k + _left.x * _aw), (f32)(_tip.y + _d.y * _al * _k + _left.y * _aw) },
+            { (f32)(_tip.x + _d.x * _al * _k - _left.x * _aw), (f32)(_tip.y + _d.y * _al * _k - _left.y * _aw) },
+        };
+        rde_rendering_2d_draw_polygon(_t, 3u, _color, NULL);
+    }
+    // Its number, upright, on the side away from what it measures, on the page's colour.
+    if(_label != NULL && _r->font != NULL) {
+        const f32 _px = 13.0f;
+        const f32 _tw = fude_draw_text_width(_r->font, _r->font_px, _label, _px);
+        if((f64)_tw + 12.0 > _len && _len < 40.0) {
+            return;   // too short to say it on: left unsaid rather than over its own arrows
+        }
+        const f64 _lift = 11.0 * _side;
+        const rde_vec_2F _c = { (f32)((_a2.x + _b2.x) * 0.5 + _left.x * _lift), (f32)((_a2.y + _b2.y) * 0.5 + _left.y * _lift) };
+        rde_rendering_2d_draw_rounded_rectangle_with_border(_c, (rde_vec_2F){ _tw + 10.0f, 18.0f }, 1.0f, 6u, fude_theme_active()->page, 1.0f, fude_theme_active()->page, NULL);
+        rde_rendering_2d_draw_text_2(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+    }
+}
+
+// An arrow (a connector): its line through its points — in dashes when
+// dotted — and its heads, pointed or round, sized by its width on screen.
+RDE_INTERNAL void fude_zoom_render_arrow_shape(const fude_zoom_object* _o, const f64* _n, u32 _count, fude_zoom_sim _to_screen, const rde_color* _as) {
+    const u32 _k = _count >= 1u ? (u32)_n[0] : 0u;
+    if(_k < 2u || _k > FUDE_ZOOM_ARROW_POINTS || _count < 2u * _k + 2u) {
+        return;
+    }
+    const u32           _heads = (u32)_n[1u + 2u * _k];
+    const fude_zoom_sim _all   = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const f64           _w     = fmax((f64)_o->radius * fude_zoom_sim_scale(_to_screen), 0.75);   // (its own scale is a connector's stretch: not its width)
+    const rde_color     _c     = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    rde_vec_2F _p[FUDE_ZOOM_ARROW_POINTS];
+    for(u32 _i = 0; _i < _k; _i++) {
+        const fude_zoom_v2 _q = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _n[1u + 2u * _i], _n[2u + 2u * _i] });
+        _p[_i] = (rde_vec_2F){ (f32)_q.x, (f32)_q.y };
+    }
+    const f32 _head = (f32)fmax(_w * 3.5 + 5.0, 8.0);
+    // Each end's head (symbol.h: its style, UML's and ER's ends too), and how far the line stops short of it.
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _hp[2] = { rde_arr_new(sizeof(fude_zoom_v2), _heap), rde_arr_new(sizeof(fude_zoom_v2), _heap) };
+    rde_arr _hs[2] = { rde_arr_new(sizeof(fude_zoom_symbol_part), _heap), rde_arr_new(sizeof(fude_zoom_symbol_part), _heap) };
+    f32 _trim[2] = { 0.0f, 0.0f };   // (the end's, the start's)
+    for(u32 _end = 0; _end < 2u; _end++) {
+        if(!(_heads & (_end == 0u ? FUDE_ZOOM_ARROW_END : FUDE_ZOOM_ARROW_START))) {
+            continue;
+        }
+        const rde_vec_2F _tip  = _end == 0u ? _p[_k - 1u] : _p[0];
+        const rde_vec_2F _from = _end == 0u ? _p[_k - 2u] : _p[1];
+        const u32 _style = _end == 0u ? FUDE_ZOOM_ARROW_END_STYLE(_heads) : FUDE_ZOOM_ARROW_START_STYLE(_heads);
+        _trim[_end] = (f32)fude_zoom_symbol_head(_style, (_heads & FUDE_ZOOM_ARROW_CIRCLE) != 0u, (fude_zoom_v2){ _tip.x, _tip.y }, (fude_zoom_v2){ _from.x, _from.y },
+                                                 _head, &_hp[_end], &_hs[_end]);
+    }
+    for(u32 _i = 0; _i + 1u < _k; _i++) {
+        rde_vec_2F _a = _p[_i], _b = _p[_i + 1u];
+        const f32 _dx = _b.x - _a.x, _dy = _b.y - _a.y, _len = sqrtf(_dx * _dx + _dy * _dy);
+        if(_len < 0.5f) {
+            continue;
+        }
+        // The line stops short of a head that would show its end through it (a pointed one, a hollow one).
+        if(_i + 2u == _k && _trim[0] > 0.0f) {
+            const f32 _t = fminf(_trim[0], _len);
+            _b = (rde_vec_2F){ _b.x - _dx / _len * _t, _b.y - _dy / _len * _t };
+        }
+        if(_i == 0u && _trim[1] > 0.0f) {
+            const f32 _t = fminf(_trim[1], _len);
+            _a = (rde_vec_2F){ _a.x + _dx / _len * _t, _a.y + _dy / _len * _t };
+        }
+        if(_heads & FUDE_ZOOM_ARROW_DOTTED) {
+            const f32 _dash = (f32)fmax(_w * 3.0, 4.0);
+            const f32 _seg  = sqrtf((_b.x - _a.x) * (_b.x - _a.x) + (_b.y - _a.y) * (_b.y - _a.y));
+            for(f32 _t = 0.0f; _t < _seg; _t += _dash * 2.0f) {
+                const f32 _t1 = fminf(_t + _dash, _seg);
+                rde_rendering_2d_draw_line_1((rde_vec_2F){ _a.x + (_b.x - _a.x) * _t / _seg, _a.y + (_b.y - _a.y) * _t / _seg },
+                                             (rde_vec_2F){ _a.x + (_b.x - _a.x) * _t1 / _seg, _a.y + (_b.y - _a.y) * _t1 / _seg }, _c, (f32)(_w * 2.0));
+            }
+        } else {
+            rde_rendering_2d_draw_line_1(_a, _b, _c, (f32)(_w * 2.0));
+        }
+    }
+    const rde_color _page = fude_theme_active()->page;
+    for(u32 _end = 0; _end < 2u; _end++) {
+        const fude_zoom_v2*          _q = (const fude_zoom_v2*)_hp[_end].memory;
+        const fude_zoom_symbol_part* _h = (const fude_zoom_symbol_part*)_hs[_end].memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_hs[_end]); _i++) {
+            const u32 _m = _h[_i].count;
+            rde_vec_2F _poly[64];
+            const u32 _pm = _m < 64u ? _m : 64u;
+            for(u32 _j = 0; _j < _pm; _j++) {
+                _poly[_j] = (rde_vec_2F){ (f32)_q[_h[_i].first + _j].x, (f32)_q[_h[_i].first + _j].y };
+            }
+            if((_h[_i].flags & (FUDE_ZOOM_SYMBOL_SOLID | FUDE_ZOOM_SYMBOL_FILLED)) && _pm >= 3u) {
+                rde_rendering_2d_draw_polygon(_poly, _pm, (_h[_i].flags & FUDE_ZOOM_SYMBOL_SOLID) ? _c : _page, NULL);   // (convex: a head's are)
+            }
+            if(!(_h[_i].flags & FUDE_ZOOM_SYMBOL_SOLID) || _as != NULL) {
+                const b8 _closed = (_h[_i].flags & FUDE_ZOOM_SYMBOL_CLOSED) != 0u;
+                for(u32 _j = 0; _j + (_closed ? 0u : 1u) < _pm; _j++) {
+                    rde_rendering_2d_draw_line_1(_poly[_j], _poly[(_j + 1u) % _pm], _c, (f32)fmax(_w * 2.0, 1.0));
+                }
+            }
+        }
+        rde_arr_free(&_hp[_end]);
+        rde_arr_free(&_hs[_end]);
+    }
+}
+
+// A dimension of the canvas's: its length in real units on it.
+RDE_INTERNAL void fude_zoom_render_dimension_shape(fude_zoom_renderer* _r, const fude_zoom_scene* _s, const fude_zoom_object* _o, const f64* _n, u32 _count,
+                                                   fude_zoom_sim _to_screen, const rde_color* _as) {
+    if(_count < 3u) {
+        return;
+    }
+    const fude_zoom_sim _all = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const fude_zoom_v2  _a   = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
+    const fude_zoom_v2  _b   = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _n[0], _n[1] });
+    const f64           _k   = fude_zoom_sim_scale(_all);
+    const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
+    const f64 _mm   = hypot(_n[0], _n[1]) * _o->scale * fude_zoom_sim_scale(fude_zoom_scene_sim(_s, _o->frame, _home)) * _r->mm_per_unit;
+    c8 _label[FUDE_ZOOM_UNITS_TEXT];
+    fude_zoom_units_format(_mm, &_r->units, _label, sizeof(_label));
+    const rde_color _color = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    fude_zoom_render_dimension(_r, _a, _b, _n[2] * _k, (f32)fmax((f64)_o->radius * _k * 2.0, 1.0), _color, _label);
+}
+
+// A label on the page's colour, its middle at _c (screen), upright.
+RDE_INTERNAL void fude_zoom_render_tag(const fude_zoom_renderer* _r, rde_vec_2F _c, const c8* _label, rde_color _color) {
+    if(_r->font == NULL) {
+        return;
+    }
+    const f32 _px = 13.0f;
+    const f32 _tw = fude_draw_text_width(_r->font, _r->font_px, _label, _px);
+    rde_rendering_2d_draw_rounded_rectangle_with_border(_c, (rde_vec_2F){ _tw + 10.0f, 18.0f }, 1.0f, 6u, fude_theme_active()->page, 1.0f, fude_theme_active()->page, NULL);
+    rde_rendering_2d_draw_text_2(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+}
+
+// An arrowhead at _tip pointing along _d (a unit way, screen).
+RDE_INTERNAL void fude_zoom_render_head(fude_zoom_v2 _tip, fude_zoom_v2 _d, rde_color _color) {
+    const f64 _al = 9.0, _aw = 3.5;
+    const rde_vec_2F _t[3] = {
+        { (f32)_tip.x, (f32)_tip.y },
+        { (f32)(_tip.x - _d.x * _al - _d.y * _aw), (f32)(_tip.y - _d.y * _al + _d.x * _aw) },
+        { (f32)(_tip.x - _d.x * _al + _d.y * _aw), (f32)(_tip.y - _d.y * _al - _d.x * _aw) },
+    };
+    rde_rendering_2d_draw_polygon(_t, 3u, _color, NULL);
+}
+
+// A circle's size (RADIAL): its line from the centre (or right across) to the circle, a head on the circle (both,
+// across), and "R 20 mm" or "Ø 40 mm" beyond it.
+RDE_INTERNAL void fude_zoom_render_radial(fude_zoom_renderer* _r, const fude_zoom_scene* _s, const fude_zoom_object* _o, const f64* _n, u32 _count,
+                                          fude_zoom_sim _to_screen, const rde_color* _as) {
+    if(_count < 3u) {
+        return;
+    }
+    const fude_zoom_sim _all = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const b8  _across = _n[2] >= 0.5;
+    const fude_zoom_v2 _u = { cos(_n[1]) * _n[0], sin(_n[1]) * _n[0] };
+    const fude_zoom_v2 _c = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
+    const fude_zoom_v2 _e = fude_zoom_sim_apply(_all, _u);
+    const fude_zoom_v2 _f = _across ? fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_u.x, -_u.y }) : _c;
+    const f64 _len = hypot(_e.x - _c.x, _e.y - _c.y);
+    if(_len < 2.0) {
+        return;
+    }
+    const rde_color _color = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    const fude_zoom_v2 _d = { (_e.x - _c.x) / _len, (_e.y - _c.y) / _len };
+    rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_f.x, (f32)_f.y }, (rde_vec_2F){ (f32)_e.x, (f32)_e.y }, _color, (f32)fmax((f64)_o->radius * fude_zoom_sim_scale(_all) * 2.0, 1.0));
+    fude_zoom_render_head(_e, _d, _color);
+    if(_across) {
+        fude_zoom_render_head(_f, (fude_zoom_v2){ -_d.x, -_d.y }, _color);
+    } else {
+        rde_rendering_2d_draw_circle((rde_vec_2F){ (f32)_c.x, (f32)_c.y }, 2.0f, 8u, _color, NULL);
+    }
+    if(_as != NULL || _r->font == NULL) {
+        return;
+    }
+    const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
+    const f64 _mm   = _n[0] * _o->scale * fude_zoom_sim_scale(fude_zoom_scene_sim(_s, _o->frame, _home)) * _r->mm_per_unit;
+    c8 _v[FUDE_ZOOM_UNITS_TEXT], _label[FUDE_ZOOM_UNITS_TEXT + 8u];
+    fude_zoom_units_format(_across ? 2.0 * _mm : _mm, &_r->units, _v, sizeof(_v));
+    snprintf(_label, sizeof(_label), _across ? "\xC3\x98 %s" : "R %s", _v);
+    const f32 _tw = fude_draw_text_width(_r->font, _r->font_px, _label, 13.0f);
+    const f64 _out = (f64)_tw * 0.5 * fabs(_d.x) + 9.0 * fabs(_d.y) + 10.0;
+    fude_zoom_render_tag(_r, (rde_vec_2F){ (f32)(_e.x + _d.x * _out), (f32)(_e.y + _d.y * _out) }, _label, _color);
+}
+
+// An angle's size (ANGLE): its arc round the corner, a head at each end, its degrees beyond its middle.
+RDE_INTERNAL void fude_zoom_render_angle(fude_zoom_renderer* _r, const fude_zoom_object* _o, const f64* _n, u32 _count, fude_zoom_sim _to_screen, const rde_color* _as) {
+    if(_count < 3u) {
+        return;
+    }
+    const fude_zoom_sim _all = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const f64 _k = fude_zoom_sim_scale(_all);
+    const f64 _rad = _n[0] * _k;
+    if(_rad < 6.0 || _rad > 1e6) {
+        return;
+    }
+    const rde_color _color = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    const fude_zoom_v2 _c = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
+    const f64 _turn = atan2(_all.b, _all.a);
+    const f64 _from = _n[1] + _turn, _sweep = _n[2];
+    const u32 _steps = (u32)fmin(fmax(fabs(_sweep) * _rad / 4.0, 4.0), 256.0);
+    rde_vec_2F _prev = { (f32)(_c.x + cos(_from) * _rad), (f32)(_c.y + sin(_from) * _rad) };
+    for(u32 _i = 1; _i <= _steps; _i++) {
+        const f64 _a = _from + _sweep * (f64)_i / (f64)_steps;
+        const rde_vec_2F _p = { (f32)(_c.x + cos(_a) * _rad), (f32)(_c.y + sin(_a) * _rad) };
+        rde_rendering_2d_draw_line_1(_prev, _p, _color, 1.0f);
+        _prev = _p;
+    }
+    // Its heads, along the arc at each end (inwards, round it).
+    const f64 _sg = _sweep >= 0.0 ? 1.0 : -1.0;
+    if(fabs(_sweep) * _rad >= 22.0) {
+        const f64 _a0 = _from, _a1 = _from + _sweep;
+        fude_zoom_render_head((fude_zoom_v2){ _c.x + cos(_a0) * _rad, _c.y + sin(_a0) * _rad }, (fude_zoom_v2){ sin(_a0) * _sg, -cos(_a0) * _sg }, _color);
+        fude_zoom_render_head((fude_zoom_v2){ _c.x + cos(_a1) * _rad, _c.y + sin(_a1) * _rad }, (fude_zoom_v2){ -sin(_a1) * _sg, cos(_a1) * _sg }, _color);
+    }
+    if(_as != NULL) {
+        return;
+    }
+    c8 _label[FUDE_ZOOM_UNITS_TEXT];
+    fude_zoom_units_format_angle(fabs(_sweep) * 180.0 / 3.14159265358979323846, 1u, _label, sizeof(_label));
+    const f64 _mid = _from + _sweep * 0.5;
+    const f64 _out = _rad + 16.0;
+    fude_zoom_render_tag(_r, (rde_vec_2F){ (f32)(_c.x + cos(_mid) * _out), (f32)(_c.y + sin(_mid) * _out) }, _label, _color);
+}
+
+// A text: its words in the app's font at its size on the screen, upright (the
+// font is drawn from curves, which do not turn); a note on its own paper. Too
+// small to read, a note is still its paper and a text a faint bar a line.
+RDE_INTERNAL void fude_zoom_render_text(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, const rde_color* _as) {
+    f64 _size = 0.0, _w = 0.0, _h = 0.0;
+    u8  _style = 0;
+    const c8* _text = NULL;
+    u32 _len = 0;
+    if(!fude_zoom_scene_text(_s, _object, &_size, &_w, &_h, &_style, &_text, &_len)) {
+        return;
+    }
+    const fude_zoom_object* _o   = fude_zoom_scene_object(_s, _object);
+    const fude_zoom_sim     _all = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const f64               _k   = fude_zoom_sim_scale(_all);
+    const fude_zoom_v2      _tl  = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
+    const f64 _bw = _w * _k, _bh = _h * _k, _px = _size * _k;
+    if(_bw < 0.5 || _bh < 0.5 || _bw > 1e6 || _bh > 1e6) {
+        return;
+    }
+    const rde_color _ink = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    if(_style == FUDE_ZOOM_TEXT_STICKY) {
+        const rde_vec_2F _c = { (f32)(_tl.x + _bw * 0.5), (f32)(_tl.y - _bh * 0.5) };
+        rde_color _shadow = { 0, 0, 0, 40 };
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _c.x + (f32)(_px * 0.12), _c.y - (f32)(_px * 0.16) }, (rde_vec_2F){ (f32)_bw, (f32)_bh }, _shadow);
+        rde_rendering_2d_draw_rectangle(_c, (rde_vec_2F){ (f32)_bw, (f32)_bh }, _as != NULL ? *_as : _o->fill);
+    }
+    const f64 _pad  = _style == FUDE_ZOOM_TEXT_STICKY ? _size * 0.6 * _k : 0.0;
+    const f64 _line = _px * 1.3;
+    if(_px < 3.0 || _r->font == NULL) {
+        // Too small to read: a faint bar for each line it fills.
+        rde_color _faint = _ink;
+        _faint.a = (u8)(_faint.a / 3u);
+        const u32 _lines = (u32)fmax(1.0, floor((_bh - 2.0 * _pad) / fmax(_line, 1e-9)));
+        for(u32 _i = 0; _i < _lines && _i < 64u; _i++) {
+            const f64 _y = _tl.y - _pad - _line * ((f64)_i + 0.5);
+            rde_rendering_2d_draw_rectangle((rde_vec_2F){ (f32)(_tl.x + _bw * 0.5), (f32)_y }, (rde_vec_2F){ (f32)fmax(_bw - 2.0 * _pad, 0.5), (f32)fmax(_px * 0.5, 0.5) }, _faint);
+        }
+        return;
+    }
+    if(_px > 3000.0) {
+        return;   // a few letters filling far more than the screen: nothing readable to draw
+    }
+    c8  _small[512];
+    c8* _words = _len < sizeof(_small) ? _small : (c8*)malloc((usize)_len + 1u);
+    if(_words == NULL) {
+        return;
+    }
+    memcpy(_words, _text, _len);
+    _words[_len] = 0;
+    fude_draw_text_wrap(_r->font, _r->font_px, _words, (f32)(_tl.x + _pad), (f32)(_tl.y - _pad - _px * 0.95), (f32)_px, (f32)fmax(_bw - 2.0 * _pad, 1.0), (f32)_line, _ink);
+    if(_words != _small) {
+        free(_words);
+    }
+}
+
+// A board's marks' colour: dark on a light wood, light on a dark one (walnut), whatever
+// the theme's ink; on no fill, its line's.
+RDE_INTERNAL rde_color fude_zoom_render_marks_on(b8 _filled, rde_color _fill, rde_color _line) {
+    if(!_filled) {
+        return _line;
+    }
+    const b8 _light = 0.299f * (f32)_fill.r + 0.587f * (f32)_fill.g + 0.114f * (f32)_fill.b > 140.0f;
+    return _light ? (rde_color){ 62, 46, 28, 255 } : (rde_color){ 246, 238, 226, 255 };
+}
+
+// A board's marks over its outline: its grain, an arrow along it, and its
+// name and real size in the middle, upright — left unsaid when too small to read.
+RDE_INTERNAL void fude_zoom_render_board_marks(const fude_zoom_renderer* _r, const fude_zoom_scene* _s, const fude_zoom_object* _o, const f64* _n, u32 _count,
+                                               fude_zoom_sim _all, rde_color _color) {
+    if(_count < 4u) {
+        return;
+    }
+    const f64 _k = fude_zoom_sim_scale(_all);
+    const f64 _l = _n[0] * _k, _w = _n[1] * _k;   // half sizes on the screen
+    if(_l < 12.0 || _w < 6.0) {
+        return;
+    }
+    // The grain: an arrow both ways along it, low in the board.
+    const b8  _across = fude_zoom_board_grain(_n, _count) != 0u;
+    const f64 _along  = (_across ? _n[1] : _n[0]) * 0.6, _low = (_across ? _n[0] : _n[1]) * 0.55;
+    const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, _across ? (fude_zoom_v2){ -_low, -_along } : (fude_zoom_v2){ -_along, -_low });
+    const fude_zoom_v2 _b = fude_zoom_sim_apply(_all, _across ? (fude_zoom_v2){ -_low, _along } : (fude_zoom_v2){ _along, -_low });
+    rde_color _soft = _color;
+    _soft.a = (u8)(_color.a / 2u);
+    const f64 _len = hypot(_b.x - _a.x, _b.y - _a.y);
+    if(_len > 16.0) {
+        rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_b.x, (f32)_b.y }, _soft, 1.0f);
+        const fude_zoom_v2 _d = { (_b.x - _a.x) / _len, (_b.y - _a.y) / _len }, _side = { -_d.y, _d.x };
+        for(u32 _end = 0; _end < 2u; _end++) {
+            const fude_zoom_v2 _tip = _end == 0u ? _a : _b;
+            const f64          _in  = _end == 0u ? 1.0 : -1.0;
+            const rde_vec_2F   _t[3] = {
+                { (f32)_tip.x, (f32)_tip.y },
+                { (f32)(_tip.x + _d.x * 7.0 * _in + _side.x * 3.0), (f32)(_tip.y + _d.y * 7.0 * _in + _side.y * 3.0) },
+                { (f32)(_tip.x + _d.x * 7.0 * _in - _side.x * 3.0), (f32)(_tip.y + _d.y * 7.0 * _in - _side.y * 3.0) },
+            };
+            rde_rendering_2d_draw_polygon(_t, 3u, _soft, NULL);
+        }
+    }
+    if(_r->font == NULL) {
+        return;
+    }
+    // Its name, and its length, width and thickness in the units chosen.
+    const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
+    const f64 _mm   = _o->scale * fude_zoom_sim_scale(fude_zoom_scene_sim(_s, _o->frame, _home)) * _r->mm_per_unit;
+    c8 _name[FUDE_ZOOM_BOARD_NAME], _ls[FUDE_ZOOM_UNITS_TEXT], _ws[FUDE_ZOOM_UNITS_TEXT], _ts[FUDE_ZOOM_UNITS_TEXT], _size[3u * FUDE_ZOOM_UNITS_TEXT + 96u];
+    fude_zoom_board_name(_n, _count, _name, sizeof(_name));
+    fude_zoom_units_format(_n[0] * 2.0 * _mm, &_r->units, _ls, sizeof(_ls));
+    fude_zoom_units_format(_n[1] * 2.0 * _mm, &_r->units, _ws, sizeof(_ws));
+    fude_zoom_units_format(_n[2], &_r->units, _ts, sizeof(_ts));
+    // ...and what it is made of, after them.
+    const u8 _material = fude_zoom_board_material(_n, _count);
+    if(_material != FUDE_ZOOM_MATERIAL_NONE && _r->material_words != NULL) {
+        snprintf(_size, sizeof(_size), "%s \xC3\x97 %s \xC3\x97 %s \xC2\xB7 %s", _ls, _ws, _ts, _r->material_words[_material]);
+    } else {
+        snprintf(_size, sizeof(_size), "%s \xC3\x97 %s \xC3\x97 %s", _ls, _ws, _ts);
+    }
+    const fude_zoom_v2 _c  = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
+    const f32 _px = 13.0f;
+    const f32 _sw = fude_draw_text_width(_r->font, _r->font_px, _size, _px);
+    const f32 _nw = _name[0] != 0 ? fude_draw_text_width(_r->font, _r->font_px, _name, _px + 2.0f) : 0.0f;
+    if((f64)fmaxf(_sw, _nw) > 2.0 * fmax(_l, _w) * 0.9 || 2.0 * fmin(_l, _w) < (_name[0] != 0 ? 40.0 : 22.0)) {
+        return;   // too small to say it in
+    }
+    if(_name[0] != 0) {
+        rde_rendering_2d_draw_text_2(_r->font, _name, (rde_vec_3F){ (f32)_c.x - _nw * 0.5f, (f32)_c.y + 3.0f, 0.0f },
+                                     (rde_vec_2F){ (_px + 2.0f) / _r->font_px, (_px + 2.0f) / _r->font_px }, 0.0f, _color);
+    }
+    rde_rendering_2d_draw_text_2(_r->font, _size, (rde_vec_3F){ (f32)_c.x - _sw * 0.5f, (f32)_c.y - (_name[0] != 0 ? _px + 2.0f : _px * 0.36f), 0.0f },
+                                 (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+}
+
+// A board cut (cut.h): its material filled (its holes and notches left out),
+// each of its rings drawn as its line, its marks over it.
+RDE_INTERNAL void fude_zoom_render_cut_board(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half,
+                                             const rde_color* _as, f32 _extra) {
+    const fude_zoom_object* _o    = fude_zoom_scene_object(_s, _object);
+    rde_memory_allocator*   _heap = rde_memory_allocator_get_default_std();
+    rde_arr _num = rde_arr_new(sizeof(f64), _heap), _pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), _rings = rde_arr_new(sizeof(u32), _heap);
+    const u32 _count = fude_zoom_scene_shape_numbers_all(_s, _object, &_num);
+    const u32 _n     = fude_zoom_board_rings((const f64*)_num.memory, _count, &_pts, &_rings);
+    const fude_zoom_sim _all    = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const rde_color     _color  = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    const f64           _radius = fmax((f64)_o->radius * fude_zoom_sim_scale(_all), (f64)FUDE_ZOOM_RENDER_MIN_RADIUS) + (f64)_extra;
+    fude_zoom_v2* _sp = _heap->malloc(_heap->allocator, (usize)(_n + 1u) * sizeof(fude_zoom_v2));
+    b8 _far = _radius >= FUDE_ZOOM_RENDER_FAR;
+    for(u32 _i = 0; _i < _n; _i++) {
+        _sp[_i] = fude_zoom_sim_apply(_all, ((const fude_zoom_v2*)_pts.memory)[_i]);
+        _far = _far || fabs(_sp[_i].x) >= FUDE_ZOOM_RENDER_FAR || fabs(_sp[_i].y) >= FUDE_ZOOM_RENDER_FAR;
+    }
+    // Its fill: the material only (each ring cut to round the screen first when it is far bigger than it).
+    const b8 _filled = (_o->flags & FUDE_ZOOM_FLAG_FILLED) && _as == NULL;
+    const rde_color _fill = (_o->flags & FUDE_ZOOM_FLAG_FILL_OWN) ? fude_theme_resolve(_o->fill) : _color;
+    const fude_zoom_v2 _guard = { _half.x * 2.0, _half.y * 2.0 };
+    if(_filled && _n >= 3u) {
+        rde_arr _clip = rde_arr_new(sizeof(fude_zoom_v2), _heap), _clip_rings = rde_arr_new(sizeof(u32), _heap), _cut = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+        for(u32 _from = 0; _from < _n;) {
+            u32 _to = _from;
+            while(_to < _n && ((const u32*)_rings.memory)[_to] == ((const u32*)_rings.memory)[_from]) {
+                _to++;
+            }
+            const u32 _ring = ((const u32*)_rings.memory)[_from];
+            if(_far) {
+                const u32 _k = fude_zoom_fill_clip(&_sp[_from], _to - _from, (fude_zoom_box){ -_guard.x, -_guard.y, _guard.x, _guard.y }, &_cut);
+                for(u32 _i = 0; _i < _k; _i++) {
+                    rde_arr_add(&_clip, (any)&((const fude_zoom_v2*)_cut.memory)[_i]);
+                    rde_arr_add(&_clip_rings, (any)&_ring);
+                }
+            } else {
+                for(u32 _i = _from; _i < _to; _i++) {
+                    rde_arr_add(&_clip, (any)&_sp[_i]);
+                    rde_arr_add(&_clip_rings, (any)&_ring);
+                }
+            }
+            _from = _to;
+        }
+        rde_arr_clear(&_r->fill);
+        const u32 _t = fude_zoom_fill_triangulate_rings((const fude_zoom_v2*)_clip.memory, (const u32*)_clip_rings.memory, (u32)rde_arr_length(&_clip), &_r->fill);
+        fude_zoom_render_triangles((const fude_zoom_v2*)_r->fill.memory, _t, _fill);
+        rde_arr_free(&_clip); rde_arr_free(&_clip_rings); rde_arr_free(&_cut);
+    }
+    // Each ring's line.
+    for(u32 _from = 0; _from < _n;) {
+        u32 _to = _from;
+        while(_to < _n && ((const u32*)_rings.memory)[_to] == ((const u32*)_rings.memory)[_from]) {
+            _to++;
+        }
+        const u32 _k = _to - _from;
+        if(_k >= 2u) {
+            fude_zoom_v2* _ring = _heap->malloc(_heap->allocator, (usize)(_k + 1u) * sizeof(fude_zoom_v2));
+            f64*          _rad  = _heap->malloc(_heap->allocator, (usize)(_k + 1u) * sizeof(f64));
+            memcpy(_ring, &_sp[_from], (usize)_k * sizeof(fude_zoom_v2));
+            _ring[_k] = _ring[0];
+            for(u32 _i = 0; _i <= _k; _i++) {
+                _rad[_i] = _radius;
+            }
+            if(_far) {
+                fude_zoom_draw_huge_stroke(_ring, _rad, _k + 1u, _guard, _color);
+            } else {
+                rde_arr_clear(&_r->screen);
+                rde_arr_clear(&_r->radii);
+                rde_vec_2F* _q  = rde_arr_add_n(&_r->screen, _k + 1u);
+                f32*        _rr = rde_arr_add_n(&_r->radii, _k + 1u);
+                for(u32 _i = 0; _i <= _k; _i++) {
+                    _q[_i]  = (rde_vec_2F){ (f32)_ring[_i].x, (f32)_ring[_i].y };
+                    _rr[_i] = (f32)_radius;
+                }
+                rde_rendering_2d_draw_stroke(_q, _rr, _k + 1u, _color);
+            }
+            _heap->free(_heap->allocator, _ring);
+            _heap->free(_heap->allocator, _rad);
+        }
+        _from = _to;
+    }
+    if(_as == NULL) {
+        fude_zoom_render_board_marks(_r, _s, _o, (const f64*)_num.memory, _count, _all, fude_zoom_render_marks_on(_filled, _fill, _color));
+    }
+    _heap->free(_heap->allocator, _sp);
+    rde_arr_free(&_num);
+    rde_arr_free(&_pts);
+    rde_arr_free(&_rings);
+    _r->strokes_drawn++;
+    _r->points_drawn += _n;
+}
+
+// Text in a box on the screen (centre origin, Y up): its lines broken to fit its width, each centred,
+// the whole in the box's middle (_top: from its top instead) — never cut, past the box if it must.
+void fude_zoom_render_text_in(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, rde_color _color) {
+    fude_zoom_render_text_at(_r, _text, _len, _box, _px, _top, false, _color);
+}
+
+void fude_zoom_render_text_at(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, b8 _left, rde_color _color) {
+    if(_r->font == NULL || _len == 0u || !(_px >= 3.0)) {
+        return;
+    }
+    c8  _small[512];
+    c8* _words = _len < sizeof(_small) ? _small : (c8*)malloc((usize)_len + 1u);
+    if(_words == NULL) {
+        return;
+    }
+    memcpy(_words, _text, _len);
+    _words[_len] = 0;
+    u32 _from[48], _to[48];
+    const f32 _width = (f32)fmax(_box.max_x - _box.min_x, _px);
+    const u32 _lines = fude_draw_text_wrap_spans(_r->font, _r->font_px, _words, (f32)_px, _width, _from, _to, 48u);
+    const f64 _step  = _px * 1.25;
+    const f64 _cx    = (_box.min_x + _box.max_x) * 0.5;
+    f64       _y     = _top ? _box.max_y - _px * 1.05 : (_box.min_y + _box.max_y) * 0.5 + _step * (f64)_lines * 0.5 - _px * 1.0;
+    c8 _line[512];
+    for(u32 _i = 0; _i < _lines; _i++, _y -= _step) {
+        const u32 _n = _to[_i] - _from[_i] < sizeof(_line) - 1u ? _to[_i] - _from[_i] : (u32)sizeof(_line) - 1u;
+        memcpy(_line, &_words[_from[_i]], _n);
+        _line[_n] = 0;
+        const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _line, (f32)_px);
+        rde_rendering_2d_draw_text_2(_r->font, _line, (rde_vec_3F){ _left ? (f32)_box.min_x : (f32)(_cx - _w * 0.5), (f32)_y, 0.0f },
+                                     (rde_vec_2F){ (f32)_px / _r->font_px, (f32)_px / _r->font_px }, 0.0f, _color);
+    }
+    if(_words != _small) {
+        free(_words);
+    }
+}
+
+// A polyline on the screen dashed: _on long, _off apart.
+RDE_INTERNAL void fude_zoom_render_dashed(const fude_zoom_v2* _p, u32 _n, b8 _closed, f32 _radius, f64 _on, f64 _off, rde_color _color) {
+    const u32 _m = _closed ? _n + 1u : _n;
+    f64 _left = _on;
+    b8  _draw = true;
+    for(u32 _i = 1; _i < _m; _i++) {
+        fude_zoom_v2 _a = _p[_i - 1u];
+        const fude_zoom_v2 _b = _p[_i % _n];
+        f64 _seg = hypot(_b.x - _a.x, _b.y - _a.y);
+        while(_seg > 1e-9) {
+            const f64 _t = fmin(_left, _seg);
+            const fude_zoom_v2 _c = { _a.x + (_b.x - _a.x) * _t / _seg, _a.y + (_b.y - _a.y) * _t / _seg };
+            if(_draw) {
+                rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_c.x, (f32)_c.y }, _color, (f32)fmax(_radius * 2.0f, 1.0f));
+            }
+            _seg  -= _t;
+            _left -= _t;
+            _a     = _c;
+            if(_left <= 1e-9) {
+                _draw = !_draw;
+                _left = _draw ? _on : _off;
+            }
+        }
+    }
+}
+
+// A symbol (symbol.h): its parts — filled as the shape is, or solid in its line's colour — and their lines
+// (dashed where they are), its compartments' lines, and its text in its boxes.
+RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoom_object* _o, const f64* _n, u32 _count, fude_zoom_sim _to_screen,
+                                          fude_zoom_v2 _half, const rde_color* _as, f32 _extra) {
+    RDE_UNUSED(_half);
+    if(_count < 4u) {
+        return;
+    }
+    const u32 _kind = (u32)_n[0];
+    const fude_zoom_symbol_info* _info = fude_zoom_symbol_info_of(_kind);
+    if(_info == NULL) {
+        return;
+    }
+    const fude_zoom_sim _all    = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
+    const f64           _k      = fude_zoom_sim_scale(_all);
+    const rde_color     _color  = _as != NULL ? *_as : fude_theme_resolve(_o->color);
+    const f64           _radius = fmax((f64)_o->radius * _k, (f64)FUDE_ZOOM_RENDER_MIN_RADIUS) + (f64)_extra;
+    const b8            _filled = (_o->flags & FUDE_ZOOM_FLAG_FILLED) && _as == NULL;
+    const rde_color     _fill   = (_o->flags & FUDE_ZOOM_FLAG_FILL_OWN) ? fude_theme_resolve(_o->fill) : _color;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), _parts = rde_arr_new(sizeof(fude_zoom_symbol_part), _heap), _rings = rde_arr_new(sizeof(u32), _heap);
+    const u32 _np = fude_zoom_symbol_parts(_kind, _n[1], _n[2], fude_zoom_shape_segments(fmax(_n[1], _n[2]) * 2.0 * _k), &_pts, &_parts);
+    fude_zoom_v2* _p = (fude_zoom_v2*)_pts.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_pts); _i++) {
+        _p[_i] = fude_zoom_sim_apply(_all, _p[_i]);
+    }
+    const fude_zoom_symbol_part* _pa = (const fude_zoom_symbol_part*)_parts.memory;
+    for(u32 _i = 0; _i < _np; _i++) {
+        const fude_zoom_v2* _q = &_p[_pa[_i].first];
+        const u32           _m = _pa[_i].count;
+        const b8 _solid = (_pa[_i].flags & FUDE_ZOOM_SYMBOL_SOLID) != 0u;
+        if((_solid || ((_pa[_i].flags & FUDE_ZOOM_SYMBOL_FILLED) && _filled)) && _m >= 3u) {
+            rde_arr_clear(&_rings);
+            const u32 _zero = 0u;
+            for(u32 _j = 0; _j < _m; _j++) {
+                rde_arr_add(&_rings, (any)&_zero);
+            }
+            rde_arr_clear(&_r->fill);
+            const u32 _t = fude_zoom_fill_triangulate_rings(_q, (const u32*)_rings.memory, _m, &_r->fill);
+            fude_zoom_render_triangles((const fude_zoom_v2*)_r->fill.memory, _t, _solid ? _color : _fill);
+        }
+        const b8 _closed = (_pa[_i].flags & FUDE_ZOOM_SYMBOL_CLOSED) != 0u;
+        if(_pa[_i].flags & FUDE_ZOOM_SYMBOL_DASHED) {
+            fude_zoom_render_dashed(_q, _m, _closed, (f32)_radius, fmax(_radius * 4.0, 6.0), fmax(_radius * 3.0, 4.0), _color);
+            continue;
+        }
+        const u32 _w = _closed ? _m + 1u : _m;
+        rde_vec_2F* _sp = (rde_vec_2F*)_heap->malloc(_heap->allocator, (usize)_w * sizeof(rde_vec_2F));
+        f32*        _sr = (f32*)_heap->malloc(_heap->allocator, (usize)_w * sizeof(f32));
+        for(u32 _j = 0; _j < _w; _j++) {
+            _sp[_j] = (rde_vec_2F){ (f32)_q[_j % _m].x, (f32)_q[_j % _m].y };
+            _sr[_j] = (f32)_radius;
+        }
+        rde_rendering_2d_draw_stroke(_sp, _sr, _w, _color);
+        _heap->free(_heap->allocator, _sp);
+        _heap->free(_heap->allocator, _sr);
+    }
+    // Its text: its parts in its boxes (a class's compartments, the lines between them drawn here).
+    c8 _text[FUDE_ZOOM_SYMBOL_TEXT];
+    fude_zoom_symbol_text(_n, _count, _text, sizeof(_text));
+    u32 _from[8], _len[8];
+    const u32 _split = fude_zoom_symbol_text_split(_text, _from, _len, 8u);
+    fude_zoom_box _boxes[8];
+    const u32 _nb = fude_zoom_symbol_text_boxes(_kind, _n[1], _n[2], _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS ? _split : 1u, _boxes, 8u);
+    if(_info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS && _info->boxes != 4u) {
+        for(u32 _i = 1; _i < _nb; _i++) {
+            const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_n[1], _boxes[_i].max_y });
+            const fude_zoom_v2 _b = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _n[1], _boxes[_i].max_y });
+            rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_b.x, (f32)_b.y }, _color, (f32)fmax(_radius * 2.0, 1.0));
+        }
+    }
+    if(_as == NULL && _text[0] != 0) {
+        const rde_color _ink = _color;   // (its line's colour)
+        const u32 _shown = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS ? (_split < _nb ? _split : _nb) : 1u;
+        for(u32 _i = 0; _i < _shown; _i++) {
+            const fude_zoom_box _b = fude_zoom_sim_box(_all, _boxes[_i]);
+            const u32 _l = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS ? _len[_i] : (u32)strlen(_text);
+            const u32 _f = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS ? _from[_i] : 0u;
+            const b8  _top = (_info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS && _i > 0u) ||   // (a class's attributes from the top of theirs)
+                             _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER;                // (an area's name from its corner)
+            fude_zoom_render_text_at(_r, &_text[_f], _l, _b, _n[3] * _k, _top, _top, _ink);   // (a class's attributes and operations: from the left, as UML has them)
+        }
+    }
+    rde_arr_free(&_pts);
+    rde_arr_free(&_parts);
+    rde_arr_free(&_rings);
+}
+
+// A sheet's marks over its outline (sheet.h): its grid's lines, its rulers' ticks and numbers (upright, each
+// beside its tick), its unit by its first corner, and over its top left corner its size (and its scale).
+RDE_INTERNAL void fude_zoom_render_sheet_marks(const fude_zoom_renderer* _r, const fude_zoom_scene* _s, const fude_zoom_object* _o, const f64* _n, u32 _count,
+                                               fude_zoom_sim _all, fude_zoom_v2 _half, rde_color _color) {
+    fude_zoom_sheet _sheet;
+    if(!fude_zoom_sheet_of(_n, _count, &_sheet)) {
+        return;
+    }
+    const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
+    const f64 _mm   = _o->scale * fude_zoom_sim_scale(fude_zoom_scene_sim(_s, _o->frame, _home)) * _r->mm_per_unit;   // mm one of its own units
+    const b8  _inch = _r->units.unit == FUDE_ZOOM_UNIT_IN || _r->units.unit == FUDE_ZOOM_UNIT_FT;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _lines = rde_arr_new(sizeof(fude_zoom_sheet_line), _heap), _labels = rde_arr_new(sizeof(fude_zoom_sheet_label), _heap);
+    fude_zoom_sheet_label _unit;
+    fude_zoom_sheet_marks(&_sheet, _all, _mm, _inch, (fude_zoom_box){ -_half.x, -_half.y, _half.x, _half.y }, &_lines, &_labels, &_unit);
+    rde_color _grid = _color, _strong = _color;
+    _grid.a   = (u8)((u32)_color.a * 22u / 100u);
+    _strong.a = (u8)((u32)_color.a * 45u / 100u);
+    const fude_zoom_sheet_line* _l = (const fude_zoom_sheet_line*)_lines.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_lines); _i++) {
+        rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_l[_i].a.x, (f32)_l[_i].a.y }, (rde_vec_2F){ (f32)_l[_i].b.x, (f32)_l[_i].b.y },
+                                     _l[_i].weight == 0u ? _color : _l[_i].weight == 2u ? _strong : _grid, 1.0f);
+    }
+    if(_r->font != NULL) {
+        const f32 _px = 11.0f;
+        const fude_zoom_sheet_label* _t = (const fude_zoom_sheet_label*)_labels.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_labels); _i++) {
+            const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _t[_i].text, _px);
+            // Its nearer edge on the tick's end: its middle half its width (or height) further in.
+            const f64 _out = fabs(_t[_i].in.x) * (f64)_w * 0.5 + fabs(_t[_i].in.y) * (f64)_px * 0.5;
+            const fude_zoom_v2 _c = { _t[_i].at.x + _t[_i].in.x * _out, _t[_i].at.y + _t[_i].in.y * _out };
+            rde_rendering_2d_draw_text_2(_r->font, _t[_i].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
+                                         (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+        }
+        if(_unit.text[0] != 0) {
+            const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _unit.text, 10.0f);
+            rde_rendering_2d_draw_text_2(_r->font, _unit.text, (rde_vec_3F){ (f32)_unit.at.x - _w * 0.5f, (f32)_unit.at.y - 3.6f, 0.0f },
+                                         (rde_vec_2F){ 10.0f / _r->font_px, 10.0f / _r->font_px }, 0.0f, _strong);
+        }
+        // Its size over its top left corner (and its scale when it is not printed at its true size).
+        const f64 _k = fude_zoom_sim_scale(_all);
+        if(2.0 * _sheet.hw * _k >= 120.0) {
+            c8 _ws[FUDE_ZOOM_UNITS_TEXT], _hs[FUDE_ZOOM_UNITS_TEXT], _say[2u * FUDE_ZOOM_UNITS_TEXT + 48u];
+            fude_zoom_units_format(2.0 * _sheet.hw * _mm, &_r->units, _ws, sizeof(_ws));
+            fude_zoom_units_format(2.0 * _sheet.hh * _mm, &_r->units, _hs, sizeof(_hs));
+            if(_sheet.scale > 1.0) {
+                c8 _sc[24];
+                fude_zoom_sheet_number(_sheet.scale, _sc, sizeof(_sc));
+                snprintf(_say, sizeof(_say), "%s \xC3\x97 %s  \xC2\xB7  1:%s", _ws, _hs, _sc);
+            } else {
+                snprintf(_say, sizeof(_say), "%s \xC3\x97 %s", _ws, _hs);
+            }
+            const fude_zoom_v2 _tl = fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_sheet.hw, _sheet.hh });
+            const fude_zoom_v2 _up = { -_all.b / _k, _all.a / _k };   // (its own up on the screen)
+            const f32 _tp = 13.0f;
+            rde_rendering_2d_draw_text_2(_r->font, _say, (rde_vec_3F){ (f32)(_tl.x + _up.x * 8.0), (f32)(_tl.y + _up.y * 8.0) + 2.0f, 0.0f },
+                                         (rde_vec_2F){ _tp / _r->font_px, _tp / _r->font_px }, 0.0f, _color);
+        }
+    }
+    rde_arr_free(&_lines);
+    rde_arr_free(&_labels);
 }
 
 RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, const rde_color* _as, f32 _extra) {
@@ -534,6 +1282,30 @@ RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom
     if(_count == 0) {
         return;
     }
+    if(_o->channels == FUDE_ZOOM_SHAPE_DIMENSION) {
+        fude_zoom_render_dimension_shape(_r, _s, _o, _n, _count, _to_screen, _as);
+        return;
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_ARROW) {
+        fude_zoom_render_arrow_shape(_o, _n, _count, _to_screen, _as);
+        return;
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_RADIAL) {
+        fude_zoom_render_radial(_r, _s, _o, _n, _count, _to_screen, _as);
+        return;
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_ANGLE) {
+        fude_zoom_render_angle(_r, _o, _n, _count, _to_screen, _as);
+        return;
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_BOARD && fude_zoom_board_is_cut(_n, _count)) {
+        fude_zoom_render_cut_board(_r, _s, _object, _to_screen, _half, _as, _extra);
+        return;
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_SYMBOL) {
+        fude_zoom_render_symbol(_r, _o, _n, _count, _to_screen, _half, _as, _extra);
+        return;
+    }
     rde_arr* _local = &_r->shape;
     b8       _closed;
     fude_zoom_shape_outline(_o->channels, _n, _count, fude_zoom_shape_segments(_size), _local, &_closed);
@@ -543,7 +1315,11 @@ RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom
     }
     const fude_zoom_sim _all    = fude_zoom_sim_compose(_to_screen, fude_zoom_object_sim(_o));
     const rde_color     _color  = _as != NULL ? *_as : fude_theme_resolve(_o->color);
-    const f64           _radius = fmax((f64)_o->radius * fude_zoom_sim_scale(_all), (f64)FUDE_ZOOM_RENDER_MIN_RADIUS) + (f64)_extra;
+    f64 _radius = fmax((f64)_o->radius * fude_zoom_sim_scale(_all), (f64)FUDE_ZOOM_RENDER_MIN_RADIUS);
+    if(_o->channels == FUDE_ZOOM_SHAPE_SHEET) {
+        _radius = fmin(_radius, 1.25);   // (a sheet's edge a line on the screen at any zoom, as its rulers are: never over their numbers)
+    }
+    _radius += (f64)_extra;
     static fude_zoom_v2 _p[FUDE_ZOOM_CLIP_MAX + 1u];
     b8 _far = _radius >= FUDE_ZOOM_RENDER_FAR;
     for(u32 _i = 0; _i < _k; _i++) {
@@ -561,7 +1337,18 @@ RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom
     if(_under) {
         fude_zoom_render_polygon_fill(_r, _p, _k, _guard, _fill);
     }
-    if(_far) {
+    const u8 _style = (u8)_o->q;
+    if(_style > FUDE_ZOOM_LINE_SOLID && _style < FUDE_ZOOM_LINE_STYLES) {
+        // Dashed (hidden) or dash and dot (a centre line): its pieces on the screen, each a line of its width.
+        rde_arr_clear(&_r->fill);
+        const u32 _pieces = fude_zoom_line_dashes(_p, _k, _closed, _style, _radius * 2.0, (fude_zoom_box){ -_guard.x, -_guard.y, _guard.x, _guard.y }, &_r->fill);
+        const fude_zoom_v2* _d = (const fude_zoom_v2*)_r->fill.memory;
+        for(u32 _i = 0; _i < _pieces; _i++) {
+            rde_vec_2F _seg[2] = { { (f32)_d[2u * _i].x, (f32)_d[2u * _i].y }, { (f32)_d[2u * _i + 1u].x, (f32)_d[2u * _i + 1u].y } };
+            const f32  _rr[2]  = { (f32)_radius, (f32)_radius };
+            rde_rendering_2d_draw_stroke(_seg, _rr, 2u, _color);
+        }
+    } else if(_far) {
         static f64 _rad[FUDE_ZOOM_CLIP_MAX + 1u];
         for(u32 _i = 0; _i < _m; _i++) {
             _rad[_i] = _radius;
@@ -591,6 +1378,12 @@ RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom
             }
             rde_rendering_2d_draw_polygon(_f, _k, _color, NULL);
         }
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_BOARD && _as == NULL) {
+        fude_zoom_render_board_marks(_r, _s, _o, _n, _count, _all, fude_zoom_render_marks_on(_filled, _fill, _color));
+    }
+    if(_o->channels == FUDE_ZOOM_SHAPE_SHEET && _as == NULL) {
+        fude_zoom_render_sheet_marks(_r, _s, _o, _n, _count, _all, _half, fude_zoom_render_marks_on(_filled, _fill, _color));
     }
     _r->strokes_drawn++;
     _r->points_drawn += _m;
@@ -737,37 +1530,39 @@ RDE_INTERNAL void fude_zoom_render_frame(fude_zoom_renderer* _r, const fude_zoom
     fude_zoom_render_item* _items = _heap->malloc(_heap->allocator, (usize)(_n > 0 ? _n : 1u) * sizeof(fude_zoom_render_item));
     for(u32 _i = 0; _i < _n; _i++) {
         const u32 _o = ((const u32*)_list.memory)[_i];
-        _items[_i] = (fude_zoom_render_item){ fude_zoom_scene_object(_s, _o)->z, _o };
+        _items[_i] = (fude_zoom_render_item){ fude_zoom_scene_draw_key(_s, fude_zoom_scene_object(_s, _o)), _o };
     }
     rde_arr_free(&_list);
     qsort(_items, _n, sizeof(_items[0]), fude_zoom_render_by_z);
 
-    // Markers under the rest within a frame, as on the ink page.
+    // In order, markers too: a highlight over what was there before it, under what came after (found on the
+    // tablet: a frame drew its markers first, under everything — a board, writing — drawn long before them).
     const u8* _lifted   = _r->lifted != NULL ? (const u8*)_r->lifted->memory : NULL;
     const u32 _lifted_n = _r->lifted != NULL ? (u32)rde_arr_length(_r->lifted) : 0u;
-    for(u32 _pass = 0; _pass < 2u; _pass++) {
-        for(u32 _i = 0; _i < _n; _i++) {
-            if(_items[_i].object < _lifted_n && _lifted[_items[_i].object]) {
-                continue;   // the selection draws it, where the drag has it
-            }
-            const fude_zoom_object* _o = fude_zoom_scene_object(_s, _items[_i].object);
-            if(_o->kind == FUDE_ZOOM_KIND_STROKE) {
-                if(((_o->flags & FUDE_ZOOM_FLAG_MARKER) != 0) == (_pass == 0u)) {
-                    fude_zoom_render_stroke(_r, _s, _items[_i].object, _to_screen, _half);
-                }
-            } else if(_pass == 1u && _o->kind == FUDE_ZOOM_KIND_SHAPE) {
-                fude_zoom_render_shape(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);
-            } else if(_pass == 1u && _o->kind == FUDE_ZOOM_KIND_IMAGE) {
-                fude_zoom_render_image(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);
-            } else if(_o->kind == FUDE_ZOOM_KIND_FILL && ((_o->flags & FUDE_ZOOM_FLAG_MARKER) != 0) == (_pass == 0u)) {
-                fude_zoom_render_fill(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);   // (a marker rubbed out: with the markers)
-            } else if(_pass == 1u && _o->kind == FUDE_ZOOM_KIND_FRAME) {
-                const fude_zoom_frame* _c       = fude_zoom_scene_frame(_s, _o->child);
-                const fude_zoom_sim    _c_sim   = fude_zoom_sim_compose(_to_screen, fude_zoom_sim_from_xform(_c->xf));
-                const f64              _on_screen = fmax(_c->anchor.max_x - _c->anchor.min_x, _c->anchor.max_y - _c->anchor.min_y) * fude_zoom_sim_scale(_to_screen);
-                if(_on_screen >= FUDE_ZOOM_RENDER_MIN_PX) {
-                    fude_zoom_render_frame(_r, _s, _o->child, _c_sim, _half, _depth + 1u);
-                }
+    for(u32 _i = 0; _i < _n; _i++) {
+        if(_items[_i].object < _lifted_n && _lifted[_items[_i].object]) {
+            continue;   // the selection draws it, where the drag has it
+        }
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _items[_i].object);
+        if(_o->kind != FUDE_ZOOM_KIND_FRAME && fude_zoom_scene_hides(_s, _o)) {
+            continue;   // on a hidden layer
+        }
+        if(_o->kind == FUDE_ZOOM_KIND_STROKE) {
+            fude_zoom_render_stroke(_r, _s, _items[_i].object, _to_screen, _half);
+        } else if(_o->kind == FUDE_ZOOM_KIND_SHAPE) {
+            fude_zoom_render_shape(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);
+        } else if(_o->kind == FUDE_ZOOM_KIND_IMAGE) {
+            fude_zoom_render_image(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);
+        } else if(_o->kind == FUDE_ZOOM_KIND_TEXT) {
+            fude_zoom_render_text(_r, _s, _items[_i].object, _to_screen, NULL);
+        } else if(_o->kind == FUDE_ZOOM_KIND_FILL) {
+            fude_zoom_render_fill(_r, _s, _items[_i].object, _to_screen, _half, NULL, 0.0f);
+        } else if(_o->kind == FUDE_ZOOM_KIND_FRAME) {
+            const fude_zoom_frame* _c       = fude_zoom_scene_frame(_s, _o->child);
+            const fude_zoom_sim    _c_sim   = fude_zoom_sim_compose(_to_screen, fude_zoom_sim_from_xform(_c->xf));
+            const f64              _on_screen = fmax(_c->anchor.max_x - _c->anchor.min_x, _c->anchor.max_y - _c->anchor.min_y) * fude_zoom_sim_scale(_to_screen);
+            if(_on_screen >= FUDE_ZOOM_RENDER_MIN_PX) {
+                fude_zoom_render_frame(_r, _s, _o->child, _c_sim, _half, _depth + 1u);
             }
         }
     }
@@ -941,7 +1736,7 @@ void fude_zoom_render(fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zo
         fude_zoom_render_item* _items = _heap->malloc(_heap->allocator, (usize)(_n > 0 ? _n : 1u) * sizeof(fude_zoom_render_item));
         for(u32 _i = 0; _i < _n; _i++) {
             const u32 _k = ((const u32*)_p->kids.memory)[_i];
-            _items[_i] = (fude_zoom_render_item){ fude_zoom_scene_object(_s, _k)->z, _k };
+            _items[_i] = (fude_zoom_render_item){ fude_zoom_scene_draw_key(_s, fude_zoom_scene_object(_s, _k)), _k };
         }
         qsort(_items, _n, sizeof(_items[0]), fude_zoom_render_by_z);
         const fude_zoom_box _screen = { -_half.x, -_half.y, _half.x, _half.y };
@@ -984,6 +1779,13 @@ void fude_zoom_render_object(fude_zoom_renderer* _r, const fude_zoom_scene* _s, 
         fude_zoom_render_fill(_r, _s, _object, _to_screen, _half, NULL, 0.0f);
         return;
     }
+    if(_o->kind == FUDE_ZOOM_KIND_TEXT) {
+        fude_zoom_render_text(_r, _s, _object, _to_screen, NULL);
+        return;
+    }
+    if(_o->kind != FUDE_ZOOM_KIND_FRAME) {
+        return;   // (a bookmark: never drawn)
+    }
     // A frame: everything in it, through its own place — not one of the frames
     // the pen can reach this draw (the list is as the canvas was drawn).
     const u32           _kept = (u32)rde_arr_length(&_r->visible);
@@ -996,6 +1798,21 @@ void fude_zoom_render_object(fude_zoom_renderer* _r, const fude_zoom_scene* _s, 
 }
 
 void fude_zoom_render_glow(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, f32 _extra, rde_color _color) {
+    if(fude_zoom_scene_object(_s, _object)->kind == FUDE_ZOOM_KIND_TEXT) {
+        // A text: its box, a little larger.
+        fude_zoom_v2 _c[4];
+        fude_zoom_scene_text_corners(_s, _object, _c);
+        rde_vec_2F _p[4];
+        const fude_zoom_v2 _mid = fude_zoom_sim_apply(_to_screen, (fude_zoom_v2){ (_c[0].x + _c[2].x) * 0.5, (_c[0].y + _c[2].y) * 0.5 });
+        for(u32 _i = 0; _i < 4u; _i++) {
+            const fude_zoom_v2 _q = fude_zoom_sim_apply(_to_screen, _c[_i]);
+            const f64 _d = hypot(_q.x - _mid.x, _q.y - _mid.y);
+            const f64 _k = _d > 0.0 ? (_d + (f64)_extra) / _d : 1.0;
+            _p[_i] = (rde_vec_2F){ (f32)(_mid.x + (_q.x - _mid.x) * _k), (f32)(_mid.y + (_q.y - _mid.y) * _k) };
+        }
+        rde_rendering_2d_draw_polygon(_p, 4u, _color, NULL);
+        return;
+    }
     if(fude_zoom_scene_object(_s, _object)->kind == FUDE_ZOOM_KIND_SHAPE) {
         fude_zoom_render_shape(_r, _s, _object, _to_screen, _half, &_color, _extra);
         return;

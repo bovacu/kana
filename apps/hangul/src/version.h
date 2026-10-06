@@ -14,7 +14,7 @@
 #define HANGUL_ID "hangul"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define HANGUL_VERSION "0.1.0"
+#define HANGUL_VERSION "0.1.4"
 
 // The app's Apple ID on the App Store (App Store Connect › the app › App
 // Information › Apple ID, digits only). Empty until the app is there: "Rate

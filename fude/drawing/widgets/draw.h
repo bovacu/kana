@@ -94,6 +94,8 @@ f32  fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _p
 u32  fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color);
 // How many lines fude_draw_text_wrap would draw, drawing nothing.
 u32  fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);
+// ...and where each starts and ends in _text (bytes, at most _max of them): how many.
+u32  fude_draw_text_wrap_spans(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, u32* _from, u32* _to, u32 _max);
 // The narrowest width wrapping _text in as many lines as _width does: a short
 // text's lines even (no word alone on the last). For labels and captions.
 f32  fude_draw_text_balanced_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width);

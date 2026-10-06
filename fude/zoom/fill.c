@@ -6,8 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { f64 x0, y0, x1, y1; u32 ring; } fude_zoom_fill_edge;   // y0 < y1
-typedef struct { f64 mid, top, bottom; u32 ring; } fude_zoom_fill_cut;   // an edge's x through a slab
+typedef struct { f64 x0, y0, x1, y1; u32 ring, from; b8 up; } fude_zoom_fill_edge;   // y0 < y1; from: its first point's index (up: the ring climbs along it)
+typedef struct { f64 mid, top, bottom; u32 ring, edge; } fude_zoom_fill_cut;          // an edge's x through a slab
+typedef struct { u32 edge; f64 lo, hi; } fude_zoom_fill_span;                         // where an edge is the edge as it shows
+typedef struct { f64 h, xa, xb; u32 from; } fude_zoom_fill_level;                     // a level edge: its height, its ends' x (xa < xb)
+typedef struct { u32 level, below; f64 x0, x1; } fude_zoom_fill_side;                 // inside along a level edge, just above it or below
 
 RDE_INTERNAL int fude_zoom_fill_by_f64(const void* _a, const void* _b) {
     const f64 _x = *(const f64*)_a, _y = *(const f64*)_b;
@@ -24,23 +27,74 @@ RDE_INTERNAL int fude_zoom_fill_by_mid(const void* _a, const void* _b) {
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
+RDE_INTERNAL int fude_zoom_fill_by_span(const void* _a, const void* _b) {
+    const fude_zoom_fill_span* _x = (const fude_zoom_fill_span*)_a;
+    const fude_zoom_fill_span* _y = (const fude_zoom_fill_span*)_b;
+    if(_x->edge != _y->edge) {
+        return _x->edge < _y->edge ? -1 : 1;
+    }
+    return _x->lo < _y->lo ? -1 : (_x->lo > _y->lo ? 1 : 0);
+}
+
+RDE_INTERNAL int fude_zoom_fill_by_h(const void* _a, const void* _b) {
+    const f64 _x = ((const fude_zoom_fill_level*)_a)->h, _y = ((const fude_zoom_fill_level*)_b)->h;
+    return _x < _y ? -1 : (_x > _y ? 1 : 0);
+}
+
+RDE_INTERNAL int fude_zoom_fill_by_side(const void* _a, const void* _b) {
+    const fude_zoom_fill_side* _x = (const fude_zoom_fill_side*)_a;
+    const fude_zoom_fill_side* _y = (const fude_zoom_fill_side*)_b;
+    if(_x->level != _y->level) {
+        return _x->level < _y->level ? -1 : 1;
+    }
+    if(_x->below != _y->below) {
+        return _x->below < _y->below ? -1 : 1;
+    }
+    return _x->x0 < _y->x0 ? -1 : (_x->x0 > _y->x0 ? 1 : 0);
+}
+
 RDE_INTERNAL f64 fude_zoom_fill_x_at(const fude_zoom_fill_edge* _e, f64 _y) {
     return _e->x0 + (_e->x1 - _e->x0) * (_y - _e->y0) / (_e->y1 - _e->y0);
+}
+
+// Are two heights one (a slab too thin to tell them apart)?
+RDE_INTERNAL b8 fude_zoom_fill_same_y(f64 _a, f64 _b) {
+    return fabs(_a - _b) <= 4e-12 * (fabs(_a) + fabs(_b));
+}
+
+// The point of an edge at height _y (its own ends exactly, so lines meet there).
+RDE_INTERNAL fude_zoom_v2 fude_zoom_fill_edge_at(const fude_zoom_fill_edge* _e, f64 _y) {
+    if(_y <= _e->y0 || fude_zoom_fill_same_y(_y, _e->y0)) {
+        return (fude_zoom_v2){ _e->x0, _e->y0 };
+    }
+    if(_y >= _e->y1 || fude_zoom_fill_same_y(_y, _e->y1)) {
+        return (fude_zoom_v2){ _e->x1, _e->y1 };
+    }
+    return (fude_zoom_v2){ fude_zoom_fill_x_at(_e, _y), _y };
 }
 
 u32 fude_zoom_fill_triangulate(const fude_zoom_v2* _p, u32 _n, rde_arr* _out) {
     return fude_zoom_fill_triangulate_rings(_p, NULL, _n, _out);
 }
 
-u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out) {
-    if(_n < 3u) {
-        return 0;
-    }
+// The sweep both read the rings with: the plane cut into slabs at every corner's
+// height and every crossing's, the edges through each, left to right. Inside is
+// the outline's (ring 0, even-odd) where no cut is open (each cut even-odd in
+// itself, any of them open takes it out). With _out, a trapezoid (two
+// triangles) between each two edges with inside between them (how many
+// triangles); with _spans, each stretch of an edge with inside on one side and
+// not the other, joined up along it (rde_arr of fude_zoom_fill_span; the edges,
+// sorted, into *_edges and *_count for the caller to free) — and into _flats
+// the level edges' (no slab has them: inside just above each against just
+// below), each a span of x (its edge: its first point's index).
+RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _spans, rde_arr* _flats, fude_zoom_fill_edge** _edges, u32* _count) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     // The edges, low end first, each run of a ring closed on itself (level ones
     // add nothing: they are slab edges anyway).
-    fude_zoom_fill_edge* _e = (fude_zoom_fill_edge*)_heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_fill_edge));
+    fude_zoom_fill_edge* _e = (fude_zoom_fill_edge*)_heap->malloc(_heap->allocator, (usize)(_n > 0 ? _n : 1u) * sizeof(fude_zoom_fill_edge));
     u32 _ne = 0, _rings_most = 0;
+    rde_arr _levels = rde_arr_new(sizeof(fude_zoom_fill_level), _heap);
+    rde_arr _sides  = rde_arr_new(sizeof(fude_zoom_fill_side), _heap);
     for(u32 _start = 0; _start < _n;) {
         const u32 _ring = _rings != NULL ? _rings[_start] : 0u;
         u32 _end = _start + 1u;
@@ -51,18 +105,27 @@ u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, 
         for(u32 _i = _start; _i < _end; _i++) {
             fude_zoom_v2 _a = _p[_i], _b = _p[_i + 1u < _end ? _i + 1u : _start];
             if(_a.y == _b.y) {
+                if(_flats != NULL && _a.x != _b.x) {
+                    const fude_zoom_fill_level _l = { _a.y, fmin(_a.x, _b.x), fmax(_a.x, _b.x), _i };
+                    rde_arr_add(&_levels, (any)&_l);
+                }
                 continue;
             }
-            if(_a.y > _b.y) {
+            const b8 _up = _a.y < _b.y;
+            if(!_up) {
                 const fude_zoom_v2 _t = _a;
                 _a = _b;
                 _b = _t;
             }
-            _e[_ne++] = (fude_zoom_fill_edge){ _a.x, _a.y, _b.x, _b.y, _ring };
+            _e[_ne++] = (fude_zoom_fill_edge){ _a.x, _a.y, _b.x, _b.y, _ring, _i, _up };
         }
         _start = _end;
     }
     qsort(_e, _ne, sizeof(fude_zoom_fill_edge), fude_zoom_fill_by_low);
+    const u32             _nl = (u32)rde_arr_length(&_levels);
+    fude_zoom_fill_level* _lv = (fude_zoom_fill_level*)_levels.memory;
+    qsort(_lv, _nl, sizeof(fude_zoom_fill_level), fude_zoom_fill_by_h);
+    u32 _lp = 0, _lq = 0;   // the first level edge not below the slab's low side, and its high side
     // The slabs' edges: every corner's height, and every crossing's.
     u32  _cap = _n * 2u + 16u, _ny = 0;
     f64* _ys  = (f64*)_heap->malloc(_heap->allocator, (usize)_cap * sizeof(f64));
@@ -90,13 +153,15 @@ u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, 
         }
     }
     qsort(_ys, _ny, sizeof(f64), fude_zoom_fill_by_f64);
-    // Each slab: the edges through it, left to right. Inside is the outline's
-    // (ring 0, even-odd) where no cut is open (each cut even-odd in itself,
-    // any of them open takes it out): a trapezoid, two triangles, between each
-    // two edges with inside between them.
     fude_zoom_fill_cut* _c   = (fude_zoom_fill_cut*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(fude_zoom_fill_cut));
     u8*                 _par = (u8*)_heap->malloc(_heap->allocator, (usize)_rings_most + 1u);
     memset(_par, 0, (usize)_rings_most + 1u);
+    // Each edge's stretch showing so far (its low and high, when _held says it has one).
+    f64* _lo   = _spans != NULL ? (f64*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * 2u * sizeof(f64)) : NULL;
+    u8*  _held = _spans != NULL ? (u8*)_heap->malloc(_heap->allocator, (usize)_ne + 1u) : NULL;
+    if(_held != NULL) {
+        memset(_held, 0, (usize)_ne + 1u);
+    }
     // The edges spanning the slab: an active list, edges joining as the slabs
     // climb past their low ends and leaving past their high ones.
     u32* _active = (u32*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(u32));
@@ -117,19 +182,41 @@ u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, 
             }
         }
         _na = _kept;
+        // The level edges along its low side (it is just above them) and its high one (just below).
+        while(_lp < _nl && _lv[_lp].h < _y0 && !fude_zoom_fill_same_y(_lv[_lp].h, _y0)) {
+            _lp++;
+        }
+        while(_lq < _nl && _lv[_lq].h < _y1 && !fude_zoom_fill_same_y(_lv[_lq].h, _y1)) {
+            _lq++;
+        }
         const f64 _ym = 0.5 * (_y0 + _y1);
         u32 _nc = 0;
         for(u32 _a = 0; _a < _na; _a++) {
             const u32 _i = _active[_a];
             if(_e[_i].y1 >= _y1) {
-                _c[_nc++] = (fude_zoom_fill_cut){ fude_zoom_fill_x_at(&_e[_i], _ym), fude_zoom_fill_x_at(&_e[_i], _y0), fude_zoom_fill_x_at(&_e[_i], _y1), _e[_i].ring };
+                _c[_nc++] = (fude_zoom_fill_cut){ fude_zoom_fill_x_at(&_e[_i], _ym), fude_zoom_fill_x_at(&_e[_i], _y0), fude_zoom_fill_x_at(&_e[_i], _y1), _e[_i].ring, _i };
             }
         }
         qsort(_c, _nc, sizeof(fude_zoom_fill_cut), fude_zoom_fill_by_mid);
         u8  _outline = 0;
         u32 _open    = 0;
         for(u32 _i = 0; _i < _nc; _i++) {
-            if(_i > 0 && _outline && _open == 0u) {
+            const b8 _in_before = _outline && _open == 0u;
+            if(_i > 0 && _in_before) {
+                for(u32 _l = _lp; _l < _nl && fude_zoom_fill_same_y(_lv[_l].h, _y0); _l++) {
+                    const fude_zoom_fill_side _side = { _l, 0u, fmax(_lv[_l].xa, _c[_i - 1u].top), fmin(_lv[_l].xb, _c[_i].top) };
+                    if(_side.x1 > _side.x0) {
+                        rde_arr_add(&_sides, (any)&_side);
+                    }
+                }
+                for(u32 _l = _lq; _l < _nl && fude_zoom_fill_same_y(_lv[_l].h, _y1); _l++) {
+                    const fude_zoom_fill_side _side = { _l, 1u, fmax(_lv[_l].xa, _c[_i - 1u].bottom), fmin(_lv[_l].xb, _c[_i].bottom) };
+                    if(_side.x1 > _side.x0) {
+                        rde_arr_add(&_sides, (any)&_side);
+                    }
+                }
+            }
+            if(_out != NULL && _i > 0 && _in_before) {
                 const fude_zoom_v2 _six[6] = {
                     { _c[_i - 1u].top, _y0 }, { _c[_i].top, _y0 }, { _c[_i].bottom, _y1 },
                     { _c[_i - 1u].top, _y0 }, { _c[_i].bottom, _y1 }, { _c[_i - 1u].bottom, _y1 },
@@ -145,16 +232,243 @@ u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, 
                 _par[_c[_i].ring] ^= 1u;
                 _open = _par[_c[_i].ring] ? _open + 1u : _open - 1u;
             }
+            if(_lo != NULL && _in_before != (_outline && _open == 0u)) {
+                // This edge shows through the slab: on from its stretch below, or a new one.
+                f64* _s = &_lo[_c[_i].edge * 2u];
+                if(_held[_c[_i].edge] && fude_zoom_fill_same_y(_y0, _s[1])) {
+                    _s[1] = _y1;
+                } else {
+                    if(_held[_c[_i].edge]) {
+                        const fude_zoom_fill_span _done = { _c[_i].edge, _s[0], _s[1] };
+                        rde_arr_add(_spans, (any)&_done);
+                    }
+                    _held[_c[_i].edge] = 1u;
+                    _s[0] = _y0;
+                    _s[1] = _y1;
+                }
+            }
         }
         for(u32 _i = 0; _i < _nc; _i++) {
             _par[_c[_i].ring] = 0;   // (each ring crosses a slab an even number of times: already 0)
         }
     }
+    if(_lo != NULL) {
+        for(u32 _i = 0; _i < _ne; _i++) {
+            if(_held[_i]) {
+                const fude_zoom_fill_span _done = { _i, _lo[_i * 2u], _lo[_i * 2u + 1u] };
+                rde_arr_add(_spans, (any)&_done);
+            }
+        }
+        _heap->free(_heap->allocator, _lo);
+        _heap->free(_heap->allocator, _held);
+    }
+    if(_flats != NULL && _nl > 0) {
+        // Each level edge shows where inside just above it is not inside just below.
+        const u32            _nsd = (u32)rde_arr_length(&_sides);
+        fude_zoom_fill_side* _sd  = (fude_zoom_fill_side*)_sides.memory;
+        qsort(_sd, _nsd, sizeof(fude_zoom_fill_side), fude_zoom_fill_by_side);
+        rde_arr _cuts = rde_arr_new(sizeof(f64), _heap);
+        u32     _at   = 0;
+        for(u32 _l = 0; _l < _nl; _l++) {
+            const u32 _from = _at;
+            while(_at < _nsd && _sd[_at].level == _l) {
+                _at++;
+            }
+            const f64 _tol = 4e-12 * (fabs(_lv[_l].xa) + fabs(_lv[_l].xb)) + 1e-300;
+            rde_arr_clear(&_cuts);
+            rde_arr_add(&_cuts, (any)&_lv[_l].xa);
+            rde_arr_add(&_cuts, (any)&_lv[_l].xb);
+            for(u32 _k = _from; _k < _at; _k++) {
+                rde_arr_add(&_cuts, (any)&_sd[_k].x0);
+                rde_arr_add(&_cuts, (any)&_sd[_k].x1);
+            }
+            f64* _x = (f64*)_cuts.memory;
+            const u32 _nx = (u32)rde_arr_length(&_cuts);
+            qsort(_x, _nx, sizeof(f64), fude_zoom_fill_by_f64);
+            b8  _going = false;
+            f64 _lo2 = 0.0, _hi2 = 0.0;
+            for(u32 _k = 0; _k + 1u < _nx; _k++) {
+                if(!(_x[_k + 1u] - _x[_k] > _tol)) {
+                    continue;
+                }
+                const f64 _mid = 0.5 * (_x[_k] + _x[_k + 1u]);
+                b8 _in[2] = { false, false };
+                for(u32 _q = _from; _q < _at; _q++) {
+                    _in[_sd[_q].below] = _in[_sd[_q].below] || (_sd[_q].x0 <= _mid && _mid <= _sd[_q].x1);
+                }
+                if(_in[0] == _in[1]) {
+                    continue;
+                }
+                if(_going && _x[_k] - _hi2 <= _tol) {
+                    _hi2 = _x[_k + 1u];
+                } else {
+                    if(_going) {
+                        const fude_zoom_fill_span _done = { _lv[_l].from, _lo2, _hi2 };
+                        rde_arr_add(_flats, (any)&_done);
+                    }
+                    _going = true;
+                    _lo2   = _x[_k];
+                    _hi2   = _x[_k + 1u];
+                }
+            }
+            if(_going) {
+                const fude_zoom_fill_span _done = { _lv[_l].from, _lo2, _hi2 };
+                rde_arr_add(_flats, (any)&_done);
+            }
+        }
+        rde_arr_free(&_cuts);
+    }
+    rde_arr_free(&_levels);
+    rde_arr_free(&_sides);
     _heap->free(_heap->allocator, _active);
     _heap->free(_heap->allocator, _par);
     _heap->free(_heap->allocator, _c);
     _heap->free(_heap->allocator, _ys);
+    if(_edges != NULL) {
+        *_edges = _e;
+        *_count = _ne;
+    } else {
+        _heap->free(_heap->allocator, _e);
+    }
+    return _made;
+}
+
+u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out) {
+    if(_n < 3u) {
+        return 0;
+    }
+    return fude_zoom_fill_slabs(_p, _rings, _n, _out, NULL, NULL, NULL, NULL);
+}
+
+u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _lines) {
+    if(_n < 3u) {
+        return 0;
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr              _spans = rde_arr_new(sizeof(fude_zoom_fill_span), _heap);
+    rde_arr              _flats = rde_arr_new(sizeof(fude_zoom_fill_span), _heap);
+    fude_zoom_fill_edge* _e     = NULL;
+    u32                  _ne    = 0;
+    fude_zoom_fill_slabs(_p, _rings, _n, NULL, &_spans, &_flats, &_e, &_ne);
+    const u32 _ns = (u32)rde_arr_length(&_spans);
+    fude_zoom_fill_span* _sp = (fude_zoom_fill_span*)_spans.memory;
+    qsort(_sp, _ns, sizeof(fude_zoom_fill_span), fude_zoom_fill_by_span);
+    const u32 _nf = (u32)rde_arr_length(&_flats);
+    fude_zoom_fill_span* _fl = (fude_zoom_fill_span*)_flats.memory;
+    qsort(_fl, _nf, sizeof(fude_zoom_fill_span), fude_zoom_fill_by_span);
+    u32* _flat_of = (u32*)_heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));   // each point's level edge's first span (_nf: none)
+    for(u32 _i = 0; _i < _n; _i++) {
+        _flat_of[_i] = _nf;
+    }
+    for(u32 _s = _nf; _s-- > 0;) {
+        _flat_of[_fl[_s].edge] = _s;
+    }
+    // Point i's edge (to the next): its sorted edge (UINT32_MAX: a level one).
+    u32* _of = (u32*)_heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));
+    for(u32 _i = 0; _i < _n; _i++) {
+        _of[_i] = UINT32_MAX;
+    }
+    for(u32 _k = 0; _k < _ne; _k++) {
+        _of[_e[_k].from] = _k;
+    }
+    u32* _span_of = (u32*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(u32));   // each edge's first span (_ns: none)
+    for(u32 _k = 0; _k < _ne; _k++) {
+        _span_of[_k] = _ns;
+    }
+    for(u32 _s = _ns; _s-- > 0;) {
+        _span_of[_sp[_s].edge] = _s;
+    }
+    u32 _made = 0, _line = 0;
+    for(u32 _start = 0; _start < _n;) {
+        const u32 _ring = _rings != NULL ? _rings[_start] : 0u;
+        u32 _end = _start + 1u;
+        while(_end < _n && (_rings != NULL ? _rings[_end] : 0u) == _ring) {
+            _end++;
+        }
+        const u32 _m = _end - _start;
+        const u32 _ring_at = (u32)rde_arr_length(_out);   // where this ring's lines start in _out
+        const u32 _ids_at  = (u32)rde_arr_length(_lines);
+        u32       _first_end = UINT32_MAX;                // and how far into them its first one ends
+        b8           _going = false;
+        fude_zoom_v2 _last  = { 0.0, 0.0 };
+        for(u32 _step = 0; _step < _m; _step++) {
+            const u32 _i = _start + _step;
+            const u32 _k = _of[_i];
+            // This edge's stretches showing, in the ring's way along it.
+            fude_zoom_v2 _seg[2];
+            const b8     _flat  = _k == UINT32_MAX;
+            const fude_zoom_fill_span* _list = _flat ? _fl : _sp;
+            const u32    _total = _flat ? _nf : _ns;
+            const u32    _s     = _flat ? _flat_of[_i] : _span_of[_k];
+            const u32    _edge  = _flat ? _i : _k;
+            u32          _count = 0;
+            while(_s + _count < _total && _list[_s + _count].edge == _edge) {
+                _count++;
+            }
+            for(u32 _q = 0; _q < _count; _q++) {
+                if(_flat) {
+                    // A level edge's stretch (its own ends exactly where it reaches them).
+                    const fude_zoom_v2 _a2 = _p[_i], _z2 = _p[_i + 1u < _end ? _i + 1u : _start];
+                    const b8  _right = _a2.x < _z2.x;
+                    const fude_zoom_fill_span* _one = &_fl[_right ? _s + _q : _s + _count - 1u - _q];
+                    const f64 _tol = 4e-12 * (fabs(_a2.x) + fabs(_z2.x)) + 1e-300;
+                    const f64 _xs[2] = { _right ? _one->lo : _one->hi, _right ? _one->hi : _one->lo };
+                    for(u32 _v = 0; _v < 2u; _v++) {
+                        _seg[_v] = fabs(_xs[_v] - _a2.x) <= _tol ? _a2 : fabs(_xs[_v] - _z2.x) <= _tol ? _z2 : (fude_zoom_v2){ _xs[_v], _a2.y };
+                    }
+                } else {
+                    const fude_zoom_fill_span* _one = &_sp[_e[_k].up ? _s + _q : _s + _count - 1u - _q];
+                    const fude_zoom_v2 _lo2 = fude_zoom_fill_edge_at(&_e[_k], _one->lo), _hi2 = fude_zoom_fill_edge_at(&_e[_k], _one->hi);
+                    _seg[0] = _e[_k].up ? _lo2 : _hi2;
+                    _seg[1] = _e[_k].up ? _hi2 : _lo2;
+                }
+                if(!_going || _last.x != _seg[0].x || _last.y != _seg[0].y) {
+                    if(_going) {
+                        _line++;
+                        _first_end = _first_end == UINT32_MAX ? (u32)rde_arr_length(_out) - _ring_at : _first_end;
+                    }
+                    rde_arr_add(_out, (any)&_seg[0]);
+                    rde_arr_add(_lines, (any)&_line);
+                    _made++;
+                    _going = true;
+                }
+                rde_arr_add(_out, (any)&_seg[1]);
+                rde_arr_add(_lines, (any)&_line);
+                _made++;
+                _last = _seg[1];
+            }
+        }
+        // A line through the ring's first point: its two ends (the last line, then the first) one line.
+        fude_zoom_v2* _o   = (fude_zoom_v2*)_out->memory + _ring_at;
+        u32*          _ids = (u32*)_lines->memory + _ids_at;
+        const u32     _got = (u32)rde_arr_length(_out) - _ring_at;
+        if(_going && _first_end != UINT32_MAX && _o[_got - 1u].x == _o[0].x && _o[_got - 1u].y == _o[0].y) {
+            const u32 _k1 = _first_end, _k2 = _got - _first_end;
+            fude_zoom_v2* _keep = (fude_zoom_v2*)_heap->malloc(_heap->allocator, (usize)_got * sizeof(fude_zoom_v2));
+            memcpy(_keep, &_o[_k1], (usize)_k2 * sizeof(fude_zoom_v2));
+            memcpy(&_keep[_k2], &_o[1], (usize)(_k1 - 1u) * sizeof(fude_zoom_v2));
+            memcpy(_o, _keep, (usize)(_got - 1u) * sizeof(fude_zoom_v2));
+            _heap->free(_heap->allocator, _keep);
+            const u32 _last_id = _ids[_got - 1u];
+            memmove(_ids, &_ids[_k1], (usize)_k2 * sizeof(u32));
+            for(u32 _i = _k2; _i + 1u < _got; _i++) {
+                _ids[_i] = _last_id;
+            }
+            rde_arr_remove(_out, _ring_at + _got - 1u);
+            rde_arr_remove(_lines, _ids_at + _got - 1u);
+            _made--;
+        }
+        if(_going) {
+            _line++;
+        }
+        _start = _end;
+    }
+    _heap->free(_heap->allocator, _flat_of);
+    rde_arr_free(&_flats);
+    _heap->free(_heap->allocator, _span_of);
+    _heap->free(_heap->allocator, _of);
     _heap->free(_heap->allocator, _e);
+    rde_arr_free(&_spans);
     return _made;
 }
 
@@ -471,6 +785,18 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
             }
         }
     }
+    const u32 _kept = fude_zoom_fill_contour(_f, _w, _h, _x0, _y0, _cell, _out, _rings);
+    free(_f);
+    return _kept;
+}
+
+// A field's 0 line (below 0: inside), sampled on a grid _w by _h, _cell apart from (_x0, _y0):
+// its outermost loop, and with _rings its holes after it (each point's ring into _rings).
+u32 fude_zoom_fill_contour(const f32* _f, u32 _w, u32 _h, f64 _x0, f64 _y0, f64 _cell, rde_arr* _out, rde_arr* _rings) {
+    rde_arr_clear(_out);
+    if(_rings != NULL) {
+        rde_arr_clear(_rings);
+    }
     // Marching squares: each cell's crossings of 0 (inside: below), the edges
     // numbered so neighbours share them; then joined into loops.
     // An edge's id: (j * w + i) * 2 for the bottom (i→i+1 at row j), + 1 for the left (j→j+1 at column i).
@@ -507,7 +833,7 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
     i32*       _from = (i32*)malloc((usize)_ids * sizeof(i32));
     u8*        _used = (u8*)calloc(_ns > 0 ? _ns : 1u, 1u);
     if(_from == NULL || _used == NULL) {
-        free(_from); free(_used); free(_f); rde_arr_free(&_segs);
+        free(_from); free(_used); rde_arr_free(&_segs);
         return 0;
     }
     for(u32 _i = 0; _i < _ids; _i++) {
@@ -563,7 +889,6 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
     rde_arr_free(&_loop);
     free(_from);
     free(_used);
-    free(_f);
     rde_arr_free(&_segs);
     u32 _kept = fude_zoom_fill_simplify((fude_zoom_v2*)_out->memory, (u32)rde_arr_length(_out), _cell / 6.0);
     _out->count = _kept;
@@ -595,4 +920,46 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
     }
     rde_arr_free(&_holes);
     return _kept;
+}
+
+// --- offsets -------------------------------------------------------------------------------
+
+u32 fude_zoom_fill_offset(const fude_zoom_v2* _poly, u32 _n, f64 _d, rde_arr* _out) {
+    rde_arr_clear(_out);
+    if(_n < 3u || !(fabs(_d) > 0.0)) {
+        return 0;
+    }
+    fude_zoom_box _b = fude_zoom_box_empty();
+    for(u32 _i = 0; _i < _n; _i++) {
+        _b = fude_zoom_box_union(_b, (fude_zoom_box){ _poly[_i].x, _poly[_i].y, _poly[_i].x, _poly[_i].y });
+    }
+    const f64 _size = fmax(_b.max_x - _b.min_x, _b.max_y - _b.min_y);
+    f64 _cell = fmin(fabs(_d) / 4.0, _size / 200.0);
+    _cell = fmax(_cell, _size / 1500.0);
+    const f64 _pad = (_d > 0.0 ? _d : 0.0) + 3.0 * _cell;
+    const f64 _x0 = _b.min_x - _pad, _y0 = _b.min_y - _pad;
+    const u32 _w = (u32)ceil((_b.max_x - _b.min_x + 2.0 * _pad) / _cell) + 1u;
+    const u32 _h = (u32)ceil((_b.max_y - _b.min_y + 2.0 * _pad) / _cell) + 1u;
+    if((u64)_w * _h > 4000000u) {
+        return 0;
+    }
+    f32* _f = (f32*)malloc((usize)_w * _h * sizeof(f32));
+    if(_f == NULL) {
+        return 0;
+    }
+    // The signed distance to its outline (below 0 inside, even-odd), less the offset: the offset's line is its 0.
+    for(u32 _j = 0; _j < _h; _j++) {
+        for(u32 _i = 0; _i < _w; _i++) {
+            const fude_zoom_v2 _q = { _x0 + _i * _cell, _y0 + _j * _cell };
+            f64 _best = 1e300;
+            for(u32 _k = 0, _l = _n - 1u; _k < _n; _l = _k++) {
+                _best = fmin(_best, fude_zoom_fill_reach(_q, _poly[_l], _poly[_k], 0.0, 0.0));
+            }
+            const b8 _in = fude_zoom_fill_inside(_poly, _n, _q);
+            _f[_j * _w + _i] = (f32)((_in ? -_best : _best) - _d);
+        }
+    }
+    const u32 _k = fude_zoom_fill_contour(_f, _w, _h, _x0, _y0, _cell, _out, NULL);
+    free(_f);
+    return _k;
 }

@@ -110,6 +110,14 @@ RDE_INTERNAL void fude_import_stem(const c8* _path, c8* _out, usize _size) {
     const c8* _slash = strrchr(_path, '/');
     const c8* _back  = strrchr(_path, '\\');
     const c8* _name  = _back != NULL && (_slash == NULL || _back > _slash) ? _back + 1 : _slash != NULL ? _slash + 1 : _path;
+#if defined(RDE_PLATFORM_ANDROID)
+    // (The picker's copies are named "<n>_<its name>" (FudeImport.java): the name only.)
+    const c8* _digits = _name;
+    while(*_digits >= '0' && *_digits <= '9') {
+        _digits++;
+    }
+    _name = _digits > _name && *_digits == '_' && _digits[1] != 0 ? _digits + 1 : _name;
+#endif
     snprintf(_out, _size, "%s", _name);
     c8* _dot = strrchr(_out, '.');
     if(_dot != NULL && _dot != _out) {

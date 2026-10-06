@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/erase.h"
+#include "zoom/cut.h"
+#include "zoom/shape.h"
 #include "zoom/fill.h"
 
 #include <math.h>
@@ -786,9 +788,14 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
     }
     rde_arr _qs = rde_arr_new(sizeof(fude_zoom_qpoint), rde_memory_allocator_get_default_std());
     u32 _taken = 0;
+    const u16 _layer_was = _s->layer;
     for(u32 _k = 0; _k < (u32)rde_arr_length(&_list); _k++) {   // (a shape unmade adds its line and fill)
         const u32 _object = ((const u32*)_list.memory)[_k];
         const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
+        if(!fude_zoom_scene_touchable(_s, _o)) {
+            continue;   // a hidden or locked layer's
+        }
+        _s->layer = _o->layer;   // what is cut from it stays on its layer
         if(_o->kind == FUDE_ZOOM_KIND_FILL && (_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
             // A fill: rubbed out where the eraser passes (PARTIAL), or taken whole.
             if(fude_zoom_erase_fill_touched(_s, _e, _object, _a, _b, _r)) {
@@ -805,7 +812,17 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
             // A shape: rubbed out where the eraser passes as its line and fill
             // (PARTIAL: unmade into them, cut just below), or taken whole.
             if(fude_zoom_erase_shape_touched(_s, _object, _a, _b, _r)) {
-                if(_e->mode == FUDE_ZOOM_ERASE_PARTIAL) {
+                if(_e->mode == FUDE_ZOOM_ERASE_PARTIAL && _o->channels == FUDE_ZOOM_SHAPE_BOARD) {
+                    // A board: the wood rubbed out of it (cut.h), what is left its pieces.
+                    rde_arr _sweep = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+                    const u32 _k = fude_zoom_fill_capsule(_a, _b, _r, &_sweep);
+                    if(fude_zoom_cut_board(_s, _object, (const fude_zoom_v2*)_sweep.memory, NULL, _k, &_e->born) != FUDE_ZOOM_NONE) {
+                        fude_zoom_erase_take(_s, _e, _object);
+                    }
+                    rde_arr_free(&_sweep);
+                } else if(_e->mode == FUDE_ZOOM_ERASE_PARTIAL && _o->channels != FUDE_ZOOM_SHAPE_DIMENSION && _o->channels != FUDE_ZOOM_SHAPE_ARROW &&
+                          _o->channels != FUDE_ZOOM_SHAPE_SYMBOL && _o->channels != FUDE_ZOOM_SHAPE_RADIAL && _o->channels != FUDE_ZOOM_SHAPE_ANGLE &&
+                          _o->channels != FUDE_ZOOM_SHAPE_SHEET) {   // (a dimension, a connector, a diagram's symbol, a sheet goes whole)
                     fude_zoom_erase_unshape(_s, _e, _object, &_list);
                 } else {
                     fude_zoom_erase_take(_s, _e, _object);
@@ -840,6 +857,7 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
             fude_zoom_erase_partial(_s, _e, &_w, _object, _a, _b, _r, _min_len);
         }
     }
+    _s->layer = _layer_was;
     rde_arr_free(&_qs);
     rde_arr_free(&_list);
     return _taken;

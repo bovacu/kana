@@ -5,6 +5,7 @@
 
 #include "rde.h"
 #include "zoom/scene.h"
+#include "zoom/units.h"
 
 // ===========================================================================
 // Drawing a canvas (scene.h) on the screen.
@@ -54,6 +55,9 @@ typedef struct {
     f32* tris;       // a fill's inside as triangles (fill.h): x, y each corner, the same units (NULL: not yet)
     u32  tri_count;
     u32* rings;      // a fill's points' rings (fill.h; NULL: all the outline's)
+    f32* edges;      // a cut fill's edge as it shows (fill.h's edges_rings): x, y each point, the same units (NULL: not yet)
+    u32* edge_lines; // each of those points' line
+    u32  edge_count;
 } fude_zoom_decoded;
 
 // A picture on the GPU, made from its payload's bytes (copies share it).
@@ -84,11 +88,31 @@ typedef struct {
     // Per object, set: not drawn by the canvas (the selection draws it, lifted
     // while dragged: select.h). NULL: everything drawn.
     const rde_arr* lifted;
+    // Dimensions' numbers (shape.h): the font they are written in (NULL: not
+    // written), how many millimetres a unit of the canvas's home frame is, and
+    // how lengths are written (units.h).
+    rde_font*             font;
+    f32                   font_px;
+    f64                   mm_per_unit;
+    fude_zoom_units_style units;
+    // Boards' materials' names (shape.h' FUDE_ZOOM_MATERIAL_ order; NULL: not said).
+    const c8* const*      material_words;
     // What the last draw cost (the HUD's).
     u32 strokes_drawn;
     u32 points_drawn;
     u32 frames_drawn;
 } fude_zoom_renderer;
+
+// A dimension on the screen (centre origin, Y up): what it measures from _a
+// to _b, its line _offset points to their left, its arrows and its number
+// _label (NULL: none) — the canvas's, and the measure being made (page.c).
+void fude_zoom_render_dimension(const fude_zoom_renderer* _r, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _offset, f32 _width, rde_color _color, const c8* _label);
+
+// Text in a box on the screen (centre origin, Y up), its lines broken to fit its width and each centred, the
+// whole in the box's middle (_top: from its top) — never cut. Nothing without a font, or under 3 points.
+void fude_zoom_render_text_in(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, rde_color _color);
+// ...each line from the box's left (_left) instead.
+void fude_zoom_render_text_at(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, b8 _left, rde_color _color);
 
 void fude_zoom_render_init(fude_zoom_renderer* _r);
 void fude_zoom_render_destroy(fude_zoom_renderer* _r);

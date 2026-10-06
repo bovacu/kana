@@ -280,11 +280,23 @@ public final class FudePdf {
     }
 
     /** A stroke over it: x, y and half-width each point (_points), in _color (RGBA, a byte each from the top); _even: a marker's. */
+    public static void writeFill(int w, float[] triangles, int color) {
+        FudePdfBox.writeFill(w, triangles, color);
+    }
+
     public static void writeStroke(int w, float[] points, int color, boolean even) {
         FudePdfBox.writeStroke(w, points, color, even);
     }
 
     /** Text put in unseen, filling the box at (_x, _y) of _sw x _sh. */
+    public static void writeImage(int w, byte[] bytes, float[] corners) {
+        FudePdfBox.writeImage(w, bytes, corners);
+    }
+
+    public static void writeText(int w, byte[] text, float x, float y, float size, int color) {
+        FudePdfBox.writeText(w, FudeAndroid.text(text), x, y, size, color);
+    }
+
     public static void writeHiddenText(int w, byte[] text, float x, float y, float sw, float sh) {
         FudePdfBox.writeHiddenText(w, FudeAndroid.text(text), x, y, sw, sh);
     }

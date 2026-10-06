@@ -372,6 +372,91 @@ void fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const
     CGContextRestoreGState(_c);
 }
 
+void fude_pdf_write_fill(fude_pdf_writer* _w, const rde_vec_2F* _t, u32 _count, rde_color _color) {
+    if(_w == NULL || !_w->open || _t == NULL || _count == 0u) {
+        return;
+    }
+    CGContextRef _c = _w->ctx;
+    CGContextSaveGState(_c);
+    CGContextSetRGBFillColor(_c, _color.r / 255.0, _color.g / 255.0, _color.b / 255.0, _color.a / 255.0);
+    CGContextBeginPath(_c);
+    for(u32 _i = 0; _i < _count; _i++) {
+        // Each the same way round (nonzero: one shape, painted once).
+        rde_vec_2F _a = _t[_i * 3u], _b = _t[_i * 3u + 1u], _d = _t[_i * 3u + 2u];
+        if((_b.x - _a.x) * (_d.y - _a.y) - (_d.x - _a.x) * (_b.y - _a.y) < 0.0f) {
+            const rde_vec_2F _s = _b;
+            _b = _d;
+            _d = _s;
+        }
+        CGContextMoveToPoint(_c, _a.x, _w->height - _a.y);
+        CGContextAddLineToPoint(_c, _b.x, _w->height - _b.y);
+        CGContextAddLineToPoint(_c, _d.x, _w->height - _d.y);
+        CGContextClosePath(_c);
+    }
+    CGContextFillPath(_c);
+    CGContextRestoreGState(_c);
+}
+
+void fude_pdf_write_image(fude_pdf_writer* _w, const u8* _bytes, u32 _size, const rde_vec_2F _corners[3]) {
+    if(_w == NULL || !_w->open || _bytes == NULL || _size == 0u) {
+        return;
+    }
+    CFDataRef        _data = CFDataCreate(NULL, _bytes, (CFIndex)_size);
+    CGImageSourceRef _src  = _data != NULL ? CGImageSourceCreateWithData(_data, NULL) : NULL;
+    CGImageRef       _img  = _src != NULL ? CGImageSourceCreateImageAtIndex(_src, 0, NULL) : NULL;
+    if(_img != NULL) {
+        // The unit square onto its corners (the page's Y up here).
+        const CGFloat _x0 = _corners[0].x, _y0 = _w->height - _corners[0].y;
+        const CGAffineTransform _t = { _corners[1].x - _x0, (_w->height - _corners[1].y) - _y0,
+                                       _corners[2].x - _x0, (_w->height - _corners[2].y) - _y0, _x0, _y0 };
+        CGContextSaveGState(_w->ctx);
+        CGContextConcatCTM(_w->ctx, _t);
+        CGContextDrawImage(_w->ctx, CGRectMake(0.0, 0.0, 1.0, 1.0), _img);
+        CGContextRestoreGState(_w->ctx);
+        CGImageRelease(_img);
+    }
+    if(_src != NULL) {
+        CFRelease(_src);
+    }
+    if(_data != NULL) {
+        CFRelease(_data);
+    }
+}
+
+void fude_pdf_write_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _at, f32 _size, rde_color _color) {
+    if(_w == NULL || !_w->open || _text == NULL || _text[0] == 0 || !(_size > 0.0f)) {
+        return;
+    }
+    CFStringRef _s = CFStringCreateWithCString(NULL, _text, kCFStringEncodingUTF8);
+    if(_s == NULL) {
+        return;
+    }
+    // The system's font (Core Text finds another for what it has no letter for), in the context's colour.
+    CTFontRef         _font  = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, (CGFloat)_size, NULL);
+    if(_font == NULL) {
+        CFRelease(_s);
+        return;
+    }
+    const void*       _k[]   = { kCTFontAttributeName, kCTForegroundColorFromContextAttributeName };
+    const void*       _v[]   = { _font, kCFBooleanTrue };
+    CFDictionaryRef   _attrs = CFDictionaryCreate(NULL, _k, _v, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFAttributedStringRef _as = CFAttributedStringCreate(NULL, _s, _attrs);
+    CTLineRef         _line  = CTLineCreateWithAttributedString(_as);
+    CGContextRef      _c     = _w->ctx;
+    CGContextSaveGState(_c);
+    CGContextSetRGBFillColor(_c, _color.r / 255.0, _color.g / 255.0, _color.b / 255.0, _color.a / 255.0);
+    CGContextSetTextDrawingMode(_c, kCGTextFill);
+    CGContextSetTextMatrix(_c, CGAffineTransformIdentity);
+    CGContextSetTextPosition(_c, _at.x, _w->height - _at.y);
+    CTLineDraw(_line, _c);
+    CGContextRestoreGState(_c);
+    CFRelease(_line);
+    CFRelease(_as);
+    CFRelease(_attrs);
+    CFRelease(_font);
+    CFRelease(_s);
+}
+
 void fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size) {
     if(_w == NULL || !_w->open || _text == NULL || _text[0] == 0 || _size.x <= 0.0f || _size.y <= 0.0f) {
         return;
@@ -523,6 +608,18 @@ void fude_pdf_write_page(fude_pdf_writer* _w, fude_pdf* _pdf, u32 _page) {
 
 void fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const f32* _radii, u32 _n, rde_color _color, b8 _even) {
     RDE_UNUSED(_w); RDE_UNUSED(_points); RDE_UNUSED(_radii); RDE_UNUSED(_n); RDE_UNUSED(_color); RDE_UNUSED(_even);
+}
+
+void fude_pdf_write_fill(fude_pdf_writer* _w, const rde_vec_2F* _triangles, u32 _count, rde_color _color) {
+    RDE_UNUSED(_w); RDE_UNUSED(_triangles); RDE_UNUSED(_count); RDE_UNUSED(_color);
+}
+
+void fude_pdf_write_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _at, f32 _size, rde_color _color) {
+    RDE_UNUSED(_w); RDE_UNUSED(_text); RDE_UNUSED(_at); RDE_UNUSED(_size); RDE_UNUSED(_color);
+}
+
+void fude_pdf_write_image(fude_pdf_writer* _w, const u8* _bytes, u32 _size, const rde_vec_2F _corners[3]) {
+    RDE_UNUSED(_w); RDE_UNUSED(_bytes); RDE_UNUSED(_size); RDE_UNUSED(_corners);
 }
 
 void fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size) {

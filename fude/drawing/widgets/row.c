@@ -67,6 +67,17 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_press(rde_ui_node* _node, const rd
 
 // One button as its face says: label, icon, whether it can be pressed, its look
 // (chosen, or as declared) — in that order, as each paints the label over the last.
+// How wide a button _label needs; a label ending in a count ("Practice 0") with
+// room for three digits.
+RDE_INTERNAL f32 fude_row_label_width(const c8* _label) {
+    c8          _measure[FUDE_ROW_LABEL + 4];
+    const usize _len          = strlen(_label);
+    const b8    _count_at_end = _len >= 2 && _label[_len - 1] == '0' && _label[_len - 2] == ' ';
+    snprintf(_measure, sizeof(_measure), _count_at_end ? "%s00" : "%s", _label);
+    const f32 _w = fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _measure, FUDE_KIT_CAPTION_PX) + 24.0f;
+    return rde_math_clamp_f32(_w, FUDE_ROW_BUTTON_MIN_W, FUDE_ROW_BUTTON_MAX_W);
+}
+
 RDE_INTERNAL void fude_row_paint(fude_row* _row, u32 _i) {
     rde_ui_button*         _b    = _row->buttons[_i];
     const fude_row_face*   _face = &_row->shown[_i];
@@ -221,8 +232,9 @@ RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
         if(_row->buttons[_i] == NULL) {
             continue;
         }
-        rde_ui_node_set_active(rde_ui_button_as_node(_row->buttons[_i]), !_row->in_menu[_i]);
-        if(!_row->in_menu[_i]) {
+        const b8 _on = _w[_i] > 0.0f && !_row->in_menu[_i];   // (no width: hidden by its face)
+        rde_ui_node_set_active(rde_ui_button_as_node(_row->buttons[_i]), _on);
+        if(_on) {
             fude_kit_place(rde_ui_button_as_node(_row->buttons[_i]), (rde_vec_2F){ _x + _w[_i] * 0.5f, fude_row_height() * 0.5f },
                            (rde_vec_2F){ _w[_i], FUDE_ROW_BUTTON_H });
             _x += _w[_i] + FUDE_ROW_SPACING;
@@ -270,20 +282,14 @@ void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _de
         }
     }
 
-    // Each button as wide as its label needs; a label ending in a count ("Practice 0")
-    // with room for three digits.
+    // Each button as wide as its label needs.
     f32 _total = 2.0f * FUDE_ROW_PADDING + FUDE_ROW_SPACING * (f32)(_shown > 0 ? _shown - 1u : 0u);
     for(u32 _i = 0; _i < _count; _i++) {
         _widths[_i] = 0.0f;
         if(!_here[_i]) {
             continue;
         }
-        c8          _measure[FUDE_ROW_LABEL + 4];
-        const usize _len          = strlen(_row->base[_i]);
-        const b8    _count_at_end = _len >= 2 && _row->base[_i][_len - 1] == '0' && _row->base[_i][_len - 2] == ' ';
-        snprintf(_measure, sizeof(_measure), _count_at_end ? "%s00" : "%s", _row->base[_i]);
-        const f32 _w = fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _measure, FUDE_KIT_CAPTION_PX) + 24.0f;
-        _widths[_i]  = rde_math_clamp_f32(_w, FUDE_ROW_BUTTON_MIN_W, FUDE_ROW_BUTTON_MAX_W);
+        _widths[_i]  = fude_row_label_width(_row->base[_i]);
         _total      += _widths[_i];
     }
     _row->size = (rde_vec_2F){ _total, fude_row_height() };
@@ -334,16 +340,35 @@ void fude_row_restyle(fude_row* _row) {
 }
 
 RDE_INTERNAL b8 fude_row_same_face(const fude_row_face* _a, const fude_row_face* _b) {
-    return _a->icon == _b->icon && _a->disabled == _b->disabled && _a->selected == _b->selected && strcmp(_a->label, _b->label) == 0;
+    return _a->icon == _b->icon && _a->disabled == _b->disabled && _a->selected == _b->selected && _a->hidden == _b->hidden && strcmp(_a->label, _b->label) == 0;
 }
 
 void fude_row_apply(fude_row* _row, const fude_row_face* _faces) {
+    b8 _wider = false;
     for(u32 _i = 0; _i < FUDE_ROW_BUTTONS && _i < _row->def->count; _i++) {
         if(_row->buttons[_i] == NULL || fude_row_same_face(&_faces[_i], &_row->shown[_i])) {
             continue;
         }
+        // A label of its own wider than the button: the button grown to hold it
+        // (never narrower than its own label's; back to that once it is gone).
+        // Hidden: no width at all (laid out as one left out).
+        if(strcmp(_faces[_i].label, _row->shown[_i].label) != 0 || _faces[_i].hidden != _row->shown[_i].hidden) {
+            const f32 _base = fude_row_label_width(_row->base[_i]);
+            const f32 _w    = _faces[_i].hidden ? 0.0f : _faces[_i].label[0] != 0 ? fmaxf(_base, fude_row_label_width(_faces[_i].label)) : _base;
+            if(_w != _row->widths[_i]) {
+                _row->widths[_i] = _w;
+                _wider           = true;
+            }
+        }
         _row->shown[_i] = _faces[_i];
         fude_row_paint(_row, _i);
+    }
+    if(_wider && _row->_laid_for > 0.0f) {
+        fude_row_layout(_row, _row->_laid_for);
+        if(_row->_window != NULL) {
+            _row->center = fude_kit_clamp(_row->_window, _row->center, _row->size);
+            fude_kit_place_at(rde_ui_image_as_node(_row->panel), _row->center, _row->size);
+        }
     }
 }
 

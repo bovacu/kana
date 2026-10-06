@@ -136,6 +136,9 @@ void fude_toolbar_restyle(fude_toolbar* _toolbar);
 void fude_toolbar_refresh(fude_toolbar* _toolbar);
 // Is _ui (UI canvas units) on the bar or an open panel?
 b8   fude_toolbar_hit(const fude_toolbar* _toolbar, rde_vec_2F _ui);
+// A press on the page: the bar's open panels (the palette, the paper, a tool's
+// choices) closed; the press still does its own job. True: one was open.
+b8   fude_toolbar_close_panels(fude_toolbar* _toolbar);
 // Laid out again along its axis, clamped on screen (the safe area changed, the screen turned).
 void fude_toolbar_layout(fude_toolbar* _toolbar);
 // The screen went from _from to _to (UI units): the bar keeps its distance to an

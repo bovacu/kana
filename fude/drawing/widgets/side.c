@@ -1120,16 +1120,23 @@ RDE_INTERNAL f32 fude_side_settings_rows(fude_ui* _ui, f32 _top, f32 _m, f32 _kw
     _ry -= 50.0f;
     fude_kit_place(rde_ui_label_as_node(_side->language_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
     _ry -= 48.0f;
-    const u32 _per = _narrow ? 3u : FUDE_TEXT_LANGUAGES;
-    const f32 _gw  = (_lw - FUDE_SIDE_GAP * (f32)(_per - 1u)) / (f32)_per;
-    for(u32 _i = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
-        const u32 _row   = _i / _per;
-        const u32 _in    = FUDE_TEXT_LANGUAGES - _row * _per < _per ? FUDE_TEXT_LANGUAGES - _row * _per : _per;
+    // (Those offered: an app that teaches none has no fourth.)
+    const u32 _count = fude_text_language_count();
+    const u32 _per   = _narrow ? 3u : _count;
+    const f32 _gw    = (_lw - FUDE_SIDE_GAP * (f32)(_per - 1u)) / (f32)_per;
+    for(u32 _i = 0, _k = 0; _i < FUDE_TEXT_LANGUAGES; _i++) {
+        rde_ui_node_set_active(rde_ui_button_as_node(_side->languages[_i]), fude_text_language_shown(_i));
+        if(!fude_text_language_shown(_i)) {
+            continue;
+        }
+        const u32 _row   = _k / _per;
+        const u32 _in    = _count - _row * _per < _per ? _count - _row * _per : _per;
         const f32 _shift = (f32)(_per - _in) * (_gw + FUDE_SIDE_GAP) * 0.5f;
-        fude_kit_place(rde_ui_button_as_node(_side->languages[_i]), (rde_vec_2F){ _m + _shift + (f32)(_i % _per) * (_gw + FUDE_SIDE_GAP) + _gw * 0.5f, _ry - (f32)_row * (62.0f + FUDE_SIDE_GAP) },
+        fude_kit_place(rde_ui_button_as_node(_side->languages[_i]), (rde_vec_2F){ _m + _shift + (f32)(_k % _per) * (_gw + FUDE_SIDE_GAP) + _gw * 0.5f, _ry - (f32)_row * (62.0f + FUDE_SIDE_GAP) },
                            (rde_vec_2F){ _gw, 62.0f });
+        _k++;
     }
-    _ry -= (f32)((FUDE_TEXT_LANGUAGES - 1u) / _per) * (62.0f + FUDE_SIDE_GAP);
+    _ry -= (f32)((_count - 1u) / _per) * (62.0f + FUDE_SIDE_GAP);
     _ry -= 66.0f;
     if(_narrow) {
         // The name, then its choices across.
@@ -1512,7 +1519,7 @@ void fude_side_create(fude_ui* _ui, rde_ui_node* _root) {
     _side->theme_label    = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_THEME), FUDE_SIDE_HEADER_PX);
     for(u32 _i = 0; _i < FUDE_THEME_COUNT; _i++) {
         _side->theme_refs[_i] = (fude_side_theme_ref){ _ui, _i };
-        _side->themes[_i]     = fude_kit_button(_body, fude_text((FUDE_TEXT_)(FUDE_TEXT_THEME_PAPER + _i)), fude_side_on_theme, _ui);   // FUDE_THEME_ order
+        _side->themes[_i]     = fude_kit_button(_body, fude_text((FUDE_TEXT_)fude_theme_text((FUDE_THEME_)_i)), fude_side_on_theme, _ui);   // FUDE_THEME_ order (an app's own names)
         rde_ui_button_set_on_click(_side->themes[_i], fude_side_on_theme, &_side->theme_refs[_i]);
     }
     _side->language_label = fude_side_label(_ui, _body, fude_text(FUDE_TEXT_SETTINGS_LANGUAGE), FUDE_SIDE_HEADER_PX);

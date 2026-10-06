@@ -74,6 +74,14 @@ void             fude_pdf_write_page(fude_pdf_writer* _w, fude_pdf* _pdf, u32 _p
 // one width, see-through (a marker's) — drawn as one shape, never darker where
 // it crosses itself.
 void             fude_pdf_write_stroke(fude_pdf_writer* _w, const rde_vec_2F* _points, const f32* _radii, u32 _n, rde_color _color, b8 _even);
+// A shape filled in _color: _count triangles (three points each, as above), painted as
+// one (nonzero: where they meet does not show) — a fill the eraser left, a filled shape.
+void             fude_pdf_write_fill(fude_pdf_writer* _w, const rde_vec_2F* _triangles, u32 _count, rde_color _color);
+// A picture (a JPEG's or a PNG's bytes) over the page, its bottom-left, bottom-right
+// and top-left corners at _corners (as above: so turned, so stretched).
+void             fude_pdf_write_image(fude_pdf_writer* _w, const u8* _bytes, u32 _size, const rde_vec_2F _corners[3]);
+// A line of text seen, in _color, _size points tall, its baseline's left end at _at.
+void             fude_pdf_write_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _at, f32 _size, rde_color _color);
 // Text put in unseen, filling the box at _from (_size).
 void             fude_pdf_write_hidden_text(fude_pdf_writer* _w, const c8* _text, rde_vec_2F _from, rde_vec_2F _size);
 void             fude_pdf_write_page_end(fude_pdf_writer* _w);
