@@ -122,6 +122,9 @@ void fude_zoom_render_trim(fude_zoom_renderer* _r);
 // The scene from its camera, on a screen _half wide each way (app units).
 // _paper: the backdrop's colour when nothing is up there. Inside a 2D drawing block.
 void fude_zoom_render(fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zoom_v2 _half, rde_color _paper);
+// After it, over everything: the rulers of each measured sheet the last draw went into stuck to the screen's edges
+// where its own are off it (sheet.h: zoomed in on it, still saying where on it you are).
+void fude_zoom_render_sheets_stuck(fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zoom_v2 _half);
 
 // A picture's texture (made the first time), and its size in pixels. NULL: it
 // could not be made (not a JPEG or PNG the engine reads).

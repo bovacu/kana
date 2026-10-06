@@ -140,6 +140,14 @@ RDE_INTERNAL b8 fude_zoom_sheet_range(f64 _lo, f64 _hi, f64 _len, f64 _step, u64
 
 void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f64 _mm_per_unit, b8 _inch, fude_zoom_box _view,
                            rde_arr* _lines, rde_arr* _labels, fude_zoom_sheet_label* _unit) {
+    fude_zoom_sheet_marks_stuck(_sheet, _all, _mm_per_unit, _inch, _view, _lines, _labels, _unit, NULL, NULL);
+}
+
+void fude_zoom_sheet_marks_stuck(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f64 _mm_per_unit, b8 _inch, fude_zoom_box _view,
+                                 rde_arr* _lines, rde_arr* _labels, fude_zoom_sheet_label* _unit, fude_zoom_box* _bands, u32* _band_count) {
+    if(_band_count != NULL) {
+        *_band_count = 0u;
+    }
     rde_arr_clear(_lines);
     rde_arr_clear(_labels);
     if(_unit != NULL) {
@@ -155,7 +163,7 @@ void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f6
     const f64 _margin = 24.0 / _k;
     // The grid: lines across it from its bottom left corner, the numbered ones stronger (its sides the outline's).
     fude_zoom_sheet_step _g;
-    if((_sheet->flags & FUDE_ZOOM_SHEET_GRID) && fude_zoom_sheet_step_for(_mm_pt, FUDE_ZOOM_SHEET_GRID_PT, _inch, &_g)) {
+    if(_bands == NULL && (_sheet->flags & FUDE_ZOOM_SHEET_GRID) && fude_zoom_sheet_step_for(_mm_pt, FUDE_ZOOM_SHEET_GRID_PT, _inch, &_g)) {
         const f64 _su = _g.step_mm / _mm_per_unit;
         const f64 _y0 = fmax(_lv.min_y, -_hh), _y1 = fmin(_lv.max_y, _hh);
         const f64 _x0 = fmax(_lv.min_x, -_hw), _x1 = fmin(_lv.max_x, _hw);
@@ -197,9 +205,35 @@ void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f6
     // Bottom, top (along x), left, right (along y): where each starts, which way it goes, and which way is in.
     static const fude_zoom_v2 _from[4] = { { -1.0, -1.0 }, { -1.0, 1.0 }, { -1.0, -1.0 }, { 1.0, -1.0 } };
     static const fude_zoom_v2 _in[4]   = { { 0.0, 1.0 }, { 0.0, -1.0 }, { 1.0, 0.0 }, { -1.0, 0.0 } };
+    // Stuck to the screen (zoomed in, its top or its left edge off it, the screen's edge on it): the top ruler along the
+    // screen's top, the left one down its left, each on a band of its own (a sheet square to the screen only).
+    const b8  _square = _bands != NULL && _all.a > 0.0 && fabs(_all.b) <= 1e-9 * _all.a;
+    const f64 _band   = FUDE_ZOOM_SHEET_BAND_PT / _k;
+    const b8  _stick_top  = _square && _hh > _lv.max_y && _lv.max_y > -_hh + 2.0 * _band && _lv.max_x > -_hw && _lv.min_x < _hw;
+    const b8  _stick_left = _square && -_hw < _lv.min_x && _lv.min_x < _hw - 2.0 * _band && _lv.max_y > -_hh && _lv.min_y < _hh;
+    if(_stick_top) {
+        const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, (fude_zoom_v2){ fmax(-_hw, _lv.min_x), _lv.max_y - _band });
+        const fude_zoom_v2 _b = fude_zoom_sim_apply(_all, (fude_zoom_v2){ fmin(_hw, _lv.max_x), _lv.max_y });
+        _bands[(*_band_count)++] = (fude_zoom_box){ _a.x, _a.y, _b.x, _b.y };
+    }
+    if(_stick_left) {
+        const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _lv.min_x, fmax(-_hh, _lv.min_y) });
+        const fude_zoom_v2 _b = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _lv.min_x + _band, fmin(_hh, _lv.max_y) });
+        _bands[(*_band_count)++] = (fude_zoom_box){ _a.x, _a.y, _b.x, _b.y };
+    }
     for(u32 _side = 0; _side < 4u; _side++) {
         const b8  _along_x = _side < 2u;
-        const fude_zoom_v2 _o = { _from[_side].x * _hw, _from[_side].y * _hh };
+        const b8  _stuck   = (_side == 1u && _stick_top) || (_side == 2u && _stick_left);
+        if(_bands != NULL && !_stuck) {
+            continue;   // (over the drawing: only what is stuck — the rest drawn with the sheet)
+        }
+        const u32 _side_first = (u32)rde_arr_length(_labels);   // (a stuck ruler's number nearest the screen's middle says its unit: its corner is off it)
+        fude_zoom_v2 _o = { _from[_side].x * _hw, _from[_side].y * _hh };
+        if(_side == 1u && _stick_top) {
+            _o.y = _lv.max_y;
+        } else if(_side == 2u && _stick_left) {
+            _o.x = _lv.min_x;
+        }
         const f64 _len = _along_x ? 2.0 * _hw : 2.0 * _hh;
         // On the screen at all: its line within the screen's box (a margin round it for the numbers).
         const f64 _across = _along_x ? _o.y : _o.x;
@@ -219,8 +253,13 @@ void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f6
             const f64 _h = fude_zoom_sheet_tick(&_t, _i);
             const fude_zoom_sheet_line _tick = { _p, { _p.x + _inward.x * _h, _p.y + _inward.y * _h }, 0u };
             rde_arr_add(_lines, (any)&_tick);
-            // Numbered: not at its corners (where the rulers meet; its unit is by the first).
+            // Numbered: not at its corners (where the rulers meet; its unit is by the first) — a stuck one's not where the
+            // other stuck one crosses it.
             if(!_numbered || _i % _t.major != 0u || (_i / _t.major) % _every != 0u || _i == 0u || (_len - _u) * _k < 22.0) {
+                continue;
+            }
+            if((_side == 1u && _stick_top && _stick_left && _p.x < _view.min_x + FUDE_ZOOM_SHEET_BAND_PT + 20.0) ||
+               (_side == 2u && _stick_left && _stick_top && _p.y > _view.max_y - FUDE_ZOOM_SHEET_BAND_PT - 12.0)) {
                 continue;
             }
             fude_zoom_sheet_label _label;
@@ -229,8 +268,19 @@ void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f6
             fude_zoom_sheet_number((f64)_i * _t.step_mm / _t.per_mm, _label.text, sizeof(_label.text));
             rde_arr_add(_labels, (any)&_label);
         }
+        if(_stuck && (u32)rde_arr_length(_labels) > _side_first) {
+            fude_zoom_sheet_label* _ls = (fude_zoom_sheet_label*)_labels->memory;
+            const f64 _mid = _along_x ? (_view.min_x + _view.max_x) * 0.5 : (_view.min_y + _view.max_y) * 0.5;
+            u32 _near = _side_first;
+            for(u32 _k = _side_first; _k < (u32)rde_arr_length(_labels); _k++) {
+                const f64 _d = fabs((_along_x ? _ls[_k].at.x : _ls[_k].at.y) - _mid), _dn = fabs((_along_x ? _ls[_near].at.x : _ls[_near].at.y) - _mid);
+                _near = _d < _dn ? _k : _near;
+            }
+            const usize _len_t = strlen(_ls[_near].text);
+            snprintf(_ls[_near].text + _len_t, sizeof(_ls[_near].text) - _len_t, " %s", _t.unit);
+        }
     }
-    if(_unit != NULL && _numbered) {
+    if(_unit != NULL && _numbered && _bands == NULL) {
         const fude_zoom_v2 _c  = fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_hw, -_hh });
         const fude_zoom_v2 _iu = fude_zoom_sheet_way(_all, (fude_zoom_v2){ 0.0, 1.0 }), _ir = fude_zoom_sheet_way(_all, (fude_zoom_v2){ 1.0, 0.0 });
         _unit->at = (fude_zoom_v2){ _c.x + (_iu.x + _ir.x) * 22.0, _c.y + (_iu.y + _ir.y) * 22.0 };

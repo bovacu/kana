@@ -1270,6 +1270,84 @@ RDE_INTERNAL void fude_zoom_render_sheet_marks(const fude_zoom_renderer* _r, con
     rde_arr_free(&_labels);
 }
 
+void fude_zoom_render_sheets_stuck(fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zoom_v2 _half) {
+    const fude_theme* _theme = fude_theme_active();
+    const fude_zoom_box _view = { -_half.x, -_half.y, _half.x, _half.y };
+    const b8 _inch = _r->units.unit == FUDE_ZOOM_UNIT_IN || _r->units.unit == FUDE_ZOOM_UNIT_FT;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _found = rde_arr_new(sizeof(u32), _heap);
+    rde_arr _lines = rde_arr_new(sizeof(fude_zoom_sheet_line), _heap), _labels = rde_arr_new(sizeof(fude_zoom_sheet_label), _heap);
+    const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
+    for(u32 _v = 0; _v < (u32)rde_arr_length(&_r->visible); _v++) {
+        const fude_zoom_visible _vis = ((const fude_zoom_visible*)_r->visible.memory)[_v];
+        rde_arr_clear(&_found);
+        fude_zoom_scene_query(_s, _vis.frame, fude_zoom_sim_box(fude_zoom_sim_inverse(_vis.to_screen), _view), &_found);
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_found); _i++) {
+            const u32 _object = ((const u32*)_found.memory)[_i];
+            const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
+            if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind != FUDE_ZOOM_KIND_SHAPE || _o->channels != FUDE_ZOOM_SHAPE_SHEET || fude_zoom_scene_hides(_s, _o) ||
+               (_r->lifted != NULL && _object < (u32)rde_arr_length(_r->lifted) && ((const u8*)_r->lifted->memory)[_object] != 0u)) {
+                continue;
+            }
+            f64 _n[FUDE_ZOOM_SHAPE_NUMBERS];
+            fude_zoom_sheet _sheet;
+            if(!fude_zoom_sheet_of(_n, fude_zoom_scene_shape_numbers(_s, _object, _n, FUDE_ZOOM_SHAPE_NUMBERS), &_sheet)) {
+                continue;
+            }
+            const fude_zoom_sim _all = fude_zoom_sim_compose(_vis.to_screen, fude_zoom_object_sim(_o));
+            const f64 _mm = _o->scale * fude_zoom_sim_scale(fude_zoom_scene_sim(_s, _o->frame, _home)) * _r->mm_per_unit;
+            fude_zoom_box _bands[2];
+            u32 _nb = 0;
+            fude_zoom_sheet_marks_stuck(&_sheet, _all, _mm, _inch, _view, &_lines, &_labels, NULL, _bands, &_nb);
+            if(_nb == 0u) {
+                continue;
+            }
+            const rde_color _ink = fude_theme_resolve(_o->color);
+            rde_color _paper = _theme->page, _edge = _ink;
+            _paper.a = 236u;
+            _edge.a  = (u8)((u32)_ink.a * 45u / 100u);
+            // The left band as wide as its widest number (one says its unit).
+            f64 _reach = -1e300;
+            const fude_zoom_sheet_label* _lt = (const fude_zoom_sheet_label*)_labels.memory;
+            for(u32 _k = 0; _k < (u32)rde_arr_length(&_labels) && _r->font != NULL; _k++) {
+                if(_lt[_k].in.x > 0.5) {
+                    _reach = fmax(_reach, _lt[_k].at.x + (f64)fude_draw_text_width(_r->font, _r->font_px, _lt[_k].text, 11.0f) + 5.0);
+                }
+            }
+            for(u32 _b = 0; _b < _nb; _b++) {
+                fude_zoom_box _bx = _bands[_b];
+                if(_bx.max_y - _bx.min_y > _bx.max_x - _bx.min_x) {
+                    _bx.max_x = fmax(_bx.max_x, _reach);
+                }
+                rde_rendering_2d_draw_rectangle((rde_vec_2F){ (f32)((_bx.min_x + _bx.max_x) * 0.5), (f32)((_bx.min_y + _bx.max_y) * 0.5) },
+                                                (rde_vec_2F){ (f32)(_bx.max_x - _bx.min_x), (f32)(_bx.max_y - _bx.min_y) }, _paper);
+                // (its inner edge: a line where the band meets the drawing)
+                const b8 _top = _bx.max_x - _bx.min_x > _bx.max_y - _bx.min_y;
+                rde_rendering_2d_draw_line_1(_top ? (rde_vec_2F){ (f32)_bx.min_x, (f32)_bx.min_y } : (rde_vec_2F){ (f32)_bx.max_x, (f32)_bx.min_y },
+                                             _top ? (rde_vec_2F){ (f32)_bx.max_x, (f32)_bx.min_y } : (rde_vec_2F){ (f32)_bx.max_x, (f32)_bx.max_y }, _edge, 1.0f);
+            }
+            const fude_zoom_sheet_line* _l = (const fude_zoom_sheet_line*)_lines.memory;
+            for(u32 _k = 0; _k < (u32)rde_arr_length(&_lines); _k++) {
+                rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_l[_k].a.x, (f32)_l[_k].a.y }, (rde_vec_2F){ (f32)_l[_k].b.x, (f32)_l[_k].b.y }, _ink, 1.0f);
+            }
+            if(_r->font != NULL) {
+                const f32 _px = 11.0f;
+                const fude_zoom_sheet_label* _t = (const fude_zoom_sheet_label*)_labels.memory;
+                for(u32 _k = 0; _k < (u32)rde_arr_length(&_labels); _k++) {
+                    const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _t[_k].text, _px);
+                    const f64 _out = fabs(_t[_k].in.x) * (f64)_w * 0.5 + fabs(_t[_k].in.y) * (f64)_px * 0.5;
+                    const fude_zoom_v2 _c = { _t[_k].at.x + _t[_k].in.x * _out, _t[_k].at.y + _t[_k].in.y * _out };
+                    rde_rendering_2d_draw_text_2(_r->font, _t[_k].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
+                                                 (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _ink);
+                }
+            }
+        }
+    }
+    rde_arr_free(&_found);
+    rde_arr_free(&_lines);
+    rde_arr_free(&_labels);
+}
+
 RDE_INTERNAL void fude_zoom_render_shape(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, const rde_color* _as, f32 _extra) {
     const fude_zoom_object* _o     = fude_zoom_scene_object(_s, _object);
     const f64               _scale = fude_zoom_sim_scale(_to_screen);

@@ -7296,6 +7296,9 @@ void fude_zoom_page_render(fude_zoom_page* _page, rde_window* _window) {
     const fude_zoom_v2 _half = fude_zoom_page_half(_page);
     fude_zoom_pdfview_render(&_page->pdf, fude_zoom_page_frame_sim(_page, _page->scene.home), _half);   // (a PDF's pages, under the ink)
     fude_zoom_render(&_page->renderer, &_page->scene, _half, fude_theme_active()->page);
+    if(!_page->presenting) {
+        fude_zoom_render_sheets_stuck(&_page->renderer, &_page->scene, _half);   // (zoomed into a sheet: its rulers on the screen's edges)
+    }
 
     // The stroke being drawn, from the capture: its points are units round
     // where it began, in the frame it is going into. Snapped: the shape instead.

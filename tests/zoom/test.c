@@ -2135,6 +2135,29 @@ static void test_sheets(void) {
     fude_zoom_sheet_marks(&sh, (fude_zoom_sim){ 0.0, 2.0, 0.0, 0.0 }, 1.0, false, big, &lines, &labels, NULL);
     lb = (const fude_zoom_sheet_label*)labels.memory;
     CHECK(rde_arr_length(&labels) > 0u && fabs(lb[0].in.x + 1.0) < 1e-12 && fabs(lb[0].in.y) < 1e-12);
+    // Zoomed in (40 points a millimetre) on its middle, its edges all off the screen: its top and left rulers stuck to
+    // the screen's top and left on their bands, nothing else (the rest is the sheet's own pass), the unit by the number
+    // nearest the screen's middle; its top edge on the screen: only the left one stuck.
+    sh.flags = FUDE_ZOOM_SHEET_GRID;
+    const fude_zoom_sim close = { 40.0, 0.0, 0.0, 0.0 };
+    fude_zoom_box bands[2];
+    u32 nb = 9;
+    fude_zoom_sheet_marks_stuck(&sh, close, 1.0, false, (fude_zoom_box){ -500, -400, 500, 400 }, &lines, &labels, NULL, bands, &nb);
+    CHECK(nb == 2u && fabs(bands[0].max_y - 400.0) < 1e-9 && fabs(bands[0].min_y - (400.0 - FUDE_ZOOM_SHEET_BAND_PT)) < 1e-9 && fabs(bands[1].min_x + 500.0) < 1e-9);
+    b8 inside = true, unit_said = false;
+    for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+        const fude_zoom_sheet_line* l = &((const fude_zoom_sheet_line*)lines.memory)[i];
+        inside = inside && l->weight == 0u && (fabs(l->a.y - 400.0) < 1e-6 || fabs(l->a.x + 500.0) < 1e-6);
+    }
+    for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) {
+        unit_said = unit_said || strstr(((const fude_zoom_sheet_label*)labels.memory)[i].text, " mm") != NULL;
+    }
+    CHECK(rde_arr_length(&lines) > 0u && inside && unit_said);
+    fude_zoom_sheet_marks_stuck(&sh, close, 1.0, false, (fude_zoom_box){ -500, 148.5 * 40.0 - 300.0, 500, 148.5 * 40.0 + 100.0 }, &lines, &labels, NULL, bands, &nb);
+    CHECK(nb == 1u && fabs(bands[0].min_x + 500.0) < 1e-9);
+    // Turned: never stuck.
+    fude_zoom_sheet_marks_stuck(&sh, (fude_zoom_sim){ 28.0, 28.0, 0.0, 0.0 }, 1.0, false, (fude_zoom_box){ -500, -400, 500, 400 }, &lines, &labels, NULL, bands, &nb);
+    CHECK(nb == 0u && rde_arr_length(&lines) == 0u);
     rde_arr_free(&lines);
     rde_arr_free(&labels);
     // The grid snapped to (from its bottom left corner), off it nothing; a side's length to the ruler's ticks.

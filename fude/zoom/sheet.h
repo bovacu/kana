@@ -33,6 +33,7 @@
 #define FUDE_ZOOM_SHEET_GRID_PT 14.0    // ...the grid's lines
 #define FUDE_ZOOM_SHEET_RULERS  56.0    // its smaller side on the screen under this: no rulers (too small to read)
 #define FUDE_ZOOM_SHEET_NUMBERS 150.0   // ...under this: their ticks, not numbered (the sides' numbers would meet)
+#define FUDE_ZOOM_SHEET_BAND_PT 36.0    // a ruler stuck to the screen's edge: its band's width
 
 typedef struct {
     f64 hw, hh;      // half sizes, its own units
@@ -81,6 +82,12 @@ typedef struct {
 
 void fude_zoom_sheet_marks(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f64 _mm_per_unit, b8 _inch, fude_zoom_box _view,
                            rde_arr* _lines, rde_arr* _labels, fude_zoom_sheet_label* _unit);
+// ...and, drawn over everything (_bands given: nothing else then), its rulers STUCK to the screen's edges where its own
+// are off it, zoomed in — its top ruler along the screen's top, its left one down its left (still counting from its
+// corner, the first number with its unit), each on a band (_bands: up to two screen boxes, how many in *_band_count, to
+// draw under them). A sheet square to the screen only.
+void fude_zoom_sheet_marks_stuck(const fude_zoom_sheet* _sheet, fude_zoom_sim _all, f64 _mm_per_unit, b8 _inch, fude_zoom_box _view,
+                                 rde_arr* _lines, rde_arr* _labels, fude_zoom_sheet_label* _unit, fude_zoom_box* _bands, u32* _band_count);
 
 // Where a point (its own units) lands on its grid at a zoom (the grid as it shows, from its bottom left
 // corner): the nearest crossing. False: no grid shown there (not a grid sheet's, or the point off it).
