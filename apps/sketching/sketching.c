@@ -42,7 +42,8 @@
 
 // A developer's build (debug, RDE_DEBUG) reads launch arguments (look.h); a
 // release takes none at all (main).
-#if defined(RDE_DEBUG)
+// (SKETCHING_LOOKS: the looks in a release build too — to measure it as it runs, -DSKETCHING_LOOKS)
+#if defined(RDE_DEBUG) || defined(SKETCHING_LOOKS)
 #define SKETCHING_TAKES_ARGS 1
 #else
 #define SKETCHING_TAKES_ARGS 0
@@ -84,8 +85,8 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
     .selection_faces = fude_zoom_page_selection_faces,
     .context_row     = &FUDE_ZOOM_CONTEXT_ROW,
     .context_faces   = fude_zoom_page_context_faces,
-    .sections        = &FUDE_ZOOM_PAGE_MEASUREMENTS,
-    .section_count   = 1u,
+    .sections        = FUDE_ZOOM_PAGE_SECTIONS,
+    .section_count   = 2u,
     .settings_gather = fude_zoom_page_settings_gather,
     .settings_apply  = fude_zoom_page_settings_apply,
     .ui_build        = fude_zoom_page_ui_build,
@@ -135,12 +136,16 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --demo-layers             the layers' panel, a new layer drawn on, the first layer hidden
 //   --offset=MM               everything selected at frame 20, then offset by MM (with --arrange's selecting)
 //   --demo-curve              the Curve tool: five points tapped, the last again (a wave)
+//   --demo-curve-open         the Curve tool: three points tapped, left in hand (not finished)
+//   --switch-topic=N@F        topic N chosen from the Topic menu at frame F (all the last one's tools put down)
 //   --find=WORDS@N            Find for WORDS at frame N
 //   --pdf=PATH@N              at frame N, the PDF at PATH picked (Insert → PDF): a canvas over it
 //   --loop-at=X1,Y1,X2,Y2@N   at frame N, the Lasso round that screen box (a PDF's text in it: logged)
 //   --offset-at=N             at frame N, the selection's Offset pressed (a board alone: its grain turned)
 //   --joint=K,A,B,C@N         at frame N, a joint put down (K 1 a finger joint, 2 a dovetail; length, width or tails, depth)
 //   --fillet=MM@N             at frame N, two lines meeting in a corner lassoed, then that corner rounded MM mm (0: left lassoed)
+//   --example=E@N             at frame N, example E (examples.h) drawn on the canvas open
+//   --fps                     the frame rate shown at the top right (Settings' Display)
 //   --library=F@N             at frame N, the diagram library's panel open on family F (0 flowchart ... 6 planning)
 //   --symbol=ID,DX,DY,TEXT@N  at frame N, the symbol ID (symbol.c's ids) put DX, DY from the middle with TEXT ("|" a new line)
 //   --value=ID,TEXT,UNIT,WAY@N  at frame N, the first symbol ID lassoed alone and given TEXT in its UNIT (Value's card)
@@ -157,6 +162,10 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --laser@N                 at frame N, a laser's trail across the screen (presenting)
 //   --keep=NAME@N             at frame N, what the lasso holds kept as a piece NAME (My pieces)
 //   --pieces@N                at frame N, My pieces' panel up
+//   --custom=I,A[,NAME]@N     at frame N, the library's Custom tile I: A 0 put down, 1 its card, 2 Edit/Inside (its
+//                             template), 3 renamed NAME, 4 deleted (the panel as it is open; else the circuits')
+//   --inside@N                at frame N, the lasso's Inside pressed (a custom part alone: its template)
+//   --back@N                  at frame N, Back pressed (the page's: a panel put away, a template back where it came from)
 //   --piece-put=I@N           at frame N, piece I put in the middle of the view
 //   --stencil=I@N             at frame N, piece I laid as a stencil (an instrument)
 //   --canvas=C@N              at frame N, canvas C opened (its notes.h id), as the side panel opens one
@@ -175,7 +184,7 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //                   eraser sweep, an undo, a zoom in or out (the kill test's)
 //   --stress-add    the same with strokes and zooms only: the count only grows
 
-#if defined(RDE_DEBUG)
+#if defined(RDE_DEBUG) || defined(SKETCHING_LOOKS)
 #include <math.h>
 
 RDE_INTERNAL const rde_color SKETCHING_DEMO_COLORS[] = {
@@ -259,7 +268,7 @@ RDE_INTERNAL i32 sketching_arrange = -1;          // --arrange: how
 RDE_INTERNAL b8  sketching_demo_bucket = false;   // --demo-bucket
 RDE_INTERNAL u32 sketching_demo_layers = 0;       // --demo-layers[=2 everything moved to the new layer, =3 and its name on the card, =4 renamed, =5 the new layer moved under the first]
 RDE_INTERNAL f64 sketching_offset = 0.0;          // --offset
-RDE_INTERNAL b8  sketching_demo_curving = false;  // --demo-curve
+RDE_INTERNAL u8  sketching_demo_curving = 0;      // --demo-curve (1), --demo-curve-open (2)
 RDE_INTERNAL u32 sketching_demo_drive = 0;        // --demo-drive[=2: and its length typed]
 RDE_INTERNAL b8  sketching_saw = false;           // --saw: the Saw on from the start
 RDE_INTERNAL f32 sketching_kerf = -1.0f;          // --kerf=MM: the saw's kerf at frame 4
@@ -292,6 +301,10 @@ RDE_INTERNAL c8  sketching_keep[64];                // --keep=NAME@N
 RDE_INTERNAL u32 sketching_keep_at = 0;
 RDE_INTERNAL u32 sketching_pieces_at = 0;           // --pieces@N
 RDE_INTERNAL u32 sketching_piece_put[2];            // --piece-put=I@N
+RDE_INTERNAL u32 sketching_custom[3];               // --custom=I,A[,NAME]@N
+RDE_INTERNAL c8  sketching_custom_name[64];
+RDE_INTERNAL u32 sketching_inside_at = 0;           // --inside@N
+RDE_INTERNAL u32 sketching_back_at = 0;             // --back@N
 RDE_INTERNAL u32 sketching_stencil[2];              // --stencil=I@N
 RDE_INTERNAL f32 sketching_pen_drags[4][5];         // --pen-drag=X0,Y0,X1,Y1@N (up to four)
 RDE_INTERNAL u32 sketching_pen_drag_count = 0;
@@ -322,6 +335,9 @@ RDE_INTERNAL c8  sketching_align[48];                  // --align=ID,DX,DY@N: a 
 RDE_INTERNAL u32 sketching_align_frame = 0;
 RDE_INTERNAL f32 sketching_context[3] = { 0 };    // --context=X,Y@N: the page's menu opened at X,Y (screen) at frame N
 RDE_INTERNAL u32 sketching_context_delete = 0;    // --context-delete@N: its Delete pressed at frame N
+RDE_INTERNAL u32 sketching_examples[2] = { 0 };   // --examples=W@N: Insert → Examples, which W (0 all … 3 both), at frame N
+RDE_INTERNAL u32 sketching_example[2] = { 0 };    // --example=E@N: example E drawn on the canvas open, at frame N
+RDE_INTERNAL b8  sketching_fps = false;           // --fps: the frame rate shown
 RDE_INTERNAL u32 sketching_circuit2[2];                // --circuit2=DEMO@N: a second demo circuit (after a part is made)
 RDE_INTERNAL u32 sketching_plan[2][2];                 // --plan=STEP@N (twice at most): a floor plan's demo (page.c's look_plan)
 RDE_INTERNAL u32 sketching_plan_count = 0;               // --mech-run@N: run from frame N            // --circuit-run@N: simulated from frame N
@@ -331,6 +347,7 @@ RDE_INTERNAL u32 sketching_shape_tools[4][2];          // --shape-tool=TYPE@N: t
 RDE_INTERNAL u32 sketching_shape_tool_count = 0;
 RDE_INTERNAL u32 sketching_measure_tool[2] = { 0, 0 }; // --measure-tool=N@F: the measure in hand at frame F (1 the tape, 2 the dimension)
 RDE_INTERNAL u32 sketching_topic[2] = { 0, 0 };        // --topic=N@F: the canvas's topic N (page.h's FUDE_ZOOM_TOPIC_) at frame F
+RDE_INTERNAL u32 sketching_switch_topic[2] = { 0, 0 }; // --switch-topic=N@F: topic N chosen from the Topic menu at frame F
 RDE_INTERNAL u32 sketching_line_style[2] = { 0, 0 };   // --line-style=N@F: the Shapes' line style N (shape.h) at frame F
 RDE_INTERNAL b8  sketching_kanban_card_extra = false, sketching_kanban_card_insert = false;
 RDE_INTERNAL u32 sketching_tidy_at = 0;           // --tidy=N: at frame N, every sticky note lassoed and let go (lined up in a Kanban column)
@@ -695,6 +712,8 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sketching_panel = atoi(_v);   // any app tool's choices open (0: Topic; in General 6: Instruments)
         } else if((_v = fude_look_value(_argv[_i], "--topic")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_topic[0], &sketching_topic[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--switch-topic")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_switch_topic[0], &sketching_switch_topic[1]);
         } else if(fude_look_is(_argv[_i], "--demo-smooth")) {
             sketching_demo_smooth = true;
         } else if((_v = fude_look_value(_argv[_i], "--text")) != NULL && sketching_text_count < 4u) {
@@ -745,6 +764,18 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sscanf(_v, "%u@%u", &sketching_stencil[0], &sketching_stencil[1]);
         } else if((_v = fude_look_value(_argv[_i], "--piece-put")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_piece_put[0], &sketching_piece_put[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--custom")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            sscanf(_v, "%u,%u", &sketching_custom[0], &sketching_custom[1]);
+            const c8* _n = strchr(_v, ',') != NULL ? strchr(strchr(_v, ',') + 1, ',') : NULL;
+            if(_n != NULL && (_at == NULL || _n < _at)) {
+                snprintf(sketching_custom_name, sizeof(sketching_custom_name), "%.*s", (int)(_at != NULL ? (usize)(_at - _n - 1) : strlen(_n + 1)), _n + 1);
+            }
+            sketching_custom[2] = _at != NULL ? (u32)atoi(_at + 1) : 20u;
+        } else if(strncmp(_argv[_i], "--inside@", 9) == 0) {
+            sketching_inside_at = (u32)atoi(_argv[_i] + 9);
+        } else if(strncmp(_argv[_i], "--back@", 7) == 0) {
+            sketching_back_at = (u32)atoi(_argv[_i] + 7);
         } else if((_v = fude_look_value(_argv[_i], "--canvas")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_canvas[0], &sketching_canvas[1]);
         } else if((_v = fude_look_value(_argv[_i], "--pen-tap")) != NULL) {
@@ -795,6 +826,12 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             if(sscanf(_v, "%f,%f@%u", &sketching_context[0], &sketching_context[1], &_frame) == 3) {
                 sketching_context[2] = (f32)_frame;
             }
+        } else if((_v = fude_look_value(_argv[_i], "--examples")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_examples[0], &sketching_examples[1]);
+        } else if(fude_look_is(_argv[_i], "--fps")) {
+            sketching_fps = true;
+        } else if((_v = fude_look_value(_argv[_i], "--example")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_example[0], &sketching_example[1]);
         } else if(strncmp(_argv[_i], "--context-delete@", 17) == 0) {
             sketching_context_delete = (u32)atoi(_argv[_i] + 17);
         } else if((_v = fude_look_value(_argv[_i], "--align")) != NULL) {
@@ -926,7 +963,9 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
         } else if((_v = fude_look_value(_argv[_i], "--nodes")) != NULL) {
             sketching_nodes = atoi(_v);
         } else if(fude_look_is(_argv[_i], "--demo-curve")) {
-            sketching_demo_curving = true;
+            sketching_demo_curving = 1u;
+        } else if(fude_look_is(_argv[_i], "--demo-curve-open")) {
+            sketching_demo_curving = 2u;
         } else if((_v = fude_look_value(_argv[_i], "--offset")) != NULL) {
             sketching_offset = atof(_v);
         } else if(fude_look_is(_argv[_i], "--demo-layers") || fude_look_value(_argv[_i], "--demo-layers") != NULL) {
@@ -1056,7 +1095,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_look_start(&app);
     fude_session_load(&app);    // opens the canvas on the deep-zoom page too (the page kind)
     fude_look_loaded(&app);
-#if defined(RDE_DEBUG)
+#if defined(RDE_DEBUG) || defined(SKETCHING_LOOKS)
     sketching_looks(_argc, _argv);
 #endif
 }
@@ -1100,7 +1139,7 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(!fude_app_update(&app, _dt)) {
         fude_zoom_page_update(&zoom);
     }
-#if defined(RDE_DEBUG)
+#if defined(RDE_DEBUG) || defined(SKETCHING_LOOKS)
     sketching_frames++;
     if(sketching_stress) {
         sketching_stress_frame();
@@ -1390,6 +1429,15 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(sketching_piece_put[1] > 0u && sketching_frames == sketching_piece_put[1]) {
         fude_zoom_page_look_piece_put(&zoom, sketching_piece_put[0]);
     }
+    if(sketching_custom[2] > 0u && sketching_frames == sketching_custom[2]) {
+        fude_zoom_page_look_custom(&zoom, sketching_custom[0], sketching_custom[1], sketching_custom_name);
+    }
+    if(sketching_inside_at > 0u && sketching_frames == sketching_inside_at) {
+        fude_zoom_page_look_inside(&zoom);
+    }
+    if(sketching_back_at > 0u && sketching_frames == sketching_back_at) {
+        fude_zoom_page_look_back(&zoom);
+    }
     if(sketching_canvas[1] > 0u && sketching_frames == sketching_canvas[1]) {
         notes.open = sketching_canvas[0];   // (switched to by the session's next look)
     }
@@ -1470,6 +1518,15 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(sketching_context[2] > 0.0f && sketching_frames == (u32)sketching_context[2]) {
         fude_zoom_page_look_context(&zoom, (rde_vec_2F){ sketching_context[0], sketching_context[1] }, false);
     }
+    if(sketching_fps && sketching_frames == 2u) {
+        fude_zoom_page_look_fps(&zoom, true);
+    }
+    if(sketching_example[1] > 0u && sketching_frames == sketching_example[1]) {
+        fude_zoom_page_look_draw_example(&zoom, sketching_example[0]);
+    }
+    if(sketching_examples[1] > 0u && sketching_frames == sketching_examples[1]) {
+        fude_zoom_page_look_examples(&zoom, sketching_examples[0]);
+    }
     if(sketching_context_delete > 0u && sketching_frames == sketching_context_delete) {
         fude_zoom_page_look_context(&zoom, (rde_vec_2F){ 0.0f, 0.0f }, true);
     }
@@ -1498,6 +1555,9 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     }
     if(sketching_topic[1] > 0u && sketching_frames == sketching_topic[1]) {
         zoom.topic = (u8)sketching_topic[0];
+    }
+    if(sketching_switch_topic[1] > 0u && sketching_frames == sketching_switch_topic[1]) {
+        fude_zoom_page_look_topic(&zoom, sketching_switch_topic[0]);
     }
     if(sketching_line_style[1] > 0u && sketching_frames == sketching_line_style[1]) {
         zoom.line_style = (u8)sketching_line_style[0];
@@ -1576,14 +1636,15 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(sketching_demo_drive >= 2u && sketching_frames == 14u) {
         fude_zoom_page_look_drive(&zoom, 1u);
     }
-    if(sketching_demo_curving && sketching_frames == 14u) {
+    if(sketching_demo_curving != 0u && sketching_frames == 14u) {
         zoom.curve_tool = true;
         const f32 _pts[6][2] = { { -300, 0 }, { -150, 150 }, { 0, -100 }, { 150, 150 }, { 300, 0 }, { 300, 0 } };
-        for(u32 _i = 0; _i < 6u; _i++) {
+        const u32 _taps = sketching_demo_curving == 2u ? 3u : 6u;
+        for(u32 _i = 0; _i < _taps; _i++) {
             fude_zoom_page_look_pen(&zoom, 0u, (rde_vec_2F){ _pts[_i][0], _pts[_i][1] });
             fude_zoom_page_look_pen(&zoom, 2u, (rde_vec_2F){ _pts[_i][0], _pts[_i][1] });
         }
-        zoom.curve_tool = false;
+        zoom.curve_tool = sketching_demo_curving == 2u;   // (open: still in hand)
     }
     if(sketching_offset != 0.0 && sketching_frames == 20u) {
         FUDE_ZOOM_PAGE_KIND.command(&app, FUDE_PAGE_CMD_SELECT_ALL, (rde_vec_2F){ 0.0f, 0.0f });
@@ -1701,12 +1762,18 @@ RDE_INTERNAL void sketching_render_top(rde_window* _window, f32 _dt) {
     rde_rendering_2d_end_drawing();
 }
 
+RDE_INTERNAL f64 sketching_update_took = 0.0;   // (the frame's update: where the time goes, with the frame rate shown)
+
 void on_update(f32 _dt) {
+    const f64 _t0 = rde_engine_get_time_now();
     fude_look_timed_update(sketching_update, _dt);
+    sketching_update_took = rde_engine_get_time_now() - _t0;
 }
 
 void on_render(rde_window* _window, f32 _dt) {
+    const f64 _t0 = rde_engine_get_time_now();
     fude_look_timed_render(&app, sketching_render, _window, _dt);
+    fude_zoom_page_perf_frame(&zoom, sketching_update_took, rde_engine_get_time_now() - _t0);
 }
 
 void on_fixed_update(f32 _fixed_dt) {

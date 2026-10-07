@@ -22,6 +22,7 @@
 #include "zoom/circuit.h"
 #include "zoom/mech.h"
 #include "zoom/mechrun.h"
+#include "zoom/coupling.h"
 #include "zoom/plot.h"
 #include "zoom/valueform.h"
 #include "zoom/bodyform.h"
@@ -29,6 +30,7 @@
 #include "zoom/repeatform.h"
 #include "zoom/map.h"
 #include "zoom/piece.h"
+#include "zoom/custom.h"
 #include "zoom/snap.h"
 #include "zoom/numpad.h"
 #include "zoom/pdfview.h"
@@ -388,6 +390,18 @@ typedef struct fude_zoom_page {
     rde_ui_label*      kerf_label;
     rde_ui_button*     kerf_button;
     rde_ui_button*     kerf_chip;       // the saw's kerf, shown while the Saw is on (tapped: typed)
+    // Settings' Display: the frame rate drawn at the top right (settings), counted over half a second at a time.
+    b8                 show_fps;
+    rde_ui_label*      display_header;
+    rde_ui_label*      fps_label;
+    rde_ui_button*     fps_buttons[2];  // Off, On
+    u32                fps_frames;      // frames drawn since fps_since
+    f64                fps_since;
+    f64                fps;             // as last counted (0: not yet)
+    // ...and where the frames' time goes, written to the log every 2 s while it shows (fude_zoom_page_perf_frame):
+    // the app's update and render, Play's step within the update, the page's drawing within the render (seconds).
+    f64                perf_since, perf_update, perf_render, perf_play, perf_draw;
+    u32                perf_frames;
     u32                fit_stock;       // the board a list of parts is being typed for (the selection's Fit parts)
     // An instrument snapped by one of its points (instrument.h: its keys) and let go:
     // that point in the drawing, and how far across and up the offset pad has moved
@@ -477,6 +491,8 @@ typedef struct fude_zoom_page {
     // it); what the canvas leaves for it to draw moved.
     fude_zoom_mech_plan   mech;
     fude_zoom_mech_world  mech_run;
+    fude_zoom_coupling    coupling;         // ...and the circuit with it (its motors' shafts, its buttons pressed by its parts)
+    b8                    play_coupled;
     rde_arr TYPE(u8)      mech_lifted;
     // Aligned as it moves (Electronics, Mechanisms): the points of what the lasso holds that line up (a part's pins, a
     // mechanism part's holes and middle) and the others' on the screen, as the drag began (screen); what it lines up
@@ -550,6 +566,32 @@ typedef struct fude_zoom_page {
     // My pieces (piece.h): the list (read the first time it is wanted), its panel (as the diagram library's: a
     // tile a piece, its picture drawn from its lines, made once), the hand on it, the × waiting for its second tap.
     fude_zoom_pieces    pieces;
+    // Insert → Examples being made (examples.h): those left to make, the canvas made for the next (drawn once it is
+    // open), the folder they go in, the first made (opened at the end), how many made.
+    rde_arr TYPE(u32)   examples_todo;
+    u32                 examples_waiting;
+    u32                 examples_folder;
+    u32                 examples_first;
+    u32                 examples_made;
+    // Custom (custom.h): the library's tab of what is kept — its tiles as listed now (a piece's place in My pieces, or
+    // FUDE_ZOOM_PAGE_CUSTOM_PART | a custom part's in the logic library), when the hand went down on the panel (held
+    // there: a tile's card) and the tile the card is for — and the template canvases: which is whose (read the first
+    // time wanted), the one open (whose; the canvas it was opened from, Back's; the revision it was filled or opened
+    // at: left changed, what it holds is kept), the one being made (filled once it is open).
+    rde_arr TYPE(u32)   custom_items;
+    f64                 library_down_at;
+    u8                  custom_kind;
+    c8                  custom_key[FUDE_ZOOM_CUSTOM_KEY];
+    fude_zoom_templates templates;
+    b8                  templates_ready;
+    b8                  template_on;
+    u8                  template_kind;
+    c8                  template_key[FUDE_ZOOM_CUSTOM_KEY];
+    u32                 template_return, template_return_for;
+    u32                 template_seen;
+    u32                 template_making, template_making_return;
+    u8                  template_making_kind;
+    c8                  template_making_key[FUDE_ZOOM_CUSTOM_KEY];
     b8                  pieces_open, pieces_dragged;
     b8                  pieces_stencil;      // opened from the Instruments: a tap on a piece lays it as a stencil
     f64                 pieces_scroll, pieces_from;
@@ -671,6 +713,8 @@ typedef struct fude_zoom_page {
 extern const fude_page_kind      FUDE_ZOOM_PAGE_KIND;
 // Settings' Measurements (extension.h: .sections): the units, and calibrating the true size.
 extern const fude_extension_section FUDE_ZOOM_PAGE_MEASUREMENTS;
+// Sketching's sections of Settings: Measurements, then Display (the frame rate on the screen).
+extern const fude_extension_section FUDE_ZOOM_PAGE_SECTIONS[2];
 // The row over the lasso's selection (extension.h: .selection_row): the core's,
 // and To text where handwriting can be read.
 extern const fude_row_def FUDE_ZOOM_SELECTION_ROW;
@@ -756,6 +800,8 @@ void fude_zoom_page_look_make_part(fude_zoom_page* _page);
 void fude_zoom_page_look_align(fude_zoom_page* _page, const c8* _id, f64 _dx, f64 _dy);
 // The page's menu opened at _screen as a long press opens it; or (_delete) its Delete pressed.
 void fude_zoom_page_look_context(fude_zoom_page* _page, rde_vec_2F _screen, b8 _delete);
+// Insert → Examples as chosen on its card (_which: 0 all, 1 the electronics', 2 the mechanisms', 3 those of both).
+void fude_zoom_page_look_examples(fude_zoom_page* _page, u32 _which);
 // What the lasso holds (everything: _all) made bodies: Make body's card up, material _material, fixed or not, and
 // (_apply) applied.
 void fude_zoom_page_look_body(fude_zoom_page* _page, b8 _all, u32 _material, b8 _fixed, b8 _apply);
@@ -781,6 +827,18 @@ void fude_zoom_page_look_laser(fude_zoom_page* _page);
 void fude_zoom_page_look_keep(fude_zoom_page* _page, const c8* _name);
 void fude_zoom_page_look_pieces(fude_zoom_page* _page);
 void fude_zoom_page_look_piece_put(fude_zoom_page* _page, u32 _i);
+// The library's Custom tile _i (the panel as it is open; else the circuits'): 0 put down, 1 its card, 2 Edit or Inside
+// (its template), 3 renamed _name, 4 deleted. The lasso's Inside pressed (a custom part alone). Back pressed (the page's).
+// Example _example drawn on the canvas open, as Insert → Examples draws each on its own (the view out to all of it).
+void fude_zoom_page_look_draw_example(fude_zoom_page* _page, u32 _example);
+// A frame's update and render took _update and _render seconds (the app's, whole): with the frame rate shown, where the
+// time goes written to the log every 2 s.
+void fude_zoom_page_perf_frame(fude_zoom_page* _page, f64 _update, f64 _render);
+// The frame rate shown at the top right (Settings' Display), or not.
+void fude_zoom_page_look_fps(fude_zoom_page* _page, b8 _on);
+void fude_zoom_page_look_custom(fude_zoom_page* _page, u32 _i, u32 _action, const c8* _name);
+void fude_zoom_page_look_inside(fude_zoom_page* _page);
+void fude_zoom_page_look_back(fude_zoom_page* _page);
 // Piece _i laid as a stencil.
 void fude_zoom_page_look_stencil(fude_zoom_page* _page, u32 _i);
 // Every sticky note lassoed and let go where it is (those in a Kanban column lined up in it).
@@ -800,6 +858,8 @@ void fude_zoom_page_look_finger(fude_zoom_page* _page, u32 _phase, fude_zoom_v2 
 // The Lasso taken and a loop drawn round the screen box _a-_b (as the pen would); a PDF's
 // text found in it written to the log.
 void fude_zoom_page_look_loop(fude_zoom_page* _page, rde_vec_2F _a, rde_vec_2F _b);
+// Another topic chosen from the Topic menu (page.h's FUDE_ZOOM_TOPIC_), as a tap on it chooses it.
+void fude_zoom_page_look_topic(fude_zoom_page* _page, u32 _topic);
 // The selection's Offset pressed (a board lassoed alone: its grain turned).
 void fude_zoom_page_look_grain(fude_zoom_page* _page);
 // A joint put down (1 a finger joint, 2 a dovetail): length, finger width or tails, depth (mm).

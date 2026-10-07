@@ -379,6 +379,7 @@ b8 fude_save_settings(const c8* _path, const fude_settings* _settings) {
     fude_put_f32(&_b, _settings->print_x);
     fude_put_f32(&_b, _settings->print_y);
     fude_put_f32(&_b, _settings->kerf_mm);
+    fude_put_u8(&_b, _settings->show_fps ? 1u : 0u);
     fude_chunk_end(&_b, _chunk);
 
     return fude_bytes_write_and_free(&_b, _path, NULL);
@@ -483,6 +484,8 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         if(_c.ok && fude_finite(_kerf) && _kerf >= 0.0f && _kerf <= 50.0f) {
             _s.kerf_mm = _kerf;
         }
+        const u8 _fps = fude_get_u8(&_c);   // ...the frame rate never shown
+        if(_c.ok) { _s.show_fps = _fps != 0u; }
     }
 
     fude_file_free(_data);
@@ -506,5 +509,6 @@ b8 fude_settings_equal(const fude_settings* _a, const fude_settings* _b) {
            _a->pen_ever == _b->pen_ever && _a->cards_read == _b->cards_read && _a->ui_size == _b->ui_size &&
            _a->smoothing == _b->smoothing && fude_same_f32(_a->eraser_radius, _b->eraser_radius) &&
            _a->units == _b->units && fude_same_f32(_a->true_mm_per_point, _b->true_mm_per_point) &&
-           fude_same_f32(_a->print_x, _b->print_x) && fude_same_f32(_a->print_y, _b->print_y) && fude_same_f32(_a->kerf_mm, _b->kerf_mm);
+           fude_same_f32(_a->print_x, _b->print_x) && fude_same_f32(_a->print_y, _b->print_y) && fude_same_f32(_a->kerf_mm, _b->kerf_mm) &&
+           _a->show_fps == _b->show_fps;
 }

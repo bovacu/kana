@@ -22,6 +22,8 @@
 #include "zoom/sheet.h"
 #include "zoom/stl.h"
 #include "zoom/trim.h"
+#include "zoom/examples.h"
+#include "zoom/placer.h"
 #include "zoom/circuit.h"
 #include "zoom/mech.h"
 #include "zoom/props.h"
@@ -36,6 +38,7 @@
 #include "zoom/snap.h"
 #include "zoom/nest.h"
 #include "zoom/logic.h"
+#include "zoom/custom.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -413,15 +416,7 @@ static void test_erasers(void) {
 
 // --- the instruments ------------------------------------------------------------------------
 
-// The text's width, for the instruments' numbers (draw.c is not in this suite).
-f32 fude_draw_text_width(rde_font* _font, f32 _font_px, const c8* _text, f32 _px) { (void)_font; (void)_font_px; return (f32)strlen(_text) * _px * 0.5f; }
-u32 fude_draw_text_wrap(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, f32 _width, f32 _line, rde_color _color) { (void)_font; (void)_font_px; (void)_text; (void)_x; (void)_y; (void)_px; (void)_width; (void)_line; (void)_color; return 1u; }
-
-// The lasso's drawing (render.c is not in this suite: nothing picked by drawing here).
-void fude_zoom_render_object(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half) { (void)_r; (void)_s; (void)_object; (void)_to_screen; (void)_half; }
-void fude_zoom_render_glow(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, f32 _extra, rde_color _color) { (void)_r; (void)_s; (void)_object; (void)_to_screen; (void)_half; (void)_extra; (void)_color; }
-u32 fude_zoom_render_editable(const fude_zoom_renderer* _r, const fude_zoom_scene* _s, rde_arr* _out) { (void)_r; (void)_s; (void)_out; return 0; }
-void rde_rendering_2d_draw_line_segmented(rde_vec_2F _init, rde_vec_2F _end, rde_color _color, f32 _thickness, f32 _segment_len, f32 _gap) { (void)_init; (void)_end; (void)_color; (void)_thickness; (void)_segment_len; (void)_gap; }
+// (Its drawing — text, the lasso's glow — tests/support/zoomdraw.c's: nothing drawn in this suite.)
 
 static void test_instruments(void) {
     fude_zoom_instruments ins; fude_zoom_instruments_init(&ins);
@@ -5175,6 +5170,380 @@ static void test_play_tags(void) {
     }
 }
 
+// --- the examples (Insert → Examples): each drawn as the app draws it, run as Play runs it ------------------------------
+
+// The parts of example e's drawing that are id (in the order drawn; with text: only those saying it): into out. How many.
+static u32 example_parts(const fude_zoom_scene* s, const c8* id, const c8* text, u32* out, u32 most) {
+    u32 n = 0;
+    for(u32 o = 0; o < fude_zoom_scene_object_count(s) && n < most; o++) {
+        const fude_zoom_part* p = fude_zoom_part_of(s, o);
+        if(p == NULL || strcmp(p->id, id) != 0) continue;
+        if(text != NULL) {
+            f64 num[FUDE_ZOOM_SHAPE_NUMBERS + 200];
+            const u32 k = fude_zoom_scene_shape_numbers(s, o, num, FUDE_ZOOM_SHAPE_NUMBERS + 200);
+            c8 t[FUDE_ZOOM_SYMBOL_TEXT];
+            fude_zoom_symbol_text(num, k, t, sizeof(t));
+            if(strcmp(t, text) != 0) continue;
+        }
+        out[n++] = o;
+    }
+    return n;
+}
+static u32 example_part(const fude_zoom_scene* s, const c8* id, const c8* text) {
+    u32 o = FUDE_ZOOM_NONE;
+    CHECK(example_parts(s, id, text, &o, 1u) == 1u);
+    return o;
+}
+
+static void example_open(fude_zoom_scene* s, fude_zoom_circuit* c, u32 e) {
+    fude_zoom_scene_init(s, 7);
+    rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    CHECK(fude_zoom_example_build(s, s->root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, e, NULL, &born) > 3u);
+    rde_arr_free(&born);
+    fude_zoom_circuit_init(c);
+    CHECK(fude_zoom_circuit_build(c, s) > 0u);
+}
+static void example_close(fude_zoom_scene* s, fude_zoom_circuit* c) {
+    fude_zoom_circuit_destroy(c);
+    fude_zoom_scene_destroy(s);
+}
+
+// Every custom part of the tests' library (a half adder to a 4 × 4 memory of registers of flip-flops of latches of
+// gates, counters): its inside drawn from its definition, made a part again — the same ports, in order — and the two
+// side by side on the same inputs (clocks among them) for 200 random steps: every output the same at every step.
+static void test_logic_draw(void) {
+    for(u32 i = 0; i < PARTS_N; i++) {
+        c8 err[160];
+        CHECK(fude_zoom_logic_learn(PARTS_ALL[i], strlen(PARTS_ALL[i]), err, sizeof err) != NULL);
+    }
+    u32 checked = 0, matched = 0;
+    for(u32 i = 0; i < PARTS_N; i++) {
+        c8 err[160];
+        const fude_sim_def* def = fude_zoom_logic_learn(PARTS_ALL[i], strlen(PARTS_ALL[i]), err, sizeof err);
+        if(def == NULL) continue;
+        // Its inside, drawn; made a part again.
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_placer pl = fude_zoom_placer_make(&s, s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, &born);
+        CHECK(fude_zoom_logic_draw(def, &pl) > 2u);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        u32 problem = 0;
+        c8 id[48];
+        snprintf(id, sizeof id, "user/redrawn-%u", i);
+        fude_sim_def* again = fude_zoom_logic_make(&c, &s, id, id, &problem);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+        rde_arr_free(&born);
+        CHECK(again != NULL);
+        if(again == NULL) continue;
+        // The same ports, in order.
+        b8 same = rde_arr_length(&again->ports) == rde_arr_length(&def->ports);
+        for(u32 k = 0; same && k < (u32)rde_arr_length(&def->ports); k++) {
+            const fude_sim_port* a = &((const fude_sim_port*)def->ports.memory)[k], *b = &((const fude_sim_port*)again->ports.memory)[k];
+            same = strcmp(a->name, b->name) == 0 && a->dir == b->dir;
+        }
+        if(!same) printf("  %s: its ports not the same drawn again\n", def->name);
+        CHECK(same);
+        rde_arr text = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
+        fude_sim_def_write(again, &text);
+        fude_sim_def_free(again);
+        CHECK(fude_zoom_logic_learn((const c8*)text.memory, (u32)rde_arr_length(&text), err, sizeof err) != NULL);
+        rde_arr_free(&text);
+        // Both on the same inputs, an output probe each.
+        fude_zoom_scene t; fude_zoom_scene_init(&t, 7);
+        const u32 np = (u32)rde_arr_length(&def->ports);
+        const u32 one = part_put(&t, "custom part", 0, 0, 60, 30.0 * (f64)np, def->name);
+        const u32 two = part_put(&t, "custom part", 0, -100.0 * (f64)np, 60, 30.0 * (f64)np, id);
+        u32 ins[64], outs[2][64], ni = 0, no = 0;
+        for(u32 k = 0; k < np && k < 64u; k++) {
+            const fude_sim_port* q = &((const fude_sim_port*)def->ports.memory)[k];
+            if(q->dir == FUDE_SIM_OUT) {
+                outs[0][no] = part_put(&t, "logic probe", 400, 60.0 * (f64)k, 15, 15, "");
+                outs[1][no] = part_put(&t, "logic probe", 400, -100.0 * (f64)np + 60.0 * (f64)k, 15, 15, "");
+                wire_put(&t, one, k, outs[0][no], 0);
+                wire_put(&t, two, k, outs[1][no], 0);
+                no++;
+            } else {
+                ins[ni] = part_put(&t, "logic input", -400, 60.0 * (f64)k, 20, 15, "0");
+                wire_put(&t, ins[ni], 0, one, k);
+                wire_put(&t, ins[ni], 0, two, k);
+                ni++;
+            }
+        }
+        fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &t);
+        u32 differ = 0;
+        for(u32 step_n = 0; step_n < 200u; step_n++) {
+            for(u32 k = 0; k < ni; k++) set_in(&c, ins[k], rnd() & 1u);
+            CHECK(step(&c) && step(&c) && step(&c));
+            for(u32 k = 0; k < no; k++) differ += probe(&c, outs[0][k]) != probe(&c, outs[1][k]) ? 1u : 0u;
+        }
+        if(differ != 0u) printf("  %s: drawn again, %u outputs differ\n", def->name, differ);
+        checked++;
+        matched += differ == 0u && same ? 1u : 0u;
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&t);
+    }
+    CHECK(checked == PARTS_N && matched == checked);
+}
+
+// What a person keeps (custom.h): which canvas is whose template, read back as written; a piece's symbols' families
+// (the library's Custom tab shows it in its area's panel), as it is made, made again and read; a custom part made again
+// keeping its pins in order; renamed (found by either name), forgotten (by neither).
+static void test_custom(void) {
+    // The template map.
+    const c8* path = "./pieces_test/templates.txt";
+    rde_file_create_missing_dirs(path);
+    fude_zoom_templates t;
+    fude_zoom_templates_init(&t);
+    fude_zoom_templates_set(&t, FUDE_ZOOM_CUSTOM_PIECE, "7", 101u);
+    fude_zoom_templates_set(&t, FUDE_ZOOM_CUSTOM_PART, "user/adder", 102u);
+    fude_zoom_templates_set(&t, FUDE_ZOOM_CUSTOM_PART, "user/adder", 103u);    // (its canvas another: in its place)
+    fude_zoom_templates_set(&t, FUDE_ZOOM_CUSTOM_PART, "user/a b", 104u);      // (a key with a space: none is made so)
+    fude_zoom_templates_set(&t, FUDE_ZOOM_CUSTOM_PART, "7", 105u);             // (a part's and a piece's keys apart)
+    CHECK(rde_arr_length(&t.list) == 3u);
+    CHECK(fude_zoom_templates_canvas(&t, FUDE_ZOOM_CUSTOM_PIECE, "7") == 101u && fude_zoom_templates_canvas(&t, FUDE_ZOOM_CUSTOM_PART, "user/adder") == 103u);
+    CHECK(fude_zoom_templates_canvas(&t, FUDE_ZOOM_CUSTOM_PART, "7") == 105u && fude_zoom_templates_canvas(&t, FUDE_ZOOM_CUSTOM_PIECE, "8") == 0u);
+    const fude_zoom_template* e = fude_zoom_templates_of(&t, 103u);
+    CHECK(e != NULL && e->kind == FUDE_ZOOM_CUSTOM_PART && strcmp(e->key, "user/adder") == 0 && fude_zoom_templates_of(&t, 102u) == NULL && fude_zoom_templates_of(&t, 0u) == NULL);
+    CHECK(fude_zoom_templates_write(&t, path));
+    fude_zoom_templates r;
+    fude_zoom_templates_init(&r);
+    fude_zoom_templates_set(&r, FUDE_ZOOM_CUSTOM_PIECE, "99", 9u);   // (what was there: forgotten as it is read)
+    fude_zoom_templates_read(&r, path);
+    CHECK(rde_arr_length(&r.list) == 3u && fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PART, "user/adder") == 103u &&
+          fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PIECE, "7") == 101u && fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PIECE, "99") == 0u);
+    fude_zoom_templates_rekey(&r, FUDE_ZOOM_CUSTOM_PART, "user/adder", "user/summer");
+    CHECK(fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PART, "user/adder") == 0u && fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PART, "user/summer") == 103u);
+    CHECK(fude_zoom_templates_drop(&r, FUDE_ZOOM_CUSTOM_PIECE, "7") == 101u && fude_zoom_templates_drop(&r, FUDE_ZOOM_CUSTOM_PIECE, "7") == 0u && rde_arr_length(&r.list) == 2u);
+    // A file of lines that are not its: left out; a missing one: none.
+    FILE* f = fopen(path, "wb");
+    fputs("p 3 7\nnonsense\nu user/x 0\nq user/y 4\nu user/z 12", f);
+    fclose(f);
+    fude_zoom_templates_read(&r, path);
+    CHECK(rde_arr_length(&r.list) == 2u && fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PIECE, "3") == 7u && fude_zoom_templates_canvas(&r, FUDE_ZOOM_CUSTOM_PART, "user/z") == 12u);
+    rde_file_delete(path);
+    fude_zoom_templates_read(&r, path);
+    CHECK(rde_arr_length(&r.list) == 0u);
+    fude_zoom_templates_free(&t);
+    fude_zoom_templates_free(&r);
+
+    // A piece's families: a drawing's none; with a gear and a resistor, theirs.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    fude_zoom_placer pl = fude_zoom_placer_make(&s, s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, &born);
+    const u32 st   = line(&s, 0, 0, 100, 0, 2.0, 2.0f);
+    const u32 gear = fude_zoom_placer_part(&pl, "gear 20T", 200, 0, 0, 0, 0, "");
+    const u32 res  = fude_zoom_placer_part(&pl, "resistor", 400, 0, 0, 0, 0, "1k");
+    CHECK(gear != FUDE_ZOOM_NONE && res != FUDE_ZOOM_NONE);
+    const u32 drawing[1] = { st }, both[3] = { st, gear, res };
+    rde_arr a = rde_arr_new(sizeof(fude_zoom_clip), NULL), b = rde_arr_new(sizeof(fude_zoom_clip), NULL);
+    fude_zoom_select_clips_of(&s, drawing, 1u, &a);
+    fude_zoom_select_clips_of(&s, both, 3u, &b);
+    const u32 mech = 1u << FUDE_ZOOM_SYMBOL_FAMILY_MECHANISMS, elec = 1u << FUDE_ZOOM_SYMBOL_FAMILY_ELECTRONICS;
+    const fude_zoom_box box = { -100, -100, 500, 100 };
+    const c8* dir = "./pieces_test/";
+    rde_file_delete("./pieces_test/index.kana");
+    fude_zoom_pieces lib;
+    memset(&lib, 0, sizeof(lib));
+    fude_zoom_pieces_load(&lib, dir);
+    CHECK(fude_zoom_pieces_add(&lib, dir, "Sketch", (const fude_zoom_clip*)a.memory, 1u, box) == 0u);
+    CHECK(lib.list[0].families == 0u);
+    CHECK(fude_zoom_pieces_add(&lib, dir, "Gear and resistor", (const fude_zoom_clip*)b.memory, 3u, box) == 0u);
+    CHECK(lib.list[0].families == (mech | elec));
+    // Made again (its template left): its things, its families; its id, its name, its place kept — on disk too.
+    const u32 id = lib.list[1].id;
+    CHECK(fude_zoom_pieces_replace(&lib, dir, 1u, (const fude_zoom_clip*)b.memory, 2u, box));
+    CHECK(lib.list[1].id == id && strcmp(lib.list[1].name, "Sketch") == 0 && rde_arr_length(&lib.list[1].items) == 2u && lib.list[1].families == mech);
+    CHECK(!fude_zoom_pieces_replace(&lib, dir, 1u, (const fude_zoom_clip*)b.memory, 0u, box) && !fude_zoom_pieces_replace(&lib, dir, 9u, (const fude_zoom_clip*)b.memory, 1u, box));
+    fude_zoom_pieces again;
+    memset(&again, 0, sizeof(again));
+    fude_zoom_pieces_load(&again, dir);
+    CHECK(again.count == 2u && again.list[1].id == id && rde_arr_length(&again.list[1].items) == 2u && again.list[1].families == mech && again.list[0].families == (mech | elec));
+    // A piece of its own file (a custom part's drawing): as it was.
+    CHECK(fude_zoom_piece_save(&again.list[0], "./pieces_test/own.piece"));
+    fude_zoom_piece own;
+    memset(&own, 0, sizeof(own));
+    CHECK(fude_zoom_piece_load(&own, "./pieces_test/own.piece"));
+    CHECK(strcmp(own.name, "Gear and resistor") == 0 && rde_arr_length(&own.items) == 3u && own.box.max_x == 500.0 && own.families == (mech | elec));
+    CHECK(!fude_zoom_piece_load(&own, "./pieces_test/none.piece"));
+    rde_file_delete("./pieces_test/own.piece");
+    fude_zoom_piece_clear(&own);
+    fude_zoom_pieces_free(&lib); fude_zoom_pieces_free(&again);
+    fude_zoom_select_clips_free(&a); fude_zoom_select_clips_free(&b);
+    rde_arr_free(&a); rde_arr_free(&b); rde_arr_free(&born);
+    fude_zoom_scene_destroy(&s);
+
+    // Made again: its pins in their old order by their names (new ones after them), each still on its own net.
+    c8 err[160];
+    const c8* old_text = "fude-part 1\nid user/keeper\nname Keeper\nport A logic in\nport B logic in\nport Y logic out 1 right\ninst and G \"\" A B Y\nend\n";
+    const c8* new_text = "fude-part 1\nid user/keeper\nname Keeper\nport Y logic out 1 right\nport C logic in\nport B logic in\nport A logic in\n"
+                         "inst and G \"inputs=3\" A B C Y\nend\n";
+    const fude_sim_def* old_def = fude_zoom_logic_learn(old_text, strlen(old_text), err, sizeof err);
+    fude_sim_def* new_def = fude_sim_def_read(new_text, strlen(new_text), err, sizeof err);
+    CHECK(old_def != NULL && new_def != NULL);
+    if(old_def != NULL && new_def != NULL) {
+        u32 net_of[4] = { 0 };   // (A, B, C, Y: their nets as read)
+        const c8* names = "ABCY";
+        for(u32 k = 0; k < 4u; k++) {
+            const fude_sim_port* q = &((const fude_sim_port*)new_def->ports.memory)[k];
+            net_of[strchr(names, q->name[0]) - names] = ((const u32*)new_def->port_nets.memory)[k];
+        }
+        fude_zoom_logic_keep_order(new_def, old_def);
+        const c8* want[4] = { "A", "B", "Y", "C" };
+        b8 order = true, nets = true;
+        for(u32 k = 0; k < 4u; k++) {
+            const fude_sim_port* q = &((const fude_sim_port*)new_def->ports.memory)[k];
+            order = order && strcmp(q->name, want[k]) == 0;
+            nets  = nets && ((const u32*)new_def->port_nets.memory)[k] == net_of[strchr(names, q->name[0]) - names];
+        }
+        CHECK(order && nets);
+        CHECK(((const fude_sim_port*)new_def->ports.memory)[2].dir == FUDE_SIM_OUT && ((const fude_sim_port*)new_def->ports.memory)[3].dir == FUDE_SIM_IN);
+        fude_zoom_logic_keep_order(new_def, NULL);   // (nothing before it: as it is)
+        CHECK(strcmp(((const fude_sim_port*)new_def->ports.memory)[0].name, "A") == 0);
+        fude_sim_def_free(new_def);
+    }
+    // Renamed: found by its new name and by its old one (what is drawn of it says that), its id kept.
+    CHECK(fude_zoom_logic_find("Keeper") == old_def);
+    CHECK(fude_zoom_logic_rename("user/keeper", "Guardian") && !fude_zoom_logic_rename("user/nobody", "X") && !fude_zoom_logic_rename("user/keeper", ""));
+    CHECK(fude_zoom_logic_find("Guardian") == old_def && fude_zoom_logic_find("Keeper") == old_def && fude_zoom_logic_find("user/keeper") == old_def);
+    c8 slug[40];
+    fude_zoom_logic_slug("  Half adder #2 (v3) ", slug, sizeof slug);
+    CHECK(strcmp(slug, "half-adder-2-v3") == 0);
+    fude_zoom_logic_slug("¿?", slug, sizeof slug);
+    CHECK(strcmp(slug, "part") == 0);
+    // Forgotten: found by neither; a chip is not a person's to forget.
+    CHECK(fude_zoom_logic_forget_part("user/keeper") && !fude_zoom_logic_forget_part("user/keeper"));
+    CHECK(fude_zoom_logic_find("Guardian") == NULL && fude_zoom_logic_find("Keeper") == NULL && fude_zoom_logic_find("user/keeper") == NULL);
+    CHECK(!fude_zoom_logic_forget_part("74HC00"));
+    // Made again under its first name after: a new one, found.
+    const fude_sim_def* fresh = fude_zoom_logic_learn(old_text, strlen(old_text), err, sizeof err);
+    CHECK(fresh != NULL && fude_zoom_logic_find("Keeper") == fresh);
+}
+
+// An LED of every colour lit from 5 V through 330 Ω: at its forward voltage, its current what is left over the resistor
+// (a blue one's 3 V too: its exponent counted from there — straightened from 0 V, it never conducted).
+static void test_led_colours(void) {
+    static const c8* const col[8] = { "red", "orange", "yellow", "green", "blue", "purple", "pink", "white" };
+    static const f64 vf[8] = { 1.8, 2.0, 2.1, 2.2, 3.0, 3.1, 3.0, 3.0 };
+    u32 right = 0;
+    for(u32 i = 0; i < 8u; i++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 100, 30, 10, "5V");
+        const u32 r = part_put(&s, "resistor", 100, 50, 30, 10, "330");
+        const u32 led = part_put(&s, "LED", 200, 50, 30, 20, col[i]);
+        const u32 g = part_put(&s, "ground", 300, 0, 20, 20, "");
+        wire_put(&s, rail, 0, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_run(&c, 0.02, 200u));
+        const fude_zoom_circuit_part* p = cpart(&c, led);
+        const f64 v = c.v[p->node[0]] - c.v[p->node[1]], want = (5.0 - vf[i]) / 330.0;
+        right += fabs(v - vf[i]) < 0.1 && fabs(p->pin_i[0] - want) < 0.1 * want && p->shown > 0.4 ? 1u : 0u;
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    CHECK(right == 8u);
+}
+
+// Every electronics example works as it says: the torch lit; every gate's truth for A 1, B 0; the flasher on and off;
+// 1 + 1 + 0, 5 + 3, 6 + 7 summed; the counter counting its clock; the chaser lighting one LED at a time, the next each
+// tick. Every wire joined at both ends.
+static void test_examples_electronics(void) {
+    fude_zoom_scene s; fude_zoom_circuit c;
+    for(u32 e = 0; e < FUDE_ZOOM_EXAMPLE_COUNT; e++) {
+        if(fude_zoom_example_group(e) != FUDE_ZOOM_EXAMPLES_ELECTRONICS) continue;
+        example_open(&s, &c, e);
+        const fude_zoom_circuit_wire* w = (const fude_zoom_circuit_wire*)c.wires.memory;
+        u32 loose = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.wires); i++) loose += (w[i].loose[0] || w[i].loose[1]) ? 1u : 0u;
+        if(loose != 0u) printf("example %u: %u wires loose\n", e, loose);
+        CHECK(loose == 0u);
+        example_close(&s, &c);
+    }
+    example_open(&s, &c, FUDE_ZOOM_EXAMPLE_TORCH);
+    CHECK(fude_zoom_circuit_run(&c, 0.05, 400u) && cpart(&c, example_part(&s, "LED", NULL))->shown > 0.3);
+    example_close(&s, &c);
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_GATES);
+        static const c8* const names[7] = { "A AND B", "A OR B", "A XOR B", "A NAND B", "A NOR B", "A XNOR B", "NOT A" };
+        static const u32 want[7] = { 0, 1, 1, 1, 0, 0, 0 };
+        CHECK(step(&c) && step(&c));
+        u32 right = 0;
+        for(u32 i = 0; i < 7u; i++) right += probe(&c, example_part(&s, "logic probe", names[i])) == want[i] ? 1u : 0u;
+        CHECK(right == 7u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_FLASHER);
+        const u32 led = example_part(&s, "LED", NULL);
+        u32 on = 0, off = 0;
+        for(u32 k = 0; k < 120u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.025, 400u));
+            if(cpart(&c, led)->shown > 0.3) on++; else off++;
+        }
+        CHECK(on > 5u && off > 5u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_FULL_ADDER);
+        CHECK(step(&c) && step(&c));
+        CHECK(probe(&c, example_part(&s, "logic probe", "S")) == 0u && probe(&c, example_part(&s, "logic probe", "CO")) == 1u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_ADDER_4);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 100u));
+        static const c8* const sum[5] = { "S0", "S1", "S2", "S3", "C4" };
+        u32 v = 0;
+        for(u32 i = 0; i < 5u; i++) v |= probe(&c, example_part(&s, "logic probe", sum[i])) << i;
+        CHECK(v == 8u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_ADDER_CHIP);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 100u));
+        static const c8* const sum[5] = { "S1", "S2", "S3", "S4", "C4" };
+        u32 v = 0;
+        for(u32 i = 0; i < 5u; i++) v |= probe(&c, example_part(&s, "logic probe", sum[i])) << i;
+        CHECK(v == 13u);
+        example_close(&s, &c);
+    }
+    {
+        // (2 Hz: a rising edge a half second, its LEDs QA to QD as drawn top down)
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_COUNTER);
+        u32 leds[4];
+        CHECK(example_parts(&s, "LED", NULL, leds, 4u) == 4u);
+        u32 counted = 0;
+        CHECK(fude_zoom_circuit_run(&c, 0.25, 2000u));   // (between its edges: they are at every half second)
+        for(u32 n = 1; n <= 10u; n++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.5, 4000u));
+            u32 lit = 0;
+            for(u32 i = 0; i < 4u; i++) lit |= (cpart(&c, leds[i])->shown > 0.3 ? 1u : 0u) << i;
+            counted += lit == (n & 15u) ? 1u : 0u;
+        }
+        CHECK(counted == 10u);
+        example_close(&s, &c);
+    }
+    {
+        // (4 Hz: one of its eight lit, the next each quarter second)
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_CHASER);
+        u32 leds[8];
+        CHECK(example_parts(&s, "LED", NULL, leds, 8u) == 8u);
+        CHECK(fude_zoom_circuit_run(&c, 0.125, 2000u));   // (between its edges)
+        u32 one = 0, onward = 0, was = 99u;
+        for(u32 k = 0; k < 20u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.25, 4000u));
+            u32 lit = 0, at = 99u;
+            for(u32 i = 0; i < 8u; i++) if(cpart(&c, leds[i])->shown > 0.3) { lit++; at = i; }
+            one += lit == 1u ? 1u : 0u;
+            onward += was != 99u && at == (was + 1u) % 8u ? 1u : 0u;
+            was = at;
+        }
+        CHECK(one == 20u && onward == 19u);
+        example_close(&s, &c);
+    }
+}
+
 // The lit colour of the circuit's part on object o (none: alpha 0).
 static rde_color lit_of(const fude_zoom_circuit* c, u32 o) {
     const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c->parts.memory;
@@ -5320,6 +5689,10 @@ int main(void) {
     test_canvas_logic();
     test_play_tags();
     test_probe_light();
+    test_led_colours();
+    test_logic_draw();
+    test_custom();
+    test_examples_electronics();
     test_mechanisms();
     test_calc();
     test_drawn_bodies();

@@ -28,6 +28,8 @@
 #include "zoom/plot.h"
 #include "zoom/symbolart.h"
 #include "zoom/props.h"
+#include "zoom/examples.h"
+#include "zoom/placer.h"
 #include "zoom/logic.h"
 #include "sim/body.h"
 #include "zoom/cut.h"
@@ -88,15 +90,18 @@ RDE_INTERNAL b8 fude_zoom_page_grip_down(fude_zoom_page* _page, rde_vec_2F _scre
 RDE_INTERNAL b8 fude_zoom_page_grip_moved(fude_zoom_page* _page, rde_vec_2F _screen, u64 _hand);
 RDE_INTERNAL b8 fude_zoom_page_grip_up(fude_zoom_page* _page, u64 _hand);
 RDE_INTERNAL void fude_zoom_page_pen_under(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_pen_modes_off(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_curve_commit(fude_zoom_page* _page, b8 _closed);
 // The diagram library's tabs for diagrams and for circuits (Insert → Diagram shapes, Insert → Circuit parts): bits, the
-// symbols' families' and (after them) the connectors'.
-#define FUDE_ZOOM_PAGE_LIBRARY_DIAGRAMS (((1u << FUDE_ZOOM_SYMBOL_FAMILY_ELECTRONICS) - 1u) | (1u << FUDE_ZOOM_SYMBOL_FAMILIES))
-#define FUDE_ZOOM_PAGE_LIBRARY_MECHANISMS (1u << FUDE_ZOOM_SYMBOL_FAMILY_MECHANISMS)
-#define FUDE_ZOOM_PAGE_LIBRARY_PLANS ((1u << FUDE_ZOOM_SYMBOL_FAMILY_FLOORPLAN) | (1u << FUDE_ZOOM_SYMBOL_FAMILY_WIRING))
-#define FUDE_ZOOM_PAGE_LIBRARY_MATHS (1u << FUDE_ZOOM_SYMBOL_FAMILY_MATHS)
-#define FUDE_ZOOM_PAGE_LIBRARY_SEWING (1u << FUDE_ZOOM_SYMBOL_FAMILY_SEWING)
+// symbols' families' and (after them) the connectors' and Custom's (what a person kept: every panel's, its own of it).
+#define FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT (1u << (FUDE_ZOOM_SYMBOL_FAMILIES + 1u))
+#define FUDE_ZOOM_PAGE_LIBRARY_DIAGRAMS (((1u << FUDE_ZOOM_SYMBOL_FAMILY_ELECTRONICS) - 1u) | (1u << FUDE_ZOOM_SYMBOL_FAMILIES) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
+#define FUDE_ZOOM_PAGE_LIBRARY_MECHANISMS ((1u << FUDE_ZOOM_SYMBOL_FAMILY_MECHANISMS) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
+#define FUDE_ZOOM_PAGE_LIBRARY_PLANS ((1u << FUDE_ZOOM_SYMBOL_FAMILY_FLOORPLAN) | (1u << FUDE_ZOOM_SYMBOL_FAMILY_WIRING) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
+#define FUDE_ZOOM_PAGE_LIBRARY_MATHS ((1u << FUDE_ZOOM_SYMBOL_FAMILY_MATHS) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
+#define FUDE_ZOOM_PAGE_LIBRARY_SEWING ((1u << FUDE_ZOOM_SYMBOL_FAMILY_SEWING) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
 #define FUDE_ZOOM_PAGE_LIBRARY_CIRCUITS ((1u << FUDE_ZOOM_SYMBOL_FAMILY_ELECTRONICS) | (1u << FUDE_ZOOM_SYMBOL_FAMILY_LOGIC) | \
-                                         (1u << FUDE_ZOOM_SYMBOL_FAMILY_CHIPS) | (1u << FUDE_ZOOM_SYMBOL_FAMILY_BOARDS))
+                                         (1u << FUDE_ZOOM_SYMBOL_FAMILY_CHIPS) | (1u << FUDE_ZOOM_SYMBOL_FAMILY_BOARDS) | FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT)
 RDE_INTERNAL void fude_zoom_page_library_open_tabs(fude_zoom_page* _page, u32 _tabs);
 RDE_INTERNAL void fude_zoom_page_room_at(fude_zoom_page* _page, rde_vec_2F _screen);
 RDE_INTERNAL b8   fude_zoom_page_parts_list(const fude_zoom_page* _page, fude_bytes* _out);
@@ -453,11 +458,16 @@ RDE_INTERNAL void fude_zoom_page_nudge_cancel(fude_zoom_page* _page) {
 RDE_INTERNAL void fude_zoom_page_video_drop(fude_zoom_page* _page);
 RDE_INTERNAL void fude_zoom_page_play_stop(fude_zoom_page* _page);
 
+RDE_INTERNAL void fude_zoom_page_template_keep(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_template_leave(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_template_opened(fude_zoom_page* _page, b8 _say);
+
 RDE_INTERNAL void fude_zoom_page_close(fude_zoom_page* _page) {
     if(!_page->open) {
         return;
     }
     fude_zoom_page_play_stop(_page);    // (what played is this canvas's)
+    fude_zoom_page_template_leave(_page);   // (a template's: kept as its piece, or its part made again)
     fude_zoom_page_nudge_cancel(_page);
     fude_zoom_page_video_drop(_page);   // (a zoom video under way: let go)
     fude_zoom_page_save_now(_page, true);
@@ -563,6 +573,7 @@ RDE_INTERNAL void fude_zoom_page_open(fude_zoom_page* _page, u32 _canvas) {
     }
     _page->flushed_at = rde_engine_get_time_now();
     _page->drawing = _page->erasing = _page->finger_drawing = false;
+    fude_zoom_page_template_opened(_page, true);   // (a piece's or a custom part's template: said, kept when left)
 }
 
 // --- the pen: a stroke --------------------------------------------------------------------------
@@ -2035,30 +2046,18 @@ RDE_INTERNAL b8 fude_zoom_shapes_choose(fude_app* _app, u32 _index) {
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_index == 5u) {
         // The Curve: points tapped, a smooth line through them.
-        _page->curve_tool   = !_page->curve_tool;
-        _page->curve_count  = 0;
-        _page->shape_tool   = 0;
-        _page->fill_tool    = false;
-        _page->trim_tool    = false;
-        _page->wire_tool    = false;
-        _page->room_tool    = false;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
-        if(_page->curve_tool) {
+        const b8 _on = !_page->curve_tool;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->curve_tool = _on;
+        if(_on) {
             fude_zoom_page_pen_under(_page);
             fude_notice_show(fude_text(FUDE_TEXT_ZOOM_CURVE_HOW));
         }
         return false;
     }
     if(_index < 5u) {
-        _page->curve_tool   = false;
-        _page->shape_tool   = FUDE_ZOOM_SHAPE_CHOICES[_index];
-        _page->fill_tool    = false;
-        _page->trim_tool    = false;
-        _page->wire_tool    = false;
-        _page->room_tool    = false;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->shape_tool = FUDE_ZOOM_SHAPE_CHOICES[_index];
         fude_zoom_page_pen_under(_page);
         return false;
     }
@@ -2291,6 +2290,11 @@ RDE_INTERNAL void fude_zoom_page_joint_start(fude_zoom_page* _page, u8 _kind);
 RDE_INTERNAL void fude_zoom_page_kanban_card(fude_zoom_page* _page);
 RDE_INTERNAL void fude_zoom_page_sheet_start(fude_zoom_page* _page, u32 _sheet);
 
+RDE_INTERNAL void fude_zoom_page_examples_card(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_examples_follow(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_template_follow(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_library_hold(fude_zoom_page* _page);
+
 RDE_INTERNAL b8 fude_zoom_picture_choose(fude_app* _app, u32 _index) {
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_index == 10u && _page != NULL) {
@@ -2313,6 +2317,10 @@ RDE_INTERNAL b8 fude_zoom_picture_choose(fude_app* _app, u32 _index) {
     }
     if(_index == 18u && _page != NULL) {
         fude_zoom_page_library_open_tabs(_page, FUDE_ZOOM_PAGE_LIBRARY_MATHS);   // (plot.h)
+        return false;
+    }
+    if(_index == 20u && _page != NULL) {
+        fude_zoom_page_examples_card(_page);   // (which of them: a canvas each)
         return false;
     }
     if(_index == 19u && _page != NULL) {
@@ -2364,15 +2372,10 @@ RDE_INTERNAL b8 fude_zoom_picture_choose(fude_app* _app, u32 _index) {
     }
     if(_index >= 2u && _page != NULL) {
         const u8 _mode = (u8)(_index - 1u);
-        _page->text_tool = _page->text_tool == _mode ? 0u : _mode;
-        if(_page->text_tool != 0) {
-            _page->shape_tool   = 0;
-            _page->fill_tool    = false;
-            _page->trim_tool    = false;
-            _page->wire_tool    = false;
-            _page->room_tool    = false;
-            _page->measure_tool = 0;
-            _page->curve_tool   = false;
+        const u8 _next = _page->text_tool == _mode ? 0u : _mode;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->text_tool = _next;
+        if(_next != 0) {
             fude_zoom_page_pen_under(_page);
         }
         fude_toolbar_refresh(&_app->ui->bar);
@@ -2417,6 +2420,7 @@ RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PICTURE_CHOICES[] = {
     { FUDE_TEXT_ZOOM_INSERT_PLAN,    FUDE_ICON_AREA,   fude_zoom_picture_choose },        // (a building's plan: plan.h)
     { FUDE_TEXT_ZOOM_INSERT_MATHS,   FUDE_ICON_CHART_LINE, fude_zoom_picture_choose },    // (graphs, axes: plot.h)
     { FUDE_TEXT_ZOOM_INSERT_SEWING,  FUDE_ICON_CUT,    fude_zoom_picture_choose },        // (a pattern's marks)
+    { FUDE_TEXT_ZOOM_EXAMPLES,       FUDE_ICON_GRADUATION, fude_zoom_picture_choose },    // (canvases to learn from: examples.h)
 };
 
 // The pen in the bar's hand under one of the app's own tools (Fill, a shape):
@@ -2430,6 +2434,27 @@ RDE_INTERNAL void fude_zoom_page_pen_under(fude_zoom_page* _page) {
         _page->tool_seen      = (u8)FUDE_TOOL_DRAW;
         fude_zoom_select_clear(&_page->selection);
     }
+}
+
+// The pen drawing again: what one of the app's tools had it do (a shape or a guide, a wall, the curve, fill, trim, a
+// measure, text, wires, rooms) put down — a curve being tapped kept as far as it goes, a tape left showing gone. Each
+// of those tools, chosen, puts the others down with this; so does another topic. (Not the Saw: it cuts with whichever
+// of them is in hand.)
+RDE_INTERNAL void fude_zoom_page_pen_modes_off(fude_zoom_page* _page) {
+    if(_page->curve_tool) {
+        fude_zoom_page_curve_commit(_page, false);
+    }
+    _page->shape_tool   = 0;
+    _page->curve_tool   = false;
+    _page->curve_count  = 0;
+    _page->fill_tool    = false;
+    _page->trim_tool    = false;
+    _page->measure_tool = 0;
+    _page->tape_shown   = false;
+    _page->text_tool    = 0;
+    _page->wire_tool    = false;
+    _page->wiring       = false;
+    _page->room_tool    = false;
 }
 
 // --- the Fill tool (fill.h) ------------------------------------------------------------------------
@@ -2805,15 +2830,10 @@ RDE_INTERNAL void fude_zoom_fill_press(fude_app* _app) {
     if(_page == NULL) {
         return;
     }
-    _page->fill_tool = !_page->fill_tool;
-    _page->trim_tool = false;
-    _page->wire_tool = false;
-    _page->room_tool = false;
-    if(_page->fill_tool) {
-        _page->shape_tool   = 0;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
-        _page->curve_tool   = false;
+    const b8 _on = !_page->fill_tool;
+    fude_zoom_page_pen_modes_off(_page);
+    _page->fill_tool = _on;
+    if(_on) {
         fude_zoom_select_clear(&_page->selection);
         fude_zoom_page_pen_under(_page);
     }
@@ -3465,6 +3485,7 @@ void fude_zoom_page_settings_gather(const fude_app* _app, fude_settings* _settin
         _settings->print_x           = fude_zoom_page_the->print_x;
         _settings->print_y           = fude_zoom_page_the->print_y;
         _settings->kerf_mm           = fude_zoom_page_the->kerf_mm;
+        _settings->show_fps          = fude_zoom_page_the->show_fps;
     }
 }
 
@@ -3481,6 +3502,7 @@ void fude_zoom_page_settings_apply(fude_app* _app, const fude_settings* _setting
     fude_zoom_page_the->print_x           = _settings->print_x;
     fude_zoom_page_the->print_y           = _settings->print_y;
     fude_zoom_page_the->kerf_mm           = _settings->kerf_mm;
+    fude_zoom_page_the->show_fps          = _settings->show_fps;
 }
 
 // The toolbar's Instruments (instrument.h): each shown or put away, the panel
@@ -3805,15 +3827,10 @@ RDE_INTERNAL b8 fude_zoom_instruments_choose(fude_app* _app, u32 _index) {
     }
     if(_index == FUDE_ZOOM_INSTRUMENT_COUNT + 4u) {
         // Trim: the pen cuts lines' pieces away (chosen again: it draws again).
-        _page->trim_tool = !_page->trim_tool;
-        if(_page->trim_tool) {
-            _page->shape_tool   = 0;
-            _page->curve_tool   = false;
-            _page->fill_tool    = false;
-            _page->measure_tool = 0;
-            _page->text_tool    = 0;
-            _page->wire_tool = false;
-            _page->room_tool = false;
+        const b8 _on = !_page->trim_tool;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->trim_tool = _on;
+        if(_on) {
             fude_zoom_page_pen_under(_page);
             fude_notice_show(fude_text(FUDE_TEXT_ZOOM_TRIM_HOW));
         }
@@ -3823,17 +3840,9 @@ RDE_INTERNAL b8 fude_zoom_instruments_choose(fude_app* _app, u32 _index) {
     if(_index == FUDE_ZOOM_INSTRUMENT_COUNT + 3u) {
         // Guides: the pen draws them (chosen again: it draws again).
         const b8 _on = _page->shape_tool != FUDE_ZOOM_SHAPE_GUIDE;
-        _page->shape_tool   = _on ? (u8)FUDE_ZOOM_SHAPE_GUIDE : 0u;
-        _page->curve_tool   = false;
-        _page->fill_tool    = false;
-        _page->trim_tool    = false;
-        _page->wire_tool    = false;
-        _page->room_tool    = false;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->shape_tool = _on ? (u8)FUDE_ZOOM_SHAPE_GUIDE : 0u;
         if(_on) {
-            _page->wire_tool = false;
-            _page->room_tool = false;
             fude_zoom_page_pen_under(_page);
             fude_notice_show(fude_text(FUDE_TEXT_ZOOM_GUIDE_HOW));
         }
@@ -3852,16 +3861,10 @@ RDE_INTERNAL b8 fude_zoom_instruments_choose(fude_app* _app, u32 _index) {
     }
     // The tape or a dimension: the pen measures (chosen again: it draws again).
     const u8 _mode = (u8)(_index - FUDE_ZOOM_INSTRUMENT_COUNT + 1u);
-    _page->measure_tool = _page->measure_tool == _mode ? 0u : _mode;
-    _page->tape_shown   = false;
-    if(_page->measure_tool != 0) {
-        _page->shape_tool = 0;
-        _page->fill_tool  = false;
-        _page->trim_tool  = false;
-        _page->wire_tool  = false;
-        _page->room_tool  = false;
-        _page->text_tool  = 0;
-        _page->curve_tool = false;
+    const u8 _next = _page->measure_tool == _mode ? 0u : _mode;
+    fude_zoom_page_pen_modes_off(_page);   // (a tape left showing too)
+    _page->measure_tool = _next;
+    if(_next != 0) {
         fude_zoom_page_pen_under(_page);
     }
     fude_toolbar_refresh(&_app->ui->bar);
@@ -3958,14 +3961,6 @@ RDE_INTERNAL void fude_zoom_page_draw_tag_px(fude_zoom_page* _page, rde_vec_2F _
 RDE_INTERNAL void fude_zoom_page_context_open(fude_zoom_page* _page, rde_vec_2F _screen);
 
 // A part's grid in its frame's units (a tenth of a resistor's length as it came, as it is now).
-RDE_INTERNAL f64 fude_zoom_page_part_unit(const fude_zoom_scene* _s, u32 _object) {
-    f64 _n[3];
-    if(fude_zoom_scene_shape_numbers(_s, _object, _n, 3u) < 3u) {
-        return 0.0;
-    }
-    const fude_zoom_symbol_info* _info = fude_zoom_symbol_info_of((u32)_n[0]);
-    return _info != NULL && _info->h > 0.0f ? _n[2] * fude_zoom_scene_object(_s, _object)->scale / ((f64)_info->h * 0.5) * 10.0 : 0.0;
-}
 
 // The part's pin nearest _screen within _reach at any depth shown: its object, its pin, where it is (screen). False: none.
 RDE_INTERNAL b8 fude_zoom_page_pin_at(fude_zoom_page* _page, rde_vec_2F _screen, f64 _reach, u32* _object, u32* _pin, fude_zoom_v2* _at) {
@@ -4092,7 +4087,7 @@ RDE_INTERNAL u32 fude_zoom_page_wire_way(fude_zoom_page* _page, fude_zoom_v2 _a,
     f64 _stub = 0.0;
     const u32 _part = _ao != FUDE_ZOOM_NONE ? _ao : _bo;
     if(_part != FUDE_ZOOM_NONE) {
-        _stub = fude_zoom_page_part_unit(_s, _part) * fude_zoom_sim_scale(fude_zoom_page_frame_sim(_page, fude_zoom_scene_object(_s, _part)->frame));
+        _stub = fude_zoom_part_unit(_s, _part) * fude_zoom_sim_scale(fude_zoom_page_frame_sim(_page, fude_zoom_scene_object(_s, _part)->frame));
     }
     // (the screen is Y up as the canvas: the pins' sides as they face on it)
     const u8 _sa = _ao != FUDE_ZOOM_NONE ? fude_zoom_part_side_at(_s, _ao, (u32)_ap) : 255u;
@@ -4147,20 +4142,16 @@ RDE_INTERNAL b8 fude_zoom_circuit_choose(fude_app* _app, u32 _index) {
         return false;
     }
     switch(_index) {
-    case 0:   // the pen draws wires (chosen again: it draws again)
-        _page->wire_tool = !_page->wire_tool;
-        if(_page->wire_tool) {
-            _page->shape_tool   = 0;
-            _page->curve_tool   = false;
-            _page->fill_tool    = false;
-            _page->measure_tool = 0;
-            _page->text_tool    = 0;
-            _page->trim_tool    = false;
-            _page->room_tool    = false;
+    case 0: {   // the pen draws wires (chosen again: it draws again)
+        const b8 _on = !_page->wire_tool;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->wire_tool = _on;
+        if(_on) {
             fude_zoom_page_pen_under(_page);
             fude_notice_show(fude_text(FUDE_TEXT_ZOOM_CIRCUIT_WIRE_HOW));
         }
         break;
+    }
     case 1:
         _page->wire_tool = false;
         fude_zoom_page_play_selection_now(_page);
@@ -4336,6 +4327,8 @@ RDE_INTERNAL void fude_zoom_page_play_stop(fude_zoom_page* _page) {
     _page->play_hand    = 0u;
     _page->circuit_held = FUDE_ZOOM_NONE;
     _page->circuit_failed = false;
+    _page->play_coupled = false;
+    fude_zoom_coupling_clear(&_page->coupling, &_page->circuit);
     fude_zoom_mech_world_stop(&_page->mech_run);
     rde_arr_clear(&_page->mech_lifted);
     rde_arr_clear(&_page->circuit.parts);
@@ -4356,6 +4349,7 @@ RDE_INTERNAL b8 fude_zoom_page_play_build(fude_zoom_page* _page) {
     for(u32 _i = 0; _i < _n; _i++) {
         _what |= _scope[_i] ? fude_zoom_page_play_kind(_page, _i) : 0u;
     }
+    fude_zoom_coupling_clear(&_page->coupling, &_page->circuit);
     fude_zoom_mech_world_stop(&_page->mech_run);
     rde_arr_clear(&_page->mech_lifted);
     rde_arr_clear(&_page->circuit.parts);
@@ -4383,6 +4377,9 @@ RDE_INTERNAL b8 fude_zoom_page_play_build(fude_zoom_page* _page) {
             }
         }
     }
+    // Both: stepped together, each told what the other did (a motor turning a gear, a rack pressing a button).
+    _page->play_coupled = _page->play_circuit && _page->play_mech &&
+                          fude_zoom_coupling_build(&_page->coupling, &_page->circuit, &_page->mech_run, _s) > 0u;
     // Graphs: their variables, a slider each (four at most, the first graph's first), from the start.
     _page->play_plots     = (_what & 4u) != 0u;
     _page->play_var_count = 0u;
@@ -4500,19 +4497,28 @@ RDE_INTERNAL void fude_zoom_page_play_step(fude_zoom_page* _page) {
     if(_page->play_circuit && _s->revision != _page->play_seen) {
         fude_zoom_circuit_build_in(&_page->circuit, _s, (const u8*)_page->play_scope.memory);   // (its state kept)
         _page->play_seen = _s->revision;
+        if(_page->play_coupled) {
+            fude_zoom_coupling_build(&_page->coupling, &_page->circuit, &_page->mech_run, _s);   // (its parts as they are now)
+        }
     }
     if(!_page->play_running) {
         return;
     }
     _page->play_time += _dt;
-    if(_page->play_circuit && rde_arr_length(&_page->circuit.parts) > 0u) {
+    if(_page->play_coupled) {
+        const b8 _ok = fude_zoom_coupling_step(&_page->coupling, &_page->circuit, &_page->mech_run, _dt);
+        if(!_ok && !_page->circuit_failed) {
+            fude_notice_show(fude_text(FUDE_TEXT_ZOOM_CIRCUIT_FAILED));
+        }
+        _page->circuit_failed = !_ok;
+    } else if(_page->play_circuit && rde_arr_length(&_page->circuit.parts) > 0u) {
         const b8 _ok = fude_zoom_circuit_run(&_page->circuit, _dt > 0.0 ? _dt : 1.0 / 60.0, 400u);
         if(!_ok && !_page->circuit_failed) {
             fude_notice_show(fude_text(FUDE_TEXT_ZOOM_CIRCUIT_FAILED));
         }
         _page->circuit_failed = !_ok;
     }
-    if(_page->play_mech) {
+    if(_page->play_mech && !_page->play_coupled) {
         fude_zoom_mech_world_step(&_page->mech_run, _dt);
     }
     _page->plot_play.time = _page->play_time;
@@ -4931,14 +4937,15 @@ typedef struct {
 } fude_zoom_topic;
 
 // Insert: 0 Photos, 1 Files, 2 Text, 3 Sticky, 4 Mermaid, 5 Board, 6 Holes, 7 PDF, 8 Fingers, 9 Dovetail, 10 Diagram,
-// 11 Kanban, 12 Area, 13 Pieces, 14 Sheet, 15 Circuit parts, 16 Mechanism parts, 17 Plan parts, 18 Maths, 19 Sewing marks.
+// 11 Kanban, 12 Area, 13 Pieces, 14 Sheet, 15 Circuit parts, 16 Mechanism parts, 17 Plan parts, 18 Maths, 19 Sewing marks,
+// 20 Examples.
 // Instruments: 0 Ruler, 1 45°, 2 30°, 3 Protractor, 4 Compass, 5 Circle,
 // 6 Ellipse, 7 French curve, 8 Corner, 9 Stencil, 10 Tape, 11 Dimension, 12 Saw, 13 Guide, 14 Trim. Export: 0 PNG, 1 SVG, 2 PDF, 3 DXF,
 // 4 Print A4, 5 Print Letter, 6 Cut list, 7 Video, 8 Areas, 9 Sheets, 10 STL, 11 Parts list.
 RDE_INTERNAL const fude_zoom_topic FUDE_ZOOM_TOPICS[FUDE_ZOOM_TOPIC_COUNT] = {
     { FUDE_TEXT_ZOOM_TOPIC_GENERAL, FUDE_ICON_PEN_NIB,
       { 0, 1, 2, 3, 4, 5, 6, 7 }, 8,
-      { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }, 15,
+      { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 20 }, 16,
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }, 15,
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, 12 },
     { FUDE_TEXT_ZOOM_TOPIC_TECHNICAL, FUDE_ICON_RULER,
@@ -4963,12 +4970,12 @@ RDE_INTERNAL const fude_zoom_topic FUDE_ZOOM_TOPICS[FUDE_ZOOM_TOPIC_COUNT] = {
       { 2, 0, 8 }, 3 },
     { FUDE_TEXT_ZOOM_TOPIC_ELECTRONICS, FUDE_ICON_SIGNAL_HIGH,
       { FUDE_ZOOM_BASE_CIRCUIT, FUDE_ZOOM_BASE_INSERT, FUDE_ZOOM_BASE_SHAPES, FUDE_ZOOM_BASE_ARRANGE, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT }, 6,
-      { 15, 2, 3, 14, 12, 0, 1 }, 7,
+      { 15, 2, 3, 14, 12, 0, 1, 20 }, 8,
       { 0, 11 }, 0,
       { 2, 11, 1, 0, 4, 5, 7 }, 7 },
     { FUDE_TEXT_ZOOM_TOPIC_MECHANISMS, FUDE_ICON_ROTATE,
       { FUDE_ZOOM_BASE_MOTION, FUDE_ZOOM_BASE_INSERT, FUDE_ZOOM_BASE_SHAPES, FUDE_ZOOM_BASE_INSTRUMENTS, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT }, 6,
-      { 16, 14, 2, 3, 0, 1 }, 6,
+      { 16, 14, 2, 3, 0, 1, 20 }, 7,
       { 0, 3, 4, 5, 11, 13 }, 6,
       { 2, 11, 1, 0, 9, 10, 7 }, 7 },
     { FUDE_TEXT_ZOOM_TOPIC_FLOORPLAN, FUDE_ICON_AREA,
@@ -5026,24 +5033,33 @@ RDE_INTERNAL b8 fude_zoom_topic_export_choose(fude_app* _app, u32 _i) {
     return _i < _t->exports_count ? fude_zoom_export_choose(_app, _t->exports[_i]) : false;
 }
 
-// Topic: one chosen — the bar filled for it the frame after (never from inside its own panel's press). What the pen
-// was set to do by the last topic's tools (wires, walls, rooms, a shape, the curve, fill, trim, a measure, text) is
-// put down: the pen draws again.
+// Topic: one chosen — the bar filled for it the frame after (never from inside its own panel's press). Everything the
+// last topic's tools left in hand is put down: what the pen was set to do (wires, walls, rooms, a shape, the curve,
+// fill, trim, a measure, text) and the Saw — the pen draws again —, the parts' and My pieces' panels, and the
+// instruments lying out that the new topic does not have (Undo brings them back).
 RDE_INTERNAL b8 fude_zoom_topic_choose(fude_app* _app, u32 _i) {
     RDE_UNUSED(_app);
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_page != NULL && _i < FUDE_ZOOM_TOPIC_COUNT && _i != _page->topic) {
-        _page->wire_tool    = false;
-        _page->wiring       = false;
-        _page->room_tool    = false;
-        _page->shape_tool   = 0;
-        _page->curve_tool   = false;
-        _page->curve_count  = 0;
-        _page->fill_tool    = false;
-        _page->trim_tool    = false;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
-        _page->library_open = false;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->saw            = false;
+        _page->library_open   = false;
+        _page->pieces_open    = false;
+        _page->pieces_stencil = false;
+        const fude_zoom_topic* _to = &FUDE_ZOOM_TOPICS[_i];
+        for(u32 _k = 0; _k < FUDE_ZOOM_INSTRUMENT_MOST; _k++) {
+            const fude_zoom_instrument* _t = &_page->instruments.tools[_k];
+            b8 _has = false;
+            for(u32 _j = 0; _j < _to->instruments_count && !_has; _j++) {
+                _has = _to->instruments[_j] == _t->kind;
+            }
+            if(_t->shown && !_has) {
+                fude_zoom_instrument_remove(&_page->instruments, _k);
+            }
+        }
+        if(_page->anchor_tool >= 0 && !_page->instruments.tools[_page->anchor_tool].shown) {
+            _page->anchor_tool = -1;
+        }
         _page->topic = (u8)_i;
         fude_zoom_page_tools_save(_page);   // (the canvas keeps it)
         c8 _say[200];
@@ -5156,6 +5172,9 @@ RDE_INTERNAL void fude_zoom_page_erase_up(fude_zoom_page* _page) {
 #define FUDE_ZOOM_PAGE_TEXT_SYMBOL  0xFAu  // ...while it takes a diagram symbol's text
 #define FUDE_ZOOM_PAGE_TEXT_AREA    0xF8u  // ...while it takes a new area's name (map.h)
 #define FUDE_ZOOM_PAGE_TEXT_PIECE   0xF7u  // ...while it takes a new piece's name (piece.h)
+#define FUDE_ZOOM_PAGE_TEXT_CUSTOM  0xF6u  // ...while it takes a kept piece's or custom part's new name (custom.h)
+// (those that take a name: one line)
+#define FUDE_ZOOM_PAGE_TEXT_NAMES(_style) ((_style) == FUDE_ZOOM_PAGE_TEXT_AREA || (_style) == FUDE_ZOOM_PAGE_TEXT_PIECE || (_style) == FUDE_ZOOM_PAGE_TEXT_CUSTOM)
 #define FUDE_ZOOM_PAGE_TEXT_PX    18.0    // a new text's letters on screen (points)
 #define FUDE_ZOOM_PAGE_STICKY_PX  16.0    // ...a note's
 #define FUDE_ZOOM_PAGE_STICKY_W   11.0    // a note's width: so many letters' heights
@@ -5233,6 +5252,9 @@ RDE_INTERNAL void fude_zoom_page_fit_list(fude_zoom_page* _page, u32 _stock, con
 
 RDE_INTERNAL void fude_zoom_page_symbol_text_commit(fude_zoom_page* _page, const c8* _text);
 RDE_INTERNAL void fude_zoom_page_kanban_commit(fude_zoom_page* _page, const c8* _text);
+RDE_INTERNAL void fude_zoom_page_custom_rename(fude_zoom_page* _page, const c8* _text);
+RDE_INTERNAL void fude_zoom_page_custom_delete(fude_zoom_page* _page, u8 _kind, const c8* _key);
+RDE_INTERNAL void fude_zoom_page_template_drop(fude_zoom_page* _page, u8 _kind, const c8* _key);
 
 RDE_INTERNAL void fude_zoom_page_text_save(fude_zoom_page* _page) {
     fude_zoom_page_text_card(_page, false);
@@ -5246,11 +5268,13 @@ RDE_INTERNAL void fude_zoom_page_text_save(fude_zoom_page* _page) {
         rde_ui_text_editor_set_placeholder(_page->text_field, "");
         return;
     }
-    if(_page->text_style == FUDE_ZOOM_PAGE_TEXT_AREA || _page->text_style == FUDE_ZOOM_PAGE_TEXT_PIECE) {
+    if(FUDE_ZOOM_PAGE_TEXT_NAMES(_page->text_style)) {
         const usize _bytes = rde_ui_text_editor_get_byte_count(_page->text_field);
         c8*         _text  = rde_ui_text_editor_get_text(_page->text_field, 0, _bytes);
         if(_page->text_style == FUDE_ZOOM_PAGE_TEXT_PIECE) {
             fude_zoom_page_piece_commit(_page, _text != NULL ? _text : "");
+        } else if(_page->text_style == FUDE_ZOOM_PAGE_TEXT_CUSTOM) {
+            fude_zoom_page_custom_rename(_page, _text != NULL ? _text : "");
         } else {
             fude_zoom_page_area_commit(_page, _text != NULL ? _text : "");
         }
@@ -5536,7 +5560,7 @@ RDE_INTERNAL void fude_zoom_page_text_card(fude_zoom_page* _page, b8 _show) {
         // it is made of under it (the material chips).
         const rde_vec_2F _screen = fude_kit_screen_size(_page->app->window);
         const b8         _board  = _page->text_style == FUDE_ZOOM_PAGE_TEXT_BOARD;
-        const b8         _area   = _page->text_style == FUDE_ZOOM_PAGE_TEXT_AREA || _page->text_style == FUDE_ZOOM_PAGE_TEXT_PIECE;   // (a name: one line, as a board's)
+        const b8         _area   = FUDE_ZOOM_PAGE_TEXT_NAMES(_page->text_style);   // (a name: one line, as a board's)
         rde_vec_2F       _size   = { fminf(560.0f, _screen.x - 32.0f), 236.0f };
         fude_zoom_page_material_words(_page->material_words, "");
         const f32 _chips = fude_zoom_page_place_material_chips(_page, 16.0f, 0.0f, _size.x - 32.0f, _board);   // (how tall, first)
@@ -7676,7 +7700,7 @@ RDE_INTERNAL void fude_zoom_page_render_circuit(fude_zoom_page* _page, fude_zoom
                 if(_part == NULL || _part->pins == NULL || fude_zoom_scene_hides(_s, fude_zoom_scene_object(_s, _o))) {
                     continue;
                 }
-                const f64 _unit = fude_zoom_page_part_unit(_s, _o) * fude_zoom_sim_scale(_vis.to_screen);
+                const f64 _unit = fude_zoom_part_unit(_s, _o) * fude_zoom_sim_scale(_vis.to_screen);
                 if(_unit < 5.0) {
                     continue;   // (too small to wire)
                 }
@@ -8399,7 +8423,13 @@ RDE_INTERNAL void fude_zoom_kind_reset_view(fude_app* _app)      { RDE_UNUSED(_a
 RDE_INTERNAL void fude_zoom_kind_open(fude_app* _app, u32 _c)    { RDE_UNUSED(_app); fude_zoom_page_open(fude_zoom_page_the, _c); }
 RDE_INTERNAL u32  fude_zoom_kind_revision(const fude_app* _app)  { RDE_UNUSED(_app); return fude_zoom_page_the->open ? fude_zoom_page_the->scene.revision : 0u; }
 RDE_INTERNAL b8   fude_zoom_kind_busy(const fude_app* _app)      { RDE_UNUSED(_app); return fude_zoom_page_the->drawing || fude_zoom_page_the->erasing || fude_zoom_page_the->shaping || fude_zoom_select_busy(&fude_zoom_page_the->selection); }
-RDE_INTERNAL b8   fude_zoom_kind_save(fude_app* _app, b8 _leave) { RDE_UNUSED(_app); return fude_zoom_page_save_now(fude_zoom_page_the, _leave); }
+RDE_INTERNAL b8   fude_zoom_kind_save(fude_app* _app, b8 _leave) {
+    RDE_UNUSED(_app);
+    if(_leave) {
+        fude_zoom_page_template_keep(fude_zoom_page_the);   // (the app put away: a template's kept now — it may not come back)
+    }
+    return fude_zoom_page_save_now(fude_zoom_page_the, _leave);
+}
 
 RDE_INTERNAL b8 fude_zoom_kind_selection(const fude_app* _app, rde_vec_2F* _min, rde_vec_2F* _max, b8* _busy) {
     RDE_UNUSED(_app);
@@ -8485,6 +8515,12 @@ RDE_INTERNAL b8 fude_zoom_kind_back(fude_app* _app) {
         _page->pieces_open = false;
         return true;
     }
+    // A template opened from a canvas: back to it (what it holds kept as it closes).
+    if(_page->template_on && _page->template_return != 0u && _page->template_return != _page->canvas &&
+       fude_notes_find(_page->app->notes, _page->template_return) != NULL) {
+        fude_notes_open(_page->app->notes, _page->template_return);
+        return true;
+    }
     return false;
 }
 
@@ -8518,6 +8554,7 @@ void fude_zoom_page_init(fude_zoom_page* _page, fude_app* _app) {
     _page->circuit_held = FUDE_ZOOM_NONE;
     fude_zoom_mech_plan_init(&_page->mech);
     fude_zoom_mech_world_init(&_page->mech_run);
+    fude_zoom_coupling_init(&_page->coupling);
     fude_zoom_symbol_art_load("assets/parts");   // (the library's symbols drawn from SVG art where the app has it: once)
     _page->play_scope   = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
     _page->play_slider  = -1;
@@ -8530,6 +8567,8 @@ void fude_zoom_page_init(fude_zoom_page* _page, fude_app* _app) {
     _page->renderer.lifted = &_page->selection.lifted;
     _page->editable     = rde_arr_new(sizeof(fude_zoom_visible), rde_memory_allocator_get_default_std());
     _page->play_sizes   = rde_arr_new(sizeof(f64), rde_memory_allocator_get_default_std());
+    _page->examples_todo = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    _page->custom_items  = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     _page->context_target = FUDE_ZOOM_NONE;
     _page->snap_scratch = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
     _page->raw          = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
@@ -8568,6 +8607,7 @@ void fude_zoom_page_destroy(fude_zoom_page* _page) {
     fude_zoom_page_play_stop(_page);
     fude_zoom_circuit_destroy(&_page->circuit);
     fude_zoom_mech_world_destroy(&_page->mech_run);
+    fude_zoom_coupling_destroy(&_page->coupling);
     rde_arr_free(&_page->play_scope);
     fude_zoom_mech_plan_destroy(&_page->mech);
     rde_arr_free(&_page->mech_lifted);
@@ -8577,6 +8617,12 @@ void fude_zoom_page_destroy(fude_zoom_page* _page) {
     if(rde_arr_is_inited(&_page->editable)) {
         rde_arr_free(&_page->editable);
         rde_arr_free(&_page->play_sizes);
+        rde_arr_free(&_page->examples_todo);
+        rde_arr_free(&_page->custom_items);
+    }
+    if(_page->templates_ready) {
+        fude_zoom_templates_free(&_page->templates);
+        _page->templates_ready = false;
     }
     if(rde_arr_is_inited(&_page->snap_scratch)) {
         rde_arr_free(&_page->snap_scratch);
@@ -9039,6 +9085,9 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
         return;
     }
     fude_zoom_page_coast(_page);                // (a flick carrying on)
+    fude_zoom_page_examples_follow(_page);      // (Insert → Examples: the one waiting drawn on its canvas, open now)
+    fude_zoom_page_template_follow(_page);      // (a template being made: filled on its canvas, open now)
+    fude_zoom_page_library_hold(_page);         // (a hand held on a Custom tile: its card)
     fude_zoom_page_instruments_follow(_page);   // (on the drawing as it is now, before the pen meets them)
 #if !defined(RDE_PLATFORM_MOBILE)
     if(_page->anchor_dragging && _page->anchor_drag_hand == FUDE_ZOOM_PAGE_HAND_MOUSE) {
@@ -9103,14 +9152,7 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
             fude_toolbar_refresh(&_app->ui->bar);
         }
         if(_app->ui->bar.tool_taps > _page->tool_taps_seen && (_page->shape_tool != 0 || _page->fill_tool || _page->measure_tool != 0 || _page->text_tool != 0)) {
-            _page->shape_tool   = 0;
-            _page->fill_tool    = false;
-            _page->trim_tool    = false;
-            _page->wire_tool    = false;
-            _page->room_tool    = false;
-            _page->measure_tool = 0;
-            _page->text_tool    = 0;
-            _page->tape_shown   = false;
+            fude_zoom_page_pen_modes_off(_page);
             fude_toolbar_refresh(&_app->ui->bar);
         }
         _page->tool_taps_seen = _app->ui->bar.tool_taps;
@@ -9204,7 +9246,11 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
     }
     _page->selection.half = fude_zoom_page_half(_page);
     fude_zoom_select_update(&_page->selection, _s);
-    fude_zoom_page_play_step(_page);   // (what plays: on its own clock)
+    {
+        const f64 _t0 = rde_engine_get_time_now();
+        fude_zoom_page_play_step(_page);   // (what plays: on its own clock)
+        _page->perf_play += rde_engine_get_time_now() - _t0;
+    }
     if(rde_input_key_is_just_pressed(_window, RDE_KEYBOARD_KEY_B)) {
         fude_zoom_page_go_back(_page);
     }
@@ -9772,7 +9818,38 @@ RDE_INTERNAL void fude_zoom_page_render_turn(fude_zoom_page* _page) {
                                  (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
 }
 
+RDE_INTERNAL void fude_zoom_page_render_fps(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_render_all(fude_zoom_page* _page, rde_window* _window);
+
 void fude_zoom_page_render(fude_zoom_page* _page, rde_window* _window) {
+    const f64 _t0 = rde_engine_get_time_now();
+    fude_zoom_page_render_all(_page, _window);
+    _page->perf_draw += rde_engine_get_time_now() - _t0;
+}
+
+void fude_zoom_page_perf_frame(fude_zoom_page* _page, f64 _update, f64 _render) {
+    const f64 _now = rde_engine_get_time_now();
+    if(!_page->show_fps || _page->perf_since <= 0.0 || _now < _page->perf_since) {
+        _page->perf_since  = _now;
+        _page->perf_update = _page->perf_render = _page->perf_play = _page->perf_draw = 0.0;
+        _page->perf_frames = 0u;
+        return;
+    }
+    _page->perf_update += _update;
+    _page->perf_render += _render;
+    _page->perf_frames++;
+    if(_now - _page->perf_since >= 2.0 && _page->perf_frames > 0u) {
+        const f64 _n = (f64)_page->perf_frames, _span = _now - _page->perf_since;
+        rde_log_level(RDE_LOG_LEVEL_INFO, "sketching perf: %.1f fps, a frame %.1f ms: update %.1f (Play %.1f), render %.1f (the page %.1f), else %.1f",
+                      _n / _span, 1000.0 * _span / _n, 1000.0 * _page->perf_update / _n, 1000.0 * _page->perf_play / _n, 1000.0 * _page->perf_render / _n,
+                      1000.0 * _page->perf_draw / _n, 1000.0 * (_span - _page->perf_update - _page->perf_render) / _n);
+        _page->perf_since  = _now;
+        _page->perf_update = _page->perf_render = _page->perf_play = _page->perf_draw = 0.0;
+        _page->perf_frames = 0u;
+    }
+}
+
+RDE_INTERNAL void fude_zoom_page_render_all(fude_zoom_page* _page, rde_window* _window) {
     if(!_page->open) {
         return;
     }
@@ -9883,6 +9960,7 @@ void fude_zoom_page_render(fude_zoom_page* _page, rde_window* _window) {
     fude_zoom_page_map_refresh(_page);
     fude_zoom_page_render_map(_page);       // (the map's panel)
     fude_zoom_page_render_present(_page);   // (presenting: the laser, the pill)
+    fude_zoom_page_render_fps(_page);       // (Settings' Display: the frame rate, over everything)
 }
 
 // --- getting around: Back and the depth (the extension's widgets, ui.h) ----------------------
@@ -10499,7 +10577,118 @@ RDE_INTERNAL void fude_zoom_page_measure_restyle(fude_ui* _ui) {
     fude_zoom_page_measure_refresh(_ui, true);
 }
 
+// --- Settings' Display: the frame rate on the screen ------------------------------------------------------------------
+
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_fps(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+
+RDE_INTERNAL void fude_zoom_page_display_build(fude_ui* _ui, rde_ui_node* _card) {
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL) {
+        return;
+    }
+    _page->display_header = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_ZOOM_DISPLAY), FUDE_SIDE_HEADER_PX);
+    _page->fps_label      = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_ZOOM_SHOW_FPS), FUDE_SIDE_ROW_PX);
+    _page->fps_buttons[0] = fude_kit_button(_card, fude_text(FUDE_TEXT_ZOOM_OFF), fude_zoom_page_on_fps, (any)(uintptr_t)0u);
+    _page->fps_buttons[1] = fude_kit_button(_card, fude_text(FUDE_TEXT_ZOOM_ON), fude_zoom_page_on_fps, (any)(uintptr_t)1u);
+}
+
+RDE_INTERNAL f32 fude_zoom_page_display_layout(fude_ui* _ui, f32 _y, f32 _m, f32 _kw) {
+    RDE_UNUSED(_ui);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL || _page->display_header == NULL) {
+        return _y;
+    }
+    const f32 _lw = _kw - 2.0f * _m;
+    fude_kit_place(rde_ui_label_as_node(_page->display_header), (rde_vec_2F){ _m + _lw * 0.5f, _y }, (rde_vec_2F){ _lw, 30.0f });
+    _y -= 44.0f;
+    // (its name, then Off and On at the right)
+    const f32 _bw = 70.0f, _names = fmaxf(_lw - 2.0f * _bw - 2.0f * 8.0f, 60.0f);
+    fude_kit_place(rde_ui_label_as_node(_page->fps_label), (rde_vec_2F){ _m + _names * 0.5f, _y }, (rde_vec_2F){ _names, 44.0f });
+    for(u32 _i = 0; _i < 2u; _i++) {
+        fude_kit_place(rde_ui_button_as_node(_page->fps_buttons[_i]), (rde_vec_2F){ _kw - _m - _bw * 0.5f - (f32)(1u - _i) * (_bw + 8.0f), _y },
+                       (rde_vec_2F){ _bw, 40.0f });
+    }
+    return _y - 52.0f;
+}
+
+RDE_INTERNAL void fude_zoom_page_display_refresh(fude_ui* _ui, b8 _force) {
+    RDE_UNUSED(_ui); RDE_UNUSED(_force);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL || _page->display_header == NULL) {
+        return;
+    }
+    for(u32 _i = 0; _i < 2u; _i++) {
+        if((_i == 1u) == _page->show_fps) { fude_kit_button_selected(_page->fps_buttons[_i]); }
+        else                              { fude_kit_button_quiet(_page->fps_buttons[_i]); }
+    }
+}
+
+RDE_INTERNAL void fude_zoom_page_display_restyle(fude_ui* _ui) {
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL || _page->display_header == NULL) {
+        return;
+    }
+    const fude_theme* _t = fude_theme_active();
+    rde_ui_label_set_color(_page->display_header, _t->text_soft);
+    rde_ui_label_set_color(_page->fps_label, _t->text);
+    fude_zoom_page_display_refresh(_ui, true);
+}
+
+// Off or On pressed: kept with the settings, counted afresh.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_fps(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL) {
+        return RDE_UI_EVENT_RESULT_CONSUME;
+    }
+    _page->show_fps   = (uintptr_t)_user_data == 1u;
+    _page->fps        = 0.0;
+    _page->fps_frames = 0u;
+    _page->fps_since  = rde_engine_get_time_now();
+    fude_zoom_page_display_refresh(NULL, true);
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// The frame rate, at the top right in the theme's text (just its number): frames counted over half a second at a time.
+// Clear of the toolbar where it is there.
+RDE_INTERNAL void fude_zoom_page_render_fps(fude_zoom_page* _page) {
+    const f64 _now = rde_engine_get_time_now();
+    _page->fps_frames++;
+    if(_page->fps_since <= 0.0 || _now < _page->fps_since) {
+        _page->fps_since  = _now;
+        _page->fps_frames = 0u;
+    } else if(_now - _page->fps_since >= 0.5) {
+        _page->fps        = (f64)_page->fps_frames / (_now - _page->fps_since);
+        _page->fps_frames = 0u;
+        _page->fps_since  = _now;
+    }
+    if(!_page->show_fps || !(_page->fps > 0.0)) {
+        return;
+    }
+    c8 _said[16];
+    snprintf(_said, sizeof(_said), "%.0f", _page->fps);
+    const fude_zoom_v2 _half = fude_zoom_page_half(_page);
+    const rde_vec_4I   _in   = rde_window_get_safe_area_insets(_page->app->window);   // left, top, right, bottom
+    const f64 _px = 16.0, _w = 56.0, _h = 22.0;
+    f64 _x1 = _half.x - (f64)_in.z - 10.0, _y1 = _half.y - (f64)_in.y - 8.0;
+    // (the toolbar there: just left of it)
+    if(_page->app->ui != NULL && !_page->app->ui->bar.hidden) {
+        const fude_toolbar* _bar = &_page->app->ui->bar;
+        const f64 _b0 = _bar->center.x - _bar->panel_size.x * 0.5 - _half.x, _b1 = _bar->center.x + _bar->panel_size.x * 0.5 - _half.x;
+        const f64 _bb = _bar->center.y - _bar->panel_size.y * 0.5 - _half.y, _bt = _bar->center.y + _bar->panel_size.y * 0.5 - _half.y;
+        if(_b1 > _x1 - _w && _b0 < _x1 && _bt > _y1 - _h && _bb < _y1) {
+            _x1 = _b0 - 8.0;
+        }
+    }
+    fude_zoom_render_text_at(&_page->renderer, _said, (u32)strlen(_said), (fude_zoom_box){ _x1 - _w, _y1 - _h, _x1, _y1 }, _px, false, false,
+                             fude_theme_active()->text);
+}
+
 const fude_extension_section FUDE_ZOOM_PAGE_MEASUREMENTS = { fude_zoom_page_measure_build, fude_zoom_page_measure_layout, fude_zoom_page_measure_refresh, fude_zoom_page_measure_restyle };
+const fude_extension_section FUDE_ZOOM_PAGE_SECTIONS[2] = {
+    { fude_zoom_page_measure_build, fude_zoom_page_measure_layout, fude_zoom_page_measure_refresh, fude_zoom_page_measure_restyle },
+    { fude_zoom_page_display_build, fude_zoom_page_display_layout, fude_zoom_page_display_refresh, fude_zoom_page_display_restyle },
+};
 
 // --- handwriting read as text (study/services/mlkit.h) ------------------------------------------
 
@@ -11360,25 +11549,14 @@ RDE_INTERNAL b8 fude_zoom_plan_choose(fude_app* _app, u32 _index) {
         return false;
     }
     if(_index < 3u) {
-        _page->wall_mm      = FUDE_ZOOM_PAGE_WALLS[_index];
-        _page->shape_tool   = FUDE_ZOOM_SHAPE_WALL;   // (set, never toggled: chosen again it stays)
-        _page->curve_tool   = false;
-        _page->fill_tool    = false;
-        _page->measure_tool = 0;
-        _page->text_tool    = 0;
-        _page->trim_tool    = false;
-        _page->wire_tool    = false;
-        _page->room_tool    = false;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->wall_mm    = FUDE_ZOOM_PAGE_WALLS[_index];
+        _page->shape_tool = FUDE_ZOOM_SHAPE_WALL;   // (set, never toggled: chosen again it stays)
         fude_zoom_page_pen_under(_page);
         fude_notice_show(fude_text(FUDE_TEXT_ZOOM_WALL_HOW));
     } else if(_index == 3u) {
-        _page->room_tool    = true;
-        _page->shape_tool   = 0;
-        _page->curve_tool   = false;
-        _page->fill_tool    = false;
-        _page->measure_tool = 0;
-        _page->trim_tool    = false;
-        _page->wire_tool    = false;
+        fude_zoom_page_pen_modes_off(_page);
+        _page->room_tool = true;
         fude_zoom_page_pen_under(_page);
         fude_notice_show(fude_text(FUDE_TEXT_ZOOM_ROOM_HOW));
     } else if(_index == 4u) {
@@ -11474,14 +11652,16 @@ RDE_INTERNAL b8 fude_zoom_page_parts_list(const fude_zoom_page* _page, fude_byte
 }
 
 
-// Its tabs: the symbols' families, then the connectors' styles.
+// Its tabs: the symbols' families, then the connectors' styles, then Custom (what a person kept: custom.h).
 #define FUDE_ZOOM_PAGE_LIBRARY_CONNECTORS FUDE_ZOOM_SYMBOL_FAMILIES
-#define FUDE_ZOOM_PAGE_LIBRARY_TABS_N     (FUDE_ZOOM_SYMBOL_FAMILIES + 1u)
+#define FUDE_ZOOM_PAGE_LIBRARY_CUSTOM     (FUDE_ZOOM_SYMBOL_FAMILIES + 1u)
+#define FUDE_ZOOM_PAGE_LIBRARY_TABS_N     (FUDE_ZOOM_SYMBOL_FAMILIES + 2u)
 RDE_INTERNAL const FUDE_TEXT_ FUDE_ZOOM_PAGE_LIBRARY_TABS[FUDE_ZOOM_PAGE_LIBRARY_TABS_N] = {
     FUDE_TEXT_ZOOM_LIB_FLOW, FUDE_TEXT_ZOOM_LIB_UML, FUDE_TEXT_ZOOM_LIB_BEHAVIOUR, FUDE_TEXT_ZOOM_LIB_DATA,
     FUDE_TEXT_ZOOM_LIB_ARCH, FUDE_TEXT_ZOOM_LIB_BPMN, FUDE_TEXT_ZOOM_LIB_PLANNING, FUDE_TEXT_ZOOM_LIB_ELECTRONICS,
     FUDE_TEXT_ZOOM_LIB_LOGIC, FUDE_TEXT_ZOOM_LIB_CHIPS, FUDE_TEXT_ZOOM_LIB_BOARDS, FUDE_TEXT_ZOOM_LIB_MECHANISMS,
     FUDE_TEXT_ZOOM_LIB_FLOORPLAN, FUDE_TEXT_ZOOM_LIB_WIRING, FUDE_TEXT_ZOOM_LIB_MATHS, FUDE_TEXT_ZOOM_LIB_SEWING, FUDE_TEXT_ZOOM_LIB_CONNECTORS,
+    FUDE_TEXT_ZOOM_LIB_CUSTOM,
 };
 
 // Is tab _f shown (the panel opened for diagrams or for circuits)?
@@ -11537,10 +11717,20 @@ RDE_INTERNAL const fude_zoom_page_connector_style FUDE_ZOOM_PAGE_CONNECTOR_STYLE
 };
 #define FUDE_ZOOM_PAGE_CONNECTOR_STYLES_N ((u32)(sizeof(FUDE_ZOOM_PAGE_CONNECTOR_STYLES) / sizeof(FUDE_ZOOM_PAGE_CONNECTOR_STYLES[0])))
 
-// How many tiles a tab has, and tile _i's (a symbol's kind, or a connector style's place).
-RDE_INTERNAL u32 fude_zoom_page_library_count(u8 _tab) {
+RDE_INTERNAL u32 fude_zoom_page_custom_items(fude_zoom_page* _page);
+RDE_INTERNAL void fude_zoom_page_custom_tile(fude_zoom_page* _page, u32 _item, fude_zoom_box _tile);
+RDE_INTERNAL fude_zoom_box fude_zoom_page_custom_more(fude_zoom_box _tile);
+RDE_INTERNAL void fude_zoom_page_custom_tap(fude_zoom_page* _page, u32 _item);
+RDE_INTERNAL void fude_zoom_page_custom_card(fude_zoom_page* _page, u32 _item);
+
+// How many tiles a tab has, and tile _i's (a symbol's kind, a connector style's place, or Custom's item: custom_items'
+// — made again by the count, which comes first).
+RDE_INTERNAL u32 fude_zoom_page_library_count(fude_zoom_page* _page, u8 _tab) {
     if(_tab == FUDE_ZOOM_PAGE_LIBRARY_CONNECTORS) {
         return FUDE_ZOOM_PAGE_CONNECTOR_STYLES_N;
+    }
+    if(_tab == FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+        return fude_zoom_page_custom_items(_page);
     }
     u32 _n = 0;
     for(u32 _k = 0; _k < fude_zoom_symbol_count(); _k++) {
@@ -11549,9 +11739,12 @@ RDE_INTERNAL u32 fude_zoom_page_library_count(u8 _tab) {
     return _n;
 }
 
-RDE_INTERNAL u32 fude_zoom_page_library_item(u8 _tab, u32 _i) {
+RDE_INTERNAL u32 fude_zoom_page_library_item(const fude_zoom_page* _page, u8 _tab, u32 _i) {
     if(_tab == FUDE_ZOOM_PAGE_LIBRARY_CONNECTORS) {
         return _i;
+    }
+    if(_tab == FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+        return _i < (u32)rde_arr_length(&_page->custom_items) ? ((const u32*)_page->custom_items.memory)[_i] : FUDE_ZOOM_NONE;
     }
     for(u32 _k = 0; _k < fude_zoom_symbol_count(); _k++) {
         if(fude_zoom_symbol_info_of(_k)->family == _tab && _k != fude_zoom_symbol_find("area")) {   // (an area: Insert's own)
@@ -11609,7 +11802,7 @@ RDE_INTERNAL void fude_zoom_page_clear_of_bar(const fude_zoom_page* _page, f64* 
 
 // Where the panel and its parts are (screen, centre origin, Y up): beside the toolbar, high up — clear of the bar
 // wherever it was put (on its side with more room), when there is room for it.
-RDE_INTERNAL void fude_zoom_page_library_lay(const fude_zoom_page* _page, fude_zoom_page_library_layout* _l) {
+RDE_INTERNAL void fude_zoom_page_library_lay(fude_zoom_page* _page, fude_zoom_page_library_layout* _l) {
     const fude_zoom_v2 _half = fude_zoom_page_half(_page);
     f64 _w = fmin(620.0, _half.x * 2.0 - 140.0);
     const f64 _h = fmin(660.0, _half.y * 2.0 - 150.0);
@@ -11645,7 +11838,7 @@ RDE_INTERNAL void fude_zoom_page_library_lay(const fude_zoom_page* _page, fude_z
     _l->grid = (fude_zoom_box){ _l->panel.min_x + FUDE_ZOOM_PAGE_LIB_PAD, _l->panel.min_y + FUDE_ZOOM_PAGE_LIB_PAD,
                                 _l->panel.max_x - FUDE_ZOOM_PAGE_LIB_PAD, _y - FUDE_ZOOM_PAGE_LIB_TAB_H - 10.0 };
     _l->cols = (u32)fmax(1.0, floor((_l->grid.max_x - _l->grid.min_x) / FUDE_ZOOM_PAGE_LIB_TILE));
-    const u32 _n = fude_zoom_page_library_count(_page->library_family);
+    const u32 _n = fude_zoom_page_library_count(_page, _page->library_family);
     _l->content = (f32)((f64)((_n + _l->cols - 1u) / _l->cols) * FUDE_ZOOM_PAGE_LIB_TILE);
 }
 
@@ -11653,17 +11846,26 @@ RDE_INTERNAL b8 fude_zoom_page_box_holds(fude_zoom_box _b, rde_vec_2F _p) {
     return _p.x >= _b.min_x && _p.x <= _b.max_x && _p.y >= _b.min_y && _p.y <= _b.max_y;
 }
 
-// The tile under _p (its symbol's kind; FUDE_ZOOM_NONE: none).
-RDE_INTERNAL u32 fude_zoom_page_library_tile(const fude_zoom_page* _page, const fude_zoom_page_library_layout* _l, rde_vec_2F _p) {
+// Tile _i's box (its top left the grid's, as scrolled).
+RDE_INTERNAL fude_zoom_box fude_zoom_page_library_box(const fude_zoom_page* _page, const fude_zoom_page_library_layout* _l, u32 _i) {
+    const f64 _x0 = _l->grid.min_x + (f64)(_i % _l->cols) * FUDE_ZOOM_PAGE_LIB_TILE;
+    const f64 _y1 = _l->grid.max_y - (f64)(_i / _l->cols) * FUDE_ZOOM_PAGE_LIB_TILE + _page->library_scroll;
+    return (fude_zoom_box){ _x0, _y1 - FUDE_ZOOM_PAGE_LIB_TILE, _x0 + FUDE_ZOOM_PAGE_LIB_TILE, _y1 };
+}
+
+// The tile under _p (its symbol's kind; FUDE_ZOOM_NONE: none), its box into *_box (may be NULL).
+RDE_INTERNAL u32 fude_zoom_page_library_tile(fude_zoom_page* _page, const fude_zoom_page_library_layout* _l, rde_vec_2F _p, fude_zoom_box* _box) {
     if(!fude_zoom_page_box_holds(_l->grid, _p)) {
         return FUDE_ZOOM_NONE;
     }
-    const u32 _n = fude_zoom_page_library_count(_page->library_family);
+    const u32 _n = fude_zoom_page_library_count(_page, _page->library_family);
     for(u32 _i = 0; _i < _n; _i++) {
-        const f64 _x0 = _l->grid.min_x + (f64)(_i % _l->cols) * FUDE_ZOOM_PAGE_LIB_TILE;
-        const f64 _y1 = _l->grid.max_y - (f64)(_i / _l->cols) * FUDE_ZOOM_PAGE_LIB_TILE + _page->library_scroll;
-        if(_p.x >= _x0 && _p.x < _x0 + FUDE_ZOOM_PAGE_LIB_TILE && _p.y <= _y1 && _p.y > _y1 - FUDE_ZOOM_PAGE_LIB_TILE) {
-            return fude_zoom_page_library_item(_page->library_family, _i);
+        const fude_zoom_box _b = fude_zoom_page_library_box(_page, _l, _i);
+        if(_p.x >= _b.min_x && _p.x < _b.max_x && _p.y <= _b.max_y && _p.y > _b.min_y) {
+            if(_box != NULL) {
+                *_box = _b;
+            }
+            return fude_zoom_page_library_item(_page, _page->library_family, _i);
         }
     }
     return FUDE_ZOOM_NONE;
@@ -11835,13 +12037,22 @@ RDE_INTERNAL void fude_zoom_page_render_library(fude_zoom_page* _page) {
         rde_rendering_2d_draw_line_1((rde_vec_2F){ _c.x - 5.0f, _c.y - 5.0f }, (rde_vec_2F){ _c.x + 5.0f, _c.y + 5.0f }, _t->text, 1.6f);
         rde_rendering_2d_draw_line_1((rde_vec_2F){ _c.x - 5.0f, _c.y + 5.0f }, (rde_vec_2F){ _c.x + 5.0f, _c.y - 5.0f }, _t->text, 1.6f);
     }
-    // Its tiles (those wholly in the grid as it is scrolled).
-    const u32 _count = fude_zoom_page_library_count(_page->library_family);
+    // Its tiles (those wholly in the grid as it is scrolled). Custom's none yet: what to do to have some.
+    const u32 _count = fude_zoom_page_library_count(_page, _page->library_family);
+    if(_count == 0u && _page->library_family == FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+        const c8* _none = fude_text(FUDE_TEXT_ZOOM_CUSTOM_EMPTY);
+        fude_zoom_render_text_in(&_page->renderer, _none, (u32)strlen(_none), (fude_zoom_box){ _l.grid.min_x + 12.0, _l.grid.min_y, _l.grid.max_x - 12.0, _l.grid.max_y },
+                                 15.0, true, _t->text_soft);
+    }
     for(u32 _i = 0; _i < _count; _i++) {
-        const u32 _k = fude_zoom_page_library_item(_page->library_family, _i);
-        const f64 _x0 = _l.grid.min_x + (f64)(_i % _l.cols) * FUDE_ZOOM_PAGE_LIB_TILE;
-        const f64 _y1 = _l.grid.max_y - (f64)(_i / _l.cols) * FUDE_ZOOM_PAGE_LIB_TILE + _page->library_scroll;
+        const u32 _k = fude_zoom_page_library_item(_page, _page->library_family, _i);
+        const fude_zoom_box _tb = fude_zoom_page_library_box(_page, &_l, _i);
+        const f64 _x0 = _tb.min_x, _y1 = _tb.max_y;
         if(_y1 > _l.grid.max_y + 0.5 || _y1 - FUDE_ZOOM_PAGE_LIB_TILE < _l.grid.min_y - 0.5) {
+            continue;
+        }
+        if(_page->library_family == FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+            fude_zoom_page_custom_tile(_page, _k, _tb);
             continue;
         }
         const fude_zoom_box _shape = { _x0 + 14.0, _y1 - 62.0, _x0 + FUDE_ZOOM_PAGE_LIB_TILE - 14.0, _y1 - 10.0 };
@@ -11939,6 +12150,7 @@ RDE_INTERNAL b8 fude_zoom_page_library_down(fude_zoom_page* _page, rde_vec_2F _a
     _page->library_down    = _at;
     _page->library_from    = _page->library_scroll;
     _page->library_dragged = false;
+    _page->library_down_at = rde_engine_get_time_now();
     return true;
 }
 
@@ -11986,8 +12198,17 @@ RDE_INTERNAL b8 fude_zoom_page_library_up(fude_zoom_page* _page, u64 _hand) {
             return true;
         }
     }
-    const u32 _kind = fude_zoom_page_library_tile(_page, &_l, _at);
-    if(_kind != FUDE_ZOOM_NONE && _page->library_family == FUDE_ZOOM_PAGE_LIBRARY_CONNECTORS) {
+    fude_zoom_box _tb;
+    const u32 _kind = fude_zoom_page_library_tile(_page, &_l, _at, &_tb);
+    if(_kind != FUDE_ZOOM_NONE && _page->library_family == FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+        // Its ⋯: its card (Edit or Inside, Rename, Delete); elsewhere: put down.
+        if(fude_zoom_page_box_holds(fude_zoom_page_custom_more(_tb), _at)) {
+            fude_zoom_page_custom_card(_page, _kind);
+        } else {
+            _page->library_open = false;
+            fude_zoom_page_custom_tap(_page, _kind);
+        }
+    } else if(_kind != FUDE_ZOOM_NONE && _page->library_family == FUDE_ZOOM_PAGE_LIBRARY_CONNECTORS) {
         _page->library_open = false;
         fude_zoom_page_connector_style_choose(_page, _kind);   // new connectors so (and those the lasso holds)
     } else if(_kind != FUDE_ZOOM_NONE) {
@@ -12765,12 +12986,13 @@ RDE_INTERNAL void fude_zoom_page_pieces_stale(fude_zoom_page* _page) {
     _page->piece_armed = -1;
 }
 
-// What the lasso holds, with what is in a container among it, and that once each.
-RDE_INTERNAL void fude_zoom_page_held_with_contents(fude_zoom_page* _page, rde_arr* _out) {
+// What selection _sel holds (the lasso's, or one of the page's own), with what is in a container among it, and that
+// once each.
+RDE_INTERNAL void fude_zoom_page_held_with_contents(fude_zoom_page* _page, const fude_zoom_selection* _sel, rde_arr* _out) {
     const fude_zoom_scene* _s = &_page->scene;
     rde_arr_clear(_out);
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_page->selection.picks); _i++) {
-        const u32 _o = ((const fude_zoom_pick*)_page->selection.picks.memory)[_i].object;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_sel->picks); _i++) {
+        const u32 _o = ((const fude_zoom_pick*)_sel->picks.memory)[_i].object;
         rde_arr_add(_out, (any)&_o);
         if(fude_zoom_page_container(_s, _o)) {
             fude_zoom_page_container_contents(_s, _o, _out);
@@ -12824,11 +13046,34 @@ RDE_INTERNAL void fude_zoom_page_keep_selection(fude_app* _app, void* _self, u32
     }
 }
 
+// What selection _sel holds (an area with what is in it) as a piece's things at their true size: copies into _clips
+// (each from its own units to the canvas's own, ×1, round the middle of what is held), what they cover into *_box.
+// False: nothing held. (_clips' bytes: fude_zoom_select_clips_free.)
+RDE_INTERNAL b8 fude_zoom_page_held_clips(fude_zoom_page* _page, const fude_zoom_selection* _sel, rde_arr* _clips, fude_zoom_box* _box) {
+    fude_zoom_box _sb;
+    if(!fude_zoom_select_any(_sel) || !fude_zoom_select_box(_sel, &_sb)) {
+        return false;
+    }
+    rde_arr _objects = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    fude_zoom_page_held_with_contents(_page, _sel, &_objects);
+    fude_zoom_select_clips_of(&_page->scene, (const u32*)_objects.memory, (u32)rde_arr_length(&_objects), _clips);
+    rde_arr_free(&_objects);
+    // From the screen to the piece's own units: the canvas's own (×1), from the middle of what is held.
+    const fude_zoom_sim _from = fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _page->scene.home));
+    const fude_zoom_v2  _mid  = fude_zoom_sim_apply(_from, (fude_zoom_v2){ (_sb.min_x + _sb.max_x) * 0.5, (_sb.min_y + _sb.max_y) * 0.5 });
+    const fude_zoom_sim _to   = fude_zoom_sim_compose((fude_zoom_sim){ 1.0, 0.0, -_mid.x, -_mid.y }, _from);
+    fude_zoom_clip* _c = (fude_zoom_clip*)_clips->memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(_clips); _i++) {
+        _c[_i].on_screen = fude_zoom_sim_compose(_to, _c[_i].on_screen);
+    }
+    *_box = fude_zoom_sim_box(_to, _sb);
+    return rde_arr_length(_clips) > 0u;
+}
+
 // Kept: what the lasso holds (an area with what is in it) at its true size — the canvas's own units, round the
 // middle of what it holds — under that name, first in My pieces.
 RDE_INTERNAL void fude_zoom_page_piece_commit(fude_zoom_page* _page, const c8* _text) {
-    fude_zoom_box _sb;
-    if(!fude_zoom_select_any(&_page->selection) || !fude_zoom_select_box(&_page->selection, &_sb)) {
+    if(!fude_zoom_select_any(&_page->selection)) {
         return;
     }
     fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
@@ -12858,24 +13103,12 @@ RDE_INTERNAL void fude_zoom_page_piece_commit(fude_zoom_page* _page, const c8* _
         memcpy(_name, _a, _len);
         _name[_len] = 0;
     }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    rde_arr _objects = rde_arr_new(sizeof(u32), _heap);
-    rde_arr _clips   = rde_arr_new(sizeof(fude_zoom_clip), _heap);
-    fude_zoom_page_held_with_contents(_page, &_objects);
-    fude_zoom_select_clips_of(&_page->scene, (const u32*)_objects.memory, (u32)rde_arr_length(&_objects), &_clips);
-    // From the screen to the piece's own units: the canvas's own (×1), from the middle of what is held.
-    const fude_zoom_sim _from = fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _page->scene.home));
-    const fude_zoom_v2  _mid  = fude_zoom_sim_apply(_from, (fude_zoom_v2){ (_sb.min_x + _sb.max_x) * 0.5, (_sb.min_y + _sb.max_y) * 0.5 });
-    const fude_zoom_sim _to   = fude_zoom_sim_compose((fude_zoom_sim){ 1.0, 0.0, -_mid.x, -_mid.y }, _from);
-    fude_zoom_clip* _c = (fude_zoom_clip*)_clips.memory;
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_clips); _i++) {
-        _c[_i].on_screen = fude_zoom_sim_compose(_to, _c[_i].on_screen);
-    }
-    const fude_zoom_box _box = fude_zoom_sim_box(_to, _sb);
-    const u32 _at = fude_zoom_pieces_add(_lib, fude_zoom_page_pieces_dir(), _name, _c, (u32)rde_arr_length(&_clips), _box);
+    rde_arr _clips = rde_arr_new(sizeof(fude_zoom_clip), rde_memory_allocator_get_default_std());
+    fude_zoom_box _box;
+    const u32 _at = fude_zoom_page_held_clips(_page, &_page->selection, &_clips, &_box) ?
+                    fude_zoom_pieces_add(_lib, fude_zoom_page_pieces_dir(), _name, (const fude_zoom_clip*)_clips.memory, (u32)rde_arr_length(&_clips), _box) : FUDE_ZOOM_NONE;
     fude_zoom_select_clips_free(&_clips);
     rde_arr_free(&_clips);
-    rde_arr_free(&_objects);
     fude_zoom_page_pieces_stale(_page);
     if(_at == FUDE_ZOOM_NONE) {
         fude_notice_show(fude_text(FUDE_TEXT_ZOOM_EXPORT_FAILED));
@@ -12886,13 +13119,8 @@ RDE_INTERNAL void fude_zoom_page_piece_commit(fude_zoom_page* _page, const c8* _
     fude_notice_show(_say);
 }
 
-// Piece _i put back: in the middle of the view at its true size, held by the lasso (to move it); one undo step.
-RDE_INTERNAL void fude_zoom_page_piece_put(fude_zoom_page* _page, u32 _i) {
-    fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
-    if(_i >= _lib->count) {
-        return;
-    }
-    const fude_zoom_piece* _piece = &_lib->list[_i];
+// A piece put down: in the middle of the view at its true size, held by the lasso (to move it); one undo step.
+RDE_INTERNAL void fude_zoom_page_put_piece(fude_zoom_page* _page, const fude_zoom_piece* _piece) {
     const u32 _n = (u32)rde_arr_length(&_piece->items);
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _at_arr = rde_arr_new(sizeof(fude_zoom_clip), _heap);
@@ -12910,6 +13138,14 @@ RDE_INTERNAL void fude_zoom_page_piece_put(fude_zoom_page* _page, u32 _i) {
     fude_zoom_select_paste_clips(&_page->selection, &_page->scene, _at, _n, (fude_zoom_v2){ 0.0, 0.0 }, (rde_vec_2F){ 0.0f, 0.0f });
     rde_arr_free(&_at_arr);
     _page->map_stale = true;
+}
+
+// Piece _i put back (put_piece's).
+RDE_INTERNAL void fude_zoom_page_piece_put(fude_zoom_page* _page, u32 _i) {
+    fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
+    if(_i < _lib->count) {
+        fude_zoom_page_put_piece(_page, &_lib->list[_i]);
+    }
 }
 
 // --- a piece laid as an instrument: a stencil (instrument.h) ---
@@ -13240,8 +13476,9 @@ RDE_INTERNAL b8 fude_zoom_page_pieces_up(fude_zoom_page* _page, u64 _hand) {
         if(fude_zoom_page_box_holds(fude_zoom_page_piece_drop(_tile), _at)) {
             // Its ×: once arms it (red), again — within three seconds — lets it go.
             if(_page->piece_armed == (i32)_i && rde_engine_get_time_now() - _page->piece_armed_at < 3.0) {
-                fude_zoom_pieces_remove(_lib, fude_zoom_page_pieces_dir(), _i);
-                fude_zoom_page_pieces_stale(_page);
+                c8 _key[FUDE_ZOOM_CUSTOM_KEY];
+                snprintf(_key, sizeof(_key), "%u", _lib->list[_i].id);
+                fude_zoom_page_custom_delete(_page, FUDE_ZOOM_CUSTOM_PIECE, _key);   // (its template canvas with it)
             } else {
                 _page->piece_armed    = (i32)_i;
                 _page->piece_armed_at = rde_engine_get_time_now();
@@ -13707,6 +13944,231 @@ RDE_INTERNAL void fude_zoom_page_render_bodies(fude_zoom_page* _page) {
     }
 }
 
+// --- examples: Insert → Examples (examples.h) ----------------------------------------------------------------------
+//
+// Which of them (all, the electronics', the mechanisms', those of both), each made a canvas of its own in a folder of
+// examples — numbered from the simplest, in the topic it is for, the view out to all of it — one a frame: a canvas is
+// made, it is drawn on once it is open, then the next. At the end, the first opened.
+
+RDE_INTERNAL const FUDE_TEXT_ FUDE_ZOOM_PAGE_EXAMPLE_NAMES[FUDE_ZOOM_EXAMPLE_COUNT] = {
+    FUDE_TEXT_ZOOM_EX_TORCH, FUDE_TEXT_ZOOM_EX_GATES, FUDE_TEXT_ZOOM_EX_FLASHER, FUDE_TEXT_ZOOM_EX_FULL_ADDER, FUDE_TEXT_ZOOM_EX_ADDER_4,
+    FUDE_TEXT_ZOOM_EX_COUNTER, FUDE_TEXT_ZOOM_EX_ADDER_CHIP, FUDE_TEXT_ZOOM_EX_CHASER, FUDE_TEXT_ZOOM_EX_CRANK, FUDE_TEXT_ZOOM_EX_GEAR_TRAIN,
+    FUDE_TEXT_ZOOM_EX_PENDULUM, FUDE_TEXT_ZOOM_EX_PULLEYS, FUDE_TEXT_ZOOM_EX_PISTON, FUDE_TEXT_ZOOM_EX_RACK, FUDE_TEXT_ZOOM_EX_GEARS_RACK,
+    FUDE_TEXT_ZOOM_EX_BODIES, FUDE_TEXT_ZOOM_EX_GEARBOX, FUDE_TEXT_ZOOM_EX_MACHINE, FUDE_TEXT_ZOOM_EX_MOTOR_GEARS, FUDE_TEXT_ZOOM_EX_DYNAMO,
+    FUDE_TEXT_ZOOM_EX_FORWARD_BACK, FUDE_TEXT_ZOOM_EX_TURN_COUNTER, FUDE_TEXT_ZOOM_EX_SHUTTLE, FUDE_TEXT_ZOOM_EX_WORKBENCH, FUDE_TEXT_ZOOM_EX_EVERYTHING,
+};
+
+RDE_INTERNAL const c8* fude_zoom_page_example_title(u32 _example) {
+    return _example < FUDE_ZOOM_EXAMPLE_COUNT ? fude_text(FUDE_ZOOM_PAGE_EXAMPLE_NAMES[_example]) : NULL;
+}
+
+// Example _e's canvas in the folder of examples: one named for it ("12. Pulleys": its place in the list, which may have
+// changed since — the number not counted), its id; 0: none.
+RDE_INTERNAL u32 fude_zoom_page_example_canvas(fude_zoom_page* _page, u32 _e) {
+    const fude_notes* _notes = _page->app->notes;
+    const c8* _title = fude_zoom_page_example_title(_e);
+    for(u32 _i = 0; _title != NULL && _i < (u32)rde_arr_length(&_notes->notes); _i++) {
+        const fude_note* _n = &((const fude_note*)_notes->notes.memory)[_i];
+        if(_n->kind != FUDE_NOTE_CANVAS || _n->parent != _page->examples_folder) {
+            continue;
+        }
+        const c8* _t = _n->name;
+        while(*_t >= '0' && *_t <= '9') {
+            _t++;
+        }
+        _t += _t != _n->name && _t[0] == '.' && _t[1] == ' ' ? 2 : 0;
+        if(strcmp(_t, _title) == 0) {
+            return _n->id;
+        }
+    }
+    return 0u;
+}
+
+// Each example's canvas in the folder named by its place in the list now, and in that order (after anything else
+// there): the folder as the list is, those made before kept as they were (what was done on them too).
+RDE_INTERNAL void fude_zoom_page_examples_order(fude_zoom_page* _page) {
+    fude_notes* _notes = _page->app->notes;
+    for(u32 _e = 0; _e < FUDE_ZOOM_EXAMPLE_COUNT; _e++) {
+        const u32 _id = fude_zoom_page_example_canvas(_page, _e);
+        if(_id == 0u) {
+            continue;
+        }
+        c8 _name[FUDE_NOTE_NAME];
+        snprintf(_name, sizeof(_name), "%u. %s", _e + 1u, fude_zoom_page_example_title(_e));
+        const fude_note* _n = fude_notes_find(_notes, _id);
+        if(_n != NULL && strcmp(_n->name, _name) != 0) {
+            fude_notes_rename(_notes, _id, _name);
+        }
+        fude_notes_move(_notes, _id, _page->examples_folder, 0u);
+    }
+}
+
+// The next one's canvas made (opened next frame); none left: the folder put in order, the first one made opened (none
+// made: the first one asked for), how many said.
+RDE_INTERNAL void fude_zoom_page_examples_next(fude_zoom_page* _page) {
+    fude_app* _app = _page->app;
+    if(rde_arr_length(&_page->examples_todo) == 0u) {
+        _page->examples_waiting = 0u;
+        fude_zoom_page_examples_order(_page);
+        if(_page->examples_first != 0u) {
+            fude_notes_open(_app->notes, _page->examples_first);
+        }
+        const fude_note* _folder = fude_notes_find(_app->notes, _page->examples_folder);
+        c8 _say[300];
+        if(_page->examples_made > 0u) {
+            FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_EXAMPLES_MADE, FUDE_TN(_page->examples_made), FUDE_TS(_folder != NULL ? _folder->name : ""));
+        } else {
+            FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_EXAMPLES_THERE, FUDE_TS(_folder != NULL ? _folder->name : ""));
+        }
+        fude_notice_show(_say);
+        return;
+    }
+    const u32 _e = ((const u32*)_page->examples_todo.memory)[0];
+    c8 _name[FUDE_NOTE_NAME];
+    snprintf(_name, sizeof(_name), "%u. %s", _e + 1u, fude_zoom_page_example_title(_e));
+    const u32 _id = fude_doc_new_canvas(_app, 0u, NULL, _name, _page->examples_folder);
+    if(_id == 0u) {
+        rde_arr_clear(&_page->examples_todo);
+        _page->examples_waiting = 0u;
+        fude_notice_show(fude_text(FUDE_TEXT_ZOOM_EXPORT_FAILED));
+        return;
+    }
+    _page->examples_waiting = _id;
+    if(_page->examples_first == 0u) {
+        _page->examples_first = _id;
+    }
+}
+
+// Example _e drawn on the canvas open (its new one): one undo step, the canvas in its topic, the view out to all of it.
+// The frame things put in the middle of the view go in (the drawing frame there).
+RDE_INTERNAL u32 fude_zoom_page_middle_frame(fude_zoom_page* _page) {
+    fude_zoom_scene* _s = &_page->scene;
+    const f64 _near = 4.0 / _s->camera.z;
+    return fude_zoom_camera_drawing_frame(_s, (fude_zoom_box){ _s->camera.at.x - _near, _s->camera.at.y - _near, _s->camera.at.x + _near, _s->camera.at.y + _near });
+}
+
+// The view moved to the middle of _box (frame _f's units) and out, until all of it is on the screen with room round it
+// (clear of the toolbar's side).
+RDE_INTERNAL void fude_zoom_page_view_out_to(fude_zoom_page* _page, u32 _f, fude_zoom_box _box) {
+    if(fude_zoom_box_is_empty(_box)) {
+        return;
+    }
+    const fude_zoom_v2 _half = fude_zoom_page_half(_page);
+    fude_zoom_box _on = fude_zoom_sim_box(fude_zoom_page_frame_sim(_page, _f), _box);
+    // (its middle a little over the screen's: room under it for Play's panel)
+    const f64 _lift = fmin(60.0, _half.y * 0.1);
+    fude_zoom_camera_pan(&_page->scene, (fude_zoom_v2){ -(_on.min_x + _on.max_x) * 0.5, _lift - (_on.min_y + _on.max_y) * 0.5 });
+    fude_zoom_camera_settle(&_page->scene, _half);
+    _on = fude_zoom_sim_box(fude_zoom_page_frame_sim(_page, _f), _box);
+    const f64 _reach = fmax((_on.max_x - _on.min_x) * 0.5 / fmax(_half.x - 120.0, _half.x * 0.6),
+                            (_on.max_y - _on.min_y) * 0.5 / fmax(_half.y - _lift - 150.0, _half.y * 0.5));
+    if(_reach > 1.0) {
+        fude_zoom_camera_zoom_at(&_page->scene, (fude_zoom_v2){ 0.0, _lift }, 1.0 / _reach);
+        fude_zoom_camera_settle(&_page->scene, _half);
+    }
+}
+
+// What was just made (_born, in frame _f) one undo step. What it covers in _f.
+RDE_INTERNAL fude_zoom_box fude_zoom_page_made_step(fude_zoom_page* _page, u32 _f, const rde_arr* _born) {
+    fude_zoom_scene* _s = &_page->scene;
+    fude_zoom_box _box = fude_zoom_box_empty();
+    for(u32 _i = 0; _i < (u32)rde_arr_length(_born); _i++) {
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, ((const u32*)_born->memory)[_i]);
+        if(_o->frame == _f && !fude_zoom_box_is_empty(_o->box)) {
+            _box = fude_zoom_box_union(_box, _o->box);
+        }
+    }
+    if(rde_arr_length(_born) > 0u) {
+        fude_zoom_history_push(_s, _f, _box, NULL, 0, (const u32*)_born->memory, (u32)rde_arr_length(_born));
+    }
+    return _box;
+}
+
+RDE_INTERNAL void fude_zoom_page_examples_draw(fude_zoom_page* _page, u32 _e) {
+    const u32 _f = fude_zoom_page_middle_frame(_page);
+    const fude_zoom_sim _fs = fude_zoom_page_frame_sim(_page, _f);
+    rde_arr _born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    fude_zoom_example_build(&_page->scene, _f, fude_zoom_sim_inverse(_fs), FUDE_THEME_INK, _e, fude_zoom_page_example_title, &_born);
+    const fude_zoom_box _box = fude_zoom_page_made_step(_page, _f, &_born);
+    rde_arr_free(&_born);
+    const u8 _group = fude_zoom_example_group(_e);
+    _page->topic = _group == FUDE_ZOOM_EXAMPLES_MECHANISMS ? FUDE_ZOOM_TOPIC_MECHANISMS : FUDE_ZOOM_TOPIC_ELECTRONICS;
+    fude_zoom_page_tools_save(_page);
+    fude_zoom_page_view_out_to(_page, _f, _box);
+}
+
+// The folder _name at the top of the canvases (made, if not there; 0: not made).
+RDE_INTERNAL u32 fude_zoom_page_top_folder(fude_zoom_page* _page, const c8* _name) {
+    fude_notes* _notes = _page->app->notes;
+    u32 _id = 0u;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_notes->notes) && _id == 0u; _i++) {
+        const fude_note* _n = &((const fude_note*)_notes->notes.memory)[_i];
+        _id = _n->kind == FUDE_NOTE_FOLDER && _n->parent == 0u && strcmp(_n->name, _name) == 0 ? _n->id : 0u;
+    }
+    return _id != 0u ? _id : fude_notes_add(_notes, FUDE_NOTE_FOLDER, 0u, _name);
+}
+
+// Which of them chosen: those, in order, each a canvas, in the folder of examples (made at the top, if not there).
+RDE_INTERNAL void fude_zoom_page_examples_chosen(void* _self, u32 _which) {
+    fude_zoom_page* _page = (fude_zoom_page*)_self;
+    if(_page->examples_waiting != 0u) {
+        return;   // (some being made already)
+    }
+    rde_arr_clear(&_page->examples_todo);
+    for(u32 _e = 0; _e < FUDE_ZOOM_EXAMPLE_COUNT; _e++) {
+        const u8 _g = fude_zoom_example_group(_e);
+        if(_which == 0u || (_which == 1u && _g == FUDE_ZOOM_EXAMPLES_ELECTRONICS) || (_which == 2u && _g == FUDE_ZOOM_EXAMPLES_MECHANISMS) ||
+           (_which == 3u && _g == FUDE_ZOOM_EXAMPLES_BOTH)) {
+            rde_arr_add(&_page->examples_todo, (any)&_e);
+        }
+    }
+    _page->examples_folder = fude_zoom_page_top_folder(_page, fude_text(FUDE_TEXT_ZOOM_EXAMPLES));
+    _page->examples_first = 0u;
+    _page->examples_made  = 0u;
+    // (those there already kept as they are: only the others made; none to make, the first of them opened)
+    u32* _todo = (u32*)_page->examples_todo.memory;
+    u32 _left = 0;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_page->examples_todo); _i++) {
+        const u32 _there = fude_zoom_page_example_canvas(_page, _todo[_i]);
+        if(_there == 0u) {
+            _todo[_left++] = _todo[_i];
+        } else if(_page->examples_first == 0u && _left == 0u) {
+            _page->examples_first = _there;
+        }
+    }
+    const b8 _some = _left > 0u;
+    rde_arr_resize(&_page->examples_todo, _left);
+    if(_some) {
+        _page->examples_first = 0u;   // (the first one made opened at the end)
+    }
+    if(rde_arr_length(&_page->examples_todo) > 0u) {
+        c8 _say[200];
+        FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_EXAMPLES_MAKING, FUDE_TN((u32)rde_arr_length(&_page->examples_todo)));
+        fude_notice_show(_say);
+    }
+    fude_zoom_page_examples_next(_page);
+}
+
+RDE_INTERNAL void fude_zoom_page_examples_card(fude_zoom_page* _page) {
+    const c8* _labels[4] = { fude_text(FUDE_TEXT_ZOOM_EXAMPLES_ALL), fude_text(FUDE_TEXT_ZOOM_TOPIC_ELECTRONICS), fude_text(FUDE_TEXT_ZOOM_TOPIC_MECHANISMS),
+                             fude_text(FUDE_TEXT_ZOOM_EXAMPLES_BOTH) };
+    const c8* _icons[4] = { FUDE_ICON_STACK, FUDE_ICON_SIGNAL_HIGH, FUDE_ICON_ROTATE, FUDE_ICON_SHAPES };
+    fude_zoom_choice_open(&_page->choice_form, fude_text(FUDE_TEXT_ZOOM_EXAMPLES_TITLE), _labels, _icons, 4u, fude_zoom_page_examples_chosen, _page);
+}
+
+// Once a frame: the one waiting drawn once its canvas is open, then the next made.
+RDE_INTERNAL void fude_zoom_page_examples_follow(fude_zoom_page* _page) {
+    if(_page->examples_waiting == 0u || !_page->open || _page->canvas != _page->examples_waiting || rde_arr_length(&_page->examples_todo) == 0u) {
+        return;
+    }
+    const u32 _e = ((const u32*)_page->examples_todo.memory)[0];
+    rde_arr_remove(&_page->examples_todo, 0u);
+    fude_zoom_page_examples_draw(_page, _e);
+    _page->examples_made++;
+    _page->examples_waiting = 0u;
+    fude_zoom_page_examples_next(_page);
+}
+
 // --- custom parts made of what is drawn: Make part on the lasso's row (logic.h) ------------------------------------
 //
 // What the lasso holds of a circuit — gates, flip-flops, chips, custom parts, wired — made one part: its logic inputs
@@ -13769,28 +14231,67 @@ RDE_INTERNAL b8 fude_zoom_page_lasso_logic(const fude_zoom_page* _page) {
     return false;
 }
 
-// A part's name as a file's and an id's: lowercase letters and digits, the rest dashes.
-RDE_INTERNAL void fude_zoom_page_part_slug(const c8* _name, c8* _out, usize _size) {
-    usize _k = 0;
-    b8 _dash = false;
-    for(const c8* _c = _name; *_c != 0 && _k + 1u < _size; _c++) {
-        const c8 _l = (*_c >= 'A' && *_c <= 'Z') ? (c8)(*_c - 'A' + 'a') : *_c;
-        if((_l >= 'a' && _l <= 'z') || (_l >= '0' && _l <= '9')) {
-            _out[_k++] = _l;
-            _dash = false;
-        } else if(!_dash && _k > 0u) {
-            _out[_k++] = '-';
-            _dash = true;
-        }
+
+#define FUDE_ZOOM_PAGE_PART_W 120.0   // a custom part's block put down (screen points; its pins a row of 24 apart)
+
+// How many inputs and outputs custom part _def has.
+RDE_INTERNAL void fude_zoom_page_part_ports(const fude_sim_def* _def, u32* _ins, u32* _outs) {
+    *_ins = *_outs = 0u;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_def->ports); _i++) {
+        if(((const fude_sim_port*)_def->ports.memory)[_i].dir == FUDE_SIM_IN) { (*_ins)++; } else { (*_outs)++; }
     }
-    while(_k > 0u && _out[_k - 1u] == '-') {
-        _k--;
+}
+
+// Where custom part _id's files are: its slug, _ext, in My parts.
+RDE_INTERNAL void fude_zoom_page_part_path(const c8* _id, const c8* _ext, c8* _out, usize _size) {
+    snprintf(_out, _size, "%s%s%s", fude_zoom_page_parts_dir(), strncmp(_id, "user/", 5u) == 0 ? _id + 5 : _id, _ext);
+}
+
+// Custom part _def kept: learnt (in place of an older one with its id: every one of it on every canvas follows) and
+// written to My parts. The definition learnt (NULL: not read back).
+RDE_INTERNAL const fude_sim_def* fude_zoom_page_part_keep(const fude_sim_def* _def) {
+    fude_bytes _text = fude_bytes_new(1024u);
+    fude_sim_def_write(_def, &_text);
+    c8 _error[160];
+    const fude_sim_def* _learnt = fude_zoom_logic_learn((const c8*)_text.memory, fude_bytes_size(&_text), _error, sizeof(_error));
+    c8 _path[RDE_MAX_PATH];
+    fude_zoom_page_part_path(_def->id, ".part", _path, sizeof(_path));
+    fude_bytes_write_and_free(&_text, _path, NULL);
+    return _learnt;
+}
+
+// Custom part _id's drawing kept beside it (what _sel holds, a piece: its template's, the first time it opens).
+RDE_INTERNAL void fude_zoom_page_part_drawing(fude_zoom_page* _page, const fude_zoom_selection* _sel, const c8* _id, const c8* _name) {
+    fude_zoom_piece _drawn;
+    memset(&_drawn, 0, sizeof(_drawn));
+    _drawn.items = rde_arr_new(sizeof(fude_zoom_clip), rde_memory_allocator_get_default_std());
+    snprintf(_drawn.name, sizeof(_drawn.name), "%s", _name);
+    if(fude_zoom_page_held_clips(_page, _sel, &_drawn.items, &_drawn.box)) {
+        c8 _path[RDE_MAX_PATH];
+        fude_zoom_page_part_path(_id, ".piece", _path, sizeof(_path));
+        fude_zoom_piece_save(&_drawn, _path);
     }
-    if(_k == 0u) {
-        snprintf(_out, _size, "part");
-        return;
+    fude_zoom_piece_clear(&_drawn);
+}
+
+// One of custom part _def at _x, _y (screen points from the middle), lassoed alone: one undo step — its pins a row
+// apart, its block as wide as its name needs. Its object (FUDE_ZOOM_NONE: none).
+RDE_INTERNAL u32 fude_zoom_page_part_put_at(fude_zoom_page* _page, const fude_sim_def* _def, f64 _x, f64 _y) {
+    fude_zoom_scene* _s = &_page->scene;
+    u32 _ins, _outs;
+    fude_zoom_page_part_ports(_def, &_ins, &_outs);
+    const f64 _rows = (f64)(_ins > _outs ? _ins : _outs);
+    const u32 _f = fude_zoom_page_middle_frame(_page);
+    rde_arr _born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    const u32 _made = fude_zoom_page_look_sized(_page, _f, "custom part", _x, _y, 0.0, FUDE_ZOOM_PAGE_PART_W, fmax(60.0, (_rows + 1.0) * 24.0), _def->name, &_born);
+    if(_made != FUDE_ZOOM_NONE) {
+        fude_zoom_page_made_step(_page, _f, &_born);
+        fude_zoom_select_clear(&_page->selection);
+        rde_arr_add(&_page->selection.picks, &(fude_zoom_pick){ _made });
+        fude_zoom_select_update(&_page->selection, _s);
     }
-    _out[_k] = 0;
+    rde_arr_free(&_born);
+    return _made;
 }
 
 void fude_zoom_page_make_part(fude_zoom_page* _page) {
@@ -13830,7 +14331,7 @@ void fude_zoom_page_make_part(fude_zoom_page* _page) {
         FUDE_TEXTF(_name, FUDE_TEXT_ZOOM_PART_DEFAULT, FUDE_TN(_mine + 1u));
     }
     c8 _slug[40], _id[FUDE_SIM_ID];
-    fude_zoom_page_part_slug(_name, _slug, sizeof(_slug));
+    fude_zoom_logic_slug(_name, _slug, sizeof(_slug));
     snprintf(_id, sizeof(_id), "user/%s", _slug);
     fude_zoom_circuit _c;
     fude_zoom_circuit_init(&_c);
@@ -13843,36 +14344,21 @@ void fude_zoom_page_make_part(fude_zoom_page* _page) {
         fude_notice_show(fude_text(_problem == FUDE_ZOOM_MAKE_NOTHING ? FUDE_TEXT_ZOOM_PART_NOTHING : FUDE_TEXT_ZOOM_PART_NO_PORTS));
         return;
     }
+    // (made again: its pins where they were — what is wired to them on canvases still on them)
+    fude_zoom_logic_keep_order(_def, fude_sim_lib_find(fude_zoom_logic_library(), _id));
     u32 _ins = 0, _outs = 0;
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_def->ports); _i++) {
-        if(((const fude_sim_port*)_def->ports.memory)[_i].dir == FUDE_SIM_IN) { _ins++; } else { _outs++; }
-    }
-    // Learnt (in place of an older one of its name: every one of it follows), kept in My parts.
-    fude_bytes _text = fude_bytes_new(1024u);
-    fude_sim_def_write(_def, &_text);
+    fude_zoom_page_part_ports(_def, &_ins, &_outs);
+    // Learnt (in place of an older one of its name: every one of it follows), kept in My parts, its drawing beside it.
+    const fude_sim_def* _learnt = fude_zoom_page_part_keep(_def);
     fude_sim_def_free(_def);
-    c8 _error[160];
-    fude_zoom_logic_learn((const c8*)_text.memory, fude_bytes_size(&_text), _error, sizeof(_error));
-    c8 _path[RDE_MAX_PATH];
-    snprintf(_path, sizeof(_path), "%s%s.part", fude_zoom_page_parts_dir(), _slug);
-    fude_bytes_write_and_free(&_text, _path, NULL);
-    // One of it beside what it was made of, lassoed (its pins a row apart, its block as wide as its name needs).
+    fude_zoom_page_part_drawing(_page, &_page->selection, _id, _name);
+    fude_zoom_page_template_drop(_page, FUDE_ZOOM_CUSTOM_PART, _id);   // (its template made afresh from this drawing)
+    // One of it beside what it was made of, lassoed.
     const fude_zoom_box _b = _page->selection.box;
-    const f64 _rows = (f64)(_ins > _outs ? _ins : _outs);
-    const f64 _h = fmax(60.0, (_rows + 1.0) * 24.0), _w = 120.0;
-    const f64 _near = 4.0 / _s->camera.z;
-    const u32 _f = fude_zoom_camera_drawing_frame(_s, (fude_zoom_box){ _s->camera.at.x - _near, _s->camera.at.y - _near, _s->camera.at.x + _near, _s->camera.at.y + _near });
-    rde_arr _born = rde_arr_new(sizeof(u32), _heap);
-    const f64 _x = fude_zoom_box_is_empty(_b) ? 0.0 : _b.max_x + 40.0 + _w * 0.5;
-    const f64 _y = fude_zoom_box_is_empty(_b) ? 0.0 : (_b.min_y + _b.max_y) * 0.5;
-    const u32 _made = fude_zoom_page_look_sized(_page, _f, "custom part", _x, _y, 0.0, _w, _h, _name, &_born);
-    if(_made != FUDE_ZOOM_NONE) {
-        fude_zoom_history_push(_s, _f, fude_zoom_scene_object(_s, _made)->box, NULL, 0, (const u32*)_born.memory, (u32)rde_arr_length(&_born));
-        fude_zoom_select_clear(&_page->selection);
-        rde_arr_add(&_page->selection.picks, &(fude_zoom_pick){ _made });
-        fude_zoom_select_update(&_page->selection, _s);
+    if(_learnt != NULL) {
+        fude_zoom_page_part_put_at(_page, _learnt, fude_zoom_box_is_empty(_b) ? 0.0 : _b.max_x + 40.0 + FUDE_ZOOM_PAGE_PART_W * 0.5,
+                                   fude_zoom_box_is_empty(_b) ? 0.0 : (_b.min_y + _b.max_y) * 0.5);
     }
-    rde_arr_free(&_born);
     c8 _say[160];
     FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_PART_MADE, FUDE_TS(_name), FUDE_TN(_ins), FUDE_TN(_outs));
     fude_notice_show(_say);
@@ -13883,6 +14369,615 @@ RDE_INTERNAL void fude_zoom_page_part_selection(fude_app* _app, void* _self, u32
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_page != NULL && _page->open) {
         fude_zoom_page_make_part(_page);
+    }
+}
+
+// --- Custom: the library's tab of what is kept, and the templates (custom.h) ---------------------------------------
+//
+// Every library panel's last tab: My pieces of its area (those with its symbols in them; a drawing of none, every
+// panel's) and, the circuits', My parts. A tap puts one down; its ⋯, or a hold on it, its card — Edit (a piece) or
+// Inside (a part), Rename, Delete. Each has a canvas of its own in the folder Custom, its template, made the first
+// time it is opened (the piece put on it, the part's drawing — or its inside drawn from what it is): what it holds
+// when it is left is kept as the piece, or made the part again, every one of it on every canvas following. A custom
+// part lassoed alone has Inside on the lasso's row; Back on a template goes back where it was opened from.
+
+#define FUDE_ZOOM_PAGE_CUSTOM_PART 0x80000000u   // a Custom tile's item: a custom part's place in the logic library
+#define FUDE_ZOOM_PAGE_CUSTOM_HOLD 0.55          // seconds a hand held on a tile still: its card
+
+// Which canvas is whose (read the first time wanted, and again for another person's saves), and kept.
+RDE_INTERNAL const c8* fude_zoom_page_templates_path(void) {
+    static c8 _path[RDE_MAX_PATH];
+    snprintf(_path, sizeof(_path), "%stemplates.txt", fude_zoom_page_parts_dir());
+    return _path;
+}
+
+RDE_INTERNAL fude_zoom_templates* fude_zoom_page_templates(fude_zoom_page* _page) {
+    static c8 _from[RDE_MAX_PATH] = { 0 };
+    if(!_page->templates_ready) {
+        fude_zoom_templates_init(&_page->templates);
+        _page->templates_ready = true;
+        _from[0] = 0;
+    }
+    const c8* _path = fude_zoom_page_templates_path();
+    if(strcmp(_from, _path) != 0) {
+        snprintf(_from, sizeof(_from), "%s", _path);
+        fude_zoom_templates_read(&_page->templates, _path);
+    }
+    return &_page->templates;
+}
+
+RDE_INTERNAL void fude_zoom_page_templates_save(fude_zoom_page* _page) {
+    fude_zoom_templates_write(fude_zoom_page_templates(_page), fude_zoom_page_templates_path());
+}
+
+// A custom part of a person's own by its id (NULL: none — forgotten since).
+RDE_INTERNAL const fude_sim_def* fude_zoom_page_custom_def(const c8* _id) {
+    fude_zoom_page_parts_load();
+    const fude_sim_def* _d = fude_sim_lib_find(fude_zoom_logic_library(), _id);
+    return _d != NULL && strncmp(_d->id, "user/", 5u) == 0 ? _d : NULL;
+}
+
+// A kept piece's place in My pieces by its key, its id (FUDE_ZOOM_NONE: none).
+RDE_INTERNAL u32 fude_zoom_page_custom_piece(fude_zoom_page* _page, const c8* _key) {
+    const fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
+    c8* _end = NULL;
+    const unsigned long _id = strtoul(_key, &_end, 10);
+    for(u32 _i = 0; _end != _key && _i < _lib->count; _i++) {
+        if(_lib->list[_i].id == (u32)_id) {
+            return _i;
+        }
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+// What _kind's _key is called (NULL: none such).
+RDE_INTERNAL const c8* fude_zoom_page_custom_name(fude_zoom_page* _page, u8 _kind, const c8* _key) {
+    if(_kind == FUDE_ZOOM_CUSTOM_PART) {
+        const fude_sim_def* _d = fude_zoom_page_custom_def(_key);
+        return _d != NULL ? _d->name : NULL;
+    }
+    const u32 _i = fude_zoom_page_custom_piece(_page, _key);
+    return _i != FUDE_ZOOM_NONE ? fude_zoom_page_pieces(_page)->list[_i].name : NULL;
+}
+
+// A Custom tile's item as a kind and a key (FUDE_ZOOM_CUSTOM_KEY bytes). False: none such.
+RDE_INTERNAL b8 fude_zoom_page_custom_of(fude_zoom_page* _page, u32 _item, u8* _kind, c8* _key) {
+    if(_item == FUDE_ZOOM_NONE) {
+        return false;
+    }
+    if(_item & FUDE_ZOOM_PAGE_CUSTOM_PART) {
+        const fude_sim_lib* _lib = fude_zoom_logic_library();
+        const u32 _at = _item & ~FUDE_ZOOM_PAGE_CUSTOM_PART;
+        if(_at >= (u32)rde_arr_length(&_lib->defs)) {
+            return false;
+        }
+        *_kind = FUDE_ZOOM_CUSTOM_PART;
+        snprintf(_key, FUDE_ZOOM_CUSTOM_KEY, "%s", ((const fude_sim_def* const*)_lib->defs.memory)[_at]->id);
+        return true;
+    }
+    const fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
+    if(_item >= _lib->count) {
+        return false;
+    }
+    *_kind = FUDE_ZOOM_CUSTOM_PIECE;
+    snprintf(_key, FUDE_ZOOM_CUSTOM_KEY, "%u", _lib->list[_item].id);
+    return true;
+}
+
+// The panel's Custom tiles, listed again: My parts (the circuits' panel's), then My pieces of the panel's area — those
+// with its symbols in them, and drawings with none (every panel's). How many.
+RDE_INTERNAL u32 fude_zoom_page_custom_items(fude_zoom_page* _page) {
+    rde_arr_clear(&_page->custom_items);
+    const u32 _tabs = _page->library_tabs != 0u ? _page->library_tabs : FUDE_ZOOM_PAGE_LIBRARY_DIAGRAMS;
+    if(_tabs & (1u << FUDE_ZOOM_SYMBOL_FAMILY_LOGIC)) {
+        fude_zoom_page_parts_load();
+        const fude_sim_lib* _lib = fude_zoom_logic_library();
+        const fude_sim_def* const* _d = (const fude_sim_def* const*)_lib->defs.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_lib->defs); _i++) {
+            if(strncmp(_d[_i]->id, "user/", 5u) == 0) {
+                const u32 _item = FUDE_ZOOM_PAGE_CUSTOM_PART | _i;
+                rde_arr_add(&_page->custom_items, (any)&_item);
+            }
+        }
+    }
+    const fude_zoom_pieces* _p = fude_zoom_page_pieces(_page);
+    const u32 _families = _tabs & ((1u << FUDE_ZOOM_SYMBOL_FAMILIES) - 1u);
+    for(u32 _i = 0; _i < _p->count; _i++) {
+        if(_p->list[_i].families == 0u || (_p->list[_i].families & _families) != 0u) {
+            rde_arr_add(&_page->custom_items, (any)&_i);
+        }
+    }
+    return (u32)rde_arr_length(&_page->custom_items);
+}
+
+// A custom part's picture in a box: its block, its inputs' stubs on its left, its outputs' on its right.
+RDE_INTERNAL void fude_zoom_page_draw_block_in(const fude_sim_def* _def, fude_zoom_box _box, rde_color _ink, rde_color _paper) {
+    u32 _ins, _outs;
+    fude_zoom_page_part_ports(_def, &_ins, &_outs);
+    const u32 _rows  = _ins > _outs ? (_ins > 0u ? _ins : 1u) : (_outs > 0u ? _outs : 1u);
+    const f64 _pitch = fmin(10.0, (_box.max_y - _box.min_y) / (f64)(_rows + 1u));
+    const f64 _w = (_box.max_x - _box.min_x) * 0.56, _h = _pitch * (f64)(_rows + 1u);
+    const f64 _cx = (_box.min_x + _box.max_x) * 0.5, _cy = (_box.min_y + _box.max_y) * 0.5;
+    const f64 _stub = (_box.max_x - _box.min_x - _w) * 0.5;
+    rde_rendering_2d_draw_rounded_rectangle_with_border((rde_vec_2F){ (f32)_cx, (f32)_cy }, (rde_vec_2F){ (f32)_w, (f32)_h }, 0.08f, 6u, _paper, 1.2f, _ink, NULL);
+    for(u32 _side = 0; _side < 2u; _side++) {
+        const u32 _n = _side == 0u ? _ins : _outs;
+        const f64 _x = _side == 0u ? _cx - _w * 0.5 : _cx + _w * 0.5;
+        const f64 _top = _cy + _pitch * (f64)(_n - (_n > 0u ? 1u : 0u)) * 0.5;
+        for(u32 _k = 0; _k < _n; _k++) {
+            const f32 _y = (f32)(_top - _pitch * (f64)_k);
+            rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)_x, _y }, (rde_vec_2F){ (f32)(_side == 0u ? _x - _stub : _x + _stub), _y }, _ink, 1.2f);
+        }
+    }
+}
+
+// A tile's ⋯ (its card): its top right corner.
+RDE_INTERNAL fude_zoom_box fude_zoom_page_custom_more(fude_zoom_box _tile) {
+    return (fude_zoom_box){ _tile.max_x - 30.0, _tile.max_y - 30.0, _tile.max_x - 4.0, _tile.max_y - 4.0 };
+}
+
+// A Custom tile: its picture (a piece's lines, a part's block), its name under it, its ⋯.
+RDE_INTERNAL void fude_zoom_page_custom_tile(fude_zoom_page* _page, u32 _item, fude_zoom_box _tile) {
+    const fude_theme* _t = fude_theme_active();
+    const fude_zoom_box _picture = { _tile.min_x + 12.0, _tile.max_y - 64.0, _tile.max_x - 28.0, _tile.max_y - 12.0 };
+    const c8* _name = "";
+    if(_item & FUDE_ZOOM_PAGE_CUSTOM_PART) {
+        const fude_sim_lib* _lib = fude_zoom_logic_library();
+        const u32 _at = _item & ~FUDE_ZOOM_PAGE_CUSTOM_PART;
+        if(_at >= (u32)rde_arr_length(&_lib->defs)) {
+            return;
+        }
+        const fude_sim_def* _d = ((const fude_sim_def* const*)_lib->defs.memory)[_at];
+        fude_zoom_page_draw_block_in(_d, _picture, _t->text, _t->page);
+        _name = _d->name;
+    } else {
+        const fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
+        if(_item >= _lib->count) {
+            return;
+        }
+        fude_zoom_page_piece_picture(_page, _item, _picture, _t->text);
+        _name = _lib->list[_item].name;
+    }
+    fude_zoom_render_text_in(&_page->renderer, _name, (u32)strlen(_name),
+                             (fude_zoom_box){ _tile.min_x + 3.0, _tile.min_y + 2.0, _tile.max_x - 3.0, _tile.max_y - 66.0 }, 11.0, true, _t->text);
+    const fude_zoom_box _m = fude_zoom_page_custom_more(_tile);
+    const rde_vec_2F _mc = { (f32)((_m.min_x + _m.max_x) * 0.5), (f32)((_m.min_y + _m.max_y) * 0.5) };
+    rde_rendering_2d_draw_circle_with_border(_mc, 11.0f, 20u, _t->surface_2, 1.0f, _t->outline, NULL);
+    fude_zoom_render_text_in(&_page->renderer, FUDE_ICON_MORE, (u32)strlen(FUDE_ICON_MORE), _m, 13.0, false, _t->text);
+}
+
+// A Custom tile tapped: put down in the middle of the view (a piece as it was kept, a part's block), lassoed.
+RDE_INTERNAL void fude_zoom_page_custom_tap(fude_zoom_page* _page, u32 _item) {
+    if(_page->play_on) {
+        fude_notice_show(fude_text(FUDE_TEXT_ZOOM_PLAY_LOCKED));   // (playing: nothing added)
+        return;
+    }
+    u8 _kind;
+    c8 _key[FUDE_ZOOM_CUSTOM_KEY];
+    if(!fude_zoom_page_custom_of(_page, _item, &_kind, _key)) {
+        return;
+    }
+    if(_kind == FUDE_ZOOM_CUSTOM_PART) {
+        const fude_sim_def* _d = fude_zoom_page_custom_def(_key);
+        if(_d != NULL) {
+            fude_zoom_page_part_put_at(_page, _d, 0.0, 0.0);
+        }
+    } else {
+        fude_zoom_page_piece_put(_page, _item);
+    }
+}
+
+RDE_INTERNAL void fude_zoom_page_template_open(fude_zoom_page* _page, u8 _kind, const c8* _key);
+
+// Deleting it, sure: gone (Delete pressed on its card).
+RDE_INTERNAL void fude_zoom_page_custom_delete_chosen(void* _self, u32 _which) {
+    fude_zoom_page* _page = (fude_zoom_page*)_self;
+    if(_which == 0u) {
+        fude_zoom_page_custom_delete(_page, _page->custom_kind, _page->custom_key);
+    }
+}
+
+// Its card's choice: Edit or Inside (its template), Rename (its name asked for), Delete (asked again).
+RDE_INTERNAL void fude_zoom_page_custom_chosen(void* _self, u32 _which) {
+    fude_zoom_page* _page = (fude_zoom_page*)_self;
+    const c8* _name = fude_zoom_page_custom_name(_page, _page->custom_kind, _page->custom_key);
+    if(_name == NULL) {
+        return;
+    }
+    if(_which == 0u) {
+        _page->library_open = false;
+        fude_zoom_page_template_open(_page, _page->custom_kind, _page->custom_key);
+    } else if(_which == 1u && _page->text_field != NULL) {
+        const usize _bytes = rde_ui_text_editor_get_byte_count(_page->text_field);
+        if(_bytes > 0) {
+            rde_ui_text_editor_delete_range(_page->text_field, 0, _bytes);
+        }
+        rde_ui_text_editor_insert_at(_page->text_field, 0, _name, strlen(_name));
+        rde_ui_text_editor_set_placeholder(_page->text_field, fude_text(FUDE_TEXT_ZOOM_CUSTOM_NAME));
+        _page->text_object = FUDE_ZOOM_NONE;
+        _page->text_style  = FUDE_ZOOM_PAGE_TEXT_CUSTOM;
+        fude_zoom_page_text_card(_page, true);
+        rde_ui_text_editor_select_all(_page->text_field);
+    } else if(_which == 2u) {
+        c8 _title[200];
+        FUDE_TEXTF(_title, FUDE_TEXT_ZOOM_CUSTOM_DELETE_SURE, FUDE_TS(_name));
+        const c8* _labels[1] = { fude_text(FUDE_TEXT_DELETE) };
+        const c8* _icons[1]  = { FUDE_ICON_TRASH };
+        fude_zoom_choice_open(&_page->choice_form, _title, _labels, _icons, 1u, fude_zoom_page_custom_delete_chosen, _page);
+    }
+}
+
+// A Custom tile's card (its ⋯ tapped, or it held): its name, Edit or Inside, Rename, Delete.
+RDE_INTERNAL void fude_zoom_page_custom_card(fude_zoom_page* _page, u32 _item) {
+    if(!fude_zoom_page_custom_of(_page, _item, &_page->custom_kind, _page->custom_key)) {
+        return;
+    }
+    const c8* _name = fude_zoom_page_custom_name(_page, _page->custom_kind, _page->custom_key);
+    const b8  _part = _page->custom_kind == FUDE_ZOOM_CUSTOM_PART;
+    const c8* _labels[3] = { fude_text(_part ? FUDE_TEXT_ZOOM_CUSTOM_INSIDE : FUDE_TEXT_ZOOM_CUSTOM_EDIT), fude_text(FUDE_TEXT_ZOOM_CUSTOM_RENAME), fude_text(FUDE_TEXT_DELETE) };
+    const c8* _icons[3]  = { _part ? FUDE_ICON_FOLDER_OPEN : FUDE_ICON_NOTE_EDIT, FUDE_ICON_TEXT, FUDE_ICON_TRASH };
+    fude_zoom_choice_open(&_page->choice_form, _name != NULL ? _name : "", _labels, _icons, 3u, fude_zoom_page_custom_chosen, _page);
+}
+
+// Once a frame: a hand held still on a Custom tile — its card (what that hand does next, the panel's no more).
+RDE_INTERNAL void fude_zoom_page_library_hold(fude_zoom_page* _page) {
+    if(!_page->library_open || _page->library_hand == 0u || _page->library_dragged || _page->library_family != FUDE_ZOOM_PAGE_LIBRARY_CUSTOM ||
+       rde_engine_get_time_now() - _page->library_down_at < FUDE_ZOOM_PAGE_CUSTOM_HOLD) {
+        return;
+    }
+    fude_zoom_page_library_layout _l;
+    fude_zoom_page_library_lay(_page, &_l);
+    const u32 _item = fude_zoom_page_library_tile(_page, &_l, _page->library_down, NULL);
+    _page->library_gone = _page->library_hand;
+    _page->library_hand = 0u;
+    if(_item != FUDE_ZOOM_NONE) {
+        fude_zoom_page_custom_card(_page, _item);
+    }
+}
+
+// Its new name (the card's first line; none: as it was): the piece's or the part's (its file written again), its
+// template canvas's.
+RDE_INTERNAL void fude_zoom_page_custom_rename(fude_zoom_page* _page, const c8* _text) {
+    c8 _name[FUDE_ZOOM_PIECE_NAME];
+    const c8* _a = _text;
+    while(*_a == ' ' || *_a == '\n') {
+        _a++;
+    }
+    usize _len = strcspn(_a, "\n");
+    while(_len > 0 && _a[_len - 1u] == ' ') {
+        _len--;
+    }
+    // (a part's name: shorter — cut at a whole character)
+    const usize _most = (_page->custom_kind == FUDE_ZOOM_CUSTOM_PART ? FUDE_SIM_NAME : sizeof(_name)) - 1u;
+    if(_len > _most) {
+        _len = _most;
+        while(_len > 0 && ((u8)_a[_len] & 0xC0u) == 0x80u) {
+            _len--;
+        }
+    }
+    if(_len == 0) {
+        return;
+    }
+    memcpy(_name, _a, _len);
+    _name[_len] = 0;
+    const c8* _key = _page->custom_key;
+    if(_page->custom_kind == FUDE_ZOOM_CUSTOM_PART) {
+        for(c8* _c = _name; *_c != 0; _c++) {
+            *_c = *_c == '"' ? '\'' : *_c;   // (a part's text's quotes)
+        }
+        const fude_sim_def* _d = fude_zoom_page_custom_def(_key);
+        if(_d == NULL || !fude_zoom_logic_rename(_key, _name)) {
+            return;
+        }
+        fude_bytes _out = fude_bytes_new(1024u);
+        fude_sim_def_write(_d, &_out);
+        c8 _path[RDE_MAX_PATH];
+        fude_zoom_page_part_path(_key, ".part", _path, sizeof(_path));
+        fude_bytes_write_and_free(&_out, _path, NULL);
+    } else {
+        const u32 _i = fude_zoom_page_custom_piece(_page, _key);
+        if(_i == FUDE_ZOOM_NONE) {
+            return;
+        }
+        fude_zoom_pieces_rename(fude_zoom_page_pieces(_page), fude_zoom_page_pieces_dir(), _i, _name);
+        fude_zoom_page_pieces_stale(_page);
+    }
+    const u32 _canvas = fude_zoom_templates_canvas(fude_zoom_page_templates(_page), _page->custom_kind, _key);
+    if(_canvas != 0u && fude_notes_find(_page->app->notes, _canvas) != NULL) {
+        fude_notes_rename(_page->app->notes, _canvas, _name);
+    }
+    c8 _say[200];
+    FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_CUSTOM_RENAMED, FUDE_TS(_name));
+    fude_notice_show(_say);
+}
+
+// _kind's _key's template let go: no one's, its canvas deleted (unless it is the one open: then a canvas as any other).
+RDE_INTERNAL void fude_zoom_page_template_drop(fude_zoom_page* _page, u8 _kind, const c8* _key) {
+    const u32 _canvas = fude_zoom_templates_drop(fude_zoom_page_templates(_page), _kind, _key);
+    if(_canvas == 0u) {
+        return;
+    }
+    fude_zoom_page_templates_save(_page);
+    if(_canvas == _page->canvas) {
+        _page->template_on = false;
+    } else if(fude_notes_find(_page->app->notes, _canvas) != NULL) {
+        fude_notes_remove(_page->app->notes, _canvas);
+    }
+}
+
+// _kind's _key deleted: the piece (its file), the part (forgotten — what is drawn of it holds it no more — its files),
+// its template canvas (unless it is the one open: then a canvas as any other).
+RDE_INTERNAL void fude_zoom_page_custom_delete(fude_zoom_page* _page, u8 _kind, const c8* _key) {
+    const c8* _was = fude_zoom_page_custom_name(_page, _kind, _key);
+    if(_was == NULL) {
+        return;
+    }
+    c8 _name[FUDE_ZOOM_PIECE_NAME], _k[FUDE_ZOOM_CUSTOM_KEY];
+    snprintf(_name, sizeof(_name), "%s", _was);
+    snprintf(_k, sizeof(_k), "%s", _key);   // (_key may be the page's own, written over below)
+    if(_kind == FUDE_ZOOM_CUSTOM_PART) {
+        fude_zoom_logic_forget_part(_k);
+        c8 _path[RDE_MAX_PATH];
+        fude_zoom_page_part_path(_k, ".part", _path, sizeof(_path));
+        rde_file_delete(_path);
+        fude_zoom_page_part_path(_k, ".piece", _path, sizeof(_path));
+        if(rde_file_exists(_path)) {
+            rde_file_delete(_path);
+        }
+    } else {
+        fude_zoom_pieces_remove(fude_zoom_page_pieces(_page), fude_zoom_page_pieces_dir(), fude_zoom_page_custom_piece(_page, _k));
+        fude_zoom_page_pieces_stale(_page);
+    }
+    fude_zoom_page_template_drop(_page, _kind, _k);
+    c8 _say[200];
+    FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_CUSTOM_DELETED, FUDE_TS(_name));
+    fude_notice_show(_say);
+}
+
+// The canvas open now: a template (whose, from the map), or not — then Back is the app's again. Its revision as of
+// now (left other: what it holds kept). _say: what it is, said.
+RDE_INTERNAL void fude_zoom_page_template_opened(fude_zoom_page* _page, b8 _say) {
+    const fude_zoom_template* _e = fude_zoom_templates_of(fude_zoom_page_templates(_page), _page->canvas);
+    const c8* _name = _e != NULL ? fude_zoom_page_custom_name(_page, _e->kind, _e->key) : NULL;
+    _page->template_on = _name != NULL;
+    if(_page->template_return_for != _page->canvas) {
+        _page->template_return = 0u;   // (not opened from a canvas: Back is the app's)
+    }
+    if(!_page->template_on) {
+        return;
+    }
+    _page->template_kind = _e->kind;
+    snprintf(_page->template_key, sizeof(_page->template_key), "%s", _e->key);
+    _page->template_seen = _page->scene.revision;
+    if(_say) {
+        c8 _line[300];
+        FUDE_TEXTF(_line, _e->kind == FUDE_ZOOM_CUSTOM_PART ? FUDE_TEXT_ZOOM_TEMPLATE_EDITING_PART : FUDE_TEXT_ZOOM_TEMPLATE_EDITING_PIECE, FUDE_TS(_name));
+        fude_notice_show(_line);
+    }
+}
+
+// _kind's _key's template opened: its canvas — made the first time, in the folder Custom (filled once it is open).
+RDE_INTERNAL void fude_zoom_page_template_open(fude_zoom_page* _page, u8 _kind, const c8* _key) {
+    fude_app*   _app  = _page->app;
+    const c8*   _name = fude_zoom_page_custom_name(_page, _kind, _key);
+    if(_name == NULL || _page->template_making != 0u) {
+        return;
+    }
+    fude_zoom_templates* _t = fude_zoom_page_templates(_page);
+    const u32 _canvas = fude_zoom_templates_canvas(_t, _kind, _key);
+    const fude_note* _note = _canvas != 0u ? fude_notes_find(_app->notes, _canvas) : NULL;
+    const u32 _from = _page->canvas;
+    if(_note != NULL && _note->kind == FUDE_NOTE_CANVAS) {
+        if(_canvas != _from) {
+            _page->template_return     = _from;
+            _page->template_return_for = _canvas;
+            fude_notes_open(_app->notes, _canvas);
+        }
+        return;
+    }
+    c8 _title[FUDE_NOTE_NAME];
+    snprintf(_title, sizeof(_title), "%s", _name);
+    c8 _k[FUDE_ZOOM_CUSTOM_KEY];
+    snprintf(_k, sizeof(_k), "%s", _key);   // (_key may be the page's own)
+    _page->template_making_kind   = _kind;
+    snprintf(_page->template_making_key, sizeof(_page->template_making_key), "%s", _k);
+    _page->template_making_return = _from;
+    // (a canvas as any other — its paper the app's —, in the folder Custom)
+    const u32 _id = fude_notes_add(_app->notes, FUDE_NOTE_CANVAS, fude_zoom_page_top_folder(_page, fude_text(FUDE_TEXT_ZOOM_LIB_CUSTOM)), _title);
+    if(_id == 0u) {
+        fude_notice_show(fude_text(FUDE_TEXT_ZOOM_EXPORT_FAILED));
+        return;
+    }
+    fude_zoom_templates_set(_t, _kind, _k, _id);
+    fude_zoom_page_templates_save(_page);
+    _page->template_making     = _id;
+    _page->template_return     = _from;
+    _page->template_return_for = _id;
+    fude_notes_open(_app->notes, _id);
+}
+
+// Once a frame: the template being made, filled once its canvas is open — the piece put on it; the part's drawing
+// (as it was made), or its inside drawn from what it is — the view out to all of it.
+RDE_INTERNAL void fude_zoom_page_template_follow(fude_zoom_page* _page) {
+    if(_page->template_making == 0u || !_page->open || _page->canvas != _page->template_making) {
+        return;
+    }
+    _page->template_making = 0u;
+    const c8* _key = _page->template_making_key;
+    const u32 _f   = fude_zoom_page_middle_frame(_page);
+    if(_page->template_making_kind == FUDE_ZOOM_CUSTOM_PART) {
+        const fude_sim_def* _d = fude_zoom_page_custom_def(_key);
+        fude_zoom_piece _drawn;
+        memset(&_drawn, 0, sizeof(_drawn));
+        c8 _path[RDE_MAX_PATH];
+        fude_zoom_page_part_path(_key, ".piece", _path, sizeof(_path));
+        if(_d == NULL) {
+            // (gone since)
+        } else if(rde_file_exists(_path) && fude_zoom_piece_load(&_drawn, _path)) {
+            fude_zoom_page_put_piece(_page, &_drawn);
+        } else {
+            rde_arr _born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+            fude_zoom_placer _p = fude_zoom_placer_make(&_page->scene, _f, fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _f)), FUDE_THEME_INK, &_born);
+            fude_zoom_logic_draw(_d, &_p);
+            fude_zoom_page_made_step(_page, _f, &_born);
+            rde_arr_free(&_born);
+        }
+        fude_zoom_piece_clear(&_drawn);
+        _page->topic = FUDE_ZOOM_TOPIC_ELECTRONICS;
+    } else {
+        const u32 _i = fude_zoom_page_custom_piece(_page, _key);
+        if(_i != FUDE_ZOOM_NONE) {
+            const u32 _families = fude_zoom_page_pieces(_page)->list[_i].families;
+            fude_zoom_page_piece_put(_page, _i);
+            if(_families & (1u << FUDE_ZOOM_SYMBOL_FAMILY_MECHANISMS)) {
+                _page->topic = FUDE_ZOOM_TOPIC_MECHANISMS;
+            } else if(_families & FUDE_ZOOM_PAGE_LIBRARY_CIRCUITS & ~FUDE_ZOOM_PAGE_LIBRARY_CUSTOM_BIT) {
+                _page->topic = FUDE_ZOOM_TOPIC_ELECTRONICS;
+            }
+        }
+    }
+    fude_zoom_page_tools_save(_page);
+    fude_zoom_box _sb;
+    if(fude_zoom_select_box(&_page->selection, &_sb)) {
+        // (what was put down, lassoed: its box on the screen, into the frame's units)
+        fude_zoom_page_view_out_to(_page, _f, fude_zoom_sim_box(fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _f)), _sb));
+    } else {
+        fude_zoom_page_view_out_to(_page, _f, fude_zoom_map_contents(&_page->scene));
+    }
+    fude_zoom_select_clear(&_page->selection);
+    _page->template_return     = _page->template_making_return;
+    _page->template_return_for = _page->canvas;
+    _page->map_stale = true;
+    fude_zoom_page_template_opened(_page, true);
+}
+
+// A template kept (its canvas closing, the app put away): what it holds now — if it changed since — kept as its piece,
+// or made its part again (its pins where they were: what is wired to them on canvases still on them), its drawing
+// beside it. What the lasso holds, as it was.
+RDE_INTERNAL void fude_zoom_page_template_keep(fude_zoom_page* _page) {
+    if(!_page->template_on || !_page->open || _page->scene.revision == _page->template_seen) {
+        return;   // (as it was)
+    }
+    _page->template_seen = _page->scene.revision;
+    fude_zoom_scene* _s = &_page->scene;
+    const c8* _key = _page->template_key;
+    c8 _say[300];
+    // (all of it, held by a selection of its own)
+    fude_zoom_selection _all;
+    fude_zoom_select_init(&_all);
+    fude_zoom_select_all(&_all, _s, &_page->renderer);
+    if(_page->template_kind == FUDE_ZOOM_CUSTOM_PART) {
+        const fude_sim_def* _old = fude_zoom_page_custom_def(_key);
+        if(_old == NULL) {
+            fude_zoom_select_destroy(&_all);
+            return;
+        }
+        c8 _name[FUDE_SIM_NAME];
+        snprintf(_name, sizeof(_name), "%s", _old->name);
+        fude_zoom_circuit _c;
+        fude_zoom_circuit_init(&_c);
+        fude_zoom_circuit_build(&_c, _s);
+        u32 _problem = FUDE_ZOOM_MAKE_OK;
+        fude_sim_def* _def = fude_zoom_logic_make(&_c, _s, _key, _name, &_problem);
+        fude_zoom_circuit_destroy(&_c);
+        if(_def == NULL) {
+            FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_TEMPLATE_NOT_UPDATED, FUDE_TS(_name));
+            fude_notice_show(_say);
+            fude_zoom_select_destroy(&_all);
+            return;
+        }
+        fude_zoom_logic_keep_order(_def, _old);
+        u32 _ins, _outs;
+        fude_zoom_page_part_ports(_def, &_ins, &_outs);
+        // (learnt only if what it is changed: an edit undone, a part moved, leaves every one of it as it was)
+        _def->version = _old->version;
+        fude_bytes _a = fude_bytes_new(1024u), _b = fude_bytes_new(1024u);
+        fude_sim_def_write(_old, &_a);
+        fude_sim_def_write(_def, &_b);
+        const b8 _same = fude_bytes_size(&_a) == fude_bytes_size(&_b) && memcmp(_a.memory, _b.memory, fude_bytes_size(&_a)) == 0;
+        rde_arr_free(&_a);
+        rde_arr_free(&_b);
+        if(!_same) {
+            fude_zoom_page_part_keep(_def);
+        }
+        fude_sim_def_free(_def);
+        fude_zoom_page_part_drawing(_page, &_all, _key, _name);
+        FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_TEMPLATE_PART_UPDATED, FUDE_TS(_name), FUDE_TN(_ins), FUDE_TN(_outs));
+        fude_notice_show(_say);
+    } else if(fude_zoom_page_custom_piece(_page, _key) != FUDE_ZOOM_NONE) {
+        const u32 _i = fude_zoom_page_custom_piece(_page, _key);
+        fude_zoom_pieces* _lib = fude_zoom_page_pieces(_page);
+        rde_arr _clips = rde_arr_new(sizeof(fude_zoom_clip), rde_memory_allocator_get_default_std());
+        fude_zoom_box _box;
+        // (nothing left on it: the piece as it was — Delete on its card lets it go)
+        if(fude_zoom_page_held_clips(_page, &_all, &_clips, &_box) &&
+           fude_zoom_pieces_replace(_lib, fude_zoom_page_pieces_dir(), _i, (const fude_zoom_clip*)_clips.memory, (u32)rde_arr_length(&_clips), _box)) {
+            FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_TEMPLATE_PIECE_UPDATED, FUDE_TS(_lib->list[_i].name));
+            fude_notice_show(_say);
+        }
+        fude_zoom_select_clips_free(&_clips);
+        rde_arr_free(&_clips);
+        fude_zoom_page_pieces_stale(_page);
+    }
+    fude_zoom_select_destroy(&_all);
+}
+
+// A template left (its canvas closing): kept, a canvas no more.
+RDE_INTERNAL void fude_zoom_page_template_leave(fude_zoom_page* _page) {
+    fude_zoom_page_template_keep(_page);
+    _page->template_on = false;
+}
+
+// The custom part of a person's own object _o is: its definition (NULL: not one).
+RDE_INTERNAL const fude_sim_def* fude_zoom_page_custom_part_of(const fude_zoom_page* _page, u32 _o) {
+    if(_o >= fude_zoom_scene_object_count(&_page->scene) || !fude_zoom_part_custom(fude_zoom_part_of(&_page->scene, _o))) {
+        return NULL;
+    }
+    f64 _n[FUDE_ZOOM_SHAPE_NUMBERS];
+    c8  _text[FUDE_ZOOM_SYMBOL_TEXT];
+    fude_zoom_symbol_text(_n, fude_zoom_scene_shape_numbers(&_page->scene, _o, _n, FUDE_ZOOM_SHAPE_NUMBERS), _text, sizeof(_text));
+    const fude_sim_def* _d = fude_zoom_logic_find(_text);
+    return _d != NULL && strncmp(_d->id, "user/", 5u) == 0 ? _d : NULL;
+}
+
+// ...lassoed alone (NULL: not so).
+RDE_INTERNAL const fude_sim_def* fude_zoom_page_lone_custom(const fude_zoom_page* _page) {
+    return rde_arr_length(&_page->selection.picks) == 1u ? fude_zoom_page_custom_part_of(_page, ((const fude_zoom_pick*)_page->selection.picks.memory)[0].object) : NULL;
+}
+
+// _def's template opened (its id copied first: the library may change under it).
+RDE_INTERNAL void fude_zoom_page_inside(fude_zoom_page* _page, const fude_sim_def* _def) {
+    c8 _id[FUDE_ZOOM_CUSTOM_KEY];
+    snprintf(_id, sizeof(_id), "%s", _def->id);
+    fude_zoom_select_clear(&_page->selection);
+    fude_zoom_page_template_open(_page, FUDE_ZOOM_CUSTOM_PART, _id);
+}
+
+// The lasso's row: Inside — a custom part's template (what it is made of: to see, to change).
+RDE_INTERNAL void fude_zoom_page_inside_selection(fude_app* _app, void* _self, u32 _arg) {
+    RDE_UNUSED(_app); RDE_UNUSED(_self); RDE_UNUSED(_arg);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL || !_page->open) {
+        return;
+    }
+    const fude_sim_def* _d = fude_zoom_page_lone_custom(_page);
+    if(_d != NULL) {
+        fude_zoom_page_inside(_page, _d);
+    }
+}
+
+// The page's menu: Inside — on a custom part (the one it opened on, or the one the lasso holds alone).
+RDE_INTERNAL const fude_sim_def* fude_zoom_page_context_custom(const fude_zoom_page* _page) {
+    return _page->context_held ? fude_zoom_page_lone_custom(_page) : fude_zoom_page_custom_part_of(_page, _page->context_target);
+}
+
+RDE_INTERNAL void fude_zoom_page_context_inside(fude_app* _app, void* _self, u32 _arg) {
+    RDE_UNUSED(_app); RDE_UNUSED(_arg);
+    fude_pagemenu_close_context((fude_pagemenu*)_self);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    const fude_sim_def* _d = _page != NULL && _page->open ? fude_zoom_page_context_custom(_page) : NULL;
+    if(_d != NULL) {
+        fude_zoom_page_inside(_page, _d);
     }
 }
 
@@ -14069,7 +15164,7 @@ RDE_INTERNAL void fude_zoom_page_align_begin(fude_zoom_page* _page) {
         if(_page->topic == FUDE_ZOOM_TOPIC_ELECTRONICS && _first_part != FUDE_ZOOM_NONE) {
             const fude_zoom_object* _po = fude_zoom_scene_object(_s, _first_part);
             const fude_zoom_sim _fs = fude_zoom_page_frame_sim(_page, _po->frame);
-            f64 _step = fude_zoom_page_part_unit(_s, _first_part) * fude_zoom_sim_scale(_fs);
+            f64 _step = fude_zoom_part_unit(_s, _first_part) * fude_zoom_sim_scale(_fs);
             while(_step > 40.0) {
                 _step *= 0.5;
             }
@@ -15328,6 +16423,10 @@ void fude_zoom_page_selection_faces(fude_app* _app, const fude_row_def* _row, fu
         if(_partb != FUDE_ROW_NONE) {
             _faces[_partb].hidden = (_page->topic != FUDE_ZOOM_TOPIC_ELECTRONICS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) || !fude_zoom_page_lasso_logic(_page);
         }
+        const u32 _inside = fude_row_def_find(_row, fude_zoom_page_inside_selection);
+        if(_inside != FUDE_ROW_NONE) {
+            _faces[_inside].hidden = fude_zoom_page_lone_custom(_page) == NULL;   // (a custom part of a person's own, alone)
+        }
         const u32 _body = fude_row_def_find(_row, fude_zoom_page_body_selection);
         if(_body != FUDE_ROW_NONE) {
             u32 _bt[1];
@@ -15393,6 +16492,7 @@ static const fude_row_button FUDE_ZOOM_SELECTION_BUTTONS[] = {
     { FUDE_TEXT_ZOOM_VALUE, FUDE_ICON_SLIDERS, fude_zoom_page_value_selection, 0, FUDE_ROW_QUIET, false, NULL },  // (a part alone: its value: valueform.h)
     { FUDE_TEXT_ZOOM_MAKE_BODY, FUDE_ICON_TARGET, fude_zoom_page_body_selection, 0, FUDE_ROW_QUIET, false, NULL },  // (drawings made bodies: props.h)
     { FUDE_TEXT_ZOOM_MAKE_PART, FUDE_ICON_STACK, fude_zoom_page_part_selection, 0, FUDE_ROW_QUIET, false, NULL },   // (a circuit made a part: logic.h)
+    { FUDE_TEXT_ZOOM_CUSTOM_INSIDE, FUDE_ICON_FOLDER_OPEN, fude_zoom_page_inside_selection, 0, FUDE_ROW_QUIET, false, NULL },   // (a custom part's template: custom.h)
     { FUDE_TEXT_ZOOM_REPEAT, FUDE_ICON_STACK, fude_zoom_page_repeat_selection, 0, FUDE_ROW_QUIET, false, NULL },   // (in a row, round, mirrored: repeatform.h)
     { FUDE_TEXT_ZOOM_READ, FUDE_ICON_TEXT, fude_zoom_page_read_selection, 0, FUDE_ROW_QUIET, false, fude_zoom_read_present },
     { FUDE_TEXT_ZOOM_OFFSET, FUDE_ICON_RECTANGLE, fude_zoom_page_offset_selection, 0, FUDE_ROW_QUIET, false, NULL },
@@ -15453,6 +16553,7 @@ RDE_INTERNAL void fude_zoom_page_context_delete(fude_app* _app, void* _self, u32
 
 static const fude_row_button FUDE_ZOOM_CONTEXT_BUTTONS[] = {
     FUDE_PAGEMENU_BUTTON_PASTE, FUDE_PAGEMENU_BUTTON_SELECT_ALL,
+    { FUDE_TEXT_ZOOM_CUSTOM_INSIDE, FUDE_ICON_FOLDER_OPEN, fude_zoom_page_context_inside, 0, FUDE_ROW_QUIET, false, NULL },   // (a custom part's template)
     { FUDE_TEXT_DELETE, FUDE_ICON_TRASH, fude_zoom_page_context_delete, 0, FUDE_ROW_DANGER, false, NULL },
 };
 const fude_row_def FUDE_ZOOM_CONTEXT_ROW = FUDE_ROW_DEF(FUDE_ZOOM_CONTEXT_BUTTONS);
@@ -15463,6 +16564,10 @@ void fude_zoom_page_context_faces(fude_app* _app, const fude_row_def* _row, fude
     const u32 _delete = fude_row_def_find(_row, fude_zoom_page_context_delete);
     if(_delete != FUDE_ROW_NONE) {
         _faces[_delete].hidden = _page == NULL || (!_page->context_held && _page->context_target == FUDE_ZOOM_NONE);
+    }
+    const u32 _inside = fude_row_def_find(_row, fude_zoom_page_context_inside);
+    if(_inside != FUDE_ROW_NONE) {
+        _faces[_inside].hidden = _page == NULL || !_page->open || fude_zoom_page_context_custom(_page) == NULL;
     }
 }
 
@@ -18537,6 +19642,42 @@ void fude_zoom_page_look_pieces(fude_zoom_page* _page) {
     _page->pieces_open = true;
 }
 
+void fude_zoom_page_look_custom(fude_zoom_page* _page, u32 _i, u32 _action, const c8* _name) {
+    if(!_page->library_open) {
+        fude_zoom_page_library_open_tabs(_page, FUDE_ZOOM_PAGE_LIBRARY_CIRCUITS);
+    }
+    _page->library_family = FUDE_ZOOM_PAGE_LIBRARY_CUSTOM;
+    if(_i >= fude_zoom_page_custom_items(_page)) {
+        rde_log_color(RDE_LOG_COLOR_RED, "sketching: no Custom tile %u (%u)", _i, (u32)rde_arr_length(&_page->custom_items));
+        return;
+    }
+    const u32 _item = ((const u32*)_page->custom_items.memory)[_i];
+    if(_action == 0u) {
+        _page->library_open = false;
+        fude_zoom_page_custom_tap(_page, _item);
+    } else if(_action == 1u) {
+        fude_zoom_page_custom_card(_page, _item);
+    } else if(fude_zoom_page_custom_of(_page, _item, &_page->custom_kind, _page->custom_key)) {
+        if(_action == 2u) {
+            fude_zoom_page_custom_chosen(_page, 0u);
+        } else if(_action == 3u) {
+            fude_zoom_page_custom_rename(_page, _name != NULL ? _name : "");
+        } else if(_action == 4u) {
+            fude_zoom_page_custom_delete(_page, _page->custom_kind, _page->custom_key);
+        }
+    }
+}
+
+void fude_zoom_page_look_inside(fude_zoom_page* _page) {
+    fude_zoom_page_inside_selection(_page->app, NULL, 0u);
+}
+
+void fude_zoom_page_look_back(fude_zoom_page* _page) {
+    if(!fude_zoom_kind_back(_page->app)) {
+        rde_log_color(RDE_LOG_COLOR_YELLOW, "sketching: Back is the app's here");
+    }
+}
+
 void fude_zoom_page_look_piece_put(fude_zoom_page* _page, u32 _i) {
     fude_zoom_page_piece_put(_page, _i);
 }
@@ -18631,7 +19772,7 @@ RDE_INTERNAL void fude_zoom_page_look_wire(fude_zoom_page* _page, u32 _frame, u3
     if(_a == FUDE_ZOOM_NONE || _b == FUDE_ZOOM_NONE || !fude_zoom_part_pin_at(_s, _a, _pa, &_p0) || !fude_zoom_part_pin_at(_s, _b, _pb, &_p1)) {
         return;
     }
-    const u32 _m = fude_zoom_wire_route(_p0, fude_zoom_part_side_at(_s, _a, _pa), _p1, fude_zoom_part_side_at(_s, _b, _pb), fude_zoom_page_part_unit(_s, _a), _r);
+    const u32 _m = fude_zoom_wire_route(_p0, fude_zoom_part_side_at(_s, _a, _pa), _p1, fude_zoom_part_side_at(_s, _b, _pb), fude_zoom_part_unit(_s, _a), _r);
     const f64 _k = fude_zoom_sim_scale(fude_zoom_page_frame_sim(_page, _frame));
     const u32 _w = fude_zoom_wire_add(_s, _frame, _r, _m, _a, (i32)_pa, _b, (i32)_pb, _page->app->ink->color, (f32)(0.9 / _k));
     rde_arr_add(_born, (any)&_w);
@@ -18639,23 +19780,10 @@ RDE_INTERNAL void fude_zoom_page_look_wire(fude_zoom_page* _page, u32 _frame, u3
 
 RDE_INTERNAL u32 fude_zoom_page_look_from = 0;   // (the objects the last demo drew: from this one on)
 
-// A straight wire, pin to pin (on a breadboard: no route round over its holes).
-RDE_INTERNAL void fude_zoom_page_look_line(fude_zoom_page* _page, u32 _frame, u32 _a, u32 _pa, u32 _b, u32 _pb, rde_arr* _born) {
-    fude_zoom_scene* _s = &_page->scene;
-    fude_zoom_v2 _r[2];
-    if(_a == FUDE_ZOOM_NONE || _b == FUDE_ZOOM_NONE || !fude_zoom_part_pin_at(_s, _a, _pa, &_r[0]) || !fude_zoom_part_pin_at(_s, _b, _pb, &_r[1])) {
-        return;
-    }
-    const f64 _k = fmax(fude_zoom_sim_scale(fude_zoom_page_frame_sim(_page, _frame)), 1e-300);
-    const u32 _w = fude_zoom_wire_add(_s, _frame, _r, 2u, _a, (i32)_pa, _b, (i32)_pb, _page->app->ink->color, (f32)(1.5 / _k));
-    rde_arr_add(_born, (any)&_w);
-}
-
-// A part's pin's place on screen (points from the view's middle).
-RDE_INTERNAL fude_zoom_v2 fude_zoom_page_look_pin(fude_zoom_page* _page, u32 _frame, u32 _o, u32 _pin) {
-    fude_zoom_v2 _p = { 0, 0 };
-    fude_zoom_part_pin_at(&_page->scene, _o, _pin, &_p);
-    return fude_zoom_sim_apply(fude_zoom_page_frame_sim(_page, _frame), _p);
+// One of the examples (examples.h) drawn round the view's middle in frame _frame, as Insert → Examples draws it.
+RDE_INTERNAL void fude_zoom_page_look_example(fude_zoom_page* _page, u32 _frame, u32 _example, rde_arr* _born) {
+    fude_zoom_example_build(&_page->scene, _frame, fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _frame)), FUDE_THEME_INK, _example,
+                            fude_zoom_page_example_title, _born);
 }
 
 void fude_zoom_page_look_circuit(fude_zoom_page* _page, u32 _demo) {
@@ -18676,14 +19804,7 @@ void fude_zoom_page_look_circuit(fude_zoom_page* _page, u32 _demo) {
     const u32 _f = fude_zoom_camera_drawing_frame(_s, (fude_zoom_box){ _s->camera.at.x - _near, _s->camera.at.y - _near, _s->camera.at.x + _near, _s->camera.at.y + _near });
     rde_arr _born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     if(_demo == 1u) {
-        const u32 _bat = fude_zoom_page_look_part(_page, _f, "battery", -200, 0, 0, "9V", &_born);
-        const u32 _sw  = fude_zoom_page_look_part(_page, _f, "SPST switch", -60, 120, 0, "on", &_born);
-        const u32 _r   = fude_zoom_page_look_part(_page, _f, "resistor", 100, 120, 0, "330", &_born);
-        const u32 _led = fude_zoom_page_look_part(_page, _f, "LED", 230, 40, -90, "red", &_born);
-        fude_zoom_page_look_wire(_page, _f, _bat, 0, _sw, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _sw, 1, _r, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _r, 1, _led, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _led, 1, _bat, 1, &_born);
+        fude_zoom_page_look_example(_page, _f, FUDE_ZOOM_EXAMPLE_TORCH, &_born);
     } else if(_demo == 2u) {
         const u32 _uno = fude_zoom_page_look_part(_page, _f, "Arduino Uno", -150, 0, 0, "Arduino Uno\nD13 blink", &_born);
         const u32 _r   = fude_zoom_page_look_part(_page, _f, "resistor", 120, 160, 0, "220", &_born);
@@ -18692,26 +19813,7 @@ void fude_zoom_page_look_circuit(fude_zoom_page* _page, u32 _demo) {
         fude_zoom_page_look_wire(_page, _f, _r, 1, _led, 0, &_born);
         fude_zoom_page_look_wire(_page, _f, _led, 1, _uno, 14, &_born);  // (GND)
     } else if(_demo == 3u) {
-        const u32 _bat = fude_zoom_page_look_part(_page, _f, "battery", -330, 0, 0, "9V", &_born);
-        const u32 _t   = fude_zoom_page_look_part(_page, _f, "NE555", 0, 0, 0, "NE555", &_born);
-        const u32 _r1  = fude_zoom_page_look_part(_page, _f, "resistor", 220, 200, 0, "1k", &_born);
-        const u32 _r2  = fude_zoom_page_look_part(_page, _f, "resistor", 220, 120, 0, "47k", &_born);
-        const u32 _cap = fude_zoom_page_look_part(_page, _f, "electrolytic", -180, -160, -90, "10uF", &_born);
-        const u32 _rl  = fude_zoom_page_look_part(_page, _f, "resistor", -170, 120, 0, "330", &_born);
-        const u32 _led = fude_zoom_page_look_part(_page, _f, "LED", -250, 200, 90, "yellow", &_born);
-        fude_zoom_page_look_wire(_page, _f, _bat, 0, _t, 7, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 7, _t, 3, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 0, _bat, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 7, _r1, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _r1, 0, _t, 6, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 6, _r2, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _r2, 0, _t, 5, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 5, _t, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 1, _cap, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _cap, 1, _bat, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _t, 2, _rl, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _rl, 0, _led, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _led, 1, _bat, 1, &_born);
+        fude_zoom_page_look_example(_page, _f, FUDE_ZOOM_EXAMPLE_FLASHER, &_born);
     } else if(_demo == 4u) {
         const u32 _bb = fude_zoom_page_look_part(_page, _f, "breadboard", 0, 0, 0, "", &_born);
         fude_zoom_v2 _h[4];
@@ -18729,71 +19831,9 @@ void fude_zoom_page_look_circuit(fude_zoom_page* _page, u32 _demo) {
         const u32 _bat = fude_zoom_page_look_part(_page, _f, "battery", -260, 0, 0, "5V", &_born);
         RDE_UNUSED(_bat);
     } else if(_demo == 5u) {
-        const u32 _a  = fude_zoom_page_look_part(_page, _f, "logic input", -330, 120, 0, "A", &_born);
-        const u32 _b  = fude_zoom_page_look_part(_page, _f, "logic input", -330, 40, 0, "B", &_born);
-        const u32 _ci = fude_zoom_page_look_part(_page, _f, "logic input", -330, -60, 0, "CI", &_born);
-        const u32 _x1 = fude_zoom_page_look_part(_page, _f, "XOR gate", -150, 80, 0, "", &_born);
-        const u32 _x2 = fude_zoom_page_look_part(_page, _f, "XOR gate", 40, 40, 0, "", &_born);
-        const u32 _a1 = fude_zoom_page_look_part(_page, _f, "AND gate", -150, -140, 0, "", &_born);
-        const u32 _a2 = fude_zoom_page_look_part(_page, _f, "AND gate", 40, -100, 0, "", &_born);
-        const u32 _o1 = fude_zoom_page_look_part(_page, _f, "OR gate", 200, -120, 0, "", &_born);
-        const u32 _sp = fude_zoom_page_look_part(_page, _f, "logic probe", 320, 40, 0, "S", &_born);
-        const u32 _cp = fude_zoom_page_look_part(_page, _f, "logic probe", 320, -120, 0, "CO", &_born);
-        fude_zoom_page_look_wire(_page, _f, _a, 0, _x1, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _b, 0, _x1, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _x1, 2, _x2, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _ci, 0, _x2, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _x2, 2, _sp, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _a, 0, _a1, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _b, 0, _a1, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _x1, 2, _a2, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _ci, 0, _a2, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _a1, 2, _o1, 0, &_born);
-        fude_zoom_page_look_wire(_page, _f, _a2, 2, _o1, 1, &_born);
-        fude_zoom_page_look_wire(_page, _f, _o1, 2, _cp, 0, &_born);
-        // (its name written above it: what Make part names it by)
-        const f64 _k = fmax(fude_zoom_sim_scale(fude_zoom_page_frame_sim(_page, _f)), 1e-300);
-        const fude_zoom_v2 _tl = fude_zoom_sim_apply(fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _f)), (fude_zoom_v2){ -330, 230 });
-        const c8* _name = "Full adder";
-        const u32 _t = fude_zoom_scene_add_text(_s, _f, (fude_zoom_place){ _tl, 0.0, 1.0 }, 28.0 / _k, 160.0 / _k, 34.0 / _k, FUDE_ZOOM_TEXT_PLAIN,
-                                                _page->app->ink->color, (rde_color){ 0, 0, 0, 0 }, _name, (u32)strlen(_name), 0);
-        rde_arr_add(&_born, (any)&_t);
+        fude_zoom_page_look_example(_page, _f, FUDE_ZOOM_EXAMPLE_FULL_ADDER, &_born);   // (its title its name: Make part's)
     } else if(_demo == 6u) {
-        // (the chip seated across the gap, its pins on rows e and f from column 7: a quarter turned, pin 1 bottom left)
-        const u32 _bb = fude_zoom_page_look_part(_page, _f, "breadboard", 0, 0, 0, "", &_born);
-        const u32 _cols = FUDE_ZOOM_BREADBOARD_COLS, _col = 6u, _pins = 16u;
-        const fude_zoom_v2 _e0 = fude_zoom_page_look_pin(_page, _f, _bb, 6u * _cols + _col), _f0 = fude_zoom_page_look_pin(_page, _f, _bb, 7u * _cols + _col);
-        const fude_zoom_v2 _f1 = fude_zoom_page_look_pin(_page, _f, _bb, 7u * _cols + _col + 1u);
-        const f64 _pitch = _f1.x - _f0.x;
-        // (its sides' pins across the gap: its width the rows' gap; its length nine holes, its pins a hole apart)
-        const u32 _ic = fude_zoom_page_look_sized(_page, _f, "74HC161", _f0.x + _pitch * 3.5, (_e0.y + _f0.y) * 0.5, 90.0, _e0.y - _f0.y, _pitch * 9.0, "74HC161", &_born);
-        const fude_zoom_v2 _top = fude_zoom_page_look_pin(_page, _f, _bb, 2u);
-        const u32 _bat = fude_zoom_page_look_part(_page, _f, "battery", _top.x - 120.0, _top.y + 110.0, 0, "5V", &_born);
-        fude_zoom_page_look_line(_page, _f, _bat, 0, _bb, 0u * _cols + 2u, &_born);
-        fude_zoom_page_look_line(_page, _f, _bat, 1, _bb, 1u * _cols + 2u, &_born);
-        fude_zoom_page_look_line(_page, _f, _bb, 0u * _cols + 1u, _bb, 12u * _cols + 1u, &_born);
-        fude_zoom_page_look_line(_page, _f, _bb, 1u * _cols + 28u, _bb, 13u * _cols + 28u, &_born);
-        const u32 _hi[5] = { 0u, 6u, 8u, 9u, 15u }, _lo[5] = { 2u, 3u, 4u, 5u, 7u };
-        for(u32 _k = 0; _k < 5u; _k++) {
-            const u32 _ch = _hi[_k] < 8u ? _col + _hi[_k] : _col + 15u - _hi[_k];
-            const u32 _sh = _hi[_k] < 8u ? 10u * _cols + _ch : 3u * _cols + _ch;
-            fude_zoom_page_look_line(_page, _f, _bb, _sh, _bb, (_hi[_k] < 8u ? 12u : 0u) * _cols + _ch, &_born);
-            fude_zoom_page_look_line(_page, _f, _bb, 10u * _cols + _col + _lo[_k], _bb, 13u * _cols + _col + _lo[_k], &_born);
-        }
-        const fude_zoom_v2 _ck = fude_zoom_page_look_pin(_page, _f, _bb, 10u * _cols + _col + 1u);
-        const u32 _clk = fude_zoom_page_look_part(_page, _f, "clock", _ck.x, _ck.y - 150.0, 0, "2Hz", &_born);
-        fude_zoom_page_look_line(_page, _f, _clk, 0, _bb, 10u * _cols + _col + 1u, &_born);
-        fude_zoom_page_look_line(_page, _f, _clk, 1, _bb, 13u * _cols + 22u, &_born);
-        for(u32 _i = 0; _i < 4u; _i++) {
-            const u32 _k = 13u - _i;   // (QA, QB, QC, QD)
-            const fude_zoom_v2 _h = fude_zoom_page_look_pin(_page, _f, _bb, 3u * _cols + _col + 15u - _k);
-            const u32 _r = fude_zoom_page_look_part(_page, _f, "resistor", _h.x + 40.0, _top.y + 70.0 + (f64)_i * 42.0, 0, "330", &_born);
-            const u32 _led = fude_zoom_page_look_part(_page, _f, "LED", _h.x + 140.0, _top.y + 70.0 + (f64)_i * 42.0, 0, "red", &_born);
-            fude_zoom_page_look_line(_page, _f, _bb, 3u * _cols + _col + 15u - _k, _r, 0, &_born);
-            fude_zoom_page_look_line(_page, _f, _r, 1, _led, 0, &_born);
-            fude_zoom_page_look_line(_page, _f, _led, 1, _bb, 1u * _cols + 20u + _i, &_born);
-        }
-        RDE_UNUSED(_ic);
+        fude_zoom_page_look_example(_page, _f, FUDE_ZOOM_EXAMPLE_COUNTER, &_born);
     } else if(_demo == 7u) {
         // (four of the full adder made of demo 5, a carry along them; switches into them, probes out)
         u32 _fa[4];
@@ -18841,94 +19881,16 @@ RDE_INTERNAL u32 fude_zoom_page_look_sized(fude_zoom_page* _page, u32 _frame, co
 
 void fude_zoom_page_look_mech(fude_zoom_page* _page, u32 _demo) {
     // 1: a crank and rocker on a motor; 2: a gear train on a motor; 3: a pendulum and a weight on a spring; 4: a pulley;
-    // 5: a slider-crank; 6: a rack and pinion; 7: drawings made bodies. Topic Mechanisms.
+    // 5: a slider-crank; 6: a rack and pinion; 7: drawings made bodies; 8: a gear train on a rack (Borja's). Topic
+    // Mechanisms.
     fude_zoom_scene* _s    = &_page->scene;
     const f64        _near = 4.0 / _s->camera.z;
     const u32 _f = fude_zoom_camera_drawing_frame(_s, (fude_zoom_box){ _s->camera.at.x - _near, _s->camera.at.y - _near, _s->camera.at.x + _near, _s->camera.at.y + _near });
     rde_arr _born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
-    if(_demo == 1u) {
-        // Ground 110 (motor at -55, pivot at 55), crank 40, coupler 120, rocker 100 (Grashof: the crank turns round).
-        fude_zoom_page_look_sized(_page, _f, "drive motor", -55, 0, 0, 0, 0, "30 rpm", &_born);
-        fude_zoom_page_look_sized(_page, _f, "fixed pivot", 55, -10, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "link", -35, 0, 0, 40 + 24, 24, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "link", (-15 + 51.43) * 0.5, 99.9 * 0.5, atan2(99.9, 66.43) * 57.29577951308232, 120 + 24, 24, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "link", (55 + 51.43) * 0.5, 99.9 * 0.5, atan2(99.9, -3.57) * 57.29577951308232, 100 + 24, 24, "", &_born);
-    } else if(_demo == 2u) {
-        // (the 40T and the 10T on nothing: each on an axle of its own)
-        fude_zoom_page_look_sized(_page, _f, "drive motor", -100, 0, 0, 0, 0, "20 rpm", &_born);
-        fude_zoom_page_look_sized(_page, _f, "gear 20T", -100, 0, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "gear 40T", 50, 0, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "gear 10T", 50, 125, 0, 0, 0, "", &_born);
-    } else if(_demo == 3u) {
-        fude_zoom_page_look_sized(_page, _f, "fixed pivot", -100, 140, 0, 0, 0, "", &_born);
-        const f64 _a = -45.0 * 0.017453292519943295;   // (let go from 45°)
-        fude_zoom_page_look_sized(_page, _f, "link", -100 + sin(-_a) * 48, 150 - cos(_a) * 48, -45, 120, 24, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "weight", -100 + sin(-_a) * 96, 150 - cos(_a) * 96, 0, 0, 0, "1 kg", &_born);
-        fude_zoom_page_look_sized(_page, _f, "fixed pivot", 150, 140, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "spring", 150, 150 - 45, -90, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "weight", 150, 150 - 90, 0, 0, 0, "2 kg", &_born);
-        fude_zoom_page_look_sized(_page, _f, "wall", 0, -120, 0, 600, 20, "", &_born);
-    } else if(_demo == 4u) {
-        // A pulley (its groove 31 round), a rope down each side: a 1 kg weight on one, a 2 kg crate on the other.
-        fude_zoom_page_look_sized(_page, _f, "pulley", 0, 100, 0, 80, 80, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "rope", -31.2, 25, 90, 158, 12, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "rope", 31.2, 25, 90, 158, 12, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "weight", -31.2, -62, 0, 0, 0, "1 kg", &_born);
-        fude_zoom_page_look_sized(_page, _f, "crate", 31.2, -68, 0, 0, 0, "2 kg", &_born);
-        fude_zoom_page_look_sized(_page, _f, "wall", 0, -220, 0, 400, 20, "", &_born);
-        // (and a rope pendulum: from a pivot's pin at (150, 100) to a weight at (220, 20), let go)
-        fude_zoom_page_look_sized(_page, _f, "fixed pivot", 150, 90, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "rope", 185, 60, atan2(-80.0, 70.0) * 57.29577951308232, 106.3 / 0.95, 12, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "weight", 220, 20, 0, 0, 0, "1 kg", &_born);
-    } else if(_demo == 5u) {
-        // A slider-crank (an engine's piston): a motor turning a crank 40 long, a rod 140 to a slider on a rail.
-        fude_zoom_page_look_sized(_page, _f, "drive motor", -120, 0, 0, 0, 0, "60 rpm", &_born);
-        fude_zoom_page_look_sized(_page, _f, "link", -120 + 20, 0, 0, 40 + 24, 24, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "link", -80 + 70, 0, 0, 140 + 24, 24, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "rail", 100, 0, 0, 300, 16, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "slider", 60, 0, 0, 0, 0, "", &_born);
-    } else if(_demo == 6u) {
-        // A rack and its pinion: a 20-tooth gear (its pitch circle 50 round) on a motor, a rack under it.
-        fude_zoom_page_look_sized(_page, _f, "drive motor", 0, 60, 0, 0, 0, "10 rpm", &_born);
-        fude_zoom_page_look_sized(_page, _f, "gear 20T", 0, 60, 0, 0, 0, "", &_born);
-        fude_zoom_page_look_sized(_page, _f, "rack", 0, 60 - 50 - (15 - 10), 0, 300, 30, "", &_born);
-    } else if(_demo == 7u) {
-        // Drawings made bodies: a ramp drawn as a line (the ground), a pen-drawn triangle of wood, a steel ball, a
-        // rubber L, and a bar pinned at one end (a pendulum).
-        const fude_zoom_sim _back = fude_zoom_sim_inverse(fude_zoom_page_frame_sim(_page, _f));
-        const f64 _k = fude_zoom_sim_scale(_back);
-        const rde_color _ink = _page->app->ink->color;
-        const fude_zoom_v2 _ramp[4] = { { -330, 130 }, { -40, -60 }, { 330, -60 }, { 330, 10 } };
-        const fude_zoom_v2 _tri[3]  = { { -205, 175 }, { -150, 175 }, { -178, 225 } };
-        const fude_zoom_v2 _ell[6]  = { { 150, 110 }, { 230, 110 }, { 230, 130 }, { 175, 130 }, { 175, 170 }, { 150, 170 } };
-        u32 _bodies[5];
-        u32 _nb = 0;
-        const fude_zoom_v2* _lines[3] = { _ramp, _tri, _ell };
-        const u32 _counts[3] = { 4u, 3u, 6u };
-        for(u32 _l = 0; _l < 3u; _l++) {
-            fude_zoom_v2 _q[8];
-            for(u32 _i = 0; _i < _counts[_l]; _i++) {
-                _q[_i] = fude_zoom_sim_apply(_back, _lines[_l][_i]);
-            }
-            const u32 _was = (u32)rde_arr_length(&_born);
-            fude_zoom_page_add_path(_page, _f, _q, _counts[_l], _l != 0u, _ink, (f32)(2.0 * _k), &_born);
-            _bodies[_nb++] = ((const u32*)_born.memory)[_was];
-        }
-        const f64 _ball[2] = { 26.0 * _k, 26.0 * _k };
-        _bodies[_nb++] = fude_zoom_scene_add_shape(_s, _f, (fude_zoom_place){ fude_zoom_sim_apply(_back, (fude_zoom_v2){ -265, 200 }), 0.0, 1.0 },
-                                                   FUDE_ZOOM_SHAPE_ELLIPSE, _ball, 2u, _ink, (f32)(1.5 * _k), 0, 0);
-        const f64 _bar[3] = { 70.0 * _k, 8.0 * _k, 0.0 };
-        _bodies[_nb++] = fude_zoom_scene_add_shape(_s, _f, (fude_zoom_place){ fude_zoom_sim_apply(_back, (fude_zoom_v2){ 40, 240 }), 0.0, 1.0 },
-                                                   FUDE_ZOOM_SHAPE_RECT, _bar, 3u, _ink, (f32)(1.5 * _k), 0, 0);
-        rde_arr_add(&_born, (any)&_bodies[3]);
-        rde_arr_add(&_born, (any)&_bodies[4]);
-        const u32 _material[5] = { 0u, 0u, 3u, 1u, 2u };   // (the ramp's: it is fixed whatever; wood, rubber, steel, aluminium)
-        for(u32 _i = 0; _i < _nb; _i++) {
-            const fude_zoom_body_props _bp = { _material[_i], _i == 0u, 0.0, -1.0, -1.0 };
-            const u32 _made = fude_zoom_props_add_body(_s, _bodies[_i], &_bp);
-            rde_arr_add(&_born, (any)&_made);
-        }
-        fude_zoom_page_look_sized(_page, _f, "pin", -26, 240, 0, 0, 0, "", &_born);
+    static const u32 _examples[9] = { 0u, FUDE_ZOOM_EXAMPLE_CRANK, FUDE_ZOOM_EXAMPLE_GEAR_TRAIN, FUDE_ZOOM_EXAMPLE_PENDULUM, FUDE_ZOOM_EXAMPLE_PULLEYS,
+                                      FUDE_ZOOM_EXAMPLE_PISTON, FUDE_ZOOM_EXAMPLE_RACK, FUDE_ZOOM_EXAMPLE_BODIES, FUDE_ZOOM_EXAMPLE_GEARS_RACK };
+    if(_demo >= 1u && _demo <= 8u) {
+        fude_zoom_page_look_example(_page, _f, _examples[_demo], &_born);
     }
     if(rde_arr_length(&_born) > 0u) {
         fude_zoom_history_push(_s, _f, fude_zoom_scene_object(_s, ((const u32*)_born.memory)[0])->box, NULL, 0, (const u32*)_born.memory, (u32)rde_arr_length(&_born));
@@ -19021,6 +19983,20 @@ void fude_zoom_page_look_value(fude_zoom_page* _page, const c8* _id, const c8* _
         return;
     }
     fude_zoom_value_look(&_page->value_form, _typed, _unit, _way);
+}
+
+void fude_zoom_page_look_examples(fude_zoom_page* _page, u32 _which) {
+    fude_zoom_page_examples_chosen(_page, _which);
+}
+
+void fude_zoom_page_look_fps(fude_zoom_page* _page, b8 _on) {
+    _page->show_fps = _on;
+}
+
+void fude_zoom_page_look_draw_example(fude_zoom_page* _page, u32 _example) {
+    if(_example < FUDE_ZOOM_EXAMPLE_COUNT) {
+        fude_zoom_page_examples_draw(_page, _example);
+    }
 }
 
 void fude_zoom_page_look_context(fude_zoom_page* _page, rde_vec_2F _screen, b8 _delete) {
@@ -19230,6 +20206,10 @@ void fude_zoom_page_look_joint(fude_zoom_page* _page, u8 _kind, f64 _a, f64 _b, 
     _page->joint_mm[1] = _b;
     _page->joint_mm[2] = _c;
     fude_zoom_page_joint_put(_page);
+}
+
+void fude_zoom_page_look_topic(fude_zoom_page* _page, u32 _topic) {
+    fude_zoom_topic_choose(_page->app, _topic);
 }
 
 void fude_zoom_page_look_grain(fude_zoom_page* _page) {

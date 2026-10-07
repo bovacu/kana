@@ -37,6 +37,7 @@ RDE_INTERNAL const fude_zoom_mech_part FZM_PARTS[] = {
     { "rack",        FUDE_ZOOM_MECH_RACK,   0, 0, { { 0.0f, 0.0f } }, "" },
     { "pin",         FUDE_ZOOM_MECH_PIN,    0, 1, { { 0.0f, 0.0f } }, "" },
     { "drawn body",  FUDE_ZOOM_MECH_DRAWN,  0, 0, { { 0.0f, 0.0f } }, "" },   // (no symbol: a drawing's, props.h)
+    { "motor shaft", FUDE_ZOOM_MECH_SHAFT,  0, 1, { { 0.0f, 0.0f } }, "" },   // (no symbol of its own: a circuit's motor's)
 };
 #define FZM_N ((u32)(sizeof(FZM_PARTS) / sizeof(FZM_PARTS[0])))
 
@@ -300,8 +301,9 @@ u32 fude_zoom_mech_draw(const fude_zoom_mech_part* _part, f64 _hw, f64 _hh, u32 
         fzm_circle(&_d, 0.0, 0.0, _m * 0.22, 0u);
         break;
     case FUDE_ZOOM_MECH_RACK: {
-        // (a bar, teeth along its top as a 5-point module's: 5π apart, their pitch line its)
-        const f64 _pl = fude_zoom_mech_rack_pitch_line(_h), _mod = fmin(5.0, _h * 0.5);
+        // (a bar, teeth along its top: a third of its half height their module — the library's, 5 points, as its gears' —,
+        // π modules apart, their pitch line its)
+        const f64 _pl = fude_zoom_mech_rack_pitch_line(_h), _mod = fude_zoom_mech_rack_module(_h);
         const f64 _p = FZM_PI * _mod, _base = _pl - 1.25 * _mod, _tip = _pl + _mod;
         fzm_begin(&_d);
         fzm_pt(&_d, -_w, -_h);
@@ -384,8 +386,12 @@ f64 fude_zoom_mech_pulley_radius(const fude_zoom_mech_body* _b) {
     return fmin(_b->hw, _b->hh) * 0.78;
 }
 
+f64 fude_zoom_mech_rack_module(f64 _hh) {
+    return _hh / 3.0;   // (as big as the rack is drawn: placed at any zoom, as the gears placed with it)
+}
+
 f64 fude_zoom_mech_rack_pitch_line(f64 _hh) {
-    return _hh - 2.0 * fmin(5.0, _hh * 0.5);   // (its teeth a module above it at most: their tips at its top)
+    return _hh - 2.0 * fude_zoom_mech_rack_module(_hh);   // (its teeth's tips a module above it)
 }
 
 // Is _q on body _b (its shape as drawn, _tol about it)?
@@ -593,6 +599,143 @@ RDE_INTERNAL void fzm_drawn(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, 
     rde_arr_free(&_out_arr);
 }
 
+u32 fude_zoom_mech_rack_teeth(const fude_zoom_mech_body* _rack, f64* _first, f64* _pitch, f64* _line) {
+    // (as fude_zoom_mech_draw draws them: in its own units, a 5-point module's, their pitch line its)
+    const f64 _k = _rack->scale > 0.0 ? _rack->scale : 1.0;
+    const f64 _w = _rack->hw / _k, _h = _rack->hh / _k, _mod = fude_zoom_mech_rack_module(_h), _p = FZM_PI * _mod;
+    u32 _n = 0;
+    for(f64 _x = _w - _p * 0.5; _x > -_w + _p * 0.25 && _n < 100000u; _x -= _p) {
+        _n++;
+    }
+    *_first = (_w - _p * 0.5) * _k;
+    *_pitch = _p * _k;
+    *_line  = fude_zoom_mech_rack_pitch_line(_h) * _k;
+    return _n;
+}
+
+f64 fude_zoom_mech_tooth_at(const fude_zoom_mech_body* _gear, f64 _toward) {
+    const f64 _x = (_toward - (_gear->angle + _gear->phase)) * (f64)_gear->part->teeth / (2.0 * FZM_PI);
+    return _x - floor(_x);
+}
+
+// The phase that puts _want (a fraction of a tooth) of gear _gear's teeth toward world angle _toward — the least turn.
+RDE_INTERNAL f64 fzm_phase_for(const fude_zoom_mech_body* _gear, f64 _toward, f64 _want) {
+    const f64 _tooth = 2.0 * FZM_PI / (f64)_gear->part->teeth;
+    const f64 _phase = _toward - _gear->angle - _want * _tooth;
+    return _phase - _tooth * round(_phase / _tooth);
+}
+
+// Racks meshed with gears: their slides as far as some gear is over their teeth (each mesh's own travel: there it lets
+// go); never less than where they are.
+RDE_INTERNAL void fzm_rack_travel(fude_zoom_mech_plan* _p) {
+    const fude_zoom_mech_mesh* _m = (const fude_zoom_mech_mesh*)_p->meshes.memory;
+    fude_zoom_mech_slide* _sl = (fude_zoom_mech_slide*)_p->slides.memory;
+    for(u32 _s = 0; _s < (u32)rde_arr_length(&_p->slides); _s++) {
+        f64 _lower = 0.0, _upper = 0.0;
+        b8 _meshed = false;
+        for(u32 _k = 0; _k < (u32)rde_arr_length(&_p->meshes); _k++) {
+            if(_m[_k].rack && _m[_k].b == _sl[_s].body) {
+                _lower  = fmin(_lower, _m[_k].lower);
+                _upper  = fmax(_upper, _m[_k].upper);
+                _meshed = true;
+            }
+        }
+        if(_meshed) {
+            _sl[_s].lower = _lower;
+            _sl[_s].upper = _upper;
+        }
+    }
+}
+
+// Teeth in gaps: each gear meshed turned (its phase) so its teeth meet the gaps of what it meshes with — from a rack
+// first (a rack does not turn), then along the gears' meshes (a train from its first). A gear something else is on (a
+// link pinned to it, a spring's or a rope's end) is not turned: those meshing with it are, to it.
+RDE_INTERNAL void fzm_phases(fude_zoom_mech_plan* _p) {
+    fude_zoom_mech_body* _b = (fude_zoom_mech_body*)_p->bodies.memory;
+    const fude_zoom_mech_mesh* _m = (const fude_zoom_mech_mesh*)_p->meshes.memory;
+    const u32 _nb = (u32)rde_arr_length(&_p->bodies), _nm = (u32)rde_arr_length(&_p->meshes);
+    if(_nm == 0u) {
+        return;
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _set_arr = rde_arr_new(sizeof(u8), _heap), _queue = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_set_arr, _nb);
+    u8* _set = (u8*)_set_arr.memory;   // (1: its phase decided)
+    #define FZM_HELD(_i) do { if((_i) != FUDE_ZOOM_NONE && (_i) < _nb) { _set[(_i)] = 1u; } } while(0)
+    const fude_zoom_mech_hinge* _h = (const fude_zoom_mech_hinge*)_p->hinges.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_p->hinges); _i++) {
+        if(_h[_i].b != FUDE_ZOOM_NONE) {
+            FZM_HELD(_h[_i].a);
+            FZM_HELD(_h[_i].b);
+        }
+    }
+    const fude_zoom_mech_spring* _sp = (const fude_zoom_mech_spring*)_p->springs.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_p->springs); _i++) {
+        FZM_HELD(_sp[_i].a);
+        FZM_HELD(_sp[_i].b);
+    }
+    const fude_zoom_mech_rope* _r = (const fude_zoom_mech_rope*)_p->ropes.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_p->ropes); _i++) {
+        FZM_HELD(_r[_i].a);
+        FZM_HELD(_r[_i].b);
+    }
+    #undef FZM_HELD
+    // Along the trains: from each gear decided (pinned to something), those it meshes with; a train with none decided,
+    // from its first.
+    for(u32 _pass = 0; _pass < 2u; _pass++) {
+        for(u32 _k = 0; _k < _nm; _k++) {
+            if(_m[_k].rack) {
+                continue;
+            }
+            const u32 _start = _set[_m[_k].a] ? _m[_k].a : (_set[_m[_k].b] ? _m[_k].b : (_pass == 1u ? _m[_k].a : FUDE_ZOOM_NONE));
+            if(_start == FUDE_ZOOM_NONE) {
+                continue;
+            }
+            _set[_start] = 1u;
+            rde_arr_clear(&_queue);
+            rde_arr_add(&_queue, (any)&_start);
+            for(u32 _head = 0; _head < (u32)rde_arr_length(&_queue); _head++) {
+                const u32 _v = ((const u32*)_queue.memory)[_head];
+                for(u32 _e = 0; _e < _nm; _e++) {
+                    const u32 _o = _m[_e].rack ? FUDE_ZOOM_NONE : (_m[_e].a == _v ? _m[_e].b : (_m[_e].b == _v ? _m[_e].a : FUDE_ZOOM_NONE));
+                    if(_o == FUDE_ZOOM_NONE || _set[_o]) {
+                        continue;
+                    }
+                    // (where they touch: a tooth of one, a gap of the other — their places there add to a half, as they turn)
+                    const f64 _toward = atan2(_b[_o].at.y - _b[_v].at.y, _b[_o].at.x - _b[_v].at.x);
+                    const f64 _want = 0.5 - fude_zoom_mech_tooth_at(&_b[_v], _toward);
+                    _b[_o].phase = fzm_phase_for(&_b[_o], _toward + FZM_PI, _want - floor(_want));
+                    _set[_o] = 1u;
+                    rde_arr_add(&_queue, (any)&_o);
+                }
+            }
+        }
+    }
+    // Racks, to their gears (a rack slides: it is moved, the gear left as its train has it): where they touch, a tooth
+    // of the gear's in a gap of the rack's — the gear over the rack: its tooth's place less the rack's kept as they go;
+    // under it, the two added.
+    for(u32 _k = 0; _k < _nm; _k++) {
+        if(!_m[_k].rack || _set[_m[_k].b]) {
+            continue;
+        }
+        const fude_zoom_mech_body* _g = &_b[_m[_k].a];
+        fude_zoom_mech_body* _rk = &_b[_m[_k].b];
+        const fude_zoom_v2 _u = { cos(_rk->angle), sin(_rk->angle) }, _n = { -_u.y, _u.x };
+        const f64 _dx = _g->at.x - _rk->at.x, _dy = _g->at.y - _rk->at.y;
+        const f64 _along = _dx * _u.x + _dy * _u.y, _up = _dx * _n.x + _dy * _n.y;
+        f64 _first, _pitch, _line;
+        fude_zoom_mech_rack_teeth(_rk, &_first, &_pitch, &_line);
+        const f64 _pg = fude_zoom_mech_tooth_at(_g, _up >= 0.0 ? atan2(-_n.y, -_n.x) : atan2(_n.y, _n.x));
+        const f64 _q = _up >= 0.0 ? _pg - 0.5 : 0.5 - _pg;   // (the rack's place there it needs)
+        // (moved d along itself, the gear's place on it goes back d: (along − d − first) / pitch ≡ q)
+        const f64 _d = _along - _first - _q * _pitch;
+        _rk->shift = _d - _pitch * round(_d / _pitch);
+        _set[_m[_k].b] = 1u;
+    }
+    rde_arr_free(&_set_arr);
+    rde_arr_free(&_queue);
+}
+
 u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, const u8* _scope) {
     rde_arr_clear(&_p->bodies);
     rde_arr_clear(&_p->hinges);
@@ -613,6 +756,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         }
         const fude_zoom_mech_part* _part = fude_zoom_mech_of(_s, _i);
         if(_part == NULL) {
+            // (a circuit's motor: its shaft, what is pinned on it turned as the circuit drives it)
+            const fude_zoom_part* _ep = fude_zoom_part_of(_s, _i);
+            _part = _ep != NULL && _ep->model == FUDE_ZOOM_MODEL_MOTOR ? fude_zoom_mech_find("motor shaft") : NULL;
+        }
+        if(_part == NULL) {
             continue;
         }
         const u32 _count = fude_zoom_scene_shape_numbers_all(_s, _i, &_n);
@@ -630,8 +778,9 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         _b.angle  = atan2(_up.b, _up.a);
         _b.hw     = _num[1] * _k;
         _b.hh     = _num[2] * _k;
+        _b.scale  = _k;
         _b.fixed  = _part->kind == FUDE_ZOOM_MECH_PIVOT || _part->kind == FUDE_ZOOM_MECH_MOTOR || _part->kind == FUDE_ZOOM_MECH_WALL ||
-                    _part->kind == FUDE_ZOOM_MECH_PULLEY || _part->kind == FUDE_ZOOM_MECH_RAIL;
+                    _part->kind == FUDE_ZOOM_MECH_PULLEY || _part->kind == FUDE_ZOOM_MECH_RAIL || _part->kind == FUDE_ZOOM_MECH_SHAFT;
         fude_zoom_symbol_text(_num, _count, _text, sizeof(_text));
         f64 _v = 0.0;
         const b8 _has = fude_zoom_circuit_value(_text, 0u, &_v);
@@ -647,6 +796,9 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             _b.value = _has && _v > 0.0 ? _v : 1.0;
         }
         rde_arr_add(&_p->bodies, (any)&_b);
+        if(_part->kind == FUDE_ZOOM_MECH_SHAFT) {
+            continue;   // (a circuit's part: not the mechanism's size)
+        }
         const f64 _size = _part->kind == FUDE_ZOOM_MECH_LINK || _part->kind == FUDE_ZOOM_MECH_ROPE || _part->kind == FUDE_ZOOM_MECH_RAIL ||
                           _part->kind == FUDE_ZOOM_MECH_RACK ? fmax(_b.hh, _b.hw * 0.08) : fmin(_b.hw, _b.hh) * 0.5;
         _p->unit = _p->unit > 0.0 ? fmin(_p->unit, _size) : _size;
@@ -715,7 +867,7 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
                     if(hypot(_q.x - _at.x, _q.y - _at.y) > _tol) {
                         continue;
                     }
-                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0 };
+                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0, FUDE_ZOOM_NONE };
                     const u32 _fixed = _b[_i].fixed ? _i : (_b[_j].fixed ? _j : FUDE_ZOOM_NONE);
                     if(_fixed != FUDE_ZOOM_NONE) {
                         _hg.a = _fixed == _i ? _j : _i;
@@ -724,6 +876,8 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
                         if(_b[_fixed].part->kind == FUDE_ZOOM_MECH_MOTOR) {
                             _hg.motor = true;
                             _hg.speed = 2.0 * FZM_PI * _b[_fixed].value;
+                        } else if(_b[_fixed].part->kind == FUDE_ZOOM_MECH_SHAFT) {
+                            _hg.shaft = _fixed;
                         }
                     }
                     rde_arr_add(&_p->hinges, (any)&_hg);
@@ -742,7 +896,7 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             _held = _held || _h[_k].a == _i || _h[_k].b == _i;
         }
         if(!_held) {
-            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0 };
+            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_axle);
         }
     }
@@ -767,11 +921,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             }
         }
         for(u32 _k = 1; _k < _m; _k++) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0 };
+            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
         if(_m > 0u && (_ground || _m == 1u)) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0 };
+            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
     }
@@ -864,13 +1018,18 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             const fude_zoom_v2 _u = { cos(_b[_j].angle), sin(_b[_j].angle) }, _n = { -_u.y, _u.x };
             const f64 _dx = _b[_i].at.x - _b[_j].at.x, _dy = _b[_i].at.y - _b[_j].at.y;
             const f64 _along = _dx * _u.x + _dy * _u.y, _up = _dx * _n.x + _dy * _n.y;
-            const f64 _line = fude_zoom_mech_rack_pitch_line(_b[_j].hh), _mod = 2.0 * _r / (f64)_b[_i].part->teeth;
+            f64 _first, _pitch, _line;
+            const u32 _teeth = fude_zoom_mech_rack_teeth(&_b[_j], &_first, &_pitch, &_line);
+            const f64 _mod = 2.0 * _r / (f64)_b[_i].part->teeth;
             const b8 _above = fabs(_up - (_line + _r)) <= 0.6 * _mod, _below = fabs(_up + (_line + _r)) <= 0.6 * _mod;
             if((_above || _below) && fabs(_along) <= _b[_j].hw) {
                 // (the rack goes as the gear's rim where they touch: over it, turning anticlockwise, the rack goes on — its
-                // travel r a radian: a's turn − b's travel / r kept; under it, the other way)
+                // travel r a radian: a's turn − b's travel / r kept; under it, the other way. As far as it goes while the
+                // gear is on its teeth: the gear's middle along it from a tooth past its last one to a tooth past its
+                // first — run off them, the gear's teeth clear of the rack's)
                 const f64 _side = _above ? 1.0 : -1.0;
-                const fude_zoom_mech_mesh _m = { _i, _j, -_side / _r, true };
+                const f64 _last = _first - _pitch * (f64)(_teeth > 0u ? _teeth - 1u : 0u);
+                const fude_zoom_mech_mesh _m = { _i, _j, -_side / _r, _along - (_first + _pitch), _along - (_last - _pitch), 2.0 * FZM_PI / (f64)_b[_i].part->teeth, true };
                 rde_arr_add(&_p->meshes, (any)&_m);
             }
         }
@@ -889,11 +1048,13 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             const f64 _d = hypot(_b[_j].at.x - _b[_i].at.x, _b[_j].at.y - _b[_i].at.y);
             const f64 _mod = 2.0 * _ri / (f64)_b[_i].part->teeth;
             if(fabs(_d - (_ri + _rj)) <= 0.6 * _mod) {
-                const fude_zoom_mech_mesh _m = { _i, _j, (f64)_b[_i].part->teeth / (f64)_b[_j].part->teeth, false };
+                const fude_zoom_mech_mesh _m = { _i, _j, (f64)_b[_i].part->teeth / (f64)_b[_j].part->teeth, 0.0, 0.0, 2.0 * FZM_PI / (f64)_b[_i].part->teeth, false };
                 rde_arr_add(&_p->meshes, (any)&_m);
             }
         }
     }
+    fzm_rack_travel(_p);
+    fzm_phases(_p);
     return _nb;
 }
 

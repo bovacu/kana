@@ -34,6 +34,7 @@ typedef struct {
     c8            name[FUDE_ZOOM_PIECE_NAME];
     fude_zoom_box box;                         // what it covers, round its middle (true size: home units)
     rde_arr TYPE(fude_zoom_clip) items;        // each thing; its on_screen: its own units → the piece's
+    u32           families;                    // its symbols' (fude_zoom_piece_families), as it was read or made
 } fude_zoom_piece;
 
 typedef struct {
@@ -53,6 +54,15 @@ u32  fude_zoom_pieces_add(fude_zoom_pieces* _p, const c8* _dir, const c8* _name,
 void fude_zoom_pieces_remove(fude_zoom_pieces* _p, const c8* _dir, u32 _i);
 // Renamed (written again).
 void fude_zoom_pieces_rename(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const c8* _name);
+// Its things made _items again (copied: _items' bytes stay the caller's), its box _box — its name, its id, its place in
+// the list kept (written again). False: none such, empty, or not written.
+b8   fude_zoom_pieces_replace(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const fude_zoom_clip* _items, u32 _n, fude_zoom_box _box);
+// One piece as a file of its own, and back (a custom part's drawing, beside it: My parts). False: not written / read.
+b8   fude_zoom_piece_save(const fude_zoom_piece* _piece, const c8* _path);
+b8   fude_zoom_piece_load(fude_zoom_piece* _piece, const c8* _path);
+
+// The families of the symbols in it (bits: 1 << symbol.h' family; 0: none — a drawing).
+u32  fude_zoom_piece_families(const fude_zoom_piece* _piece);
 
 // One piece into bytes, and back (a piece made empty first; false: not one).
 void fude_zoom_piece_write(const fude_zoom_piece* _piece, fude_bytes* _out);

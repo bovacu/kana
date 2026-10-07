@@ -57,7 +57,10 @@
 //           u8 r g b a (the marker's colour), f32 the marker's half-width,
 //           u8 cards_read (the must-read cards closed, a bit each: readcard.h),
 //           u8 ui_size (the interface's: FUDE_UI_SIZE_, app.h; 0: the device's),
-//           u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0: never chosen)
+//           u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0: never chosen),
+//           f32 eraser_radius, u8 units, f32 true_mm_per_point, f32 print_x,
+//           print_y, f32 kerf_mm, u8 show_fps (Sketching's: the frame rate drawn
+//           at the top right; 1 on)
 //           (new fields go at the END: an older file just ends sooner; one from
 //           before the hand is a pen user's: the pen writes)
 // ===========================================================================
@@ -99,6 +102,7 @@ RDE_STRUCT {
     f32        true_mm_per_point; // Sketching's true size: millimetres a screen point really is (0: not calibrated)
     f32        print_x, print_y;  // Sketching's printer: how long a printed millimetre comes out, across and down (0: never checked)
     f32        kerf_mm;           // Sketching's saw: how wide its cut is, millimetres (0: never set — 3)
+    b8         show_fps;          // Sketching's: the frame rate drawn at the top right
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

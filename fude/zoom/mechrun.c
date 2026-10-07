@@ -5,7 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FZW_STEP (1.0 / 240.0)
+#define FZW_STEP      FUDE_ZOOM_MECH_STEP
+#define FZW_SUB_STEPS 8u      // (RDE's 4 by itself: twice, for gear trains light and heavy)
+#define FZW_SPIN_UP   0.25    // seconds a motor takes to come up to its speed
+#define FZW_STIFF     1.0e4f  // a pin's, a slide's stiffness (Hz: as stiff as RDE lets it be — a machine's pins do not give)
 
 void fude_zoom_mech_world_init(fude_zoom_mech_world* _w) {
     memset(_w, 0, sizeof(*_w));
@@ -15,6 +18,8 @@ void fude_zoom_mech_world_init(fude_zoom_mech_world* _w) {
     _w->inv_mass   = rde_arr_new(sizeof(f64), _heap);
     _w->moves      = rde_arr_new(sizeof(fude_zoom_sim), _heap);
     _w->ropes_were = rde_arr_new(sizeof(f64), _heap);
+    _w->motors     = rde_arr_new(sizeof(fude_zoom_mech_motor), _heap);
+    _w->shafts     = rde_arr_new(sizeof(fude_zoom_mech_shaft), _heap);
     _w->k          = 1.0;
 }
 
@@ -28,6 +33,8 @@ void fude_zoom_mech_world_stop(fude_zoom_mech_world* _w) {
     rde_arr_clear(&_w->inv_mass);
     rde_arr_clear(&_w->moves);
     rde_arr_clear(&_w->ropes_were);
+    rde_arr_clear(&_w->motors);
+    rde_arr_clear(&_w->shafts);
     _w->time = 0.0;
     _w->left = 0.0;
 }
@@ -39,6 +46,8 @@ void fude_zoom_mech_world_destroy(fude_zoom_mech_world* _w) {
     rde_arr_free(&_w->inv_mass);
     rde_arr_free(&_w->moves);
     rde_arr_free(&_w->ropes_were);
+    rde_arr_free(&_w->motors);
+    rde_arr_free(&_w->shafts);
 }
 
 b8 fude_zoom_mech_world_on(const fude_zoom_mech_world* _w) {
@@ -56,8 +65,10 @@ typedef struct {
 
 RDE_INTERNAL rde_vec_2F fzw_local(const fude_zoom_mech_world* _w, u32 _i, fude_zoom_v2 _p) {
     const fude_zoom_mech_body* _b = &((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_i];
-    const f64 _dx = _p.x - _b->at.x, _dy = _p.y - _b->at.y;
-    return (rde_vec_2F){ (f32)((_dx * cos(_b->angle) + _dy * sin(_b->angle)) * _w->k), (f32)((-_dx * sin(_b->angle) + _dy * cos(_b->angle)) * _w->k) };
+    // (as it was made: a gear turned its phase more, a rack moved its shift along itself)
+    const f64 _a = _b->angle + _b->phase;
+    const f64 _dx = _p.x - (_b->at.x + cos(_b->angle) * _b->shift), _dy = _p.y - (_b->at.y + sin(_b->angle) * _b->shift);
+    return (rde_vec_2F){ (f32)((_dx * cos(_a) + _dy * sin(_a)) * _w->k), (f32)((-_dx * sin(_a) + _dy * cos(_a)) * _w->k) };
 }
 
 fude_zoom_sim fude_zoom_mech_world_move(const fude_zoom_mech_world* _w, u32 _b) {
@@ -83,6 +94,8 @@ RDE_INTERNAL u32 fzw_piece(const fude_zoom_mech_world* _w, u32 _piece, rde_vec_2
     return _n;
 }
 
+RDE_INTERNAL void fzw_publish(fude_zoom_mech_world* _w);
+
 b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_plan* _plan) {
     fude_zoom_mech_world_stop(_w);
     fude_zoom_mech_plan_copy(&_w->plan, _plan);
@@ -98,6 +111,8 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
     if(_w->world == NULL) {
         return false;
     }
+    rde_physics_2d_world_set_sub_steps(_w->world, FZW_SUB_STEPS);
+    rde_physics_2d_world_enable_sleeping(_w->world, false);   // (a machine at rest is not asleep: its circuit may start it)
     rde_physics_2d_shape_def _dot;
     memset(&_dot, 0, sizeof(_dot));
     _dot.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
@@ -112,7 +127,8 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         _sh.friction = 0.6f;
         _sh.restitution = 0.2f;
         const f32 _hw = (f32)(_b[_i].hw * _k), _hh = (f32)(_b[_i].hh * _k), _m = fminf(_hw, _hh);
-        const rde_vec_2F _at = { (f32)(_b[_i].at.x * _k), (f32)(_b[_i].at.y * _k) };
+        // (a rack moved its shift along itself: its teeth in its gear's gaps)
+        const rde_vec_2F _at = { (f32)((_b[_i].at.x + cos(_b[_i].angle) * _b[_i].shift) * _k), (f32)((_b[_i].at.y + sin(_b[_i].angle) * _b[_i].shift) * _k) };
         f32 _mass = 1.0f;
         RDE_PHYSICS_2D_BODY_TYPE_ _type = RDE_PHYSICS_2D_BODY_TYPE_DYNAMIC;
         b8 _own = true;
@@ -188,7 +204,8 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             break;
         }
         if(_own) {
-            _body = rde_physics_2d_body_create(_w->world, _type, _at, (f32)_b[_i].angle, &_sh, fmaxf(_mass, 0.01f));
+            // (a gear turned its phase more: its teeth in the gaps it meshes with)
+            _body = rde_physics_2d_body_create(_w->world, _type, _at, (f32)(_b[_i].angle + _b[_i].phase), &_sh, fmaxf(_mass, 0.01f));
             for(u32 _k = 1; _kind == FUDE_ZOOM_MECH_DRAWN && _k < _b[_i].pieces; _k++) {
                 _sh.polygon.count = fzw_piece(_w, _b[_i].piece + _k, _sh.polygon.verts);
                 rde_physics_2d_body_add_shape(_body, &_sh);
@@ -222,8 +239,17 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             }
             _j = rde_physics_2d_joint_create_hinge(_w->world, _a, fzw_local(_w, _h[_i].a, _h[_i].at), _bb, fzw_local(_w, _h[_i].b, _h[_i].at));
         }
+        rde_physics_2d_joint_set_stiffness(_j, FZW_STIFF, 2.0f);
         if(_j != NULL && _h[_i].motor) {
-            rde_physics_2d_joint_enable_motor(_j, (f32)-_h[_i].speed, 1e9f);   // (the ground's way round: its part turned as the motor says)
+            // (the ground's way round: its part turned as the motor says; from rest, brought up to it as it runs)
+            rde_physics_2d_joint_enable_motor(_j, 0.0f, 1e9f);
+            const fude_zoom_mech_motor _mo = { _j, -_h[_i].speed };
+            rde_arr_add(&_w->motors, (any)&_mo);
+        }
+        if(_j != NULL && _h[_i].shaft != FUDE_ZOOM_NONE && _h[_i].b == FUDE_ZOOM_NONE) {
+            // (a circuit's motor's: free until the circuit drives it)
+            const fude_zoom_mech_shaft _sh = { _j, _h[_i].a, _b[_h[_i].shaft].object };
+            rde_arr_add(&_w->shafts, (any)&_sh);
         }
         // (a gear's own: to the ground, its axle or its motor, before one to another part)
         const u32 _ends[2] = { _h[_i].a, _h[_i].b };
@@ -245,7 +271,9 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         const fude_zoom_v2 _c = _b[_sl[_i].body].at;
         _held[_sl[_i].body].slide = rde_physics_2d_joint_create_slider(_w->world, _w->ground, (rde_vec_2F){ (f32)(_sl[_i].at.x * _k), (f32)(_sl[_i].at.y * _k) },
                                                                      _body, fzw_local(_w, _sl[_i].body, _sl[_i].at),
-                                                                     (rde_vec_2F){ (f32)_sl[_i].axis.x, (f32)_sl[_i].axis.y }, (f32)(_sl[_i].lower * _k), (f32)(_sl[_i].upper * _k));
+                                                                     (rde_vec_2F){ (f32)_sl[_i].axis.x, (f32)_sl[_i].axis.y },
+                                                                     (f32)((_sl[_i].lower - _b[_sl[_i].body].shift) * _k), (f32)((_sl[_i].upper - _b[_sl[_i].body].shift) * _k));   // (from where it starts)
+        rde_physics_2d_joint_set_stiffness(_held[_sl[_i].body].slide, FZW_STIFF, 2.0f);
         RDE_UNUSED(_c);
     }
     // Springs: Box2D's, their stiffness its frequency (a stiffness of 1: about 2 Hz), a little damped.
@@ -302,11 +330,18 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             continue;
         }
         const f64 _ratio = _m[_i].rack ? _held[_m[_i].a].sign * _m[_i].ratio / _k : _held[_m[_i].a].sign * _held[_m[_i].b].sign / _m[_i].ratio;
-        rde_physics_2d_joint_create_gear(_w->world, _ja, _jb, (f32)_ratio);
+        rde_physics_2d_joint* _gear = rde_physics_2d_joint_create_gear(_w->world, _ja, _jb, (f32)_ratio);
+        if(_m[_i].rack && _gear != NULL) {
+            // (a rack: held only while the gear is over its teeth — its slide's travel, world units —, meshing again on a tooth)
+            const f64 _from = _b[_m[_i].b].shift;   // (its travel counted from where it starts)
+            rde_physics_2d_joint_set_gear_range(_gear, (f32)((_m[_i].lower - _from) * _k), (f32)((_m[_i].upper - _from) * _k));
+            rde_physics_2d_joint_set_gear_period(_gear, (f32)_m[_i].period);
+        }
     }
     rde_arr_free(&_held_arr);
     _w->time = 0.0;
     _w->left = 0.0;
+    fzw_publish(_w);   // (as it starts: its gears turned to mesh already)
     return true;
 }
 
@@ -348,6 +383,20 @@ RDE_INTERNAL void fzw_publish(fude_zoom_mech_world* _w) {
     }
 }
 
+// One step (motors coming up to speed as they start).
+RDE_INTERNAL void fzw_tick(fude_zoom_mech_world* _w) {
+    if(_w->time < FZW_SPIN_UP + FZW_STEP) {
+        // (motors coming up to speed: smoothly, from rest)
+        const f64 _u = fmin(fmax((_w->time + FZW_STEP) / FZW_SPIN_UP, 0.0), 1.0), _ramp = _u * _u * (3.0 - 2.0 * _u);
+        const fude_zoom_mech_motor* _mo = (const fude_zoom_mech_motor*)_w->motors.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->motors); _i++) {
+            rde_physics_2d_joint_set_motor_speed(_mo[_i].joint, (f32)(_mo[_i].speed * _ramp));
+        }
+    }
+    rde_physics_2d_world_step(_w->world, (f32)FZW_STEP);   // (hinges, motors, slides, springs, ropes, pulleys, gears: RDE's)
+    _w->time += FZW_STEP;
+}
+
 void fude_zoom_mech_world_step(fude_zoom_mech_world* _w, f64 _dt) {
     if(_w->world == NULL) {
         return;
@@ -355,8 +404,69 @@ void fude_zoom_mech_world_step(fude_zoom_mech_world* _w, f64 _dt) {
     _w->left += fmin(fmax(_dt, 0.0), 0.1);
     while(_w->left >= FZW_STEP) {
         _w->left -= FZW_STEP;
-        rde_physics_2d_world_step(_w->world, (f32)FZW_STEP);   // (hinges, motors, slides, springs, ropes, pulleys, gears: RDE's)
-        _w->time += FZW_STEP;
+        fzw_tick(_w);
     }
     fzw_publish(_w);
+}
+
+void fude_zoom_mech_world_tick(fude_zoom_mech_world* _w) {
+    if(_w->world == NULL) {
+        return;
+    }
+    fzw_tick(_w);
+    fzw_publish(_w);
+}
+
+u32 fude_zoom_mech_world_shaft(const fude_zoom_mech_world* _w, u32 _object) {
+    const fude_zoom_mech_shaft* _sh = (const fude_zoom_mech_shaft*)_w->shafts.memory;
+    for(u32 _i = 0; _w->world != NULL && _i < (u32)rde_arr_length(&_w->shafts); _i++) {
+        if(_sh[_i].object == _object) {
+            return _i;
+        }
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+f64 fude_zoom_mech_world_shaft_spin(const fude_zoom_mech_world* _w, u32 _shaft) {
+    if(_w->world == NULL || _shaft >= (u32)rde_arr_length(&_w->shafts)) {
+        return 0.0;
+    }
+    const fude_zoom_mech_shaft* _sh = &((const fude_zoom_mech_shaft*)_w->shafts.memory)[_shaft];
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    return _pb[_sh->body] != NULL ? (f64)rde_physics_2d_body_get_angular_velocity(_pb[_sh->body]) : 0.0;
+}
+
+void fude_zoom_mech_world_shaft_drive(fude_zoom_mech_world* _w, u32 _shaft, f64 _spin, f64 _torque) {
+    if(_w->world == NULL || _shaft >= (u32)rde_arr_length(&_w->shafts)) {
+        return;
+    }
+    rde_physics_2d_joint* _j = ((fude_zoom_mech_shaft*)_w->shafts.memory)[_shaft].joint;
+    if(!(_torque > 0.0)) {
+        rde_physics_2d_joint_disable_motor(_j);
+        return;
+    }
+    // (the ground's way round, as a drive motor's: the ground's turn against its part's)
+    rde_physics_2d_joint_enable_motor(_j, (f32)-_spin, (f32)fmin(_torque * fude_zoom_mech_world_torque_unit(_w), 1e9));
+}
+
+f64 fude_zoom_mech_world_torque_unit(const fude_zoom_mech_world* _w) {
+    return 9810.0 * _w->k;   // (its gravity, in world units: a unit of mass at a unit of length)
+}
+
+b8 fude_zoom_mech_world_covers(const fude_zoom_mech_world* _w, fude_zoom_v2 _at) {
+    if(_w->world == NULL) {
+        return false;
+    }
+    rde_physics_2d_overlap_result _hit[16];
+    const u32 _n = rde_physics_2d_world_point_query(_w->world, (rde_vec_2F){ (f32)(_at.x * _w->k), (f32)(_at.y * _w->k) }, _hit, 16u);
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    const f64* _inv = (const f64*)_w->inv_mass.memory;
+    for(u32 _h = 0; _h < _n && _h < 16u; _h++) {
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->bodies); _i++) {
+            if(_pb[_i] == _hit[_h].body && _inv[_i] > 0.0) {
+                return true;   // (one of its parts that move: not the ground, a wall, a fixed drawing)
+            }
+        }
+    }
+    return false;
 }

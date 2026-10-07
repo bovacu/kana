@@ -19,7 +19,11 @@
 // as it was drawn. Gears whose pitch circles touch turn each other (their teeth:
 // each gear's count, by its id — all of one tooth size, so any two mesh), the
 // smaller faster; a gear (or a pulley) nothing holds turns on an axle of its
-// own where it is. A weight or a crate falls; walls stay.
+// own where it is. A gear on a rack moves it as far as the gear is over its
+// teeth: there the rack stops and lets the gear go on (turned back, it takes
+// the rack back). Meshed gears start with their teeth in each other's gaps (a
+// gear only on its axle turned the little it needs, a rack slid along itself
+// the little it needs). A weight or a crate falls; walls stay.
 //
 // A ROPE holds what its ends are on — a body (anywhere on it), or still: a
 // pivot, a wall, a pulley's rim, or where it was drawn — and never stretches
@@ -49,7 +53,9 @@ typedef enum {
     FUDE_ZOOM_MECH_SLIDER,     // a block that slides along the rail it is on: its hole in its middle (a piston)
     FUDE_ZOOM_MECH_RACK,       // a toothed bar sliding along its length: a gear on it turns as it goes
     FUDE_ZOOM_MECH_PIN,        // a pin: whatever bodies are under it hinged there (one alone: to the ground, a nail)
-    FUDE_ZOOM_MECH_DRAWN       // a drawing made a body (props.h): its own shape, its material
+    FUDE_ZOOM_MECH_DRAWN,      // a drawing made a body (props.h): its own shape, its material
+    FUDE_ZOOM_MECH_SHAFT       // a circuit's motor (circuit.h): its shaft in its middle — what is pinned there it turns, as the
+                               // circuit drives it, and is turned by (coupling.h)
 } FUDE_ZOOM_MECH_;
 
 typedef struct {
@@ -78,6 +84,9 @@ typedef struct {
     f64                        angle;     // its turn (radians)
     f64                        hw, hh;    // its half sizes (home units)
     f64                        value;     // a motor's speed (turns a second), a weight's or a crate's mass (kg), a spring's stiffness
+    f64                        scale;     // home units its own unit (as its symbol is drawn)
+    f64                        phase;     // a gear's: turned this much more as it starts (radians): its teeth in the gaps they mesh with
+    f64                        shift;     // a rack's: moved this far along itself as it starts (home units): its teeth in its gear's gaps
     b8                         fixed;     // stays where it is (a pivot, a motor, a wall, a pulley, a fixed drawing)
     // A drawn body's: its convex pieces (the plan's pieces: from piece, pieces of them; their corners about at, as it
     // was drawn), its mass (kg), friction, bounce; an open line (fixed ground: thin pieces along it).
@@ -90,6 +99,7 @@ typedef struct {
     fude_zoom_v2 at;         // where (home units)
     b8           motor;      // turned by a motor
     f64          speed;      // ...this fast (radians a second)
+    u32          shaft;      // on a circuit's motor's shaft: that body (FUDE_ZOOM_NONE: none)
 } fude_zoom_mech_hinge;
 
 typedef struct {
@@ -102,6 +112,8 @@ typedef struct {
 typedef struct {
     u32 a, b;                // gears (b: a rack, when rack)
     f64 ratio;               // b turns -ratio times as fast as a (a's teeth over b's); a rack's: a's turn + ratio·b's travel kept
+    f64 lower, upper;        // a rack's: its travel (home units, its slide's) while a is over its teeth
+    f64 period;              // a's tooth (radians): meshing again, a whole one from where it was
     b8  rack;
 } fude_zoom_mech_mesh;
 
@@ -139,13 +151,21 @@ void fude_zoom_mech_plan_destroy(fude_zoom_mech_plan* _p);
 // _to as _from is (its own copy of everything).
 void fude_zoom_mech_plan_copy(fude_zoom_mech_plan* _to, const fude_zoom_mech_plan* _from);
 // Worked out from what is on the canvas (every part alive and shown; _scope: only the objects it marks — one byte an
-// object, NULL: all). How many bodies.
+// object, NULL: all) — a circuit's motor among them a shaft (its part FUDE_ZOOM_MECH_SHAFT's, fixed). How many bodies.
 u32  fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, const u8* _scope);
 // A pulley's radius where ropes run (home units).
 f64  fude_zoom_mech_pulley_radius(const fude_zoom_mech_body* _b);
 // A rack's pitch line: how far above its middle (its own units, for half height _hh), and its teeth's pitch for a
 // gear of module _module (its teeth across its pitch circle: 2 × pitch radius / teeth).
 f64  fude_zoom_mech_rack_pitch_line(f64 _hh);
+// A rack's teeth's module (its own units, for half height _hh): a third of it (the library's rack: 5 points, as its gears').
+f64  fude_zoom_mech_rack_module(f64 _hh);
+// A rack's teeth (home units, along it from its middle, as drawn): its first one's middle (its right end's), the next
+// ones _pitch apart toward its left, how many; its pitch line over its middle (*_line).
+u32  fude_zoom_mech_rack_teeth(const fude_zoom_mech_body* _rack, f64* _first, f64* _pitch, f64* _line);
+// Where gear _gear's teeth are toward world angle _toward, as it stands (its angle, its phase): 0 a tooth's middle, ½ a
+// gap's (a fraction of a tooth, 0 to 1).
+f64  fude_zoom_mech_tooth_at(const fude_zoom_mech_body* _gear, f64 _toward);
 
 // --- ropes: kept from stretching ---------------------------------------------------------------------
 

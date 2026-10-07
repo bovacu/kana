@@ -54,7 +54,8 @@ review|-DFUDE_TESTS -include drawing/base/save.h|tests/review/test.c fude/drawin
 wordsplit|-include drawing/base/save.h|tests/wordsplit/test.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c fude/lang/ja/wordsplit.c fude/study/chars/kanji.c fude/drawing/base/kfile.c
 sheet|-include drawing/base/save.h|tests/sheet/test.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c fude/study/models/sheet.c fude/study/chars/kanji.c fude/drawing/base/kfile.c fude/drawing/base/text.c tests/support/text.c fude/lang/ja/romaji.c fude/lang/ja/lang.c
 vocab|-include drawing/base/save.h|tests/vocab/test.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c fude/study/models/vocab.c fude/study/chars/kanji.c fude/drawing/base/kfile.c fude/drawing/base/text.c tests/support/text.c fude/lang/ja/romaji.c fude/lang/ja/lang.c
-zoom||tests/zoom/test.c fude/zoom/props.c fude/zoom/logic.c fude/sim/body.c fude/sim/def.c fude/sim/elab.c fude/sim/digital.c fude/sim/logic.c fude/sim/chips.c fude/zoom/calc.c fude/zoom/plot.c fude/zoom/plan.c fude/zoom/mech.c fude/zoom/circuit.c fude/zoom/trim.c fude/zoom/nest.c fude/zoom/map.c fude/zoom/piece.c fude/zoom/sheet.c fude/zoom/stl.c fude/zoom/snap.c fude/zoom/cut.c fude/zoom/select.c fude/zoom/bucket.c fude/zoom/connect.c fude/zoom/instrument.c fude/zoom/units.c fude/zoom/pdf.c fude/zoom/dxf.c fude/zoom/zoom.c fude/zoom/shape.c fude/zoom/smooth.c fude/zoom/nav.c fude/zoom/fill.c fude/zoom/export.c fude/drawing/base/theme.c fude/zoom/codec.c fude/zoom/index.c fude/zoom/scene.c fude/zoom/erase.c fude/zoom/zfile.c fude/zoom/video.c fude/zoom/handfind.c fude/zoom/symbol.c fude/drawing/base/kfile.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c
+zoom||tests/zoom/test.c tests/support/zoomdraw.c fude/zoom/props.c fude/zoom/logic.c fude/sim/body.c fude/sim/def.c fude/sim/elab.c fude/sim/digital.c fude/sim/logic.c fude/sim/chips.c fude/zoom/calc.c fude/zoom/plot.c fude/zoom/plan.c fude/zoom/mech.c fude/zoom/examples.c fude/zoom/placer.c fude/zoom/custom.c fude/zoom/circuit.c fude/zoom/trim.c fude/zoom/nest.c fude/zoom/map.c fude/zoom/piece.c fude/zoom/sheet.c fude/zoom/stl.c fude/zoom/snap.c fude/zoom/cut.c fude/zoom/select.c fude/zoom/bucket.c fude/zoom/connect.c fude/zoom/instrument.c fude/zoom/units.c fude/zoom/pdf.c fude/zoom/dxf.c fude/zoom/zoom.c fude/zoom/shape.c fude/zoom/smooth.c fude/zoom/nav.c fude/zoom/fill.c fude/zoom/export.c fude/drawing/base/theme.c fude/zoom/codec.c fude/zoom/index.c fude/zoom/scene.c fude/zoom/erase.c fude/zoom/zfile.c fude/zoom/video.c fude/zoom/handfind.c fude/zoom/symbol.c fude/drawing/base/kfile.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c
+mech|-std=c17 -I@RDE/external/include/Box/Box2D/include -I@RDE/engine/src|tests/mech/test.c tests/support/physics.c tests/support/zoomdraw.c fude/zoom/mechrun.c fude/zoom/props.c fude/zoom/logic.c fude/sim/body.c fude/sim/def.c fude/sim/elab.c fude/sim/digital.c fude/sim/logic.c fude/sim/chips.c fude/zoom/calc.c fude/zoom/plot.c fude/zoom/plan.c fude/zoom/mech.c fude/zoom/examples.c fude/zoom/placer.c fude/zoom/custom.c fude/zoom/coupling.c fude/zoom/circuit.c fude/zoom/trim.c fude/zoom/nest.c fude/zoom/map.c fude/zoom/piece.c fude/zoom/sheet.c fude/zoom/stl.c fude/zoom/snap.c fude/zoom/cut.c fude/zoom/select.c fude/zoom/bucket.c fude/zoom/connect.c fude/zoom/instrument.c fude/zoom/units.c fude/zoom/pdf.c fude/zoom/dxf.c fude/zoom/zoom.c fude/zoom/shape.c fude/zoom/smooth.c fude/zoom/nav.c fude/zoom/fill.c fude/zoom/export.c fude/drawing/base/theme.c fude/zoom/codec.c fude/zoom/index.c fude/zoom/scene.c fude/zoom/erase.c fude/zoom/zfile.c fude/zoom/video.c fude/zoom/handfind.c fude/zoom/symbol.c fude/drawing/base/kfile.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c @BOX2D
 units||tests/units/test.c fude/zoom/units.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c
 pdf||tests/pdf/test.c fude/zoom/pdf.c fude/drawing/base/kfile.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c
 dxf||tests/dxf/test.c fude/zoom/dxf.c fude/drawing/base/kfile.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/arr.c
@@ -71,7 +72,13 @@ echo "$SUITES" | while IFS='|' read -r name flags sources; do
     dir=$OUT/$name
     mkdir -p "$dir"
     files=""
-    for f in $sources; do files="$files $ROOT/$f"; done
+    for f in $sources; do
+        case $f in
+            @BOX2D) files="$files $RDE/external/include/Box/Box2D/src/*.c" ;;   # (Box2D, as RDE has it: the physics' suites)
+            *) files="$files $ROOT/$f" ;;
+        esac
+    done
+    flags=$(echo "$flags" | sed "s#@RDE#$RDE#g")
     # $CFLAGS, $flags and $files split into words on purpose.
     if ! clang $CFLAGS $flags $files -o "$dir/$name" -lm > "$dir/build.log" 2>&1; then
         printf '%-10s BUILD FAILED (tests/build/%s/build.log)\n' "$name" "$name"

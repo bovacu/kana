@@ -2,6 +2,7 @@
 
 #include "zoom/logic.h"
 #include "zoom/symbol.h"
+#include "zoom/placer.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -57,11 +58,91 @@ const fude_sim_def* fude_zoom_logic_find(const c8* _text) {
     }
     const fude_sim_def* const* _d = (const fude_sim_def* const*)_lib->defs.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_lib->defs); _i++) {
-        if(_d[_i]->kind == FUDE_SIM_COMPOSITE && strcmp(_d[_i]->name, _name) == 0) {
+        if(_d[_i]->kind == FUDE_SIM_COMPOSITE && _d[_i]->id[0] != 0 && strcmp(_d[_i]->name, _name) == 0) {
             return _d[_i];
         }
     }
-    return NULL;
+    // (a name it had: a custom part's id is its first name's — one renamed is found by what it was called)
+    c8 _id[FUDE_SIM_ID];
+    snprintf(_id, sizeof(_id), "user/");
+    fude_zoom_logic_slug(_name, _id + 5, sizeof(_id) - 5u);
+    _def = fude_sim_lib_find(_lib, _id);
+    return _def != NULL && _def->id[0] != 0 ? _def : NULL;
+}
+
+void fude_zoom_logic_slug(const c8* _name, c8* _out, usize _size) {
+    usize _k = 0;
+    b8 _dash = false;
+    for(const c8* _c = _name; *_c != 0 && _k + 1u < _size; _c++) {
+        const c8 _l = (*_c >= 'A' && *_c <= 'Z') ? (c8)(*_c - 'A' + 'a') : *_c;
+        if((_l >= 'a' && _l <= 'z') || (_l >= '0' && _l <= '9')) {
+            _out[_k++] = _l;
+            _dash = false;
+        } else if(!_dash && _k > 0u) {
+            _out[_k++] = '-';
+            _dash = true;
+        }
+    }
+    while(_k > 0u && _out[_k - 1u] == '-') {
+        _k--;
+    }
+    if(_k == 0u) {
+        snprintf(_out, _size, "part");
+        return;
+    }
+    _out[_k] = 0;
+}
+
+b8 fude_zoom_logic_rename(const c8* _id, const c8* _name) {
+    fude_sim_def* _def = (fude_sim_def*)fude_sim_lib_find(fude_zoom_logic_library(), _id);
+    if(_def == NULL || _def->id[0] == 0 || _name == NULL || _name[0] == 0) {
+        return false;
+    }
+    snprintf(_def->name, sizeof(_def->name), "%s", _name);
+    return true;
+}
+
+b8 fude_zoom_logic_forget_part(const c8* _id) {
+    fude_sim_def* _def = (fude_sim_def*)fude_sim_lib_find(fude_zoom_logic_library(), _id);
+    if(_def == NULL || strncmp(_def->id, "user/", 5u) != 0) {
+        return false;
+    }
+    // (kept, unfindable: what was made of it still holds it)
+    _def->id[0] = 0;
+    _def->name[0] = 0;
+    return true;
+}
+
+void fude_zoom_logic_keep_order(fude_sim_def* _new, const fude_sim_def* _old) {
+    const u32 _n = (u32)rde_arr_length(&_new->ports);
+    if(_old == NULL || _n < 2u) {
+        return;
+    }
+    fude_sim_port* _p = (fude_sim_port*)_new->ports.memory;
+    u32* _nets = (u32*)_new->port_nets.memory;
+    // Each new port's place: its old one's, by its name; those new to it after them, as they were.
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _rank_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_rank_arr, _n);
+    u32* _rank = (u32*)_rank_arr.memory;
+    const u32 _no = (u32)rde_arr_length(&_old->ports);
+    for(u32 _i = 0; _i < _n; _i++) {
+        _rank[_i] = _no + _i;
+        for(u32 _k = 0; _k < _no; _k++) {
+            if(strcmp(((const fude_sim_port*)_old->ports.memory)[_k].name, _p[_i].name) == 0) {
+                _rank[_i] = _k;
+                break;
+            }
+        }
+    }
+    for(u32 _i = 1; _i < _n; _i++) {
+        for(u32 _j = _i; _j > 0u && _rank[_j] < _rank[_j - 1u]; _j--) {
+            const u32 _r = _rank[_j]; _rank[_j] = _rank[_j - 1u]; _rank[_j - 1u] = _r;
+            const fude_sim_port _q = _p[_j]; _p[_j] = _p[_j - 1u]; _p[_j - 1u] = _q;
+            const u32 _t = _nets[_j]; _nets[_j] = _nets[_j - 1u]; _nets[_j - 1u] = _t;
+        }
+    }
+    rde_arr_free(&_rank_arr);
 }
 
 // --- parts made from definitions -----------------------------------------------------------------
@@ -708,8 +789,19 @@ fude_sim_def* fude_zoom_logic_make(const fude_zoom_circuit* _c, const fude_zoom_
             fude_sim_def_inst(_def, "buf", _ref, "delay=0", _bn, 2u);
         }
     }
+    // A node of the ground's (0) or a supply rail's: a constant (0, 1) for what of it is on it; 2: none.
+    rde_arr _const_arr = rde_arr_new(sizeof(u8), _heap);
+    rde_arr_resize(&_const_arr, _nn + 1u);
+    u8* _const_of = (u8*)_const_arr.memory;
+    memset(_const_of, 2, (usize)_nn + 1u);
+    _const_of[0] = 0u;
+    for(u32 _i = 0; _i < _np; _i++) {
+        if(_p[_i].part->model == FUDE_ZOOM_MODEL_RAIL && _p[_i].node[0] != FUDE_ZOOM_NONE && _p[_i].node[0] <= _nn) {
+            _const_of[_p[_i].node[0]] = _p[_i].value[0] >= FUDE_ZOOM_LOGIC_V * 0.5 ? 1u : 0u;
+        }
+    }
     // Its parts, their pins' nets as their nodes are.
-    b8 _zero = false;
+    b8 _zero = false, _one = false;
     u32 _u = 0;
     for(u32 _i = 0; _i < _np; _i++) {
         const u8 _m = _p[_i].part->model;
@@ -737,6 +829,10 @@ fude_sim_def* fude_zoom_logic_make(const fude_zoom_circuit* _c, const fude_zoom_
             }
             if(_node_port[_node] != FUDE_ZOOM_NONE) {
                 snprintf(_names[_k], sizeof(_names[_k]), "%s", _q[_node_port[_node]].name);
+            } else if(_const_of[_node] < 2u) {
+                snprintf(_names[_k], sizeof(_names[_k]), "%s", _const_of[_node] == 1u ? "one" : "zero");   // (tied low or high)
+                _zero = _zero || _const_of[_node] == 0u;
+                _one  = _one || _const_of[_node] == 1u;
             } else {
                 snprintf(_names[_k], sizeof(_names[_k]), "n%u", _node);
             }
@@ -753,7 +849,323 @@ fude_sim_def* fude_zoom_logic_make(const fude_zoom_circuit* _c, const fude_zoom_
         const c8* _zn[1] = { "zero" };
         fude_sim_def_inst(_def, "const", "Z", "0", _zn, 1u);
     }
+    if(_one) {
+        const c8* _on[1] = { "one" };
+        fude_sim_def_inst(_def, "const", "ONE", "1", _on, 1u);
+    }
+    rde_arr_free(&_const_arr);
     rde_arr_free(&_node_port_arr);
     rde_arr_free(&_ports_arr);
     return _def;
+}
+
+// --- a custom part's inside, drawn ---------------------------------------------------------------------------------
+
+// A part of the definition as it is drawn: its symbol (a gate of more than two inputs: a chain of them, each one of
+// these), its text, each of its pins' port of the definition's part (FUDE_SIM_NONE: a chain's own link).
+typedef struct {
+    c8  symbol[FUDE_SIM_ID];
+    c8  text[FUDE_SIM_NAME];
+    u32 inst;
+    u32 port_of_pin[64];
+    u32 pins;
+    u32 out_pins;          // (its pins from this one on are outputs)
+    u32 before;            // a chain's: the gate before it (its output into this one's first pin); FUDE_SIM_NONE
+    u32 depth;
+    f64 w, h;              // (0: the library's)
+    f64 x, y;
+    u32 object;
+} fzl_drawn;
+
+// A net's group's root (the bridges Make part puts between a port and its net, one net).
+RDE_INTERNAL u32 fzl_root(u32* _up, u32 _n) {
+    while(_up[_n] != _n) {
+        _up[_n] = _up[_up[_n]];
+        _n = _up[_n];
+    }
+    return _n;
+}
+
+RDE_INTERNAL b8 fzl_port_out(const fude_sim_def* _of, u32 _port) {
+    return _of != NULL && _port < (u32)rde_arr_length(&_of->ports) && ((const fude_sim_port*)_of->ports.memory)[_port].dir == FUDE_SIM_OUT;
+}
+
+u32 fude_zoom_logic_draw(const fude_sim_def* _def, struct fude_zoom_placer* _p) {
+    static const c8* const _gate_ids[8] = { "and", "or", "nand", "nor", "xor", "xnor", "not", "buf" };
+    static const c8* const _gate_symbols[8] = { "AND gate", "OR gate", "NAND gate", "NOR gate", "XOR gate", "XNOR gate", "NOT gate", "buffer" };
+    static const c8* const _chain_symbols[8] = { "AND gate", "OR gate", "AND gate", "OR gate", "XOR gate", "XOR gate", "", "" };   // (before the last)
+    if(_def == NULL || _p == NULL || _def->kind == FUDE_SIM_PRIMITIVE) {
+        return 0u;
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    const u32 _was = (u32)rde_arr_length(_p->born);
+    const u32 _nn = (u32)rde_arr_length(&_def->nets);
+    const fude_sim_inst* _in = (const fude_sim_inst*)_def->insts.memory;
+    const u32* _inets = (const u32*)_def->inst_nets.memory;
+    const u32* _pnets = (const u32*)_def->port_nets.memory;
+    const fude_sim_port* _ports = (const fude_sim_port*)_def->ports.memory;
+    const u32 _np = (u32)rde_arr_length(&_def->ports);
+    // Its nets in groups: a bridge (a buffer of no delay, J…) one net with what it joins.
+    rde_arr _up_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_up_arr, _nn + 1u);
+    u32* _up = (u32*)_up_arr.memory;
+    for(u32 _n = 0; _n <= _nn; _n++) {
+        _up[_n] = _n;
+    }
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_def->insts); _i++) {
+        if(strcmp(_in[_i].def, "buf") == 0 && _in[_i].ref[0] == 'J' && strstr(_in[_i].params, "delay=0") != NULL && _in[_i].count == 2u) {
+            const u32 _a = _inets[_in[_i].first], _b = _inets[_in[_i].first + 1u];
+            if(_a < _nn && _b < _nn) {
+                _up[fzl_root(_up, _a)] = fzl_root(_up, _b);
+            }
+        }
+    }
+    // What is drawn of each of its parts.
+    rde_arr _drawn_arr = rde_arr_new(sizeof(fzl_drawn), _heap);
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_def->insts); _i++) {
+        const fude_sim_inst* _q = &_in[_i];
+        if(strcmp(_q->def, "buf") == 0 && _q->ref[0] == 'J' && strstr(_q->params, "delay=0") != NULL) {
+            continue;   // (a bridge: wires)
+        }
+        fzl_drawn _d;
+        memset(&_d, 0, sizeof(_d));
+        _d.inst = _i;
+        _d.before = FUDE_SIM_NONE;
+        for(u32 _k = 0; _k < 64u; _k++) {
+            _d.port_of_pin[_k] = FUDE_SIM_NONE;
+        }
+        u32 _gate = 8u;
+        for(u32 _g = 0; _g < 8u; _g++) {
+            _gate = strcmp(_q->def, _gate_ids[_g]) == 0 ? _g : _gate;
+        }
+        if(_gate < 6u && _q->count >= 3u) {
+            // A gate of n inputs: n − 1 of two, chained (the last of its kind, those before it of its kind without
+            // the NOT: AND for NAND, OR for NOR, XOR for XNOR).
+            const u32 _inputs = _q->count - 1u;
+            for(u32 _k = 0; _k + 1u < _inputs; _k++) {
+                const b8 _last = _k + 2u == _inputs;
+                snprintf(_d.symbol, sizeof(_d.symbol), "%s", _last ? _gate_symbols[_gate] : _chain_symbols[_gate]);
+                _d.pins = 3u;
+                _d.out_pins = 2u;
+                _d.port_of_pin[0] = _k == 0u ? 0u : FUDE_SIM_NONE;
+                _d.port_of_pin[1] = _k + 1u;
+                _d.port_of_pin[2] = _last ? _inputs : FUDE_SIM_NONE;
+                _d.before = _k == 0u ? FUDE_SIM_NONE : (u32)rde_arr_length(&_drawn_arr) - 1u;
+                rde_arr_add(&_drawn_arr, (any)&_d);
+            }
+            continue;
+        }
+        if(strcmp(_q->def, "const") == 0) {
+            // A constant: a 5 V rail (1) or the ground (0) — Make part's (only where something drawn is on it).
+            const b8 _high = atof(_q->params) > 0.5;
+            snprintf(_d.symbol, sizeof(_d.symbol), "%s", _high ? "supply rail" : "ground");
+            snprintf(_d.text, sizeof(_d.text), "%s", _high ? "5V" : "");
+            _d.pins = 1u;
+            _d.out_pins = 0u;
+            _d.port_of_pin[0] = 0u;
+        } else if(_gate < 8u) {
+            snprintf(_d.symbol, sizeof(_d.symbol), "%s", _gate_symbols[_gate]);
+            _d.pins = _q->count;
+            _d.out_pins = _q->count - 1u;
+            for(u32 _k = 0; _k < _q->count && _k < 64u; _k++) {
+                _d.port_of_pin[_k] = _k;
+            }
+        } else if(strcmp(_q->def, "dff") == 0 || strcmp(_q->def, "tff") == 0) {
+            // (D or T, CLK, Q, QN: its R tied low, no pin)
+            snprintf(_d.symbol, sizeof(_d.symbol), "%s", strcmp(_q->def, "dff") == 0 ? "D flip-flop" : "T flip-flop");
+            _d.pins = 4u;
+            _d.out_pins = 2u;
+            _d.port_of_pin[0] = 0u;
+            _d.port_of_pin[1] = 1u;
+            _d.port_of_pin[2] = 3u;
+            _d.port_of_pin[3] = 4u;
+        } else {
+            const fude_sim_def* _of = fude_zoom_logic_find(_q->def);
+            const b8 _chip   = fude_zoom_part_find(_q->def) != NULL;   // (a chip of the library's: its own symbol)
+            const b8 _custom = !_chip && _of != NULL && strncmp(_of->id, "user/", 5u) == 0;
+            if(!_chip && !_custom) {
+                continue;   // (nothing on the canvas is it)
+            }
+            snprintf(_d.symbol, sizeof(_d.symbol), "%s", _custom ? "custom part" : _q->def);
+            snprintf(_d.text, sizeof(_d.text), "%s", _custom ? _of->name : _q->def);
+            _d.pins = _q->count < 64u ? _q->count : 64u;
+            _d.out_pins = _d.pins;
+            for(u32 _k = 0; _k < _d.pins; _k++) {
+                _d.port_of_pin[_k] = _k;
+            }
+            if(_custom) {
+                u32 _ins = 0, _outs = 0;
+                for(u32 _k = 0; _k < (u32)rde_arr_length(&_of->ports); _k++) {
+                    if(fzl_port_out(_of, _k)) { _outs++; } else { _ins++; }
+                }
+                _d.w = 120.0;
+                _d.h = fmax(60.0, ((f64)(_ins > _outs ? _ins : _outs) + 1.0) * 24.0);
+            }
+        }
+        rde_arr_add(&_drawn_arr, (any)&_d);
+    }
+    fzl_drawn* _d = (fzl_drawn*)_drawn_arr.memory;
+    u32 _nd = (u32)rde_arr_length(&_drawn_arr);
+    // (a constant nothing drawn is on — what a pin-less port is tied to: left out)
+    for(u32 _j = 0; _j < _nd; _j++) {
+        if(strcmp(_in[_d[_j].inst].def, "const") != 0) {
+            continue;
+        }
+        const u32 _net = _inets[_in[_d[_j].inst].first];
+        b8 _used = false;
+        for(u32 _o = 0; _o < _nd && !_used && _net < _nn; _o++) {
+            for(u32 _k = 0; _o != _j && _k < _d[_o].pins && !_used; _k++) {
+                const u32 _port = _d[_o].port_of_pin[_k];
+                _used = _port != FUDE_SIM_NONE && _port < _in[_d[_o].inst].count && _inets[_in[_d[_o].inst].first + _port] < _nn &&
+                        fzl_root(_up, _inets[_in[_d[_o].inst].first + _port]) == fzl_root(_up, _net);
+            }
+        }
+        if(!_used) {
+            // (its place taken by the last; the chains' links to the last moved with it)
+            for(u32 _o = 0; _o < _nd; _o++) {
+                if(_d[_o].before == _nd - 1u) {
+                    _d[_o].before = _j;
+                }
+            }
+            _d[_j] = _d[_nd - 1u];
+            _nd--;
+            _j--;
+        }
+    }
+    // Is pin _k of drawn part _j an output?
+    #define FZL_PIN_OUT(_j, _k) (_d[_j].out_pins < _d[_j].pins ? (_k) >= _d[_j].out_pins : fzl_port_out(fude_zoom_logic_find(_in[_d[_j].inst].def), _d[_j].port_of_pin[_k]))
+    // Each net's group's depth from its inputs (theirs 0; a part's one more than what comes into it).
+    rde_arr _depth_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_depth_arr, _nn + 1u);
+    u32* _nd_depth = (u32*)_depth_arr.memory;
+    for(u32 _round = 0; _round < _nd + 2u && _round < 64u; _round++) {
+        b8 _changed = false;
+        for(u32 _j = 0; _j < _nd; _j++) {
+            u32 _deep = _d[_j].before != FUDE_SIM_NONE ? _d[_d[_j].before].depth : 0u;
+            for(u32 _k = 0; _k < _d[_j].pins; _k++) {
+                const u32 _port = _d[_j].port_of_pin[_k];
+                if(_port == FUDE_SIM_NONE || _port >= _in[_d[_j].inst].count || FZL_PIN_OUT(_j, _k)) {
+                    continue;
+                }
+                const u32 _net = _inets[_in[_d[_j].inst].first + _port];
+                if(_net < _nn) {
+                    _deep = _nd_depth[fzl_root(_up, _net)] > _deep ? _nd_depth[fzl_root(_up, _net)] : _deep;
+                }
+            }
+            const u32 _now = _deep + 1u < _nd + 1u ? _deep + 1u : _nd + 1u;
+            if(_now != _d[_j].depth) {
+                _d[_j].depth = _now;
+                _changed = true;
+            }
+            for(u32 _k = 0; _k < _d[_j].pins; _k++) {
+                const u32 _port = _d[_j].port_of_pin[_k];
+                if(_port == FUDE_SIM_NONE || _port >= _in[_d[_j].inst].count || !FZL_PIN_OUT(_j, _k)) {
+                    continue;
+                }
+                const u32 _net = _inets[_in[_d[_j].inst].first + _port];
+                if(_net < _nn && _nd_depth[fzl_root(_up, _net)] < _now) {
+                    _nd_depth[fzl_root(_up, _net)] = _now;
+                }
+            }
+        }
+        if(!_changed) {
+            break;
+        }
+    }
+    // Where each goes: a column a depth, each column down from its top; the inputs left of them, the outputs right.
+    u32 _deepest = 0;
+    for(u32 _j = 0; _j < _nd; _j++) {
+        _deepest = _d[_j].depth > _deepest ? _d[_j].depth : _deepest;
+    }
+    const f64 _col = 260.0, _left = -_col * ((f64)_deepest + 1.0) * 0.5;
+    for(u32 _c = 1; _c <= _deepest; _c++) {
+        f64 _total = 0.0;
+        for(u32 _j = 0; _j < _nd; _j++) {
+            if(_d[_j].depth == _c) {
+                const fude_zoom_symbol_info* _info = fude_zoom_symbol_info_of(fude_zoom_symbol_find(_d[_j].symbol));
+                _d[_j].h = _d[_j].h > 0.0 ? _d[_j].h : (_info != NULL ? (f64)_info->h : 60.0);
+                _total += _d[_j].h + 40.0;
+            }
+        }
+        f64 _y = _total * 0.5;
+        for(u32 _j = 0; _j < _nd; _j++) {
+            if(_d[_j].depth == _c) {
+                _d[_j].x = _left + _col * (f64)_c;
+                _d[_j].y = _y - _d[_j].h * 0.5 - 20.0;
+                _y -= _d[_j].h + 40.0;
+            }
+        }
+    }
+    u32 _ins = 0, _outs = 0;
+    for(u32 _k = 0; _k < _np; _k++) {
+        if(_ports[_k].dir == FUDE_SIM_OUT) { _outs++; } else { _ins++; }
+    }
+    rde_arr _port_obj_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_port_obj_arr, _np + 1u);
+    u32* _port_obj = (u32*)_port_obj_arr.memory;
+    u32 _ii = 0, _oi = 0;
+    for(u32 _k = 0; _k < _np; _k++) {
+        const b8 _out = _ports[_k].dir == FUDE_SIM_OUT;
+        const f64 _y = ((f64)(_out ? _outs : _ins) - 1.0) * 40.0 - (f64)(_out ? _oi++ : _ii++) * 80.0;
+        _port_obj[_k] = fude_zoom_placer_part(_p, _out ? "logic probe" : "logic input", _out ? _left + _col * ((f64)_deepest + 1.0) : _left, _y, 0.0, 0.0, 0.0, _ports[_k].name);
+    }
+    for(u32 _j = 0; _j < _nd; _j++) {
+        _d[_j].object = fude_zoom_placer_part(_p, _d[_j].symbol, _d[_j].x, _d[_j].y, 0.0, _d[_j].w, _d[_j].w > 0.0 ? _d[_j].h : 0.0, _d[_j].text);
+    }
+    // Its wires: each net's group from what drives it (an input of it, an output of a part) to the rest on it.
+    typedef struct { u32 object, pin; b8 drives; } fzl_end;
+    rde_arr _ends = rde_arr_new(sizeof(fzl_end), _heap);
+    for(u32 _r = 0; _r < _nn; _r++) {
+        if(fzl_root(_up, _r) != _r) {
+            continue;
+        }
+        rde_arr_clear(&_ends);
+        for(u32 _k = 0; _k < _np; _k++) {
+            if(_pnets[_k] < _nn && fzl_root(_up, _pnets[_k]) == _r && _port_obj[_k] != FUDE_ZOOM_NONE) {
+                const fzl_end _e = { _port_obj[_k], 0u, _ports[_k].dir != FUDE_SIM_OUT };
+                rde_arr_add(&_ends, (any)&_e);
+            }
+        }
+        for(u32 _j = 0; _j < _nd; _j++) {
+            for(u32 _k = 0; _k < _d[_j].pins; _k++) {
+                const u32 _port = _d[_j].port_of_pin[_k];
+                if(_port == FUDE_SIM_NONE || _port >= _in[_d[_j].inst].count || _d[_j].object == FUDE_ZOOM_NONE) {
+                    continue;
+                }
+                const u32 _net = _inets[_in[_d[_j].inst].first + _port];
+                if(_net < _nn && fzl_root(_up, _net) == _r) {
+                    const fzl_end _e = { _d[_j].object, _k, FZL_PIN_OUT(_j, _k) };
+                    rde_arr_add(&_ends, (any)&_e);
+                }
+            }
+        }
+        const fzl_end* _e = (const fzl_end*)_ends.memory;
+        const u32 _ne = (u32)rde_arr_length(&_ends);
+        u32 _from = 0;
+        for(u32 _k = 0; _k < _ne; _k++) {
+            if(_e[_k].drives) {
+                _from = _k;
+                break;
+            }
+        }
+        for(u32 _k = 0; _k < _ne; _k++) {
+            if(_k != _from) {
+                fude_zoom_placer_wire(_p, _e[_from].object, _e[_from].pin, _e[_k].object, _e[_k].pin, false);
+            }
+        }
+    }
+    // A chain's links.
+    for(u32 _j = 0; _j < _nd; _j++) {
+        if(_d[_j].before != FUDE_SIM_NONE) {
+            fude_zoom_placer_wire(_p, _d[_d[_j].before].object, 2u, _d[_j].object, 0u, false);
+        }
+    }
+    #undef FZL_PIN_OUT
+    fude_zoom_placer_text(_p, _left - 40.0, ((f64)(_ins > _outs ? _ins : _outs)) * 40.0 + 110.0, 26.0, 520.0, _def->name);
+    rde_arr_free(&_ends);
+    rde_arr_free(&_port_obj_arr);
+    rde_arr_free(&_depth_arr);
+    rde_arr_free(&_drawn_arr);
+    rde_arr_free(&_up_arr);
+    return (u32)rde_arr_length(_p->born) - _was;
 }

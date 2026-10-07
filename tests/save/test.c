@@ -214,6 +214,10 @@ int main(void) {
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
         CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK && t.print_x == 0.0f && t.print_y == 0.0f && t.true_mm_per_point == 0.16f);
         s.units = 0; s.true_mm_per_point = 0.0f; s.print_x = 0.0f; s.print_y = 0.0f; s.kerf_mm = 0.0f;
+        s.show_fps = true;                                                                            // Sketching's frame rate on screen: saved too
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.show_fps);
+        s.show_fps = false;
 
         u8 buf[64]; u32 n = 0;
         P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');

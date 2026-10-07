@@ -3,6 +3,7 @@
 #include "zoom/piece.h"
 #include "zoom/codec.h"
 #include "zoom/shape.h"
+#include "zoom/symbol.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -125,6 +126,7 @@ b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
             rde_arr_add(&_piece->items, (any)&_c);
         }
     }
+    _piece->families = fude_zoom_piece_families(_piece);
     return _file.ok && rde_arr_length(&_piece->items) > 0;
 }
 
@@ -231,6 +233,7 @@ u32 fude_zoom_pieces_add(fude_zoom_pieces* _p, const c8* _dir, const c8* _name, 
         fude_zoom_clip_put(&_c, fude_zoom_clip_data(&_items[_i]), fude_zoom_clip_size(&_items[_i]));
         rde_arr_add(&_new.items, (any)&_c);
     }
+    _new.families = fude_zoom_piece_families(&_new);
     if(!fude_zoom_pieces_write_one(&_new, _dir)) {
         fude_zoom_piece_clear(&_new);
         return FUDE_ZOOM_NONE;
@@ -265,6 +268,39 @@ void fude_zoom_pieces_rename(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const
     fude_zoom_pieces_write_one(&_p->list[_i], _dir);
 }
 
+b8 fude_zoom_pieces_replace(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const fude_zoom_clip* _items, u32 _n, fude_zoom_box _box) {
+    if(_i >= _p->count || _n == 0u) {
+        return false;
+    }
+    fude_zoom_piece* _piece = &_p->list[_i];
+    fude_zoom_select_clips_free(&_piece->items);
+    for(u32 _k = 0; _k < _n && _k < FUDE_ZOOM_PIECE_ITEMS; _k++) {
+        fude_zoom_clip _c = _items[_k];
+        fude_zoom_clip_put(&_c, fude_zoom_clip_data(&_items[_k]), fude_zoom_clip_size(&_items[_k]));
+        rde_arr_add(&_piece->items, (any)&_c);
+    }
+    _piece->box      = _box;
+    _piece->families = fude_zoom_piece_families(_piece);
+    return fude_zoom_pieces_write_one(_piece, _dir);
+}
+
+b8 fude_zoom_piece_save(const fude_zoom_piece* _piece, const c8* _path) {
+    fude_bytes _b = fude_bytes_new(4096u);
+    fude_zoom_piece_write(_piece, &_b);
+    return fude_bytes_write_and_free(&_b, _path, NULL);
+}
+
+b8 fude_zoom_piece_load(fude_zoom_piece* _piece, const c8* _path) {
+    u32 _size = 0;
+    u8* _data = fude_file_read(_path, &_size);
+    if(_data == NULL) {
+        return false;
+    }
+    const b8 _ok = fude_zoom_piece_read(_piece, _data, _size);
+    fude_file_free(_data);
+    return _ok;
+}
+
 // --- its lines ---
 
 RDE_INTERNAL void fude_zoom_piece_line_add(rde_arr* _points, rde_arr* _lines, const fude_zoom_v2* _p, u32 _n, b8 _closed, fude_zoom_sim _to) {
@@ -277,6 +313,21 @@ RDE_INTERNAL void fude_zoom_piece_line_add(rde_arr* _points, rde_arr* _lines, co
         _out[_i] = fude_zoom_sim_apply(_to, _p[_i]);
     }
     rde_arr_add(_lines, (any)&_line);
+}
+
+u32 fude_zoom_piece_families(const fude_zoom_piece* _piece) {
+    u32 _bits = 0;
+    const fude_zoom_clip* _c = (const fude_zoom_clip*)_piece->items.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_piece->items); _i++) {
+        if(_c[_i].look.kind != FUDE_ZOOM_KIND_SHAPE || _c[_i].look.channels != FUDE_ZOOM_SHAPE_SYMBOL || fude_zoom_clip_size(&_c[_i]) < sizeof(f64)) {
+            continue;
+        }
+        f64 _kind;
+        memcpy(&_kind, fude_zoom_clip_data(&_c[_i]), sizeof(_kind));
+        const fude_zoom_symbol_info* _info = _kind >= 0.0 ? fude_zoom_symbol_info_of((u32)_kind) : NULL;
+        _bits |= _info != NULL ? 1u << _info->family : 0u;
+    }
+    return _bits;
 }
 
 u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _points, rde_arr* _lines) {

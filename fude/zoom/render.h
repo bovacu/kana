@@ -60,6 +60,20 @@ typedef struct {
     u32               edge_count;
 } fude_zoom_decoded;
 
+// A symbol's geometry as its kind makes it at its size (render.c's symbols): its parts' points in its own units (before
+// its place), the parts, and each filled part's triangles — made once, shared by every symbol of that kind, size, detail.
+typedef struct {
+    u32         kind, segments;
+    f64         hw, hh;
+    const void* custom;      // a custom part's made part (its pins its definition's), NULL
+    u32         version;
+    rde_arr TYPE(fude_zoom_v2)          points;
+    rde_arr TYPE(fude_zoom_symbol_part) parts;
+    rde_arr TYPE(fude_zoom_v2)          tris;        // filled parts' triangles, in turn
+    rde_arr TYPE(u32)                   tri_range;   // each part's: its first triangle, how many (0: not filled)
+    u32         parts_n;     // what the symbol's maker said (its parts drawn)
+} fude_zoom_symbol_geo;
+
 // A picture on the GPU, made from its payload's bytes (copies share it).
 typedef struct {
     u32          blob;
@@ -76,6 +90,9 @@ typedef struct {
     rde_arr TYPE(u32)               slot_of;    // object → its cache entry + 1 (0: none)
     u64                             cache_bytes;
     u64                             cache_budget;
+    rde_arr TYPE(fude_zoom_symbol_geo) symbols;   // symbols' geometry, made once (fude_zoom_symbol_geo)
+    rde_hash_map                       symbol_of; // its key's hash → its place in symbols
+    u64                                symbol_points;
     u32                             draws;
     // Scratch.
     rde_arr TYPE(u32)        found;

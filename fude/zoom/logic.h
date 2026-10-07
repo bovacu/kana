@@ -38,8 +38,18 @@
 fude_sim_lib*       fude_zoom_logic_library(void);
 // A custom part's text learnt (a newer version in place of one with its id). Its definition; NULL: not read (_error).
 const fude_sim_def* fude_zoom_logic_learn(const c8* _text, usize _size, c8* _error, usize _error_size);
-// The definition a part's text names: its id, or its name (the text's first line). NULL: none.
+// The definition a part's text names: its id, or its name (the text's first line), or a custom part's first name (it
+// renamed since: its id is made of that one). NULL: none.
 const fude_sim_def* fude_zoom_logic_find(const c8* _text);
+// A name as a custom part's id's (and its files'): lowercase letters and digits, the rest dashes ("part": none).
+void fude_zoom_logic_slug(const c8* _name, c8* _out, usize _size);
+// Custom part _id renamed (its id kept: what is on canvases by its old name still finds it). False: none such.
+b8   fude_zoom_logic_rename(const c8* _id, const c8* _name);
+// Custom part _id forgotten: found no more (what was made of it before still holds it). False: none such.
+b8   fude_zoom_logic_forget_part(const c8* _id);
+// _new's ports in _old's order, by their names (those new after them): a part made again, what is wired to its pins on
+// canvases still on the same ones.
+void fude_zoom_logic_keep_order(fude_sim_def* _new, const fude_sim_def* _old);
 
 // The part definition _def is on the canvas, as _template says (its look, its model): its pins round a package
 // (_package: a chip's) or a block. Made once for each version of it, kept. NULL: no definition.
@@ -110,5 +120,15 @@ typedef enum {
 // and its probes its outputs — named by their texts (else IN1…, OUT1…), each side in order from the top (left to
 // right where level) — the rest its parts, joined as they are drawn. NULL: none (_problem says why).
 fude_sim_def* fude_zoom_logic_make(const fude_zoom_circuit* _c, const fude_zoom_scene* _s, const c8* _id, const c8* _name, u32* _problem);
+
+// --- a custom part's inside, drawn ----------------------------------------------------------------------
+
+// Custom part _def's inside drawn from its definition (when the drawing it was made of is not kept): its inputs logic
+// inputs down the left and its outputs probes down the right (each named as its port), its parts in columns as far
+// along from the inputs as they are (gates — of more than two inputs, a chain of two-input ones —, flip-flops, chips,
+// custom parts), every net wired from what drives it to what it drives; its name over it. With placer _p (its middle
+// the drawing's). How many things made. Made a part again (fude_zoom_logic_make), it does what _def does.
+struct fude_zoom_placer;
+u32 fude_zoom_logic_draw(const fude_sim_def* _def, struct fude_zoom_placer* _p);
 
 #endif

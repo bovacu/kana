@@ -46,6 +46,25 @@ void fude_zoom_render_init(fude_zoom_renderer* _r) {
     _r->drawing      = FUDE_ZOOM_NONE;
     _r->pictures     = rde_arr_new(sizeof(fude_zoom_picture), _heap);
     _r->cache_budget = FUDE_ZOOM_RENDER_CACHE;
+    _r->symbols      = rde_arr_new(sizeof(fude_zoom_symbol_geo), _heap);
+    _r->symbol_of    = rde_hash_map_new(sizeof(u64), sizeof(u32), rde_hash_map_fn_u64_hash, rde_hash_map_fn_u64_cmp, NULL, _heap);
+}
+
+// The symbols' geometry let go (made again as they are drawn).
+RDE_INTERNAL void fude_zoom_render_symbols_forget(fude_zoom_renderer* _r) {
+    if(!rde_arr_is_inited(&_r->symbols)) {
+        return;
+    }
+    fude_zoom_symbol_geo* _g = (fude_zoom_symbol_geo*)_r->symbols.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_r->symbols); _i++) {
+        rde_arr_free(&_g[_i].points);
+        rde_arr_free(&_g[_i].parts);
+        rde_arr_free(&_g[_i].tris);
+        rde_arr_free(&_g[_i].tri_range);
+    }
+    rde_arr_clear(&_r->symbols);
+    rde_hash_map_clear(&_r->symbol_of);
+    _r->symbol_points = 0;
 }
 
 // A decoded stroke's arrays let go.
@@ -77,17 +96,22 @@ void fude_zoom_render_trim(fude_zoom_renderer* _r) {
     rde_arr_clear(&_r->cache);
     rde_arr_clear(&_r->slot_of);
     _r->cache_bytes = 0;
+    fude_zoom_render_symbols_forget(_r);
 }
 
 void fude_zoom_render_destroy(fude_zoom_renderer* _r) {
     if(rde_arr_is_inited(&_r->cache)) {
         fude_zoom_render_trim(_r);
     }
-    rde_arr* _arrays[] = { &_r->visible, &_r->cache, &_r->slot_of, &_r->found, &_r->screen, &_r->radii, &_r->q, &_r->shape, &_r->pictures, &_r->fill, &_r->cut };
+    rde_arr* _arrays[] = { &_r->visible, &_r->cache, &_r->slot_of, &_r->found, &_r->screen, &_r->radii, &_r->q, &_r->shape, &_r->pictures, &_r->fill, &_r->cut,
+                           &_r->symbols };
     for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
         if(rde_arr_is_inited(_arrays[_i])) {
             rde_arr_free(_arrays[_i]);
         }
+    }
+    if(_r->symbol_of.capacity > 0u) {
+        rde_hash_map_free(&_r->symbol_of);
     }
     memset(_r, 0, sizeof(*_r));
 }
@@ -1167,6 +1191,79 @@ RDE_INTERNAL void fude_zoom_render_dashed(const fude_zoom_v2* _p, u32 _n, b8 _cl
 
 // A symbol (symbol.h): its parts — filled as the shape is, or solid in its line's colour — and their lines
 // (dashed where they are), its compartments' lines, and its text in its boxes.
+#define FUDE_ZOOM_RENDER_SYMBOLS       2048u      // symbols' geometry kept, at most (all let go, then made again as drawn)
+#define FUDE_ZOOM_RENDER_SYMBOL_POINTS (1u << 21)
+
+// Symbol _kind's geometry at half sizes _hw × _hh and _segments (a step of 8: what zooming changes little, kept), or
+// custom part _custom's: its parts' points (its own units), its parts, each filled part's triangles. Made once, kept.
+RDE_INTERNAL const fude_zoom_symbol_geo* fude_zoom_render_symbol_geo(fude_zoom_renderer* _r, u32 _kind, f64 _hw, f64 _hh, u32 _segments,
+                                                                     const fude_zoom_part* _custom) {
+    _segments = (_segments + 7u) / 8u * 8u;
+    u64 _key = 1469598103934665603ull;
+    const u64 _hw_bits = 0, _hh_bits = 0;
+    u64 _words[6] = { _kind, _segments, _hw_bits, _hh_bits, (u64)(uintptr_t)_custom, 0 };
+    memcpy(&_words[2], &_hw, sizeof(f64));
+    memcpy(&_words[3], &_hh, sizeof(f64));
+    for(u32 _i = 0; _i < 5u; _i++) {
+        _key = (_key ^ _words[_i]) * 1099511628211ull;
+        _key ^= _key >> 29;
+    }
+    const u32* _at = (const u32*)rde_hash_map_find(&_r->symbol_of, &_key);
+    if(_at != NULL && *_at < (u32)rde_arr_length(&_r->symbols)) {
+        const fude_zoom_symbol_geo* _g = &((const fude_zoom_symbol_geo*)_r->symbols.memory)[*_at];
+        if(_g->kind == _kind && _g->segments == _segments && _g->hw == _hw && _g->hh == _hh && _g->custom == (const void*)_custom) {
+            return _g;
+        }
+    }
+    if(rde_arr_length(&_r->symbols) >= FUDE_ZOOM_RENDER_SYMBOLS || _r->symbol_points >= FUDE_ZOOM_RENDER_SYMBOL_POINTS) {
+        fude_zoom_render_symbols_forget(_r);   // (too many kept: all made again as they are drawn)
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    fude_zoom_symbol_geo _g;
+    memset(&_g, 0, sizeof(_g));
+    _g.kind = _kind; _g.segments = _segments; _g.hw = _hw; _g.hh = _hh; _g.custom = _custom;
+    _g.points    = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    _g.parts     = rde_arr_new(sizeof(fude_zoom_symbol_part), _heap);
+    _g.tris      = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    _g.tri_range = rde_arr_new(sizeof(u32), _heap);
+    _g.parts_n = _custom != NULL ? fude_zoom_part_draw(_custom, _hw, _hh, _segments, &_g.points, &_g.parts)
+                                 : fude_zoom_symbol_parts(_kind, _hw, _hh, _segments, &_g.points, &_g.parts);
+    // Each part that can be filled: its rings (itself, then the parts joined to it — its holes) as triangles.
+    const fude_zoom_v2* _p = (const fude_zoom_v2*)_g.points.memory;
+    const fude_zoom_symbol_part* _pa = (const fude_zoom_symbol_part*)_g.parts.memory;
+    rde_arr _rings = rde_arr_new(sizeof(u32), _heap), _ring_pts = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    for(u32 _i = 0; _i < _g.parts_n; _i++) {
+        const u8 _fl = _pa[_i].flags;
+        u32 _range[2] = { (u32)(rde_arr_length(&_g.tris) / 3u), 0u };
+        if((_fl & (FUDE_ZOOM_SYMBOL_SOLID | FUDE_ZOOM_SYMBOL_TINTED | FUDE_ZOOM_SYMBOL_FILLED)) && _pa[_i].count >= 3u && !(_fl & FUDE_ZOOM_SYMBOL_JOIN)) {
+            rde_arr_clear(&_rings);
+            rde_arr_clear(&_ring_pts);
+            u32 _ring = 0;
+            for(u32 _j = _i; _j < _g.parts_n && (_j == _i || (_pa[_j].flags & FUDE_ZOOM_SYMBOL_JOIN)); _j++, _ring++) {
+                for(u32 _t = 0; _t < _pa[_j].count; _t++) {
+                    rde_arr_add(&_rings, (any)&_ring);
+                    rde_arr_add(&_ring_pts, (any)&_p[_pa[_j].first + _t]);
+                }
+            }
+            rde_arr_clear(&_r->fill);
+            _range[1] = fude_zoom_fill_triangulate_rings((const fude_zoom_v2*)_ring_pts.memory, (const u32*)_rings.memory, (u32)rde_arr_length(&_ring_pts), &_r->fill);
+            if(_range[1] > 0u) {
+                memcpy(rde_arr_add_n(&_g.tris, (usize)_range[1] * 3u), _r->fill.memory, (usize)_range[1] * 3u * sizeof(fude_zoom_v2));
+            }
+        }
+        memcpy(rde_arr_add_n(&_g.tri_range, 2u), _range, sizeof(_range));
+    }
+    rde_arr_free(&_rings);
+    rde_arr_free(&_ring_pts);
+    _r->symbol_points += rde_arr_length(&_g.points) + rde_arr_length(&_g.tris);
+    rde_arr_add(&_r->symbols, (any)&_g);
+    const u32 _place = (u32)rde_arr_length(&_r->symbols) - 1u;
+    if(!rde_hash_map_update_entry(&_r->symbol_of, &_key, &_place)) {
+        rde_hash_map_add(&_r->symbol_of, &_key, &_place);
+    }
+    return &((const fude_zoom_symbol_geo*)_r->symbols.memory)[_place];
+}
+
 RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoom_object* _o, const f64* _n, u32 _count, fude_zoom_sim _to_screen,
                                           fude_zoom_v2 _half, const rde_color* _as, f32 _extra) {
     RDE_UNUSED(_half);
@@ -1185,41 +1282,37 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
     const b8            _filled = (_o->flags & FUDE_ZOOM_FLAG_FILLED) && _as == NULL;
     const rde_color     _fill   = (_o->flags & FUDE_ZOOM_FLAG_FILL_OWN) ? fude_theme_resolve(_o->fill) : _color;
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    rde_arr _pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), _parts = rde_arr_new(sizeof(fude_zoom_symbol_part), _heap), _rings = rde_arr_new(sizeof(u32), _heap);
-    // (a custom part: drawn as its definition's pins are; the rest as their kind is)
+    // Its geometry, made once for its kind, size and detail (a custom part: drawn as its definition's pins are), into the
+    // screen.
     const fude_zoom_part* _custom = fude_zoom_part_of_numbers(_n, _count);
-    const u32 _segs = fude_zoom_shape_segments(fmax(_n[1], _n[2]) * 2.0 * _k);
-    const u32 _np = fude_zoom_part_custom(_custom) && _custom->pin_count > 0u ? fude_zoom_part_draw(_custom, _n[1], _n[2], _segs, &_pts, &_parts)
-                                                                               : fude_zoom_symbol_parts(_kind, _n[1], _n[2], _segs, &_pts, &_parts);
-    fude_zoom_v2* _p = (fude_zoom_v2*)_pts.memory;
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_pts); _i++) {
-        _p[_i] = fude_zoom_sim_apply(_all, _p[_i]);
+    const fude_zoom_symbol_geo* _geo = fude_zoom_render_symbol_geo(_r, _kind, _n[1], _n[2], fude_zoom_shape_segments(fmax(_n[1], _n[2]) * 2.0 * _k),
+                                                                   fude_zoom_part_custom(_custom) && _custom->pin_count > 0u ? _custom : NULL);
+    const u32 _np = _geo->parts_n;
+    rde_arr_clear(&_r->shape);
+    const fude_zoom_v2* _local = (const fude_zoom_v2*)_geo->points.memory;
+    fude_zoom_v2* _p = (fude_zoom_v2*)rde_arr_add_n(&_r->shape, rde_arr_length(&_geo->points));
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_geo->points); _i++) {
+        _p[_i] = fude_zoom_sim_apply(_all, _local[_i]);
     }
-    const fude_zoom_symbol_part* _pa = (const fude_zoom_symbol_part*)_parts.memory;
+    const fude_zoom_symbol_part* _pa = (const fude_zoom_symbol_part*)_geo->parts.memory;
+    const u32* _range = (const u32*)_geo->tri_range.memory;
+    const fude_zoom_v2* _tris = (const fude_zoom_v2*)_geo->tris.memory;
     for(u32 _i = 0; _i < _np; _i++) {
         const fude_zoom_v2* _q = &_p[_pa[_i].first];
         const u32           _m = _pa[_i].count;
         const u8            _fl = _pa[_i].flags;
         const b8 _solid = (_fl & FUDE_ZOOM_SYMBOL_SOLID) != 0u, _tinted = (_fl & FUDE_ZOOM_SYMBOL_TINTED) != 0u;
-        if((_solid || _tinted || ((_fl & FUDE_ZOOM_SYMBOL_FILLED) && _filled)) && _m >= 3u && !(_fl & FUDE_ZOOM_SYMBOL_JOIN)) {
-            // (its rings: itself, then the parts joined to it — its holes)
-            rde_arr_clear(&_rings);
-            rde_arr _ring_pts = rde_arr_new(sizeof(fude_zoom_v2), _heap);
-            u32 _ring = 0;
-            for(u32 _j = _i; _j < _np && (_j == _i || (_pa[_j].flags & FUDE_ZOOM_SYMBOL_JOIN)); _j++, _ring++) {
-                for(u32 _t = 0; _t < _pa[_j].count; _t++) {
-                    rde_arr_add(&_rings, (any)&_ring);
-                    rde_arr_add(&_ring_pts, (any)&_p[_pa[_j].first + _t]);
-                }
-            }
-            rde_arr_clear(&_r->fill);
-            const u32 _t = fude_zoom_fill_triangulate_rings((const fude_zoom_v2*)_ring_pts.memory, (const u32*)_rings.memory, (u32)rde_arr_length(&_ring_pts), &_r->fill);
+        if((_solid || _tinted || ((_fl & FUDE_ZOOM_SYMBOL_FILLED) && _filled)) && _range[2u * _i + 1u] > 0u) {
             rde_color _fc = _solid ? _color : (_tinted ? _pa[_i].fill : _fill);
             if(_as != NULL && _tinted) {
                 _fc = *_as;   // (a ghost: all in its colour)
             }
-            fude_zoom_render_triangles((const fude_zoom_v2*)_r->fill.memory, _t, _fc);
-            rde_arr_free(&_ring_pts);
+            // (its triangles, made with it, into the screen)
+            const fude_zoom_v2* _t = &_tris[3u * _range[2u * _i]];
+            for(u32 _j = 0; _j < _range[2u * _i + 1u]; _j++) {
+                const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, _t[3u * _j]), _b = fude_zoom_sim_apply(_all, _t[3u * _j + 1u]), _c = fude_zoom_sim_apply(_all, _t[3u * _j + 2u]);
+                rde_rendering_2d_draw_triangle((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_b.x, (f32)_b.y }, (rde_vec_2F){ (f32)_c.x, (f32)_c.y }, _fc, NULL);
+            }
         }
         if(_fl & FUDE_ZOOM_SYMBOL_NO_LINE) {
             continue;
@@ -1235,15 +1328,24 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
         if(_w == 0u) {
             continue;   // (no points: nothing to draw)
         }
+        // (its points on the screen, those nearer than a pixel to the one before left out: a gear's teeth far out are its
+        // rim, not hundreds of points in a few pixels; its last kept, however near)
         rde_arr_clear(&_r->screen);
         rde_arr_clear(&_r->radii);
         rde_vec_2F* _sp = rde_arr_add_n(&_r->screen, _w);
         f32*        _sr = rde_arr_add_n(&_r->radii, _w);
+        u32 _kept = 0;
         for(u32 _j = 0; _j < _w; _j++) {
-            _sp[_j] = (rde_vec_2F){ (f32)_q[_j % _m].x, (f32)_q[_j % _m].y };
-            _sr[_j] = (f32)_lr;
+            const rde_vec_2F _v = { (f32)_q[_j % _m].x, (f32)_q[_j % _m].y };
+            if(_kept > 0u && _j + 1u < _w && fabsf(_v.x - _sp[_kept - 1u].x) < 1.0f && fabsf(_v.y - _sp[_kept - 1u].y) < 1.0f) {
+                continue;
+            }
+            _sp[_kept]   = _v;
+            _sr[_kept++] = (f32)_lr;
         }
-        rde_rendering_2d_draw_stroke(_sp, _sr, _w, _lc);
+        if(_kept >= 2u) {
+            rde_rendering_2d_draw_stroke(_sp, _sr, _kept, _lc);
+        }
     }
     // Maths (plot.h): a graph's, axes', a number line's lines from its text — its grid faint, its curves each its colour —
     // and its ticks' numbers.
@@ -1364,9 +1466,6 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
             fude_zoom_render_text_at(_r, &_text[_f], _l, _b, _n[3] * _k, _top, _top, _ink);   // (a class's attributes and operations: from the left, as UML has them)
         }
     }
-    rde_arr_free(&_pts);
-    rde_arr_free(&_parts);
-    rde_arr_free(&_rings);
 }
 
 // A sheet's marks over its outline (sheet.h): its grid's lines, its rulers' ticks and numbers (upright, each

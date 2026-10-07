@@ -148,6 +148,8 @@ u32  fude_zoom_part_draw(const fude_zoom_part* _part, f64 _hw, f64 _hh, u32 _seg
 
 // A part's pin _pin where it is now (its symbol _object's frame's units). False: no such pin.
 b8   fude_zoom_part_pin_at(const fude_zoom_scene* _s, u32 _object, u32 _pin, fude_zoom_v2* _out);
+// A part's grid: a tenth of its pins' room as it came, in its frame's units (0: not a part). Its wires' stubs.
+f64  fude_zoom_part_unit(const fude_zoom_scene* _s, u32 _object);
 // The part an object is (a symbol whose kind is a part's), or NULL.
 const fude_zoom_part* fude_zoom_part_of(const fude_zoom_scene* _s, u32 _object);
 // A custom part (a definition of a person's own: its pins round a block, logic.h).
@@ -218,6 +220,13 @@ typedef struct {
     u64                   switch_on;    // a switch's or a button's, a logic input's: closed / high
     c8                    color[12];    // an LED's colour ("red")
     rde_color             lit;          // a logic probe's colour lit (its LIGHT: props.h; else FUDE_ZOOM_PROBE_LIT)
+    // Played with a mechanism (coupling.h): a motor with a part of it on its shaft — its winding behind its back-EMF,
+    // the shaft as fast as that part turns (radians a second, the way its voltage turns it) —, a push button a moving
+    // part presses (closed as if held).
+    b8                    shafted;
+    f64                   spin;
+    b8                    pushed;
+    u32                   block;        // its pins' block of unknowns (below; FUDE_ZOOM_NONE: on ground or nothing only)
 } fude_zoom_circuit_part;
 
 #define FUDE_ZOOM_PROBE_LIT ((rde_color){ 255, 50, 50, 255 })   // a logic probe's, lit, unless chosen
@@ -257,10 +266,22 @@ typedef struct {
     rde_arr TYPE(u32) cut_vertex;
     rde_arr TYPE(u32) pin_vertex;
     u32     vertices;
+    // Its unknowns in BLOCKS: the nodes a part's pins join (ground not counted) are one — the independent circuits on a
+    // canvas, each solved on its own (the work its size cubed, not everything's). Each node's block and slot (the
+    // unknowns in block order; ground: none), each block's first slot, how many, and where its matrix starts in a.
+    rde_arr TYPE(u32) node_block;
+    rde_arr TYPE(u32) node_slot;
+    rde_arr TYPE(u32) block_first;
+    rde_arr TYPE(u32) block_size;
+    rde_arr TYPE(u32) block_at;
+    u32     blocks;
     // Scratch.
-    rde_arr TYPE(f64) a;                   // the system's matrix (row-major, n × n)
-    rde_arr TYPE(f64) rhs;
+    rde_arr TYPE(f64) a;                   // each block's matrix (row-major, its size squared), in turn
+    rde_arr TYPE(f64) rhs;                 // by slot
     rde_arr TYPE(f64) x;
+    rde_arr TYPE(u8)  block_done;          // a block settled in this Newton solve
+    rde_arr TYPE(f64) block_most;          // ...its largest change, this step
+    rde_arr TYPE(u32) cols;                // the pivot row's columns not zero (solving a block)
     // Its logic: gates, flip-flops, chips, custom parts run by the simulation's digital engine (logic.h).
     struct fude_zoom_logic* logic;
 } fude_zoom_circuit;
@@ -279,6 +300,18 @@ void fude_zoom_circuit_reset(fude_zoom_circuit* _c);
 b8   fude_zoom_circuit_dc(fude_zoom_circuit* _c);
 // _dt seconds on (in steps of at most its step). False: a step not solved.
 b8   fude_zoom_circuit_run(fude_zoom_circuit* _c, f64 _dt, u32 _max_steps);
+// _steps of its step on, its wires' currents worked out after them or not (_wires: as run does). False: a step not solved.
+b8   fude_zoom_circuit_steps(fude_zoom_circuit* _c, u32 _steps, b8 _wires);
+
+// A MOTOR (its text: its rated volts, and its speed at them — "6V 60rpm"; 60 rpm unless it says). Its winding's
+// resistance (ohms); its back-EMF's volts a radian a second.
+#define FUDE_ZOOM_MOTOR_R 8.0
+f64  fude_zoom_motor_k(const fude_zoom_circuit_part* _motor);
+// A shafted motor (coupling.h) as the circuit loads it now, near where it is: how much more current through it (amperes,
+// pin 0 to pin 1) a volt less of its back-EMF makes (≥ 0: 0, nothing joined to it), and the back-EMF at which none would
+// flow (*_still, volts). As the circuit last stepped; the circuit left as it was. False: not a shafted motor, or not
+// solved.
+b8   fude_zoom_circuit_motor_load(fude_zoom_circuit* _c, u32 _part, f64* _conductance, f64* _still);
 // A part's state toggled by a tap (a switch, a button pressed or let go, a logic input, a pot's wiper on a step, a
 // board's pin through input, high, low, blink): what it says now into _say (its text, as the part keeps it). False:
 // nothing to toggle there.

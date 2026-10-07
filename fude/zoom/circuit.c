@@ -1317,6 +1317,82 @@ RDE_INTERNAL void fzc_join(u32* _p, u32 _a, u32 _b) {
     }
 }
 
+// Its unknowns in blocks (fude_zoom_circuit's): the nodes each part's pins are on joined (ground not: what is joined only
+// through it is apart), each block numbered as its first node comes; each node's slot its block's first and its place
+// in it; each block's matrix after the one before's.
+RDE_INTERNAL void fzc_blocks(fude_zoom_circuit* _c) {
+    const u32 _n = _c->nodes > 0u ? _c->nodes : 1u;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _up_arr = rde_arr_new(sizeof(u32), _heap), _id_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_up_arr, _n);
+    rde_arr_resize(&_id_arr, _n);
+    u32* _up = (u32*)_up_arr.memory;
+    u32* _id = (u32*)_id_arr.memory;
+    for(u32 _k = 0; _k < _n; _k++) {
+        _up[_k] = _k;
+        _id[_k] = FUDE_ZOOM_NONE;
+    }
+    const fude_zoom_circuit_part* _p = (const fude_zoom_circuit_part*)_c->parts.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_c->parts); _i++) {
+        u32 _first = FUDE_ZOOM_NONE;
+        for(u32 _k = 0; _k < _p[_i].part->pin_count && _k < FZC_PIN_MAX; _k++) {
+            const u32 _node = _p[_i].node[_k];
+            if(_node == FUDE_ZOOM_NONE || _node == 0u || _node >= _n) {
+                continue;
+            }
+            if(_first == FUDE_ZOOM_NONE) {
+                _first = _node;
+            } else {
+                fzc_join(_up, _first, _node);
+            }
+        }
+    }
+    rde_arr_resize(&_c->node_block, _n);
+    rde_arr_resize(&_c->node_slot, _n);
+    rde_arr_clear(&_c->block_size);
+    u32* _block = (u32*)_c->node_block.memory;
+    u32* _slot  = (u32*)_c->node_slot.memory;
+    _block[0] = _slot[0] = FUDE_ZOOM_NONE;   // (ground: no unknown)
+    u32 _blocks = 0;
+    for(u32 _k = 1; _k < _n; _k++) {
+        const u32 _r = fzc_root(_up, _k);
+        if(_id[_r] == FUDE_ZOOM_NONE) {
+            _id[_r] = _blocks++;
+            const u32 _zero = 0u;
+            rde_arr_add(&_c->block_size, (any)&_zero);
+        }
+        _block[_k] = _id[_r];
+        _slot[_k]  = ((u32*)_c->block_size.memory)[_id[_r]]++;   // (its place in its block, for now)
+    }
+    _c->blocks = _blocks;
+    rde_arr_resize(&_c->block_first, _blocks);
+    rde_arr_resize(&_c->block_at, _blocks);
+    rde_arr_resize(&_c->block_done, _blocks);
+    const u32* _size = (const u32*)_c->block_size.memory;
+    u32* _first = (u32*)_c->block_first.memory;
+    u32* _at    = (u32*)_c->block_at.memory;
+    u32 _slots = 0, _entries = 0;
+    for(u32 _b = 0; _b < _blocks; _b++) {
+        _first[_b] = _slots;
+        _at[_b]    = _entries;
+        _slots    += _size[_b];
+        _entries  += _size[_b] * _size[_b];
+    }
+    for(u32 _k = 1; _k < _n; _k++) {
+        _slot[_k] += _first[_block[_k]];
+    }
+    fude_zoom_circuit_part* _q = (fude_zoom_circuit_part*)_c->parts.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_c->parts); _i++) {
+        _q[_i].block = FUDE_ZOOM_NONE;
+        for(u32 _k = 0; _k < _q[_i].part->pin_count && _k < FZC_PIN_MAX && _q[_i].block == FUDE_ZOOM_NONE; _k++) {
+            const u32 _node = _q[_i].node[_k];
+            _q[_i].block = _node != FUDE_ZOOM_NONE && _node != 0u && _node < _n ? _block[_node] : FUDE_ZOOM_NONE;
+        }
+    }
+    rde_arr_free(&_up_arr);
+    rde_arr_free(&_id_arr);
+}
+
 void fude_zoom_circuit_init(fude_zoom_circuit* _c) {
     memset(_c, 0, sizeof(*_c));
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
@@ -1327,6 +1403,14 @@ void fude_zoom_circuit_init(fude_zoom_circuit* _c) {
     _c->a          = rde_arr_new(sizeof(f64), _heap);
     _c->rhs        = rde_arr_new(sizeof(f64), _heap);
     _c->x          = rde_arr_new(sizeof(f64), _heap);
+    _c->node_block  = rde_arr_new(sizeof(u32), _heap);
+    _c->node_slot   = rde_arr_new(sizeof(u32), _heap);
+    _c->block_first = rde_arr_new(sizeof(u32), _heap);
+    _c->block_size  = rde_arr_new(sizeof(u32), _heap);
+    _c->block_at    = rde_arr_new(sizeof(u32), _heap);
+    _c->block_done  = rde_arr_new(sizeof(u8), _heap);
+    _c->block_most  = rde_arr_new(sizeof(f64), _heap);
+    _c->cols        = rde_arr_new(sizeof(u32), _heap);
     _c->step       = 1e-3;
     _c->logic      = (fude_zoom_logic*)_heap->calloc(_heap->allocator, 1, sizeof(fude_zoom_logic));
     fude_zoom_logic_init(_c->logic);
@@ -1340,6 +1424,14 @@ void fude_zoom_circuit_destroy(fude_zoom_circuit* _c) {
     rde_arr_free(&_c->a);
     rde_arr_free(&_c->rhs);
     rde_arr_free(&_c->x);
+    rde_arr_free(&_c->node_block);
+    rde_arr_free(&_c->node_slot);
+    rde_arr_free(&_c->block_first);
+    rde_arr_free(&_c->block_size);
+    rde_arr_free(&_c->block_at);
+    rde_arr_free(&_c->block_done);
+    rde_arr_free(&_c->block_most);
+    rde_arr_free(&_c->cols);
     if(_c->logic != NULL) {
         fude_zoom_logic_destroy(_c->logic);
         rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
@@ -1415,7 +1507,7 @@ RDE_INTERNAL void fzc_read(fude_zoom_circuit_part* _p, const c8* _text, b8 _fres
     case FUDE_ZOOM_MODEL_CLOCK:     _p->value[0] = _has && _v > 0.0 ? _v : 1.0; _p->value[1] = _has2 ? _w : 5.0; break;
     case FUDE_ZOOM_MODEL_ISOURCE:   _p->value[0] = _has ? _v : 10e-3; break;
     case FUDE_ZOOM_MODEL_LAMP:      _p->value[0] = _has && _v > 0.0 ? _v : 12.0; _p->value[1] = _has2 && _w > 0.0 ? _w : 5.0; break;
-    case FUDE_ZOOM_MODEL_MOTOR:     _p->value[0] = _has && _v > 0.0 ? _v : 6.0; break;
+    case FUDE_ZOOM_MODEL_MOTOR:     _p->value[0] = _has && _v > 0.0 ? _v : 6.0; _p->value[1] = _has2 && _w > 0.0 ? _w : 60.0; break;
     case FUDE_ZOOM_MODEL_FUSE:      _p->value[0] = _has && _v > 0.0 ? _v : 1.0; break;
     default: break;
     }
@@ -1951,6 +2043,7 @@ u32 fude_zoom_circuit_build_in(fude_zoom_circuit* _c, const fude_zoom_scene* _s,
         }
     }
     _c->nodes = _nodes;
+    fzc_blocks(_c);
     for(u32 _w = 0; _w < _nw; _w++) {
         _wires[_w].node = _node_of[fzc_root(_net, _wire_first + 2u * _w)];
     }
@@ -2066,6 +2159,20 @@ RDE_INTERNAL void fzc_add_pin_i(fude_zoom_circuit_part* _p, u32 _pin, f64 _i) {
     }
 }
 
+// The system's entry at node _row's row, node _col's column (both in one block: a part's pins always are; were they
+// not, a cell no one reads).
+RDE_INTERNAL f64* fzc_entry(fude_zoom_circuit* _c, u32 _row, u32 _col) {
+    static f64 _nowhere;
+    const u32* _block = (const u32*)_c->node_block.memory;
+    const u32* _slot  = (const u32*)_c->node_slot.memory;
+    const u32  _b     = _block[_row];
+    if(_b == FUDE_ZOOM_NONE || _block[_col] != _b) {
+        return &_nowhere;
+    }
+    const u32 _first = ((const u32*)_c->block_first.memory)[_b], _size = ((const u32*)_c->block_size.memory)[_b];
+    return &((f64*)_c->a.memory)[((const u32*)_c->block_at.memory)[_b] + (_slot[_row] - _first) * _size + (_slot[_col] - _first)];
+}
+
 // A conductance _g between pins _a and _b.
 RDE_INTERNAL void fzc_g(fzc_ctx* _x, fude_zoom_circuit_part* _p, u32 _pa, u32 _pb, f64 _g) {
     const u32 _a = fzc_node(_p, _pa), _b = fzc_node(_p, _pb);
@@ -2075,13 +2182,12 @@ RDE_INTERNAL void fzc_g(fzc_ctx* _x, fude_zoom_circuit_part* _p, u32 _pa, u32 _p
     const f64 _i = _g * (fzc_volt(_x, _a) - fzc_volt(_x, _b));
     fzc_add_pin_i(_p, _pa, _i);
     fzc_add_pin_i(_p, _pb, -_i);
-    f64* _m = (f64*)_x->c->a.memory;
-    const u32 _n = _x->n;
-    if(_a > 0u) { _m[(_a - 1u) * _n + (_a - 1u)] += _g; }
-    if(_b > 0u) { _m[(_b - 1u) * _n + (_b - 1u)] += _g; }
+    fude_zoom_circuit* _c = _x->c;
+    if(_a > 0u) { *fzc_entry(_c, _a, _a) += _g; }
+    if(_b > 0u) { *fzc_entry(_c, _b, _b) += _g; }
     if(_a > 0u && _b > 0u) {
-        _m[(_a - 1u) * _n + (_b - 1u)] -= _g;
-        _m[(_b - 1u) * _n + (_a - 1u)] -= _g;
+        *fzc_entry(_c, _a, _b) -= _g;
+        *fzc_entry(_c, _b, _a) -= _g;
     }
 }
 
@@ -2094,8 +2200,9 @@ RDE_INTERNAL void fzc_i(fzc_ctx* _x, fude_zoom_circuit_part* _p, u32 _pa, u32 _p
     fzc_add_pin_i(_p, _pa, _i);
     fzc_add_pin_i(_p, _pb, -_i);
     f64* _rhs = (f64*)_x->c->rhs.memory;
-    if(_a > 0u) { _rhs[_a - 1u] -= _i; }
-    if(_b > 0u) { _rhs[_b - 1u] += _i; }
+    const u32* _slot = (const u32*)_x->c->node_slot.memory;
+    if(_a > 0u) { _rhs[_slot[_a]] -= _i; }
+    if(_b > 0u) { _rhs[_slot[_b]] += _i; }
 }
 
 // A voltage source _v (pin _a over pin _b) behind _r.
@@ -2129,9 +2236,8 @@ RDE_INTERNAL void fzc_nonlinear(fzc_ctx* _x, fude_zoom_circuit_part* _p, const u
             _j[_t][_u] = (_ih[_t] - _i0[_t]) / _h;
         }
     }
-    f64* _m   = (f64*)_x->c->a.memory;
     f64* _rhs = (f64*)_x->c->rhs.memory;
-    const u32 _n = _x->n;
+    const u32* _slot = (const u32*)_x->c->node_slot.memory;
     for(u32 _t = 0; _t < _k; _t++) {
         fzc_add_pin_i(_p, _pins[_t], _i0[_t]);
         if(_node[_t] == 0u) {
@@ -2141,10 +2247,10 @@ RDE_INTERNAL void fzc_nonlinear(fzc_ctx* _x, fude_zoom_circuit_part* _p, const u
         for(u32 _u = 0; _u < _k; _u++) {
             _lin -= _j[_t][_u] * _v[_u];
             if(_node[_u] != 0u) {
-                _m[(_node[_t] - 1u) * _n + (_node[_u] - 1u)] += _j[_t][_u];
+                *fzc_entry(_x->c, _node[_t], _node[_u]) += _j[_t][_u];
             }
         }
-        _rhs[_node[_t] - 1u] -= _lin;
+        _rhs[_slot[_node[_t]]] -= _lin;
     }
 }
 
@@ -2153,12 +2259,15 @@ RDE_INTERNAL f64 fzc_exp(f64 _x) {
     return _x > 40.0 ? exp(40.0) * (1.0 + _x - 40.0) : exp(_x);
 }
 
-typedef struct { f64 is, nvt, zener; } fzc_diode_k;
+// A diode: is·(e^(v/nvt) − 1) — its exponent counted from _shift volts (an LED's: its forward voltage, its is 10 mA
+// there), so that it is as steep as it is at what it conducts at however high that is (fzc_exp straightens past e^40:
+// from 0 V, that is 2 V for an LED's nvt — a blue one's 3 V would barely conduct).
+typedef struct { f64 is, nvt, zener, shift; } fzc_diode_k;
 
 RDE_INTERNAL void fzc_diode_fn(const f64* _v, f64* _i, const void* _user) {
     const fzc_diode_k* _k = (const fzc_diode_k*)_user;
     const f64 _vd = _v[0] - _v[1];
-    f64 _id = _k->is * (fzc_exp(_vd / _k->nvt) - 1.0) + 1e-12 * _vd;
+    f64 _id = _k->is * (fzc_exp((_vd - _k->shift) / _k->nvt) - exp(-_k->shift / _k->nvt)) + 1e-12 * _vd;
     if(_k->zener > 0.0) {
         _id -= 1e-14 * (fzc_exp((-_vd - _k->zener) / FZC_VT) - 1.0);   // (its breakdown, the other way)
     }
@@ -2310,10 +2419,11 @@ RDE_INTERNAL void fzc_stamp(fzc_ctx* _x, fude_zoom_circuit_part* _p) {
     case FUDE_ZOOM_MODEL_DIODE:
     case FUDE_ZOOM_MODEL_ZENER:
     case FUDE_ZOOM_MODEL_LED: {
-        fzc_diode_k _k = { 1e-14, FZC_VT, 0.0 };
+        fzc_diode_k _k = { 1e-14, FZC_VT, 0.0, 0.0 };
         if(_part->model == FUDE_ZOOM_MODEL_LED) {
-            _k.nvt = 2.0 * FZC_VT;
-            _k.is  = 0.01 / exp(_p->value[0] / _k.nvt);   // (10 mA at its forward voltage)
+            _k.nvt   = 2.0 * FZC_VT;
+            _k.is    = 0.01;   // (10 mA at its forward voltage)
+            _k.shift = _p->value[0];
         } else if(_part->model == FUDE_ZOOM_MODEL_ZENER) {
             _k.zener = _p->value[0];
         }
@@ -2342,9 +2452,16 @@ RDE_INTERNAL void fzc_stamp(fzc_ctx* _x, fude_zoom_circuit_part* _p) {
     case FUDE_ZOOM_MODEL_ISOURCE:  fzc_i(_x, _p, 1, 0, _p->value[0]); break;
     case FUDE_ZOOM_MODEL_RAIL:     fzc_vsrc(_x, _p, 0, FZC_GROUND, _p->value[0], 1e-3); break;
     case FUDE_ZOOM_MODEL_SWITCH:
-    case FUDE_ZOOM_MODEL_BUTTON:   fzc_g(_x, _p, 0, 1, (_p->switch_on & 1u) ? 100.0 : 1e-9); break;
+    case FUDE_ZOOM_MODEL_BUTTON:   fzc_g(_x, _p, 0, 1, (_p->switch_on & 1u) || _p->pushed ? 100.0 : 1e-9); break;
     case FUDE_ZOOM_MODEL_LAMP:     fzc_g(_x, _p, 0, 1, _p->value[1] / (_p->value[0] * _p->value[0])); break;
-    case FUDE_ZOOM_MODEL_MOTOR:    fzc_g(_x, _p, 0, 1, 1.0 / 8.0); break;
+    case FUDE_ZOOM_MODEL_MOTOR:
+        // (its shaft turning something of a mechanism: its winding behind its back-EMF; else a load, as ever)
+        if(_p->shafted) {
+            fzc_vsrc(_x, _p, 0, 1, fude_zoom_motor_k(_p) * _p->spin, FUDE_ZOOM_MOTOR_R);
+        } else {
+            fzc_g(_x, _p, 0, 1, 1.0 / FUDE_ZOOM_MOTOR_R);
+        }
+        break;
     case FUDE_ZOOM_MODEL_BUZZER:   fzc_g(_x, _p, 0, 1, 1.0 / 100.0); break;
     case FUDE_ZOOM_MODEL_FUSE:     fzc_g(_x, _p, 0, 1, _p->state[0] > 0.5 ? 1e-9 : 20.0); break;
     case FUDE_ZOOM_MODEL_VOLTMETER: fzc_g(_x, _p, 0, 1, 1e-7); break;
@@ -2359,7 +2476,7 @@ RDE_INTERNAL void fzc_stamp(fzc_ctx* _x, fude_zoom_circuit_part* _p) {
         break;
     }
     case FUDE_ZOOM_MODEL_SEVEN_SEG: {
-        fzc_diode_k _k = { 0.01 / exp(1.8 / (2.0 * FZC_VT)), 2.0 * FZC_VT, 0.0 };
+        fzc_diode_k _k = { 0.01, 2.0 * FZC_VT, 0.0, 1.8 };
         for(u32 _s = 0; _s < 8u; _s++) {
             const u32 _pins[2] = { _s, 8u };
             fzc_nonlinear(_x, _p, _pins, 2u, fzc_diode_fn, &_k);
@@ -2537,7 +2654,7 @@ RDE_INTERNAL b8 fzc_digital(fzc_ctx* _x, fude_zoom_circuit_part* _p) {
 }
 
 // The system solved (Gaussian elimination, the largest pivot each column). False: singular.
-RDE_INTERNAL b8 fzc_solve(f64* _a, f64* _b, f64* _x, u32 _n) {
+RDE_INTERNAL b8 fzc_solve(f64* _a, f64* _b, f64* _x, u32 _n, u32* _cols) {
     for(u32 _k = 0; _k < _n; _k++) {
         u32 _best = _k;
         f64 _big = fabs(_a[_k * _n + _k]);
@@ -2551,7 +2668,7 @@ RDE_INTERNAL b8 fzc_solve(f64* _a, f64* _b, f64* _x, u32 _n) {
             return false;
         }
         if(_best != _k) {
-            for(u32 _j = 0; _j < _n; _j++) {
+            for(u32 _j = _k; _j < _n; _j++) {   // (left of _k: nothing read again)
                 const f64 _t = _a[_k * _n + _j];
                 _a[_k * _n + _j] = _a[_best * _n + _j];
                 _a[_best * _n + _j] = _t;
@@ -2560,14 +2677,23 @@ RDE_INTERNAL b8 fzc_solve(f64* _a, f64* _b, f64* _x, u32 _n) {
             _b[_k] = _b[_best];
             _b[_best] = _t;
         }
-        const f64 _piv = _a[_k * _n + _k];
+        // (a circuit's rows are mostly zeros: only the pivot row's others taken from the rows under it)
+        const f64* _row = &_a[_k * _n];
+        u32 _m = 0;
+        for(u32 _j = _k + 1u; _j < _n; _j++) {
+            if(_row[_j] != 0.0) {
+                _cols[_m++] = _j;
+            }
+        }
+        const f64 _piv = _row[_k];
         for(u32 _i = _k + 1u; _i < _n; _i++) {
-            const f64 _f = _a[_i * _n + _k] / _piv;
+            f64* _under = &_a[_i * _n];
+            const f64 _f = _under[_k] / _piv;
             if(_f == 0.0) {
                 continue;
             }
-            for(u32 _j = _k; _j < _n; _j++) {
-                _a[_i * _n + _j] -= _f * _a[_k * _n + _j];
+            for(u32 _j = 0; _j < _m; _j++) {
+                _under[_cols[_j]] -= _f * _row[_cols[_j]];
             }
             _b[_i] -= _f * _b[_k];
         }
@@ -2582,13 +2708,14 @@ RDE_INTERNAL b8 fzc_solve(f64* _a, f64* _b, f64* _x, u32 _n) {
     return true;
 }
 
-// Each part's stamps, the system solved, again until it settles (Newton). False: it did not.
-RDE_INTERNAL b8 fzc_newton(fzc_ctx* _x) {
+// Each part's stamps, the system solved, again until it settles (Newton) — block by block, each settled left as it is
+// (_only: that block alone; FUDE_ZOOM_NONE: all). False: it did not.
+RDE_INTERNAL b8 fzc_newton(fzc_ctx* _x, u32 _only) {
     fude_zoom_circuit* _c = _x->c;
     const u32 _n = _x->n;
     fude_zoom_circuit_part* _p = (fude_zoom_circuit_part*)_c->parts.memory;
     const u32 _np = (u32)rde_arr_length(&_c->parts);
-    if(_n == 0u) {
+    if(_n == 0u || _c->blocks == 0u) {
         for(u32 _i = 0; _i < _np; _i++) {
             memset(_p[_i].pin_i, 0, sizeof(_p[_i].pin_i));
         }
@@ -2597,43 +2724,92 @@ RDE_INTERNAL b8 fzc_newton(fzc_ctx* _x) {
     f64* _m   = (f64*)_c->a.memory;   // (sized by fzc_room)
     f64* _rhs = (f64*)_c->rhs.memory;
     f64* _sol = (f64*)_c->x.memory;
+    const u32* _first = (const u32*)_c->block_first.memory;
+    const u32* _size  = (const u32*)_c->block_size.memory;
+    const u32* _at    = (const u32*)_c->block_at.memory;
+    const u32* _block = (const u32*)_c->node_block.memory;
+    const u32* _slot  = (const u32*)_c->node_slot.memory;
+    u8*  _done = (u8*)_c->block_done.memory;    // 1: settled; 0, 2: being solved (2: nothing in it moved yet this time)
+    f64* _most = (f64*)_c->block_most.memory;
+    for(u32 _b = 0; _b < _c->blocks; _b++) {
+        _done[_b] = _only != FUDE_ZOOM_NONE && _b != _only ? 1u : 0u;
+    }
+    u32* _cols = (u32*)_c->cols.memory;
     for(u32 _it = 0; _it < 150u; _it++) {
-        memset(_m, 0, (usize)_n * _n * sizeof(f64));
-        memset(_rhs, 0, (usize)_n * sizeof(f64));
+        // (a settled block's matrix, and its parts' currents, as they were)
+        for(u32 _b = 0; _b < _c->blocks; _b++) {
+            if(_done[_b] != 1u) {
+                memset(&_m[_at[_b]], 0, (usize)_size[_b] * _size[_b] * sizeof(f64));
+                memset(&_rhs[_first[_b]], 0, (usize)_size[_b] * sizeof(f64));
+            }
+        }
         for(u32 _i = 0; _i < _np; _i++) {
-            memset(_p[_i].pin_i, 0, sizeof(_p[_i].pin_i));
+            if(_p[_i].block != FUDE_ZOOM_NONE && _done[_p[_i].block] == 1u) {
+                continue;
+            }
+            const u32 _pins = _p[_i].part->pin_count < FZC_PIN_MAX ? _p[_i].part->pin_count : FZC_PIN_MAX;
+            memset(_p[_i].pin_i, 0, (usize)_pins * sizeof(f64));
             fzc_stamp(_x, &_p[_i]);
         }
-        for(u32 _k = 0; _k < _n; _k++) {
-            _m[_k * _n + _k] += FZC_GMIN;
+        for(u32 _b = 0; _b < _c->blocks; _b++) {
+            if(_done[_b] == 1u) {
+                continue;
+            }
+            f64* _a = &_m[_at[_b]];
+            for(u32 _k = 0; _k < _size[_b]; _k++) {
+                _a[_k * _size[_b] + _k] += FZC_GMIN;
+            }
+            if(!fzc_solve(_a, &_rhs[_first[_b]], &_sol[_first[_b]], _size[_b], _cols)) {
+                return false;
+            }
+            _most[_b] = 0.0;
+            _done[_b] = 2u;
         }
-        if(!fzc_solve(_m, _rhs, _sol, _n)) {
-            return false;
+        // (each block's step: at most 2 V at its most — exponentials stay near —, settled when nothing in it moves)
+        for(u32 _k = 1; _k < _c->nodes; _k++) {
+            const u32 _b = _block[_k];
+            if(_b != FUDE_ZOOM_NONE && _done[_b] != 1u) {
+                _most[_b] = fmax(_most[_b], fabs(_sol[_slot[_k]] - _c->v[_k]));
+            }
         }
-        f64 _most = 0.0;
-        for(u32 _k = 0; _k < _n; _k++) {
-            _most = fmax(_most, fabs(_sol[_k] - _c->v[_k + 1u]));
+        for(u32 _k = 1; _k < _c->nodes; _k++) {
+            const u32 _b = _block[_k];
+            if(_b == FUDE_ZOOM_NONE || _done[_b] == 1u) {
+                continue;
+            }
+            const f64 _damp = _most[_b] > 2.0 ? 2.0 / _most[_b] : 1.0;
+            const f64 _d    = (_sol[_slot[_k]] - _c->v[_k]) * _damp;
+            if(!(fabs(_d) <= 1e-7 + 1e-6 * fabs(_sol[_slot[_k]]))) {
+                _done[_b] = 0u;
+            }
+            _c->v[_k] += _d;
         }
-        const f64 _damp = _most > 2.0 ? 2.0 / _most : 1.0;   // (at most 2 V a step: exponentials stay near)
-        b8 _done = true;
-        for(u32 _k = 0; _k < _n; _k++) {
-            const f64 _d = (_sol[_k] - _c->v[_k + 1u]) * _damp;
-            _done = _done && fabs(_d) <= 1e-7 + 1e-6 * fabs(_sol[_k]);
-            _c->v[_k + 1u] += _d;
+        b8 _all = true;
+        for(u32 _b = 0; _b < _c->blocks; _b++) {
+            _done[_b] = _done[_b] == 2u ? 1u : _done[_b];
+            _all = _all && _done[_b] == 1u;
         }
         _c->solves = _it + 1u;
-        if(_done) {
+        if(_all) {
             return true;
         }
     }
     return false;
 }
 
-// The system's scratch sized for _n unknowns (n × n, row-major).
+// The system's scratch sized for its blocks (each its size squared) and _n unknowns.
 RDE_INTERNAL void fzc_room(fude_zoom_circuit* _c, u32 _n) {
-    rde_arr_resize(&_c->a, (usize)_n * _n);
-    rde_arr_resize(&_c->rhs, _n);
-    rde_arr_resize(&_c->x, _n);
+    u32 _entries = 0;
+    const u32* _size = (const u32*)_c->block_size.memory;
+    for(u32 _b = 0; _b < _c->blocks; _b++) {
+        _entries += _size[_b] * _size[_b];
+    }
+    rde_arr_resize(&_c->a, _entries > 0u ? _entries : 1u);
+    rde_arr_resize(&_c->rhs, _n > 0u ? _n : 1u);
+    rde_arr_resize(&_c->x, _n > 0u ? _n : 1u);
+    rde_arr_resize(&_c->block_done, _c->blocks);
+    rde_arr_resize(&_c->block_most, _c->blocks);
+    rde_arr_resize(&_c->cols, _n > 0u ? _n : 1u);
 }
 
 // The wires' currents: each piece's, as the parts' pins push current into the places they touch, along a tree of the
@@ -2762,7 +2938,7 @@ RDE_INTERNAL void fzc_after(fzc_ctx* _x) {
             }
             break;
         case FUDE_ZOOM_MODEL_LAMP:      _q->shown = fabs(fzc_over(_x, _q, 0, 1) * _q->pin_i[0]) / fmax(_q->value[1], 1e-9); break;
-        case FUDE_ZOOM_MODEL_MOTOR:     _q->shown += _q->pin_i[0] * _x->dt * 60.0; break;
+        case FUDE_ZOOM_MODEL_MOTOR:     _q->shown += _q->shafted ? _q->spin * _x->dt : _q->pin_i[0] * _x->dt * 60.0; break;
         case FUDE_ZOOM_MODEL_BUZZER:    _q->shown = fabs(_q->pin_i[0]) > 2e-3 ? 1.0 : 0.0; break;
         case FUDE_ZOOM_MODEL_VOLTMETER: _q->shown = fzc_over(_x, _q, 0, 1); break;
         case FUDE_ZOOM_MODEL_AMMETER:   _q->shown = _q->pin_i[0]; break;
@@ -2780,7 +2956,7 @@ RDE_INTERNAL b8 fzc_at(fude_zoom_circuit* _c, b8 _tran, f64 _dt) {
     fzc_ctx _x = { _c, _n, _tran, _dt, _c->time + (_tran ? _dt : 0.0) };
     fude_zoom_circuit_part* _p = (fude_zoom_circuit_part*)_c->parts.memory;
     const u32 _np = (u32)rde_arr_length(&_c->parts);
-    b8 _ok = fzc_newton(&_x);
+    b8 _ok = fzc_newton(&_x, FUDE_ZOOM_NONE);
     // Logic settles within the step: solved again while it changes (16 times at most) — what is stepped worked out
     // from the voltages, the logic's bridges read and what they drive again.
     for(u32 _settle = 0; _ok && _settle < 16u; _settle++) {
@@ -2791,7 +2967,7 @@ RDE_INTERNAL b8 fzc_at(fude_zoom_circuit* _c, b8 _tran, f64 _dt) {
         if(!_changed) {
             break;
         }
-        _ok = fzc_newton(&_x);
+        _ok = fzc_newton(&_x, FUDE_ZOOM_NONE);
     }
     if(_ok) {
         // (a node only logic is on: its level's volts, as the analog circuit does not know it)
@@ -2823,14 +2999,82 @@ b8 fude_zoom_circuit_run(fude_zoom_circuit* _c, f64 _dt, u32 _max_steps) {
     const f64 _step = _c->step > 0.0 ? _c->step : 1e-3;
     u32 _steps = (u32)ceil(_dt / _step - 1e-9);
     _steps = _steps < 1u ? 1u : (_steps > _max_steps ? _max_steps : _steps);
+    return fude_zoom_circuit_steps(_c, _steps, true);
+}
+
+b8 fude_zoom_circuit_steps(fude_zoom_circuit* _c, u32 _steps, b8 _wires) {
+    const f64 _step = _c->step > 0.0 ? _c->step : 1e-3;
     b8 _ok = true;
     for(u32 _k = 0; _k < _steps && _ok; _k++) {
         _ok = fzc_at(_c, true, _step);
     }
-    if(_ok) {
+    if(_ok && _wires) {
         fzc_wire_currents(_c);
     }
     return _ok;
+}
+
+f64 fude_zoom_motor_k(const fude_zoom_circuit_part* _motor) {
+    // (its rated volts at its rated speed: rpm in radians a second)
+    const f64 _volts = _motor->value[0] > 0.0 ? _motor->value[0] : 6.0, _rpm = _motor->value[1] > 0.0 ? _motor->value[1] : 60.0;
+    return _volts / (_rpm * 2.0 * 3.141592653589793 / 60.0);
+}
+
+b8 fude_zoom_circuit_motor_load(fude_zoom_circuit* _c, u32 _part, f64* _conductance, f64* _still) {
+    *_conductance = 0.0;
+    *_still = 0.0;
+    if(_part >= (u32)rde_arr_length(&_c->parts) || !_c->ok) {
+        return false;
+    }
+    fude_zoom_circuit_part* _p = &((fude_zoom_circuit_part*)_c->parts.memory)[_part];
+    if(_p->part->model != FUDE_ZOOM_MODEL_MOTOR || !_p->shafted) {
+        return false;
+    }
+    const f64 _k = fude_zoom_motor_k(_p), _e = _k * _p->spin, _i0 = _p->pin_i[0];
+    *_still = _e;
+    const u32 _n = _c->nodes > 0u ? _c->nodes - 1u : 0u;
+    if(_n == 0u || fzc_node(_p, 0) == FUDE_ZOOM_NONE || fzc_node(_p, 1) == FUDE_ZOOM_NONE) {
+        return true;   // (joined to nothing: nothing through it whatever it turns)
+    }
+    // Solved again with its back-EMF a little more (as the last step was: its state as it is), what it changes through
+    // it; then all as it was.
+    const u32 _np = (u32)rde_arr_length(&_c->parts);
+    fude_zoom_circuit_part* _all = (fude_zoom_circuit_part*)_c->parts.memory;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _keep_arr = rde_arr_new(sizeof(f64), _heap);
+    rde_arr_resize(&_keep_arr, (usize)_np * 64u);
+    f64* _keep = (f64*)_keep_arr.memory;
+    f64 _v[FUDE_ZOOM_CIRCUIT_MAX_NODES];
+    memcpy(_v, _c->v, sizeof(_v));
+    for(u32 _i = 0; _i < _np; _i++) {
+        memcpy(&_keep[(usize)_i * 64u], _all[_i].pin_i, sizeof(_all[_i].pin_i));
+    }
+    const u32 _solves = _c->solves;
+    const f64 _de = fmax(0.02 * fabs(_e), 0.05);
+    const f64 _spin = _p->spin;
+    _p->spin = _spin + _de / _k;
+    fzc_room(_c, _n);
+    fzc_ctx _x = { _c, _n, true, _c->step, _c->time };
+    // (only its own block: the others are as they were)
+    const u32 _own = fzc_node(_p, 0) != 0u ? fzc_node(_p, 0) : fzc_node(_p, 1);
+    const u32 _blk = _own != 0u && _own < _c->nodes ? ((const u32*)_c->node_block.memory)[_own] : FUDE_ZOOM_NONE;
+    const b8 _ok = _blk != FUDE_ZOOM_NONE && fzc_newton(&_x, _blk);
+    const f64 _i1 = _p->pin_i[0];
+    _p->spin = _spin;
+    memcpy(_c->v, _v, sizeof(_v));
+    for(u32 _i = 0; _i < _np; _i++) {
+        memcpy(_all[_i].pin_i, &_keep[(usize)_i * 64u], sizeof(_all[_i].pin_i));
+    }
+    _c->solves = _solves;
+    rde_arr_free(&_keep_arr);
+    if(!_ok) {
+        return false;
+    }
+    // (more back-EMF, less through it: a conductance; never more than its winding's own)
+    const f64 _g = fmin(fmax((_i0 - _i1) / _de, 0.0), 1.0 / FUDE_ZOOM_MOTOR_R);
+    *_conductance = _g;
+    *_still = _g > 1e-12 ? _e + _i0 / _g : _e;
+    return true;
 }
 
 RDE_INTERNAL int fzc_f64_order(const void* _a, const void* _b) {
@@ -2851,6 +3095,15 @@ f64 fude_zoom_circuit_tag_px(f64* _sizes, u32 _count, f64 _most, f64 _least) {
     qsort(_sizes, _n, sizeof(f64), fzc_f64_order);
     const f64 _px = fmin(0.5 * _sizes[_n / 2u], _most);
     return _px >= _least ? _px : 0.0;
+}
+
+f64 fude_zoom_part_unit(const fude_zoom_scene* _s, u32 _object) {
+    f64 _n[3];
+    if(fude_zoom_scene_shape_numbers(_s, _object, _n, 3u) < 3u) {
+        return 0.0;
+    }
+    const fude_zoom_symbol_info* _info = fude_zoom_symbol_info_of((u32)_n[0]);
+    return _info != NULL && _info->h > 0.0f ? _n[2] * fude_zoom_scene_object(_s, _object)->scale / ((f64)_info->h * 0.5) * 10.0 : 0.0;
 }
 
 b8 fude_zoom_circuit_tap(fude_zoom_circuit* _c, u32 _part, i32 _pin, c8* _say, usize _size) {
