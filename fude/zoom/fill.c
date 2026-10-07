@@ -84,14 +84,16 @@ u32 fude_zoom_fill_triangulate(const fude_zoom_v2* _p, u32 _n, rde_arr* _out) {
 // triangles) between each two edges with inside between them (how many
 // triangles); with _spans, each stretch of an edge with inside on one side and
 // not the other, joined up along it (rde_arr of fude_zoom_fill_span; the edges,
-// sorted, into *_edges and *_count for the caller to free) — and into _flats
+// sorted, into *_edges, an rde_arr of fude_zoom_fill_edge for the caller to free) — and into _flats
 // the level edges' (no slab has them: inside just above each against just
 // below), each a span of x (its edge: its first point's index).
-RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _spans, rde_arr* _flats, fude_zoom_fill_edge** _edges, u32* _count) {
+RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _spans, rde_arr* _flats, rde_arr* _edges) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     // The edges, low end first, each run of a ring closed on itself (level ones
     // add nothing: they are slab edges anyway).
-    fude_zoom_fill_edge* _e = (fude_zoom_fill_edge*)_heap->malloc(_heap->allocator, (usize)(_n > 0 ? _n : 1u) * sizeof(fude_zoom_fill_edge));
+    rde_arr _edge_arr = rde_arr_new(sizeof(fude_zoom_fill_edge), _heap);
+    rde_arr_resize(&_edge_arr, _n);
+    fude_zoom_fill_edge* _e = (fude_zoom_fill_edge*)_edge_arr.memory;   // (sized once: it stays put)
     u32 _ne = 0, _rings_most = 0;
     rde_arr _levels = rde_arr_new(sizeof(fude_zoom_fill_level), _heap);
     rde_arr _sides  = rde_arr_new(sizeof(fude_zoom_fill_side), _heap);
@@ -127,10 +129,10 @@ RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings,
     qsort(_lv, _nl, sizeof(fude_zoom_fill_level), fude_zoom_fill_by_h);
     u32 _lp = 0, _lq = 0;   // the first level edge not below the slab's low side, and its high side
     // The slabs' edges: every corner's height, and every crossing's.
-    u32  _cap = _n * 2u + 16u, _ny = 0;
-    f64* _ys  = (f64*)_heap->malloc(_heap->allocator, (usize)_cap * sizeof(f64));
+    rde_arr _ys_arr = rde_arr_new_with_capacity(sizeof(f64), (usize)_n * 2u + 16u, _heap);
+    rde_arr_resize(&_ys_arr, _n);
     for(u32 _i = 0; _i < _n; _i++) {
-        _ys[_ny++] = _p[_i].y;
+        ((f64*)_ys_arr.memory)[_i] = _p[_i].y;
     }
     for(u32 _i = 0; _i < _ne; _i++) {
         for(u32 _j = _i + 1u; _j < _ne && _e[_j].y0 < _e[_i].y1; _j++) {
@@ -141,30 +143,37 @@ RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings,
             const f64 _da = fude_zoom_fill_x_at(&_e[_i], _lo) - fude_zoom_fill_x_at(&_e[_j], _lo);
             const f64 _db = fude_zoom_fill_x_at(&_e[_i], _hi) - fude_zoom_fill_x_at(&_e[_j], _hi);
             if((_da < 0.0 && _db > 0.0) || (_da > 0.0 && _db < 0.0)) {
-                if(_ny == _cap) {
-                    _cap *= 2u;
-                    f64* _more = (f64*)_heap->malloc(_heap->allocator, (usize)_cap * sizeof(f64));
-                    memcpy(_more, _ys, (usize)_ny * sizeof(f64));
-                    _heap->free(_heap->allocator, _ys);
-                    _ys = _more;
-                }
-                _ys[_ny++] = _lo + (_hi - _lo) * _da / (_da - _db);
+                const f64 _y = _lo + (_hi - _lo) * _da / (_da - _db);
+                rde_arr_add(&_ys_arr, (any)&_y);
             }
         }
     }
+    f64*      _ys = (f64*)_ys_arr.memory;
+    const u32 _ny = (u32)rde_arr_length(&_ys_arr);
     qsort(_ys, _ny, sizeof(f64), fude_zoom_fill_by_f64);
-    fude_zoom_fill_cut* _c   = (fude_zoom_fill_cut*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(fude_zoom_fill_cut));
-    u8*                 _par = (u8*)_heap->malloc(_heap->allocator, (usize)_rings_most + 1u);
-    memset(_par, 0, (usize)_rings_most + 1u);
+    rde_arr _c_arr   = rde_arr_new(sizeof(fude_zoom_fill_cut), _heap);
+    rde_arr _par_arr = rde_arr_new(sizeof(u8), _heap);
+    rde_arr_resize(&_c_arr, (usize)_ne + 1u);
+    rde_arr_resize(&_par_arr, (usize)_rings_most + 1u);
+    fude_zoom_fill_cut* _c   = (fude_zoom_fill_cut*)_c_arr.memory;   // (sized once: they stay put)
+    u8*                 _par = (u8*)_par_arr.memory;
     // Each edge's stretch showing so far (its low and high, when _held says it has one).
-    f64* _lo   = _spans != NULL ? (f64*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * 2u * sizeof(f64)) : NULL;
-    u8*  _held = _spans != NULL ? (u8*)_heap->malloc(_heap->allocator, (usize)_ne + 1u) : NULL;
-    if(_held != NULL) {
-        memset(_held, 0, (usize)_ne + 1u);
+    rde_arr _lo_arr = { 0 }, _held_arr = { 0 };
+    f64*    _lo     = NULL;
+    u8*     _held   = NULL;
+    if(_spans != NULL) {
+        _lo_arr   = rde_arr_new(sizeof(f64), _heap);
+        _held_arr = rde_arr_new(sizeof(u8), _heap);
+        rde_arr_resize(&_lo_arr, ((usize)_ne + 1u) * 2u);
+        rde_arr_resize(&_held_arr, (usize)_ne + 1u);
+        _lo   = (f64*)_lo_arr.memory;
+        _held = (u8*)_held_arr.memory;
     }
     // The edges spanning the slab: an active list, edges joining as the slabs
     // climb past their low ends and leaving past their high ones.
-    u32* _active = (u32*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(u32));
+    rde_arr _active_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_active_arr, (usize)_ne + 1u);
+    u32* _active = (u32*)_active_arr.memory;
     u32  _na = 0, _next = 0;
     u32 _made = 0;
     for(u32 _k = 0; _k + 1u < _ny; _k++) {
@@ -259,8 +268,8 @@ RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings,
                 rde_arr_add(_spans, (any)&_done);
             }
         }
-        _heap->free(_heap->allocator, _lo);
-        _heap->free(_heap->allocator, _held);
+        rde_arr_free(&_lo_arr);
+        rde_arr_free(&_held_arr);
     }
     if(_flats != NULL && _nl > 0) {
         // Each level edge shows where inside just above it is not inside just below.
@@ -320,15 +329,15 @@ RDE_INTERNAL u32 fude_zoom_fill_slabs(const fude_zoom_v2* _p, const u32* _rings,
     }
     rde_arr_free(&_levels);
     rde_arr_free(&_sides);
-    _heap->free(_heap->allocator, _active);
-    _heap->free(_heap->allocator, _par);
-    _heap->free(_heap->allocator, _c);
-    _heap->free(_heap->allocator, _ys);
+    rde_arr_free(&_active_arr);
+    rde_arr_free(&_par_arr);
+    rde_arr_free(&_c_arr);
+    rde_arr_free(&_ys_arr);
+    rde_arr_resize(&_edge_arr, _ne);   // (as long as the edges made)
     if(_edges != NULL) {
-        *_edges = _e;
-        *_count = _ne;
+        *_edges = _edge_arr;
     } else {
-        _heap->free(_heap->allocator, _e);
+        rde_arr_free(&_edge_arr);
     }
     return _made;
 }
@@ -337,7 +346,7 @@ u32 fude_zoom_fill_triangulate_rings(const fude_zoom_v2* _p, const u32* _rings, 
     if(_n < 3u) {
         return 0;
     }
-    return fude_zoom_fill_slabs(_p, _rings, _n, _out, NULL, NULL, NULL, NULL);
+    return fude_zoom_fill_slabs(_p, _rings, _n, _out, NULL, NULL, NULL);
 }
 
 u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _out, rde_arr* _lines) {
@@ -347,16 +356,24 @@ u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr              _spans = rde_arr_new(sizeof(fude_zoom_fill_span), _heap);
     rde_arr              _flats = rde_arr_new(sizeof(fude_zoom_fill_span), _heap);
-    fude_zoom_fill_edge* _e     = NULL;
-    u32                  _ne    = 0;
-    fude_zoom_fill_slabs(_p, _rings, _n, NULL, &_spans, &_flats, &_e, &_ne);
+    rde_arr              _edge_arr;
+    fude_zoom_fill_slabs(_p, _rings, _n, NULL, &_spans, &_flats, &_edge_arr);
+    fude_zoom_fill_edge* _e  = (fude_zoom_fill_edge*)_edge_arr.memory;
+    const u32            _ne = (u32)rde_arr_length(&_edge_arr);
     const u32 _ns = (u32)rde_arr_length(&_spans);
     fude_zoom_fill_span* _sp = (fude_zoom_fill_span*)_spans.memory;
     qsort(_sp, _ns, sizeof(fude_zoom_fill_span), fude_zoom_fill_by_span);
     const u32 _nf = (u32)rde_arr_length(&_flats);
     fude_zoom_fill_span* _fl = (fude_zoom_fill_span*)_flats.memory;
     qsort(_fl, _nf, sizeof(fude_zoom_fill_span), fude_zoom_fill_by_span);
-    u32* _flat_of = (u32*)_heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));   // each point's level edge's first span (_nf: none)
+    rde_arr _flat_of_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr _of_arr      = rde_arr_new(sizeof(u32), _heap);
+    rde_arr _span_of_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr _keep_arr    = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr_resize(&_flat_of_arr, _n);
+    rde_arr_resize(&_of_arr, _n);
+    rde_arr_resize(&_span_of_arr, (usize)_ne + 1u);
+    u32* _flat_of = (u32*)_flat_of_arr.memory;   // each point's level edge's first span (_nf: none)
     for(u32 _i = 0; _i < _n; _i++) {
         _flat_of[_i] = _nf;
     }
@@ -364,14 +381,14 @@ u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n
         _flat_of[_fl[_s].edge] = _s;
     }
     // Point i's edge (to the next): its sorted edge (UINT32_MAX: a level one).
-    u32* _of = (u32*)_heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));
+    u32* _of = (u32*)_of_arr.memory;
     for(u32 _i = 0; _i < _n; _i++) {
         _of[_i] = UINT32_MAX;
     }
     for(u32 _k = 0; _k < _ne; _k++) {
         _of[_e[_k].from] = _k;
     }
-    u32* _span_of = (u32*)_heap->malloc(_heap->allocator, (usize)(_ne + 1u) * sizeof(u32));   // each edge's first span (_ns: none)
+    u32* _span_of = (u32*)_span_of_arr.memory;   // each edge's first span (_ns: none)
     for(u32 _k = 0; _k < _ne; _k++) {
         _span_of[_k] = _ns;
     }
@@ -444,11 +461,11 @@ u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n
         const u32     _got = (u32)rde_arr_length(_out) - _ring_at;
         if(_going && _first_end != UINT32_MAX && _o[_got - 1u].x == _o[0].x && _o[_got - 1u].y == _o[0].y) {
             const u32 _k1 = _first_end, _k2 = _got - _first_end;
-            fude_zoom_v2* _keep = (fude_zoom_v2*)_heap->malloc(_heap->allocator, (usize)_got * sizeof(fude_zoom_v2));
+            rde_arr_resize(&_keep_arr, _got);
+            fude_zoom_v2* _keep = (fude_zoom_v2*)_keep_arr.memory;
             memcpy(_keep, &_o[_k1], (usize)_k2 * sizeof(fude_zoom_v2));
             memcpy(&_keep[_k2], &_o[1], (usize)(_k1 - 1u) * sizeof(fude_zoom_v2));
             memcpy(_o, _keep, (usize)(_got - 1u) * sizeof(fude_zoom_v2));
-            _heap->free(_heap->allocator, _keep);
             const u32 _last_id = _ids[_got - 1u];
             memmove(_ids, &_ids[_k1], (usize)_k2 * sizeof(u32));
             for(u32 _i = _k2; _i + 1u < _got; _i++) {
@@ -463,11 +480,12 @@ u32 fude_zoom_fill_edges_rings(const fude_zoom_v2* _p, const u32* _rings, u32 _n
         }
         _start = _end;
     }
-    _heap->free(_heap->allocator, _flat_of);
+    rde_arr_free(&_flat_of_arr);
     rde_arr_free(&_flats);
-    _heap->free(_heap->allocator, _span_of);
-    _heap->free(_heap->allocator, _of);
-    _heap->free(_heap->allocator, _e);
+    rde_arr_free(&_span_of_arr);
+    rde_arr_free(&_of_arr);
+    rde_arr_free(&_keep_arr);
+    rde_arr_free(&_edge_arr);
     rde_arr_free(&_spans);
     return _made;
 }
@@ -663,13 +681,12 @@ RDE_INTERNAL u32 fude_zoom_fill_simplify(fude_zoom_v2* _p, u32 _n, f64 _tol) {
     if(_n < 8u) {
         return _n;
     }
-    u8*  _keep  = (u8*)calloc(_n, 1u);
-    u32* _stack = (u32*)malloc((usize)_n * 2u * sizeof(u32));
-    if(_keep == NULL || _stack == NULL) {
-        free(_keep);
-        free(_stack);
-        return _n;
-    }
+    rde_arr _keep_arr  = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr _stack_arr = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_keep_arr, _n);
+    rde_arr_resize(&_stack_arr, (usize)_n * 2u);
+    u8*  _keep  = (u8*)_keep_arr.memory;   // (sized once: they stay put)
+    u32* _stack = (u32*)_stack_arr.memory;
     // Split at the point furthest from the first: two open runs.
     u32 _far = 0;
     f64 _best = -1.0;
@@ -702,8 +719,8 @@ RDE_INTERNAL u32 fude_zoom_fill_simplify(fude_zoom_v2* _p, u32 _n, f64 _tol) {
             _p[_m++] = _p[_i];
         }
     }
-    free(_keep);
-    free(_stack);
+    rde_arr_free(&_keep_arr);
+    rde_arr_free(&_stack_arr);
     return _m;
 }
 
@@ -763,10 +780,9 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
         return 0;   // a sweep too long to trace: left uncut (it is cut in its parts as the pen goes on)
     }
     // The distance to the path less the reach at each corner (stamped segment by segment).
-    f32* _f = (f32*)malloc((usize)_w * _h * sizeof(f32));
-    if(_f == NULL) {
-        return 0;
-    }
+    rde_arr _f_arr = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_f_arr, (usize)_w * _h);
+    f32* _f = (f32*)_f_arr.memory;   // (sized once: it stays put)
     for(u32 _i = 0; _i < _w * _h; _i++) {
         _f[_i] = 1e30f;
     }
@@ -786,7 +802,7 @@ RDE_INTERNAL u32 fude_zoom_fill_trace(const fude_zoom_v2* _path, const f64* _rad
         }
     }
     const u32 _kept = fude_zoom_fill_contour(_f, _w, _h, _x0, _y0, _cell, _out, _rings);
-    free(_f);
+    rde_arr_free(&_f_arr);
     return _kept;
 }
 
@@ -830,12 +846,12 @@ u32 fude_zoom_fill_contour(const f32* _f, u32 _w, u32 _h, f64 _x0, f64 _y0, f64 
     const u32  _ns   = (u32)rde_arr_length(&_segs) / 2u;
     const u32* _sg   = (const u32*)_segs.memory;
     const u32  _ids  = _w * _h * 2u;
-    i32*       _from = (i32*)malloc((usize)_ids * sizeof(i32));
-    u8*        _used = (u8*)calloc(_ns > 0 ? _ns : 1u, 1u);
-    if(_from == NULL || _used == NULL) {
-        free(_from); free(_used); rde_arr_free(&_segs);
-        return 0;
-    }
+    rde_arr    _from_arr = rde_arr_new(sizeof(i32), rde_memory_allocator_get_default_std());
+    rde_arr    _used_arr = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_from_arr, _ids);
+    rde_arr_resize(&_used_arr, _ns);
+    i32*       _from = (i32*)_from_arr.memory;   // (sized once: they stay put)
+    u8*        _used = (u8*)_used_arr.memory;
     for(u32 _i = 0; _i < _ids; _i++) {
         _from[_i] = -1;
     }
@@ -887,8 +903,8 @@ u32 fude_zoom_fill_contour(const f32* _f, u32 _w, u32 _h, f64 _x0, f64 _y0, f64 
     // on the left of each, so round a hole they turn back).
     const f64 _turn = _rings != NULL && rde_arr_length(_out) >= 3u ? fude_zoom_fill_signed_area((const fude_zoom_v2*)_out->memory, (u32)rde_arr_length(_out)) : 0.0;
     rde_arr_free(&_loop);
-    free(_from);
-    free(_used);
+    rde_arr_free(&_from_arr);
+    rde_arr_free(&_used_arr);
     rde_arr_free(&_segs);
     u32 _kept = fude_zoom_fill_simplify((fude_zoom_v2*)_out->memory, (u32)rde_arr_length(_out), _cell / 6.0);
     _out->count = _kept;
@@ -943,10 +959,9 @@ u32 fude_zoom_fill_offset(const fude_zoom_v2* _poly, u32 _n, f64 _d, rde_arr* _o
     if((u64)_w * _h > 4000000u) {
         return 0;
     }
-    f32* _f = (f32*)malloc((usize)_w * _h * sizeof(f32));
-    if(_f == NULL) {
-        return 0;
-    }
+    rde_arr _f_arr = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_f_arr, (usize)_w * _h);
+    f32* _f = (f32*)_f_arr.memory;   // (sized once: it stays put)
     // The signed distance to its outline (below 0 inside, even-odd), less the offset: the offset's line is its 0.
     for(u32 _j = 0; _j < _h; _j++) {
         for(u32 _i = 0; _i < _w; _i++) {
@@ -960,6 +975,6 @@ u32 fude_zoom_fill_offset(const fude_zoom_v2* _poly, u32 _n, f64 _d, rde_arr* _o
         }
     }
     const u32 _k = fude_zoom_fill_contour(_f, _w, _h, _x0, _y0, _cell, _out, NULL);
-    free(_f);
+    rde_arr_free(&_f_arr);
     return _k;
 }

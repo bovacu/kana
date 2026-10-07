@@ -15,6 +15,8 @@
 #define FUDE_BACKUP_VERSION  1u
 #define FUDE_BACKUP_HEAD     (8u + 4u + 4u + 8u + 16u)
 #define FUDE_BACKUP_PATH_MAX 255u
+#define FUDE_BACKUP_READ     (64u * 1024u)   // a file is read this much at a time
+#define FUDE_BACKUP_FILE_MAX 0x7FFFFFFFu     // a file's bytes, at most (an rde_arr's)
 
 // FNV-1a, 32 bits, carried from one piece to the next.
 RDE_INTERNAL u32 fude_backup_fnv(u32 _hash, const u8* _p, usize _n) {
@@ -36,14 +38,28 @@ RDE_INTERNAL void fude_backup_put_u32(u8* _p, u32 _v) {
 
 // Paths relative to a folder ('/' between its folders).
 RDE_STRUCT {
-    c8 (*paths)[RDE_MAX_PATH];
-    u32       count;
-    u32       capacity;
+    rde_arr TYPE(c8[RDE_MAX_PATH]) paths;
     const c8* root;
     usize     root_len;
     b8        everything;   // false: only what a backup keeps
-    b8        ok;
 } fude_backup_list;
+
+RDE_INTERNAL fude_backup_list fude_backup_list_new(const c8* _root, b8 _everything) {
+    fude_backup_list _list = { rde_arr_new(RDE_MAX_PATH, rde_memory_allocator_get_default_std()), _root, strlen(_root), _everything };
+    return _list;
+}
+
+RDE_INTERNAL u32 fude_backup_list_count(const fude_backup_list* _list) {
+    return (u32)rde_arr_length(&_list->paths);
+}
+
+RDE_INTERNAL const c8* fude_backup_list_at(const fude_backup_list* _list, u32 _i) {
+    return (const c8*)_list->paths.memory + (usize)_i * RDE_MAX_PATH;
+}
+
+RDE_INTERNAL void fude_backup_list_add(fude_backup_list* _list, const c8* _path) {
+    snprintf((c8*)rde_arr_add_n(&_list->paths, 1u), RDE_MAX_PATH, "%s", _path);
+}
 
 RDE_INTERNAL b8 fude_backup_ends_with(const c8* _s, const c8* _end) {
     const usize _n = strlen(_s), _m = strlen(_end);
@@ -81,24 +97,14 @@ RDE_INTERNAL b8 fude_backup_collect_entry(const c8* _path, b8 _is_dir, any _user
             return true;
         }
     }
-    if(_list->count == _list->capacity) {
-        const u32 _cap  = _list->capacity > 0 ? _list->capacity * 2u : 64u;
-        any       _more = realloc(_list->paths, (usize)_cap * RDE_MAX_PATH);
-        if(_more == NULL) {
-            _list->ok = false;
-            return false;
-        }
-        _list->paths    = (c8(*)[RDE_MAX_PATH])_more;
-        _list->capacity = _cap;
-    }
-    snprintf(_list->paths[_list->count++], RDE_MAX_PATH, "%s", _clean);
+    fude_backup_list_add(_list, _clean);
     return true;
 }
 
 // The files under _dir (none when it is not there). In the save folder
 // (_save_folder), before-import/ and outbox/ are not gone into.
 RDE_INTERNAL fude_backup_list fude_backup_collect(const c8* _dir, b8 _everything, b8 _save_folder) {
-    fude_backup_list _list = { NULL, 0, 0, _dir, strlen(_dir), _everything, true };
+    fude_backup_list _list = fude_backup_list_new(_dir, _everything);
     if(rde_file_dir_exists(_dir)) {
         c8* _skip[2] = { (c8*)FUDE_BACKUP_ASIDE, (c8*)FUDE_BACKUP_OUTBOX };
         rde_file_crawl_dir_recursively(_dir, fude_backup_collect_entry, _save_folder ? _skip : NULL, _save_folder ? 2u : 0u, &_list);
@@ -107,9 +113,7 @@ RDE_INTERNAL fude_backup_list fude_backup_collect(const c8* _dir, b8 _everything
 }
 
 RDE_INTERNAL void fude_backup_list_free(fude_backup_list* _list) {
-    free(_list->paths);
-    _list->paths = NULL;
-    _list->count = _list->capacity = 0;
+    rde_arr_free(&_list->paths);
 }
 
 // --- export ------------------------------------------------------------------------------
@@ -120,38 +124,30 @@ RDE_INTERNAL b8 fude_backup_write(FILE* _f, u32* _hash, const any _p, usize _n) 
     return _n == 0 || fwrite(_p, 1, _n, _f) == _n;
 }
 
-RDE_INTERNAL u8* fude_backup_read_file(const c8* _path, usize* _size) {
-    *_size = 0;
+// _path's bytes into _data (emptied first; an empty file is a file). False: it
+// could not be read (or it is past FUDE_BACKUP_FILE_MAX).
+RDE_INTERNAL b8 fude_backup_read_file(const c8* _path, rde_arr* _data) {
+    rde_arr_clear(_data);
     FILE* _f = fopen(_path, "rb");
     if(_f == NULL) {
-        return NULL;
+        return false;
     }
-    u8*   _data = NULL;
-    usize _cap  = 0;
+    b8 _bad = false;
     for(;;) {
-        if(*_size == _cap) {
-            _cap = _cap > 0 ? _cap * 2u : 64u * 1024u;
-            u8* _more = (u8*)realloc(_data, _cap);
-            if(_more == NULL) {
-                free(_data);
-                fclose(_f);
-                return NULL;
-            }
-            _data = _more;
+        const usize _had = rde_arr_length(_data);
+        if(_had > FUDE_BACKUP_FILE_MAX - FUDE_BACKUP_READ) {
+            _bad = true;
+            break;
         }
-        const usize _got = fread(_data + *_size, 1, _cap - *_size, _f);
-        *_size += _got;
+        const usize _got = fread(rde_arr_add_n(_data, FUDE_BACKUP_READ), 1, FUDE_BACKUP_READ, _f);
+        rde_arr_resize(_data, _had + _got);
         if(_got == 0) {
             break;
         }
     }
-    const b8 _bad = ferror(_f) != 0;
+    _bad = _bad || ferror(_f) != 0;
     fclose(_f);
-    if(_bad) {
-        free(_data);
-        return NULL;
-    }
-    return _data != NULL ? _data : (u8*)malloc(1);   // an empty file is a file
+    return !_bad;
 }
 
 RDE_INTERNAL b8 fude_backup_is_canvas(const c8* _rel) {
@@ -160,14 +156,14 @@ RDE_INTERNAL b8 fude_backup_is_canvas(const c8* _rel) {
 
 b8 fude_backup_export(const c8* _dir, const c8* _out, const c8* _version, fude_backup_info* _info) {
     fude_backup_list _list = fude_backup_collect(_dir, false, true);
-    FILE*            _f    = _list.ok ? fopen(_out, "wb") : NULL;
+    FILE*            _f    = fopen(_out, "wb");
     if(_f == NULL) {
         fude_backup_list_free(&_list);
         return false;
     }
     fude_backup_info _made;
     memset(&_made, 0, sizeof(_made));
-    _made.files   = _list.count;
+    _made.files   = fude_backup_list_count(&_list);
     _made.created = (u64)time(NULL);
     snprintf(_made.version, sizeof(_made.version), "%s", _version != NULL ? _version : "");
 
@@ -176,30 +172,28 @@ b8 fude_backup_export(const c8* _dir, const c8* _out, const c8* _version, fude_b
     memset(_head, 0, sizeof(_head));
     memcpy(_head, FUDE_BACKUP_MAGIC, 8);
     fude_backup_put_u32(_head + 8, FUDE_BACKUP_VERSION);
-    fude_backup_put_u32(_head + 12, _list.count);
+    fude_backup_put_u32(_head + 12, _made.files);
     fude_backup_put_u32(_head + 16, (u32)(_made.created & 0xFFFFFFFFu));
     fude_backup_put_u32(_head + 20, (u32)(_made.created >> 32));
     memcpy(_head + 24, _made.version, strlen(_made.version) < 16 ? strlen(_made.version) : 15);
     b8 _ok = fude_backup_write(_f, &_hash, _head, sizeof(_head));
 
-    for(u32 _i = 0; _ok && _i < _list.count; _i++) {
-        const c8*   _rel = _list.paths[_i];
+    rde_arr TYPE(u8) _data = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());   // each file's bytes in turn
+    for(u32 _i = 0; _ok && _i < _made.files; _i++) {
+        const c8*   _rel = fude_backup_list_at(&_list, _i);
         const usize _len = strlen(_rel);
         c8          _full[RDE_MAX_PATH];
         snprintf(_full, sizeof(_full), "%s%s", _dir, _rel);
-        usize _size = 0;
-        u8*   _data = _len <= FUDE_BACKUP_PATH_MAX ? fude_backup_read_file(_full, &_size) : NULL;
-        if(_data == NULL || _size > 0xFFFFFFFFu) {
-            free(_data);
+        if(_len > FUDE_BACKUP_PATH_MAX || !fude_backup_read_file(_full, &_data)) {
             _ok = false;
             break;
         }
+        const usize _size = rde_arr_length(&_data);
         u8 _n16[2] = { (u8)_len, (u8)(_len >> 8) };
         u8 _n32[4];
         fude_backup_put_u32(_n32, (u32)_size);
         _ok = fude_backup_write(_f, &_hash, _n16, 2) && fude_backup_write(_f, &_hash, _rel, _len) &&
-              fude_backup_write(_f, &_hash, _n32, 4) && fude_backup_write(_f, &_hash, _data, _size);
-        free(_data);
+              fude_backup_write(_f, &_hash, _n32, 4) && fude_backup_write(_f, &_hash, _data.memory, _size);
         _made.bytes    += _size;
         _made.canvases += fude_backup_is_canvas(_rel) ? 1u : 0u;
     }
@@ -209,6 +203,7 @@ b8 fude_backup_export(const c8* _dir, const c8* _out, const c8* _version, fude_b
         _ok = fwrite(_sum, 1, 4, _f) == 4;
     }
     _ok = fclose(_f) == 0 && _ok;
+    rde_arr_free(&_data);
     fude_backup_list_free(&_list);
     if(!_ok) {
         remove(_out);
@@ -323,32 +318,21 @@ RDE_INTERNAL b8 fude_backup_restore_file(const c8* _path, const u8* _data, u32 _
     const b8 _ok = (_size == 0 || fwrite(_data, 1, _size, _f) == _size);
     const b8 _closed = fclose(_f) == 0;
     // Counted even when it failed: a part-written file is taken back too.
-    fude_backup_list* _w = _r->written;
-    if(_w->count == _w->capacity) {
-        const u32 _cap  = _w->capacity > 0 ? _w->capacity * 2u : 64u;
-        any       _more = realloc(_w->paths, (usize)_cap * RDE_MAX_PATH);
-        if(_more == NULL) {
-            remove(_full);
-            return false;
-        }
-        _w->paths    = (c8(*)[RDE_MAX_PATH])_more;
-        _w->capacity = _cap;
-    }
-    snprintf(_w->paths[_w->count++], RDE_MAX_PATH, "%s", _path);
+    fude_backup_list_add(_r->written, _path);
     return _ok && _closed;
 }
 
-// Moves _list's files from _from to _to (both folders, ending in '/'): how many moved.
-RDE_INTERNAL u32 fude_backup_move_all(const fude_backup_list* _list, const c8* _from, const c8* _to) {
-    for(u32 _i = 0; _i < _list->count; _i++) {
+// Moves _list's first _count files from _from to _to (both folders, ending in '/'): how many moved.
+RDE_INTERNAL u32 fude_backup_move_all(const fude_backup_list* _list, u32 _count, const c8* _from, const c8* _to) {
+    for(u32 _i = 0; _i < _count; _i++) {
         c8 _src[RDE_MAX_PATH], _dst[RDE_MAX_PATH];
-        snprintf(_src, sizeof(_src), "%s%s", _from, _list->paths[_i]);
-        snprintf(_dst, sizeof(_dst), "%s%s", _to, _list->paths[_i]);
+        snprintf(_src, sizeof(_src), "%s%s", _from, fude_backup_list_at(_list, _i));
+        snprintf(_dst, sizeof(_dst), "%s%s", _to, fude_backup_list_at(_list, _i));
         if(!rde_file_create_missing_dirs(_dst) || !rde_file_move(_src, _dst)) {
             return _i;
         }
     }
-    return _list->count;
+    return _count;
 }
 
 b8 fude_backup_restore(const u8* _data, usize _size, const c8* _dir) {
@@ -360,37 +344,31 @@ b8 fude_backup_restore(const u8* _data, usize _size, const c8* _dir) {
 
     // The last import's leftovers go; what is here now goes aside.
     fude_backup_list _old = fude_backup_collect(_aside, true, false);
-    for(u32 _i = 0; _i < _old.count; _i++) {
+    for(u32 _i = 0; _i < fude_backup_list_count(&_old); _i++) {
         c8 _p[RDE_MAX_PATH];
-        snprintf(_p, sizeof(_p), "%s%s", _aside, _old.paths[_i]);
+        snprintf(_p, sizeof(_p), "%s%s", _aside, fude_backup_list_at(&_old, _i));
         rde_file_delete(_p);
     }
     fude_backup_list_free(&_old);
 
-    fude_backup_list _here = fude_backup_collect(_dir, true, true);
-    if(!_here.ok) {
-        fude_backup_list_free(&_here);
-        return false;
-    }
-    const u32 _moved = fude_backup_move_all(&_here, _dir, _aside);
-    b8        _ok    = _moved == _here.count;
+    fude_backup_list _here  = fude_backup_collect(_dir, true, true);
+    const u32        _moved = fude_backup_move_all(&_here, fude_backup_list_count(&_here), _dir, _aside);
+    b8               _ok    = _moved == fude_backup_list_count(&_here);
 
     // The backup's files.
-    fude_backup_list      _written = { NULL, 0, 0, _dir, strlen(_dir), true, true };
+    fude_backup_list      _written = fude_backup_list_new(_dir, true);
     fude_backup_restoring _r       = { _dir, &_written };
     if(_ok) {
         _ok = fude_backup_walk(_data, _size, NULL, fude_backup_restore_file, &_r);
     }
     if(!_ok) {
         // Back as it was: what was written goes, what was moved comes back.
-        for(u32 _i = 0; _i < _written.count; _i++) {
+        for(u32 _i = 0; _i < fude_backup_list_count(&_written); _i++) {
             c8 _p[RDE_MAX_PATH];
-            snprintf(_p, sizeof(_p), "%s%s", _dir, _written.paths[_i]);
+            snprintf(_p, sizeof(_p), "%s%s", _dir, fude_backup_list_at(&_written, _i));
             rde_file_delete(_p);
         }
-        fude_backup_list _back = _here;
-        _back.count = _moved;
-        fude_backup_move_all(&_back, _aside, _dir);
+        fude_backup_move_all(&_here, _moved, _aside, _dir);
     }
     fude_backup_list_free(&_written);
     fude_backup_list_free(&_here);

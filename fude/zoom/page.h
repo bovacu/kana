@@ -17,6 +17,15 @@
 #include "zoom/kanbanform.h"
 #include "zoom/sheetform.h"
 #include "zoom/sizeform.h"
+#include "zoom/pointform.h"
+#include "zoom/choiceform.h"
+#include "zoom/circuit.h"
+#include "zoom/mech.h"
+#include "zoom/mechrun.h"
+#include "zoom/plot.h"
+#include "zoom/valueform.h"
+#include "zoom/bodyform.h"
+#include "zoom/plan.h"
 #include "zoom/repeatform.h"
 #include "zoom/map.h"
 #include "zoom/piece.h"
@@ -114,6 +123,31 @@ typedef struct {
 #define FUDE_ZOOM_PAGE_LAYER_ROWS 8u // layers listed
 #define FUDE_ZOOM_PAGE_CURVE_NODES FUDE_ZOOM_PATH_NODES   // a curve's points, at most (a path's)
 
+// What a canvas is for (page.c's topics): the bar's tools for it.
+typedef enum {
+    FUDE_ZOOM_TOPIC_GENERAL = 0,   // every tool, as the bar always was
+    FUDE_ZOOM_TOPIC_TECHNICAL,     // plans to measure: sheets, instruments, dimensions, DXF, STL
+    FUDE_ZOOM_TOPIC_WOOD,          // boards, joints, the saw, the cut list
+    FUDE_ZOOM_TOPIC_DIAGRAMS,      // the diagram library, Kanban, areas, arranging
+    FUDE_ZOOM_TOPIC_PDF,           // reading a PDF: its pages, notes, highlights
+    FUDE_ZOOM_TOPIC_ELECTRONICS,   // circuits: parts, boards, wires, simulated (circuit.h)
+    FUDE_ZOOM_TOPIC_MECHANISMS,    // linkages, gears, springs run as rigid bodies (mech.h)
+    FUDE_ZOOM_TOPIC_FLOORPLAN,     // walls, doors, windows, furniture at true size, rooms' areas (plan.h)
+    FUDE_ZOOM_TOPIC_WIRING,        // a house's electrics on its plan (plan.h)
+    FUDE_ZOOM_TOPIC_MATHS,         // graphs of functions, axes, geometry's instruments (plot.h)
+    FUDE_ZOOM_TOPIC_SEWING,        // patterns: pieces, seam allowances, marks, printed at true size
+    FUDE_ZOOM_TOPIC_COUNT
+} FUDE_ZOOM_TOPIC_;
+
+// A wire kept by parts being dragged: hidden while they are, drawn routed to where their pins are going (page.c).
+typedef struct {
+    u32          wire;
+    u32          part[2];     // its ends' parts (FUDE_ZOOM_NONE: an end on nothing, or on a wire)
+    i32          pin[2];
+    b8           moving[2];   // ...dragged with the lasso
+    fude_zoom_v2 at[2];       // ...on the screen as the drag began
+} fude_zoom_page_drag_wire;
+
 typedef struct fude_zoom_page {
     struct fude_app*   app;
     fude_zoom_scene    scene;
@@ -135,10 +169,16 @@ typedef struct fude_zoom_page {
     u8                 shape_tool;   // FUDE_ZOOM_SHAPE_ (a triangle is a POLYGON)
     b8                 shape_filled;
     u8                 line_style;     // the Shapes' line: shape.h's FUDE_ZOOM_LINE_ (solid, dashed, a centre line)
+    u8                 hatch;          // ...a closed one's hatching (shape.h's FUDE_ZOOM_HATCH_)
+    f64                pen_mm;         // ...its pen's width on paper, mm (× N on a 1:N sheet; 0: the brush's width)
+    u8                 topic;          // what this canvas is for: the bar's tools (FUDE_ZOOM_TOPIC_; kept in its .tools file)
     f64                stl_mm;         // Export's 3D model: how tall what is not a board stands (0: not asked yet: 3 mm)
     b8                 fill_tool;    // the Fill tool in hand: a tap fills what is closed under it (fill.h)
     b8                 shaping;
     rde_vec_2F         shape_from;
+    b8                 guide_pulling;   // a guide being pulled out of a sheet's ruler stuck to the screen's edge (the pen at pen_now)
+    u32                guide_sheet;     // ...that sheet
+    u8                 guide_top;       // ...its top ruler (the guide along its X), else its left one (along its Y)
 
     // The pen (or mouse, or a writing finger) down.
     b8                 drawing;
@@ -149,6 +189,7 @@ typedef struct fude_zoom_page {
     f64                draw_z;
     rde_vec_2F         erase_last;   // screen
     u64                writer;       // the finger drawing (with the hand on)
+    u64                play_finger;  // the finger working a part while it plays (its id + 1; 0: none)
     b8                 finger_drawing;
     f64                stroke_began;
     // Hold to snap: when the pen last moved, and the shape it snapped to.
@@ -228,6 +269,12 @@ typedef struct fude_zoom_page {
     u32                   sheet_editing;       // the sheet changed (FUDE_ZOOM_NONE: a new one)
     f64                   sheet_last[4];       // the last one made: width, height (mm), scale, bits (0 width: none yet)
     fude_zoom_size_form   size_form;    // what the lasso holds made an exact size (its size chip tapped)
+    fude_zoom_point_form  point_form;   // a point typed for the Curve tool (its Type a point chip tapped)
+    fude_zoom_choice_form choice_form;  // a choice asked (Combine's: join, cut out, overlap)
+    fude_zoom_value_form  value_form;   // a part's value asked (Value: a resistor's, a source's, a motor's…)
+    fude_zoom_body_form   body_form;    // a drawing made a body (Make body: its material, moving or fixed)
+    u32                   value_object; // ...for this one
+    u8                    point_mode;   // ...the way the last was typed (FUDE_ZOOM_POINT_)
     fude_zoom_repeat_form repeat_form;  // the lasso's Repeat: copies in a row, round a point, mirrored
     b8                    size_chip;    // the chip says the lasso's size (not a line's, a board's, a sheet's)
     u64                   size_key;     // what the lasso held when size_said was worked out
@@ -265,6 +312,8 @@ typedef struct fude_zoom_page {
     u8                 board_grain;
     u8                 board_material;   // FUDE_ZOOM_MATERIAL_ (a new board: the last one's)
     f64                fillet_mm;        // the last fillet's radius (0: none yet)
+    f64                chamfer_mm;       // the last chamfer's (-1: none yet)
+    b8                 trim_tool;        // the Instruments' Trim: the pen taps a line's piece between crossings away (trim.h)
     const c8*          material_words[FUDE_ZOOM_MATERIAL_COUNT];
     rde_ui_button*     material_chips[FUDE_ZOOM_MATERIAL_COUNT];   // on the text card, naming a board
     b8                 calibrating;
@@ -311,6 +360,7 @@ typedef struct fude_zoom_page {
     fude_zoom_v2       curve_nodes[FUDE_ZOOM_PAGE_CURVE_NODES];
     u32                curve_count;
     u32                curve_frame;
+    u64                curve_corners;   // a bit a point: a corner (typed: the line turns there)
     // A lassoed path's or polygon's nodes (shape.h): one held and where it is (screen), a double tap's
     // first, and a tap on its line waiting to be a new node (if the pen lifts where it went down).
     i32                node_grab;
@@ -371,6 +421,9 @@ typedef struct fude_zoom_page {
     b8                 shown_kerf_chip;
     rde_vec_2F         kerf_chip_center;
     c8                 kerf_chip_said[96];
+    rde_ui_button*     type_chip;       // the Curve tool on: Type a point (tapped: the point card)
+    b8                 shown_type_chip;
+    rde_vec_2F         type_chip_center;
     // ...its Nudge: the pen pushes the pen lines near it (each pushed one a copy of its points while the pen is down,
     // the original hidden: nudge_lifted is the renderer's lifted while nudging).
     b8                 nudge, nudging;
@@ -410,6 +463,50 @@ typedef struct fude_zoom_page {
     // text the text card takes.
     b8                 library_open;
     u8                 library_family;
+    u32                library_tabs;   // the tabs it shows (bits: the families', the connectors'), as it was opened
+    // Electronics (circuit.h): the circuit Play worked out (what the lasso held) and simulates; the wire pen.
+    fude_zoom_circuit  circuit;
+    b8                 circuit_failed;  // said that it could not be solved (once, until it can)
+    u32                circuit_held;    // a push button held down (its part in the circuit; FUDE_ZOOM_NONE: none)
+    b8                 wire_tool;       // the pen draws wires
+    b8                 wiring;          // ...one being drawn, from:
+    u32                wire_from;       // a part (FUDE_ZOOM_NONE: a point)
+    i32                wire_from_pin;
+    fude_zoom_v2       wire_start;      // (screen)
+    // Mechanisms (mech.h): the plan Play worked out, and its world running on its own (mechrun.h: the view only reads
+    // it); what the canvas leaves for it to draw moved.
+    fude_zoom_mech_plan   mech;
+    fude_zoom_mech_world  mech_run;
+    rde_arr TYPE(u8)      mech_lifted;
+    // Aligned as it moves (Electronics, Mechanisms): the points of what the lasso holds that line up (a part's pins, a
+    // mechanism part's holes and middle) and the others' on the screen, as the drag began (screen); what it lines up
+    // with now (a level line's y, a plumb line's x; NAN: none).
+    rde_arr TYPE(fude_zoom_v2) align_movers;
+    rde_arr TYPE(fude_zoom_v2) align_targets;
+    rde_vec_2F            align_from;
+    f64                   align_x, align_y;
+    fude_zoom_v2          align_origin;     // a grid's (Electronics: the parts' own, so their pins land on it), on screen
+    f64                   align_grid;       // ...its step (0: none)
+    rde_arr TYPE(fude_zoom_page_drag_wire) align_wires;   // the wires the dragged parts keep: drawn routed to them live
+    // Play (the lasso's Play, or the Circuit's and Motion's): what the lasso held — its circuit, its mechanism, its
+    // graphs' variables — simulated on its own (the canvas read to build them, never written), the view drawing what
+    // they are now; its panel at the bottom (Pause or Go on, Back to the start, Stop; a graph's variables' sliders).
+    b8                    play_on;          // playing, or paused
+    b8                    play_running;
+    b8                    play_circuit, play_mech, play_plots;
+    rde_arr TYPE(u8)      play_scope;       // a byte an object: played (one made again for it: too)
+    f64                   play_clock;       // the screen's time it last stepped at
+    f64                   play_time;        // seconds played
+    u32                   play_seen;        // the canvas's revision the circuit was last built at (edited since: built again)
+    fude_zoom_plot_play   plot_play;        // graphs: their time, the sliders' holds
+    fude_zoom_plot_var    play_vars[4];     // the sliders (the played graphs' variables)
+    u32                   play_var_count;
+    i32                   play_slider;      // the slider held (-1: none)
+    u64                   play_hand;        // the hand on the panel (0: none)
+    rde_vec_2F            play_down;
+    // Building plans (plan.h): the Plan tool's wall's thickness (mm), and Room in hand (a tap labels the room there).
+    f64                   wall_mm;
+    b8                    room_tool;
     f64                library_scroll, library_from;
     rde_vec_2F         library_down;
     u64                library_hand, library_gone;
@@ -508,6 +605,9 @@ typedef struct fude_zoom_page {
 
     f64                flushed_at;
     rde_arr TYPE(fude_zoom_visible) editable;
+    rde_arr TYPE(f64)               play_sizes;   // (Play's tags: the parts' sizes on the screen, each frame)
+    u32                context_target;   // what the page's menu opened on (its Delete's), FUDE_ZOOM_NONE
+    b8                 context_held;     // ...what the lasso holds (opened inside its box)
 
     // Getting around (nav.h): the flight under way; where Back goes (the views
     // flights left, newest last — their frames by id, which outlive slots); the
@@ -577,7 +677,14 @@ extern const fude_row_def FUDE_ZOOM_SELECTION_ROW;
 // How that row shows now (extension.h: .selection_faces): boards held, To curve is
 // Fit parts (one board: a list of parts typed for it) or Fit into the largest.
 void fude_zoom_page_selection_faces(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
-extern const fude_extension_tool FUDE_ZOOM_TOOLS[8];   // Shapes, Insert, Smoothing, Fill, Arrange, Instruments, Layers, Export
+// The page's menu at a long press or a right-click (extension.h: .context_row, .context_faces): Paste, Select all,
+// and Delete where it opened on something (what the lasso holds, opened inside its box; else the thing under it).
+extern const fude_row_def FUDE_ZOOM_CONTEXT_ROW;
+void fude_zoom_page_context_faces(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
+extern fude_extension_tool FUDE_ZOOM_TOOLS[FUDE_EXTENSION_TOOLS];   // Topic, then the topic's own (of Shapes, Insert, Smoothing, Fill, Arrange, Instruments, Layers, Export)
+// The bar filled again for the canvas's topic when it changed (built again whole: fude_ui_rebuild_now). Once a frame,
+// before the UI is updated — never from inside one of its presses.
+void fude_zoom_page_topic_follow(fude_zoom_page* _page, struct fude_ui* _ui);
 
 // A picture's longer side, at most, as it comes in (pixels).
 #define FUDE_ZOOM_PAGE_PICTURE_PX 4096u
@@ -631,6 +738,38 @@ void fude_zoom_page_look_area(fude_zoom_page* _page, const c8* _name);
 // A sheet's card up ("PAPER:WAY:SCALE[:W:H][!]": a paper's index or -1, 1 landscape, a scale's index, sizes typed, ! Insert
 // pressed), or ("edit") the last sheet's, lassoed.
 void fude_zoom_page_look_sheet(fude_zoom_page* _page, const c8* _spec);
+// Lines to trim (page.c's look_lines): made and the first lassoed, then up to _step: 1 extended, 2 trimmed, 3 chamfered.
+void fude_zoom_page_look_lines(fude_zoom_page* _page, u32 _step);
+// A demo circuit (page.c's look_circuit: 1 an LED and a switch, 2 an Arduino blinking, 3 a 555, 4 a breadboard), and run.
+void fude_zoom_page_look_circuit(fude_zoom_page* _page, u32 _demo);
+void fude_zoom_page_look_circuit_run(fude_zoom_page* _page);
+// A demo mechanism (page.c's look_mech: 1 a four-bar, 2 gears, 3 a pendulum and a spring), and run.
+void fude_zoom_page_look_mech(fude_zoom_page* _page, u32 _demo);
+void fude_zoom_page_look_mech_run(fude_zoom_page* _page);
+// A floor plan (page.c's look_plan: 1 a room with a door, a window, a bed; 2 its room labelled).
+void fude_zoom_page_look_plan(fude_zoom_page* _page, u32 _step);
+// What the lasso holds of a circuit made a part (Make part: logic.h), kept in My parts, one of it put beside it.
+void fude_zoom_page_make_part(fude_zoom_page* _page);
+// What the last demo drew made a part (a developer's look).
+void fude_zoom_page_look_make_part(fude_zoom_page* _page);
+// The first symbol _id lassoed alone and dragged _dx, _dy screen points, held (its alignment's lines showing).
+void fude_zoom_page_look_align(fude_zoom_page* _page, const c8* _id, f64 _dx, f64 _dy);
+// The page's menu opened at _screen as a long press opens it; or (_delete) its Delete pressed.
+void fude_zoom_page_look_context(fude_zoom_page* _page, rde_vec_2F _screen, b8 _delete);
+// What the lasso holds (everything: _all) made bodies: Make body's card up, material _material, fixed or not, and
+// (_apply) applied.
+void fude_zoom_page_look_body(fude_zoom_page* _page, b8 _all, u32 _material, b8 _fixed, b8 _apply);
+// The first symbol _id lassoed alone and given a value (Value's card: _typed in its unit _unit, way _way).
+void fude_zoom_page_look_value(fude_zoom_page* _page, const c8* _id, const c8* _typed, u32 _unit, u32 _way);
+// Play's slider _slider set _t (0–1) of the way along.
+void fude_zoom_page_look_slider(fude_zoom_page* _page, u32 _slider, f64 _t);
+// The Shapes panel's choice _index pressed.
+void fude_zoom_page_look_shapes_choice(fude_zoom_page* _page, u32 _index);
+// Shapes to combine (page.c's look_combine): _op 0 join, 1 cut out, 2 overlap, 9 the card; 10 + _op: the first filled.
+void fude_zoom_page_look_combine(fude_zoom_page* _page, u32 _op);
+// A point typed for the Curve tool: "MODE:A:B:PRESS" (the Curve tool taken, the card opened if it is not up; PRESS 0
+// nothing, 1 Add point, 2 Finish).
+void fude_zoom_page_look_point(fude_zoom_page* _page, const c8* _spec);
 // The size card up for what the lasso holds, fields typed ("W;H;ANGLE;X;Y": empty ones left; ~ its proportions let go;
 // ! Apply pressed).
 void fude_zoom_page_look_size(fude_zoom_page* _page, const c8* _spec);

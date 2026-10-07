@@ -174,8 +174,12 @@ void fude_zoom_codec_encode(fude_bytes* _out, const fude_zoom_qpoint* _points, u
         return;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    i32* _in  = _heap->malloc(_heap->allocator, (usize)_count * sizeof(i32));
-    u32* _cod = _heap->malloc(_heap->allocator, (usize)_count * sizeof(u32));
+    rde_arr _in_arr  = rde_arr_new(sizeof(i32), _heap);
+    rde_arr _cod_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_in_arr, _count);
+    rde_arr_resize(&_cod_arr, _count);
+    i32* _in  = (i32*)_in_arr.memory;   // (sized once: they stay put)
+    u32* _cod = (u32*)_cod_arr.memory;
 
     fude_zoom_bit_writer _w = { .out = _out };
     for(u32 _ch = 0; _ch < 4u; _ch++) {
@@ -198,8 +202,8 @@ void fude_zoom_codec_encode(fude_bytes* _out, const fude_zoom_qpoint* _points, u
     }
     fude_zoom_bits_flush(&_w);
 
-    _heap->free(_heap->allocator, _in);
-    _heap->free(_heap->allocator, _cod);
+    rde_arr_free(&_in_arr);
+    rde_arr_free(&_cod_arr);
 }
 
 b8 fude_zoom_codec_decode(const u8* _data, u32 _size, fude_zoom_qpoint* _points, u32 _count, u8 _channels) {
@@ -207,8 +211,12 @@ b8 fude_zoom_codec_decode(const u8* _data, u32 _size, fude_zoom_qpoint* _points,
         return true;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    i32* _val = _heap->malloc(_heap->allocator, (usize)_count * sizeof(i32));
-    u32* _cod = _heap->malloc(_heap->allocator, (usize)_count * sizeof(u32));
+    rde_arr _val_arr = rde_arr_new(sizeof(i32), _heap);
+    rde_arr _cod_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_val_arr, _count);
+    rde_arr_resize(&_cod_arr, _count);
+    i32* _val = (i32*)_val_arr.memory;   // (sized once: they stay put)
+    u32* _cod = (u32*)_cod_arr.memory;
     memset(_points, 0, (usize)_count * sizeof(fude_zoom_qpoint));
 
     fude_zoom_bit_reader _r = { .data = _data, .size = _size, .ok = true };
@@ -239,7 +247,7 @@ b8 fude_zoom_codec_decode(const u8* _data, u32 _size, fude_zoom_qpoint* _points,
         }
     }
 
-    _heap->free(_heap->allocator, _val);
-    _heap->free(_heap->allocator, _cod);
+    rde_arr_free(&_val_arr);
+    rde_arr_free(&_cod_arr);
     return _r.ok;
 }

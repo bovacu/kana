@@ -33,6 +33,17 @@
 u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
                          rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece);
 
+// ...and the same laid together otherwise (Sketching's Combine, page.c): the region's rings (ring 0 its outline, the
+// others its holes) and the others' (each a closed polygon), what is kept where — SUBTRACT: in the region and in none of
+// the others (fude_zoom_cut_region); UNION: in the region or in any of the others; INTERSECT: in the region and in one
+// of the others.
+typedef enum {
+    FUDE_ZOOM_CUT_SUBTRACT = 0,
+    FUDE_ZOOM_CUT_UNION,
+    FUDE_ZOOM_CUT_INTERSECT
+} FUDE_ZOOM_CUT_;
+u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
+                          u8 _op, rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece);
 // A saw's cut along an open line (_n points): the band _width wide round it
 // (its sides _width / 2 either side, mitred at its bends, square at its ends),
 // a closed polygon appended to _out. How many points.

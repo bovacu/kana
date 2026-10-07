@@ -98,16 +98,42 @@ RDE_INTERNAL u32 fude_zoom_cut_vertex(fude_zoom_cut_map* _m, rde_arr* _vertices,
 
 // Inside what is left: the region less every cut (fill.h: the outline's
 // inside, less every other ring — its holes and the cuts — however they overlap).
-RDE_INTERNAL b8 fude_zoom_cut_material(const fude_zoom_v2* _all, const u32* _all_rings, u32 _all_n, fude_zoom_v2 _p) {
-    return fude_zoom_fill_inside_rings(_all, _all_rings, _all_n, _p);
+// Combined (FUDE_ZOOM_CUT_ _op): the region's own rings the first _region_n points, the others' each a ring after them.
+RDE_INTERNAL b8 fude_zoom_cut_material(const fude_zoom_v2* _all, const u32* _all_rings, u32 _all_n, u32 _region_n, u8 _op, fude_zoom_v2 _p) {
+    if(_op == FUDE_ZOOM_CUT_SUBTRACT) {
+        return fude_zoom_fill_inside_rings(_all, _all_rings, _all_n, _p);
+    }
+    const b8 _in_region = _region_n >= 3u && fude_zoom_fill_inside_rings(_all, _all_rings, _region_n, _p);
+    if(_op == FUDE_ZOOM_CUT_UNION && _in_region) {
+        return true;
+    }
+    if(_op == FUDE_ZOOM_CUT_INTERSECT && !_in_region) {
+        return false;
+    }
+    for(u32 _from = _region_n; _from < _all_n;) {
+        u32 _to = _from;
+        while(_to < _all_n && _all_rings[_to] == _all_rings[_from]) {
+            _to++;
+        }
+        if(_to - _from >= 3u && fude_zoom_fill_inside(&_all[_from], _to - _from, _p)) {
+            return true;
+        }
+        _from = _to;
+    }
+    return false;
 }
 
 u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
                          rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
+    return fude_zoom_cut_combine(_points, _rings, _n, _cut, _cut_rings, _cut_n, FUDE_ZOOM_CUT_SUBTRACT, _out, _out_rings, _out_piece);
+}
+
+u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
+                          u8 _op, rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
     rde_arr_clear(_out);
     rde_arr_clear(_out_rings);
     rde_arr_clear(_out_piece);
-    if(_n < 3u) {
+    if(_n < 3u && _op != FUDE_ZOOM_CUT_UNION) {
         return 0;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
@@ -122,10 +148,16 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     // Everything as one set of rings (the region's, then each cut a ring of its
     // own): what the material test reads. A point next to nothing from the one
     // before it is that one (a loop drawn by hand ends a hair off where it began).
-    fude_zoom_v2* _all       = _heap->malloc(_heap->allocator, (usize)(_n + _cut_n) * sizeof(fude_zoom_v2));
-    u32*          _all_rings = _heap->malloc(_heap->allocator, (usize)(_n + _cut_n) * sizeof(u32));
-    u32 _all_n = 0, _ring_id = 0;
+    rde_arr _all_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap), _all_rings_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_all_arr, (usize)(_n + _cut_n));
+    rde_arr_resize(&_all_rings_arr, (usize)(_n + _cut_n));
+    fude_zoom_v2* _all       = (fude_zoom_v2*)_all_arr.memory;   // (sized once: they stay put)
+    u32*          _all_rings = (u32*)_all_rings_arr.memory;
+    u32 _all_n = 0, _ring_id = 0, _region_n = 0;
     for(u32 _part = 0; _part < 2u; _part++) {
+        if(_part == 1u) {
+            _region_n = _all_n;   // (the region's own rings: what came before the others')
+        }
         const fude_zoom_v2* _src   = _part == 0 ? _points : _cut;
         const u32*          _src_r = _part == 0 ? _rings : _cut_rings;
         const u32           _src_n = _part == 0 ? _n : _cut_n;
@@ -159,7 +191,9 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     const u32 _e = (u32)rde_arr_length(&_edges);
     const fude_zoom_cut_edge* _ed = (const fude_zoom_cut_edge*)_edges.memory;
     // Where each edge is split: its ends, every crossing, every other edge's end lying on it.
-    rde_arr* _splits = _heap->malloc(_heap->allocator, (usize)(_e > 0 ? _e : 1u) * sizeof(rde_arr));
+    rde_arr _splits_arr = rde_arr_new(sizeof(rde_arr), _heap);
+    rde_arr_resize(&_splits_arr, _e);
+    rde_arr* _splits = (rde_arr*)_splits_arr.memory;
     for(u32 _i = 0; _i < _e; _i++) {
         _splits[_i] = rde_arr_new(sizeof(fude_zoom_cut_split), _heap);
         const fude_zoom_cut_split _s0 = { 0.0, _ed[_i].a }, _s1 = { 1.0, _ed[_i].b };
@@ -228,7 +262,10 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     }
     // Each edge's pieces: kept where the material is on one side only, turned to have it on the left.
     const u32 _cap = 1u << (u32)ceil(log2(fmax(64.0, 4.0 * (f64)(_e * 4u + 16u))));
-    fude_zoom_cut_map _map = { _heap->malloc(_heap->allocator, (usize)_cap * 2u * sizeof(u64)), _heap->malloc(_heap->allocator, (usize)_cap * sizeof(u32)), _cap };
+    rde_arr _keys_arr = rde_arr_new(sizeof(u64), _heap), _values_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_keys_arr, (usize)_cap * 2u);
+    rde_arr_resize(&_values_arr, _cap);
+    fude_zoom_cut_map _map = { (u64*)_keys_arr.memory, (u32*)_values_arr.memory, _cap };
     memset(_map.values, 0xFF, (usize)_cap * sizeof(u32));
     rde_arr _vertices = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     rde_arr _sides    = rde_arr_new(sizeof(fude_zoom_cut_side), _heap);
@@ -246,8 +283,8 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
             const fude_zoom_v2 _m = { (_p0.x + _p1.x) * 0.5, (_p0.y + _p1.y) * 0.5 };
             const fude_zoom_v2 _nl = { -(_p1.y - _p0.y) / _len, (_p1.x - _p0.x) / _len };
             const f64 _o = fmin(_side_eps, _len * 0.25);
-            const b8 _left  = fude_zoom_cut_material(_all, _all_rings, _all_n, (fude_zoom_v2){ _m.x + _nl.x * _o, _m.y + _nl.y * _o });
-            const b8 _right = fude_zoom_cut_material(_all, _all_rings, _all_n, (fude_zoom_v2){ _m.x - _nl.x * _o, _m.y - _nl.y * _o });
+            const b8 _left  = fude_zoom_cut_material(_all, _all_rings, _all_n, _region_n, _op, (fude_zoom_v2){ _m.x + _nl.x * _o, _m.y + _nl.y * _o });
+            const b8 _right = fude_zoom_cut_material(_all, _all_rings, _all_n, _region_n, _op, (fude_zoom_v2){ _m.x - _nl.x * _o, _m.y - _nl.y * _o });
             if(_left == _right) {
                 continue;
             }
@@ -262,7 +299,7 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     for(u32 _i = 0; _i < _e; _i++) {
         rde_arr_free(&_splits[_i]);
     }
-    _heap->free(_heap->allocator, _splits);
+    rde_arr_free(&_splits_arr);
     // The same piece of edge kept twice (edges along each other): once.
     fude_zoom_cut_side* _sd = (fude_zoom_cut_side*)_sides.memory;
     const u32 _ns = (u32)rde_arr_length(&_sides);
@@ -276,21 +313,25 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     // Outgoing sides of each vertex.
     const u32 _nv = (u32)rde_arr_length(&_vertices);
     const fude_zoom_v2* _vx = (const fude_zoom_v2*)_vertices.memory;
-    u32* _first_out = _heap->malloc(_heap->allocator, (usize)(_nv + 1u) * sizeof(u32));
-    u32* _order     = _heap->malloc(_heap->allocator, (usize)(_ns > 0 ? _ns : 1u) * sizeof(u32));
-    memset(_first_out, 0, (usize)(_nv + 1u) * sizeof(u32));
+    rde_arr _first_out_arr = rde_arr_new(sizeof(u32), _heap), _order_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_first_out_arr, (usize)_nv + 1u);
+    rde_arr_resize(&_order_arr, _ns);
+    u32* _first_out = (u32*)_first_out_arr.memory;
+    u32* _order     = (u32*)_order_arr.memory;
     for(u32 _i = 0; _i < _ns; _i++) {
         _first_out[_sd[_i].from + 1u]++;
     }
     for(u32 _v = 0; _v < _nv; _v++) {
         _first_out[_v + 1u] += _first_out[_v];
     }
-    u32* _fill_at = _heap->malloc(_heap->allocator, (usize)(_nv > 0 ? _nv : 1u) * sizeof(u32));
-    memcpy(_fill_at, _first_out, (usize)(_nv > 0 ? _nv : 1u) * sizeof(u32));
+    rde_arr _fill_at_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_fill_at_arr, _nv);
+    u32* _fill_at = (u32*)_fill_at_arr.memory;
+    memcpy(_fill_at, _first_out, (usize)_nv * sizeof(u32));
     for(u32 _i = 0; _i < _ns; _i++) {
         _order[_fill_at[_sd[_i].from]++] = _i;
     }
-    _heap->free(_heap->allocator, _fill_at);
+    rde_arr_free(&_fill_at_arr);
     // Loops: from a side, on and on, at each vertex the side going on that keeps
     // the same material on the left (the first met turning clockwise from back).
     rde_arr _loops = rde_arr_new(sizeof(u32), _heap);     // vertex numbers, loop after loop
@@ -363,8 +404,11 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     const u32 _nl = (u32)rde_arr_length(&_loop_at);
     // Each loop's points (straight runs made one), its area.
     rde_arr _lp = rde_arr_new(sizeof(fude_zoom_v2), _heap);
-    u32* _lp_at  = _heap->malloc(_heap->allocator, (usize)(_nl + 1u) * sizeof(u32));
-    f64* _area   = _heap->malloc(_heap->allocator, (usize)(_nl > 0 ? _nl : 1u) * sizeof(f64));
+    rde_arr _lp_at_arr = rde_arr_new(sizeof(u32), _heap), _area_arr = rde_arr_new(sizeof(f64), _heap);
+    rde_arr_resize(&_lp_at_arr, (usize)_nl + 1u);
+    rde_arr_resize(&_area_arr, _nl);
+    u32* _lp_at  = (u32*)_lp_at_arr.memory;
+    f64* _area   = (f64*)_area_arr.memory;
     for(u32 _l = 0; _l < _nl; _l++) {
         const u32 _from = ((const u32*)_loop_at.memory)[_l];
         const u32 _to   = _l + 1u < _nl ? ((const u32*)_loop_at.memory)[_l + 1u] : (u32)rde_arr_length(&_loops);
@@ -385,7 +429,9 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     _lp_at[_nl] = (u32)rde_arr_length(&_lp);
     // Outlines (counter-clockwise) a piece each; each hole to the smallest outline round it.
     u32 _pieces = 0;
-    u32* _piece_of = _heap->malloc(_heap->allocator, (usize)(_nl > 0 ? _nl : 1u) * sizeof(u32));
+    rde_arr _piece_of_arr = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_piece_of_arr, _nl);
+    u32* _piece_of = (u32*)_piece_of_arr.memory;
     const fude_zoom_v2* _lpp = (const fude_zoom_v2*)_lp.memory;
     for(u32 _l = 0; _l < _nl; _l++) {
         _piece_of[_l] = 0xFFFFFFFFu;
@@ -433,28 +479,30 @@ u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
             }
         }
     }
-    _heap->free(_heap->allocator, _piece_of);
-    _heap->free(_heap->allocator, _lp_at);
-    _heap->free(_heap->allocator, _area);
+    rde_arr_free(&_piece_of_arr);
+    rde_arr_free(&_lp_at_arr);
+    rde_arr_free(&_area_arr);
     rde_arr_free(&_lp);
     rde_arr_free(&_loops);
     rde_arr_free(&_loop_at);
-    _heap->free(_heap->allocator, _first_out);
-    _heap->free(_heap->allocator, _order);
+    rde_arr_free(&_first_out_arr);
+    rde_arr_free(&_order_arr);
     rde_arr_free(&_sides);
     rde_arr_free(&_vertices);
-    _heap->free(_heap->allocator, _map.keys);
-    _heap->free(_heap->allocator, _map.values);
+    rde_arr_free(&_keys_arr);
+    rde_arr_free(&_values_arr);
     rde_arr_free(&_edges);
-    _heap->free(_heap->allocator, _all);
-    _heap->free(_heap->allocator, _all_rings);
+    rde_arr_free(&_all_arr);
+    rde_arr_free(&_all_rings_arr);
     return _pieces;
 }
 
 u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _out) {
     // The line without repeated points.
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_v2* _p = _heap->malloc(_heap->allocator, (usize)(_n > 0 ? _n : 1u) * sizeof(fude_zoom_v2));
+    rde_arr _p_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr_resize(&_p_arr, _n);
+    fude_zoom_v2* _p = (fude_zoom_v2*)_p_arr.memory;
     u32 _m = 0;
     for(u32 _i = 0; _i < _n; _i++) {
         if(_m == 0 || hypot(_path[_i].x - _p[_m - 1u].x, _path[_i].y - _p[_m - 1u].y) > _width * 1e-6) {
@@ -462,7 +510,7 @@ u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _
         }
     }
     if(_m < 2u || !(_width > 0.0)) {
-        _heap->free(_heap->allocator, _p);
+        rde_arr_free(&_p_arr);
         return 0;
     }
     const f64 _h = _width * 0.5;
@@ -490,7 +538,7 @@ u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _
             rde_arr_add(_out, (any)&_q);
         }
     }
-    _heap->free(_heap->allocator, _p);
+    rde_arr_free(&_p_arr);
     return (u32)rde_arr_length(_out) - _start;
 }
 
@@ -509,7 +557,9 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
         // The cuts in the board's own units.
         const fude_zoom_object _look = *_o;
         const fude_zoom_sim _back = fude_zoom_sim_inverse(fude_zoom_object_sim(&_look));
-        fude_zoom_v2* _local = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_v2));
+        rde_arr _local_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+        rde_arr_resize(&_local_arr, _n);
+        fude_zoom_v2* _local = (fude_zoom_v2*)_local_arr.memory;
         fude_zoom_box _cb = fude_zoom_box_empty(), _bb = fude_zoom_box_empty();
         for(u32 _i = 0; _i < _n; _i++) {
             _local[_i] = fude_zoom_sim_apply(_back, _cut[_i]);
@@ -628,7 +678,7 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
             rde_arr_free(&_out_rings);
             rde_arr_free(&_out_piece);
         }
-        _heap->free(_heap->allocator, _local);
+        rde_arr_free(&_local_arr);
     }
     rde_arr_free(&_num);
     rde_arr_free(&_pts);

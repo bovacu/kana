@@ -38,11 +38,10 @@ RDE_INTERNAL f64 fude_zoom_piece_get_f64(fude_reader* _r) {
 }
 
 void fude_zoom_piece_clear(fude_zoom_piece* _piece) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     if(rde_arr_is_inited(&_piece->items)) {
         fude_zoom_clip* _c = (fude_zoom_clip*)_piece->items.memory;
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_piece->items); _i++) {
-            _heap->free(_heap->allocator, _c[_i].bytes);
+            rde_arr_free(&_c[_i].bytes);
         }
         rde_arr_free(&_piece->items);
     }
@@ -76,8 +75,8 @@ void fude_zoom_piece_write(const fude_zoom_piece* _piece, fude_bytes* _out) {
         fude_zoom_piece_put_f64(_out, _c[_i].on_screen.b);
         fude_zoom_piece_put_f64(_out, _c[_i].on_screen.tx);
         fude_zoom_piece_put_f64(_out, _c[_i].on_screen.ty);
-        fude_put_u32(_out, _c[_i].size);
-        fude_put_data(_out, _c[_i].bytes, _c[_i].size);
+        fude_put_u32(_out, fude_zoom_clip_size(&_c[_i]));
+        fude_put_data(_out, fude_zoom_clip_data(&_c[_i]), fude_zoom_clip_size(&_c[_i]));
         fude_chunk_end(_out, _at);
     }
 }
@@ -117,13 +116,12 @@ b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
             _c.on_screen.b   = fude_zoom_piece_get_f64(&_chunk);
             _c.on_screen.tx  = fude_zoom_piece_get_f64(&_chunk);
             _c.on_screen.ty  = fude_zoom_piece_get_f64(&_chunk);
-            _c.size          = fude_get_u32(&_chunk);
-            if(!_chunk.ok || !fude_reader_has(&_chunk, _c.size)) {
+            const u32 _size  = fude_get_u32(&_chunk);
+            if(!_chunk.ok || !fude_reader_has(&_chunk, _size)) {
                 continue;
             }
             _c.look.flags |= FUDE_ZOOM_FLAG_ALIVE;
-            _c.bytes = _heap->malloc(_heap->allocator, _c.size > 0 ? _c.size : 1u);
-            memcpy(_c.bytes, _chunk.data + _chunk.pos, _c.size);
+            fude_zoom_clip_put(&_c, _chunk.data + _chunk.pos, _size);
             rde_arr_add(&_piece->items, (any)&_c);
         }
     }
@@ -230,8 +228,7 @@ u32 fude_zoom_pieces_add(fude_zoom_pieces* _p, const c8* _dir, const c8* _name, 
     snprintf(_new.name, sizeof(_new.name), "%s", _name);
     for(u32 _i = 0; _i < _n && _i < FUDE_ZOOM_PIECE_ITEMS; _i++) {
         fude_zoom_clip _c = _items[_i];
-        _c.bytes = _heap->malloc(_heap->allocator, _c.size > 0 ? _c.size : 1u);
-        memcpy(_c.bytes, _items[_i].bytes, _c.size);
+        fude_zoom_clip_put(&_c, fude_zoom_clip_data(&_items[_i]), fude_zoom_clip_size(&_items[_i]));
         rde_arr_add(&_new.items, (any)&_c);
     }
     if(!fude_zoom_pieces_write_one(&_new, _dir)) {
@@ -294,14 +291,14 @@ u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _po
         const fude_zoom_sim   _to = _it->on_screen;
         if(_it->look.kind == FUDE_ZOOM_KIND_SHAPE) {
             b8 _closed = false;
-            fude_zoom_shape_outline(_it->look.channels, (const f64*)_it->bytes, _it->size / (u32)sizeof(f64), 48u, &_pts, &_closed);
+            fude_zoom_shape_outline(_it->look.channels, (const f64*)fude_zoom_clip_data(_it), fude_zoom_clip_size(_it) / (u32)sizeof(f64), 48u, &_pts, &_closed);
             fude_zoom_piece_line_add(_points, _lines, (const fude_zoom_v2*)_pts.memory, (u32)rde_arr_length(&_pts), _closed, _to);
             continue;
         }
         if(_it->look.kind == FUDE_ZOOM_KIND_STROKE || _it->look.kind == FUDE_ZOOM_KIND_FILL) {
             rde_arr_clear(&_q);
             fude_zoom_qpoint* _qp = rde_arr_add_n(&_q, _it->look.count);
-            if(_it->look.count == 0u || !fude_zoom_codec_decode(_it->bytes, _it->size, _qp, _it->look.count, _it->look.channels)) {
+            if(_it->look.count == 0u || !fude_zoom_codec_decode(fude_zoom_clip_data(_it), fude_zoom_clip_size(_it), _qp, _it->look.count, _it->look.channels)) {
                 continue;
             }
             const f64 _g = ldexp(1.0, _it->look.q);
@@ -325,13 +322,13 @@ u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _po
             }
             continue;
         }
-        if(_boxes && (_it->look.kind == FUDE_ZOOM_KIND_IMAGE || _it->look.kind == FUDE_ZOOM_KIND_TEXT) && _it->size >= 2u * sizeof(f64)) {
+        if(_boxes && (_it->look.kind == FUDE_ZOOM_KIND_IMAGE || _it->look.kind == FUDE_ZOOM_KIND_TEXT) && fude_zoom_clip_size(_it) >= 2u * sizeof(f64)) {
             // A picture: its half sizes first; a text: its letters' size, then its width and height (its box from its top left).
             f64 _a, _b, _cc = 0.0;
-            memcpy(&_a, _it->bytes, sizeof(f64));
-            memcpy(&_b, _it->bytes + sizeof(f64), sizeof(f64));
-            if(_it->look.kind == FUDE_ZOOM_KIND_TEXT && _it->size >= 3u * sizeof(f64)) {
-                memcpy(&_cc, _it->bytes + 2u * sizeof(f64), sizeof(f64));
+            memcpy(&_a, fude_zoom_clip_data(_it), sizeof(f64));
+            memcpy(&_b, fude_zoom_clip_data(_it) + sizeof(f64), sizeof(f64));
+            if(_it->look.kind == FUDE_ZOOM_KIND_TEXT && fude_zoom_clip_size(_it) >= 3u * sizeof(f64)) {
+                memcpy(&_cc, fude_zoom_clip_data(_it) + 2u * sizeof(f64), sizeof(f64));
             }
             fude_zoom_v2 _box[4];
             if(_it->look.kind == FUDE_ZOOM_KIND_IMAGE) {

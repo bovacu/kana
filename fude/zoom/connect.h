@@ -65,4 +65,17 @@ u32 fude_zoom_connect_dimension(fude_zoom_scene* _s, u32 _frame, fude_zoom_v2 _a
 // the new one (where it was, in its order) or FUDE_ZOOM_NONE (not joined to any of them). The caller lets the old go.
 u32 fude_zoom_connect_dim_remap(fude_zoom_scene* _s, u32 _dim, const fude_zoom_id* _old, const fude_zoom_id* _new, u32 _n);
 
+// CONSTRAINTS THAT HOLD (shape.h's CONSTRAINT): two lines kept parallel, square to each other, or the same length.
+// One turned or stretched (moved: fude_zoom_connect_follow), the other is turned or stretched round its own middle to
+// keep it so, in the same step (and on along a chain of them); one made again (fude_zoom_connect_constraint_remap), the
+// other made again to keep it so.
+//
+// A constraint's kind and its lines (FUDE_ZOOM_NONE: gone). False: not a constraint.
+b8  fude_zoom_connect_constraint_of(const fude_zoom_scene* _s, u32 _object, u8* _kind, u32* _a, u32* _b);
+// What line _b is moved by (round its middle, its frame's units) to keep constraint _kind with line _a as _a is now.
+// False: nothing to do (it is so already, or they are not lines in one frame).
+b8  fude_zoom_connect_constrain(const fude_zoom_scene* _s, u8 _kind, u32 _a, u32 _b, fude_zoom_sim* _out);
+// A new constraint _kind between lines _a and _b (in their frame, between their middles). Its index.
+u32 fude_zoom_connect_constraint_add(fude_zoom_scene* _s, u8 _kind, u32 _a, u32 _b);
+
 #endif

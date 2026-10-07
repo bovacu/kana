@@ -87,6 +87,9 @@ void       fude_ui_frame(const fude_ui* _ui, u32 _screen, fude_screen_frame* _fr
 // Once a frame, outside the UI's own events (a language chosen in Settings
 // rebuilds the whole UI, the button that chose it included).
 void       fude_ui_follow_language(fude_ui* _ui);
+// Every widget built again now, as a language change builds them (an app's tools changed: Sketching's topics). Never
+// from inside a widget's own press: the frame after.
+void       fude_ui_rebuild_now(fude_ui* _ui);
 // Is the UI laid out right to left (a right-to-left language, or --rtl)?
 b8         fude_ui_rtl(void);
 // The app went to the background or the OS is short of memory: the fonts give

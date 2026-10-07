@@ -441,6 +441,12 @@ RDE_INTERNAL void fude_ui_rebuild(fude_ui* _ui) {
     _ui->side.faq_open      = _faq_open;
 }
 
+void fude_ui_rebuild_now(fude_ui* _ui) {
+    if(_ui->canvas != NULL) {
+        fude_ui_rebuild(_ui);
+    }
+}
+
 void fude_ui_follow_language(fude_ui* _ui) {
     if(_ui->canvas != NULL && _ui->_text_revision != fude_text_revision()) {
         fude_ui_rebuild(_ui);

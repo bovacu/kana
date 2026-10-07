@@ -4,6 +4,7 @@
 #include "zoom/cut.h"
 #include "zoom/shape.h"
 #include "zoom/fill.h"
+#include "zoom/circuit.h"
 
 #include <math.h>
 #include <string.h>
@@ -792,8 +793,8 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
     for(u32 _k = 0; _k < (u32)rde_arr_length(&_list); _k++) {   // (a shape unmade adds its line and fill)
         const u32 _object = ((const u32*)_list.memory)[_k];
         const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
-        if(!fude_zoom_scene_touchable(_s, _o)) {
-            continue;   // a hidden or locked layer's
+        if(!fude_zoom_scene_touchable(_s, _o) || (_o->kind == FUDE_ZOOM_KIND_SHAPE && fude_zoom_shape_is_attribute(_o->channels))) {
+            continue;   // a hidden or locked layer's (a constraint: nothing drawn to rub out)
         }
         _s->layer = _o->layer;   // what is cut from it stays on its layer
         if(_o->kind == FUDE_ZOOM_KIND_FILL && (_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
@@ -822,7 +823,8 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
                     rde_arr_free(&_sweep);
                 } else if(_e->mode == FUDE_ZOOM_ERASE_PARTIAL && _o->channels != FUDE_ZOOM_SHAPE_DIMENSION && _o->channels != FUDE_ZOOM_SHAPE_ARROW &&
                           _o->channels != FUDE_ZOOM_SHAPE_SYMBOL && _o->channels != FUDE_ZOOM_SHAPE_RADIAL && _o->channels != FUDE_ZOOM_SHAPE_ANGLE &&
-                          _o->channels != FUDE_ZOOM_SHAPE_SHEET) {   // (a dimension, a connector, a diagram's symbol, a sheet goes whole)
+                          _o->channels != FUDE_ZOOM_SHAPE_SHEET && _o->channels != FUDE_ZOOM_SHAPE_GUIDE &&
+                          _o->channels != FUDE_ZOOM_SHAPE_WIRE) {   // (a dimension, a connector, a diagram's symbol, a sheet, a guide, a wire goes whole)
                     fude_zoom_erase_unshape(_s, _e, _object, &_list);
                 } else {
                     fude_zoom_erase_take(_s, _e, _object);
@@ -909,6 +911,7 @@ void fude_zoom_erase_end(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
     rde_arr_free(&_rings);
     rde_arr_free(&_tris);
     fude_zoom_erase_fills_clear(_e);
+    fude_zoom_wire_orphans(_s, &_e->died);   // (a part rubbed out takes its wires; a wire, those that end on it)
     fude_zoom_history_push(_s, _frame, _box, (const u32*)_e->died.memory, (u32)rde_arr_length(&_e->died), (const u32*)_e->born.memory, (u32)rde_arr_length(&_e->born));
     rde_arr_clear(&_e->died);
     rde_arr_clear(&_e->born);

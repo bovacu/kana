@@ -237,8 +237,10 @@ void fude_zoom_index_build(fude_zoom_index* _ix, const u32* _values, const fude_
         return;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_index_pack* _a = _heap->malloc(_heap->allocator, (usize)_count * sizeof(fude_zoom_index_pack));
-    fude_zoom_index_pack* _b = _heap->malloc(_heap->allocator, (usize)_count * sizeof(fude_zoom_index_pack));
+    rde_arr TYPE(fude_zoom_index_pack) _a_arr = rde_arr_new(sizeof(fude_zoom_index_pack), _heap);
+    rde_arr TYPE(fude_zoom_index_pack) _b_arr = rde_arr_new(sizeof(fude_zoom_index_pack), _heap);
+    fude_zoom_index_pack* _a = (fude_zoom_index_pack*)rde_arr_add_n(&_a_arr, _count);   // (sized once: they stay put)
+    fude_zoom_index_pack* _b = (fude_zoom_index_pack*)rde_arr_add_n(&_b_arr, _count);
     for(u32 _i = 0; _i < _count; _i++) {
         _a[_i] = (fude_zoom_index_pack){ _values[_i], _boxes[_i], (_boxes[_i].min_x + _boxes[_i].max_x) * 0.5, (_boxes[_i].min_y + _boxes[_i].max_y) * 0.5 };
     }
@@ -261,8 +263,8 @@ void fude_zoom_index_build(fude_zoom_index* _ix, const u32* _values, const fude_
     _nodes[0] = _nodes[_a[0].item];
     // The old copy stays unused in the array: one node, nothing points at it.
     _ix->count = _count;
-    _heap->free(_heap->allocator, _a);
-    _heap->free(_heap->allocator, _b);
+    rde_arr_free(&_a_arr);
+    rde_arr_free(&_b_arr);
 }
 
 // --- querying ----------------------------------------------------------------------------

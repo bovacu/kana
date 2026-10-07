@@ -11,16 +11,33 @@
 
 // --- the graph -------------------------------------------------------------------------------
 
-// Zeroed (never NULL for nothing).
-RDE_INTERNAL any fude_zoom_graph_alloc(usize _count, usize _size) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    return _heap->calloc(_heap->allocator, _count > 0 ? _count : 1u, _size);
+// Tables: each an rde_arr of _count items, all zero, sized once (so its memory
+// stays put), kept in a list of them (_tables: rde_arr of rde_arr) and freed with it.
+RDE_INTERNAL rde_arr fude_zoom_graph_tables_new(void) {
+    return rde_arr_new(sizeof(rde_arr), rde_memory_allocator_get_default_std());
 }
 
-RDE_INTERNAL void fude_zoom_graph_free(any _p) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    if(_p != NULL) {
-        _heap->free(_heap->allocator, _p);
+// Its memory (never NULL for nothing).
+RDE_INTERNAL any fude_zoom_graph_table(rde_arr* _tables, usize _count, usize _size) {
+    rde_arr _t = rde_arr_new(_size, rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_t, _count);
+    rde_arr_add(_tables, (any)&_t);
+    return _t.memory;
+}
+
+// Each table freed; the list kept, empty.
+RDE_INTERNAL void fude_zoom_graph_tables_clear(rde_arr* _tables) {
+    rde_arr* _t = (rde_arr*)_tables->memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(_tables); _i++) {
+        rde_arr_free(&_t[_i]);
+    }
+    rde_arr_clear(_tables);
+}
+
+RDE_INTERNAL void fude_zoom_graph_tables_free(rde_arr* _tables) {
+    if(rde_arr_is_inited(_tables)) {
+        fude_zoom_graph_tables_clear(_tables);
+        rde_arr_free(_tables);
     }
 }
 
@@ -259,7 +276,7 @@ typedef struct {
     u32              open[FUDE_ZOOM_GRAPH_MAX_DEPTH];        // the subgraphs open (index + 1), innermost last
     u32              open_line[FUDE_ZOOM_GRAPH_MAX_DEPTH];
     u32              depth;
-    u32*             table;                                  // ids to node index + 1, open addressing
+    rde_arr          table;                                  // u32: ids to node index + 1, open addressing
     u32              mask;
     rde_arr          left, right;                            // a chain's two groups at a time (u32 nodes)
     u8               error;
@@ -445,11 +462,12 @@ RDE_INTERNAL u32 fude_zoom_graph_hash(const c8* _s, u32 _n) {
 
 // The node named _id (_n bytes), made if it is new: a box, its id its text.
 RDE_INTERNAL u32 fude_zoom_graph_intern(fude_zoom_graph_reader* _r, const c8* _id, u32 _n) {
-    u32 _slot = fude_zoom_graph_hash(_id, _n) & _r->mask;
-    while(_r->table[_slot] != 0) {
-        const fude_zoom_graph_node* _node = fude_zoom_graph_node_at(_r->g, _r->table[_slot] - 1u);
+    u32* _table = (u32*)_r->table.memory;
+    u32  _slot  = fude_zoom_graph_hash(_id, _n) & _r->mask;
+    while(_table[_slot] != 0) {
+        const fude_zoom_graph_node* _node = fude_zoom_graph_node_at(_r->g, _table[_slot] - 1u);
         if(strlen(_node->id) == _n && memcmp(_node->id, _id, _n) == 0) {
-            return _r->table[_slot] - 1u;
+            return _table[_slot] - 1u;
         }
         _slot = (_slot + 1u) & _r->mask;
     }
@@ -463,7 +481,7 @@ RDE_INTERNAL u32 fude_zoom_graph_intern(fude_zoom_graph_reader* _r, const c8* _i
     memcpy(_node.id, _id, _n);
     fude_zoom_graph_copy(_node.label, FUDE_ZOOM_GRAPH_LABEL, _id, _n);
     rde_arr_add(&_r->g->nodes, (any)&_node);
-    _r->table[_slot] = _count + 1u;
+    _table[_slot] = _count + 1u;
     return _count;
 }
 
@@ -887,10 +905,11 @@ RDE_INTERNAL void fude_zoom_graph_join_subgraphs(fude_zoom_graph* _g) {
     if(_ns == 0 || _n == 0) {
         return;
     }
-    u32* _names = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
-    u32* _first = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
-    u32* _last  = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
-    u32* _map   = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _names = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+    u32* _first = (u32*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(u32));
+    u32* _last  = (u32*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(u32));
+    u32* _map   = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
     for(u32 _i = 0; _i < _n; _i++) {
         for(u32 _s = 0; _s < _ns && _names[_i] == 0; _s++) {
             _names[_i] = strcmp(fude_zoom_graph_node_at(_g, _i)->id, fude_zoom_graph_subgraph_at(_g, _s)->id) == 0 ? _s + 1u : 0u;
@@ -934,10 +953,7 @@ RDE_INTERNAL void fude_zoom_graph_join_subgraphs(fude_zoom_graph* _g) {
             rde_arr_remove(&_g->nodes, fude_zoom_graph_count(&_g->nodes) - 1u);
         }
     }
-    fude_zoom_graph_free(_names);
-    fude_zoom_graph_free(_first);
-    fude_zoom_graph_free(_last);
-    fude_zoom_graph_free(_map);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 RDE_INTERNAL b8 fude_zoom_graph_statement(fude_zoom_graph_reader* _r) {
@@ -988,7 +1004,8 @@ b8 fude_zoom_graph_parse_mermaid(fude_zoom_graph* _g, const c8* _text, u32 _size
     _r.end   = _r.p + (_text != NULL ? _size : 0u);
     _r.line  = 1u;
     _r.mask  = FUDE_ZOOM_GRAPH_MAX_NODES * 2u - 1u;
-    _r.table = (u32*)fude_zoom_graph_alloc(FUDE_ZOOM_GRAPH_MAX_NODES * 2u, sizeof(u32));
+    _r.table = rde_arr_new(sizeof(u32), _heap);
+    rde_arr_resize(&_r.table, FUDE_ZOOM_GRAPH_MAX_NODES * 2u);
     _r.left  = rde_arr_new(sizeof(u32), _heap);
     _r.right = rde_arr_new(sizeof(u32), _heap);
     b8 _ok = fude_zoom_graph_header(&_r);
@@ -1006,7 +1023,7 @@ b8 fude_zoom_graph_parse_mermaid(fude_zoom_graph* _g, const c8* _text, u32 _size
     if(_ok) {
         fude_zoom_graph_join_subgraphs(_g);
     }
-    fude_zoom_graph_free(_r.table);
+    rde_arr_free(&_r.table);
     rde_arr_free(&_r.left);
     rde_arr_free(&_r.right);
     if(!_ok) {
@@ -1118,6 +1135,8 @@ typedef struct {
     b8                      labels;            // edge labels have ranks of their own
     b8                      any_pinned;
     f64                     shift_x, shift_y;  // where it all went at the end
+    rde_arr                 tables;            // what the pointers above are in (fude_zoom_graph_table)
+    rde_arr                 rule_tables;       // ...rin_first, rin, rout_first, rout, topo (made again with the rules)
 } fude_zoom_graph_work;
 
 RDE_INTERNAL int fude_zoom_graph_by_keys(const void* _a, const void* _b) {
@@ -1177,8 +1196,8 @@ RDE_INTERNAL u32 fude_zoom_graph_add_vertex(fude_zoom_graph_work* _w, u8 _kind, 
 // The parents made safe (a loop or a bad index cut at the top) and depths.
 RDE_INTERNAL void fude_zoom_graph_tree(fude_zoom_graph_work* _w) {
     const u32 _ns = _w->ns;
-    _w->parent = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
-    _w->depth  = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
+    _w->parent = (u32*)fude_zoom_graph_table(&_w->tables, _ns + 1u, sizeof(u32));
+    _w->depth  = (u32*)fude_zoom_graph_table(&_w->tables, _ns + 1u, sizeof(u32));
     for(u32 _s = 1; _s <= _ns; _s++) {
         const u32 _p = fude_zoom_graph_subgraph_at(_w->g, _s - 1u)->parent;
         _w->parent[_s] = _p <= _ns && _p != _s ? _p : 0u;
@@ -1236,12 +1255,13 @@ RDE_INTERNAL u32 fude_zoom_graph_path(const fude_zoom_graph_work* _w, u32 _sub, 
 // one's edges in order) finds going back up its own path.
 RDE_INTERNAL void fude_zoom_graph_break_cycles(fude_zoom_graph_work* _w) {
     const u32 _n = _w->n, _ne = _w->ne;
-    u32* _first = (u32*)fude_zoom_graph_alloc(_n + 1u, sizeof(u32));
-    u32* _list  = (u32*)fude_zoom_graph_alloc(_ne, sizeof(u32));
-    u32* _fill  = (u32*)fude_zoom_graph_alloc(_n + 1u, sizeof(u32));
-    u8*  _state = (u8*)fude_zoom_graph_alloc(_n, sizeof(u8));
-    u32* _stack = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
-    u32* _it    = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _first = (u32*)fude_zoom_graph_table(&_tables, _n + 1u, sizeof(u32));
+    u32* _list  = (u32*)fude_zoom_graph_table(&_tables, _ne, sizeof(u32));
+    u32* _fill  = (u32*)fude_zoom_graph_table(&_tables, _n + 1u, sizeof(u32));
+    u8*  _state = (u8*)fude_zoom_graph_table(&_tables, _n, sizeof(u8));
+    u32* _stack = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+    u32* _it    = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
     for(u32 _e = 0; _e < _ne; _e++) {
         if(_w->tail[_e] != FUDE_ZOOM_GRAPH_NONE && _w->tail[_e] != _w->head[_e]) {
             _first[_w->tail[_e] + 1u]++;
@@ -1289,12 +1309,7 @@ RDE_INTERNAL void fude_zoom_graph_break_cycles(fude_zoom_graph_work* _w) {
             _w->head[_e] = _t;
         }
     }
-    fude_zoom_graph_free(_first);
-    fude_zoom_graph_free(_list);
-    fude_zoom_graph_free(_fill);
-    fude_zoom_graph_free(_state);
-    fude_zoom_graph_free(_stack);
-    fude_zoom_graph_free(_it);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // Ranks by longest path from the sources, then each node that feeds more
@@ -1303,13 +1318,14 @@ RDE_INTERNAL void fude_zoom_graph_break_cycles(fude_zoom_graph_work* _w) {
 RDE_INTERNAL void fude_zoom_graph_rank(fude_zoom_graph_work* _w) {
     const u32 _n = _w->n, _ne = _w->ne;
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
-    u32* _first = (u32*)fude_zoom_graph_alloc(_n + 1u, sizeof(u32));
-    u32* _list  = (u32*)fude_zoom_graph_alloc(_ne, sizeof(u32));
-    u32* _fill  = (u32*)fude_zoom_graph_alloc(_n + 1u, sizeof(u32));
-    u32* _in    = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
-    u32* _ins   = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
-    u32* _topo  = (u32*)fude_zoom_graph_alloc(_n, sizeof(u32));
-    u8*  _done  = (u8*)fude_zoom_graph_alloc(_n, sizeof(u8));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _first = (u32*)fude_zoom_graph_table(&_tables, _n + 1u, sizeof(u32));
+    u32* _list  = (u32*)fude_zoom_graph_table(&_tables, _ne, sizeof(u32));
+    u32* _fill  = (u32*)fude_zoom_graph_table(&_tables, _n + 1u, sizeof(u32));
+    u32* _in    = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+    u32* _ins   = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+    u32* _topo  = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+    u8*  _done  = (u8*)fude_zoom_graph_table(&_tables, _n, sizeof(u8));
     for(u32 _e = 0; _e < _ne; _e++) {
         if(_w->tail[_e] != FUDE_ZOOM_GRAPH_NONE && _w->tail[_e] != _w->head[_e]) {
             _first[_w->tail[_e] + 1u]++;
@@ -1368,13 +1384,7 @@ RDE_INTERNAL void fude_zoom_graph_rank(fude_zoom_graph_work* _w) {
         _high = _v[_i].rank > _high ? _v[_i].rank : _high;
     }
     _w->ranks = (u32)_high + 1u;
-    fude_zoom_graph_free(_first);
-    fude_zoom_graph_free(_list);
-    fude_zoom_graph_free(_fill);
-    fude_zoom_graph_free(_in);
-    fude_zoom_graph_free(_ins);
-    fude_zoom_graph_free(_topo);
-    fude_zoom_graph_free(_done);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // --- dummies and fillers -------------------------------------------------------------------------
@@ -1382,9 +1392,9 @@ RDE_INTERNAL void fude_zoom_graph_rank(fude_zoom_graph_work* _w) {
 RDE_INTERNAL void fude_zoom_graph_chains(fude_zoom_graph_work* _w) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     _w->chain        = rde_arr_new(sizeof(u32), _heap);
-    _w->chain_first  = (u32*)fude_zoom_graph_alloc(_w->ne, sizeof(u32));
-    _w->chain_count  = (u32*)fude_zoom_graph_alloc(_w->ne, sizeof(u32));
-    _w->label_vertex = (u32*)fude_zoom_graph_alloc(_w->ne, sizeof(u32));
+    _w->chain_first  = (u32*)fude_zoom_graph_table(&_w->tables, _w->ne, sizeof(u32));
+    _w->chain_count  = (u32*)fude_zoom_graph_table(&_w->tables, _w->ne, sizeof(u32));
+    _w->label_vertex = (u32*)fude_zoom_graph_table(&_w->tables, _w->ne, sizeof(u32));
     const b8 _side = fude_zoom_graph_sideways(_w->g->direction);
     u32 _dummies = 0;
     for(u32 _e = 0; _e < _w->ne; _e++) {
@@ -1419,44 +1429,17 @@ RDE_INTERNAL void fude_zoom_graph_chains(fude_zoom_graph_work* _w) {
     }
 }
 
-// A set of (subgraph, rank): open addressing, keys stored plus one.
-typedef struct {
-    u64* keys;
-    u32  cap, count;
-} fude_zoom_graph_set;
-
+// A (subgraph, rank) as one key, for a set of them.
 RDE_INTERNAL u64 fude_zoom_graph_pair(u32 _s, i32 _r) {
     return (((u64)_s << 32) | (u64)(u32)_r) + 1u;
 }
 
-RDE_INTERNAL u32 fude_zoom_graph_slot(const fude_zoom_graph_set* _set, u64 _k) {
-    u64 _h = _k * 0x9E3779B97F4A7C15ull;
-    u32 _i = (u32)(_h >> 32) & (_set->cap - 1u);
-    while(_set->keys[_i] != 0 && _set->keys[_i] != _k) _i = (_i + 1u) & (_set->cap - 1u);
-    return _i;
+RDE_INTERNAL b8 fude_zoom_graph_set_has(const rde_hash_set* _set, u64 _k) {
+    return rde_hash_set_contains(_set, (any)&_k);
 }
 
-RDE_INTERNAL b8 fude_zoom_graph_set_has(const fude_zoom_graph_set* _set, u64 _k) {
-    return _set->keys[fude_zoom_graph_slot(_set, _k)] == _k;
-}
-
-RDE_INTERNAL void fude_zoom_graph_set_add(fude_zoom_graph_set* _set, u64 _k) {
-    if((_set->count + 1u) * 2u > _set->cap) {
-        fude_zoom_graph_set _bigger = { (u64*)fude_zoom_graph_alloc(_set->cap * 2u, sizeof(u64)), _set->cap * 2u, 0 };
-        for(u32 _i = 0; _i < _set->cap; _i++) {
-            if(_set->keys[_i] != 0) {
-                _bigger.keys[fude_zoom_graph_slot(&_bigger, _set->keys[_i])] = _set->keys[_i];
-                _bigger.count++;
-            }
-        }
-        fude_zoom_graph_free(_set->keys);
-        *_set = _bigger;
-    }
-    const u32 _i = fude_zoom_graph_slot(_set, _k);
-    if(_set->keys[_i] == 0) {
-        _set->keys[_i] = _k;
-        _set->count++;
-    }
+RDE_INTERNAL void fude_zoom_graph_set_add(rde_hash_set* _set, u64 _k) {
+    rde_hash_set_add(_set, (any)&_k);
 }
 
 // Each subgraph's ranks, and a filler wherever it has none between its first
@@ -1464,8 +1447,8 @@ RDE_INTERNAL void fude_zoom_graph_set_add(fude_zoom_graph_set* _set, u64 _k) {
 // Pinned nodes do not count: they are not in the ranks' rows.
 RDE_INTERNAL void fude_zoom_graph_fillers(fude_zoom_graph_work* _w) {
     const u32 _ns = _w->ns;
-    _w->smin = (i32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(i32));
-    _w->smax = (i32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(i32));
+    _w->smin = (i32*)fude_zoom_graph_table(&_w->tables, _ns + 1u, sizeof(i32));
+    _w->smax = (i32*)fude_zoom_graph_table(&_w->tables, _ns + 1u, sizeof(i32));
     for(u32 _s = 0; _s <= _ns; _s++) {
         _w->smin[_s] = 0x7FFFFFFF;
         _w->smax[_s] = -1;
@@ -1473,7 +1456,7 @@ RDE_INTERNAL void fude_zoom_graph_fillers(fude_zoom_graph_work* _w) {
     if(_ns == 0) {
         return;
     }
-    fude_zoom_graph_set _set = { (u64*)fude_zoom_graph_alloc(64u, sizeof(u64)), 64u, 0 };
+    rde_hash_set TYPE(u64) _set = rde_hash_set_new(sizeof(u64), rde_hash_map_fn_u64_hash, rde_hash_map_fn_u64_cmp, NULL, rde_memory_allocator_get_default_std());
     const u32 _nv = fude_zoom_graph_count(&_w->verts);
     for(u32 _i = 0; _i < _nv; _i++) {
         const fude_zoom_graph_vertex* _v = &fude_zoom_graph_v(_w)[_i];
@@ -1486,7 +1469,8 @@ RDE_INTERNAL void fude_zoom_graph_fillers(fude_zoom_graph_work* _w) {
             _w->smax[_s] = _v->rank > _w->smax[_s] ? _v->rank : _w->smax[_s];
         }
     }
-    fude_zoom_graph_sorted* _deep = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_ns, sizeof(fude_zoom_graph_sorted));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    fude_zoom_graph_sorted* _deep = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _ns, sizeof(fude_zoom_graph_sorted));
     for(u32 _s = 1; _s <= _ns; _s++) {
         _deep[_s - 1u] = (fude_zoom_graph_sorted){ -(f64)_w->depth[_s], 0.0, _s };
     }
@@ -1503,16 +1487,16 @@ RDE_INTERNAL void fude_zoom_graph_fillers(fude_zoom_graph_work* _w) {
             }
         }
     }
-    fude_zoom_graph_free(_deep);
-    fude_zoom_graph_free(_set.keys);
+    fude_zoom_graph_tables_free(&_tables);
+    rde_hash_set_free(&_set);
 }
 
 // Each vertex's neighbours above and below, from the chains (edges in order).
 RDE_INTERNAL void fude_zoom_graph_neighbours(fude_zoom_graph_work* _w) {
     const u32 _nv = fude_zoom_graph_count(&_w->verts);
     const u32* _chain = (const u32*)_w->chain.memory;
-    _w->up_first   = (u32*)fude_zoom_graph_alloc(_nv + 1u, sizeof(u32));
-    _w->down_first = (u32*)fude_zoom_graph_alloc(_nv + 1u, sizeof(u32));
+    _w->up_first   = (u32*)fude_zoom_graph_table(&_w->tables, _nv + 1u, sizeof(u32));
+    _w->down_first = (u32*)fude_zoom_graph_table(&_w->tables, _nv + 1u, sizeof(u32));
     u32 _segments = 0;
     for(u32 _e = 0; _e < _w->ne; _e++) {
         for(u32 _k = 0; _k + 1u < _w->chain_count[_e]; _k++) {
@@ -1521,8 +1505,9 @@ RDE_INTERNAL void fude_zoom_graph_neighbours(fude_zoom_graph_work* _w) {
             _segments++;
         }
     }
-    u32* _fill_up   = (u32*)fude_zoom_graph_alloc(_nv + 1u, sizeof(u32));
-    u32* _fill_down = (u32*)fude_zoom_graph_alloc(_nv + 1u, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _fill_up   = (u32*)fude_zoom_graph_table(&_tables, _nv + 1u, sizeof(u32));
+    u32* _fill_down = (u32*)fude_zoom_graph_table(&_tables, _nv + 1u, sizeof(u32));
     for(u32 _i = 0; _i < _nv; _i++) {
         const u32 _du = _w->up_first[_i + 1u], _dd = _w->down_first[_i + 1u];
         _w->most_degree      = _du + _dd > _w->most_degree ? _du + _dd : _w->most_degree;
@@ -1531,8 +1516,8 @@ RDE_INTERNAL void fude_zoom_graph_neighbours(fude_zoom_graph_work* _w) {
         _fill_up[_i]   = _w->up_first[_i];
         _fill_down[_i] = _w->down_first[_i];
     }
-    _w->up   = (u32*)fude_zoom_graph_alloc(_segments, sizeof(u32));
-    _w->down = (u32*)fude_zoom_graph_alloc(_segments, sizeof(u32));
+    _w->up   = (u32*)fude_zoom_graph_table(&_w->tables, _segments, sizeof(u32));
+    _w->down = (u32*)fude_zoom_graph_table(&_w->tables, _segments, sizeof(u32));
     for(u32 _e = 0; _e < _w->ne; _e++) {
         for(u32 _k = 0; _k + 1u < _w->chain_count[_e]; _k++) {
             const u32 _a = _chain[_w->chain_first[_e] + _k], _b = _chain[_w->chain_first[_e] + _k + 1u];
@@ -1540,8 +1525,7 @@ RDE_INTERNAL void fude_zoom_graph_neighbours(fude_zoom_graph_work* _w) {
             _w->up[_fill_up[_b]++]     = _a;
         }
     }
-    fude_zoom_graph_free(_fill_up);
-    fude_zoom_graph_free(_fill_down);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // --- order within the ranks ----------------------------------------------------------------------
@@ -1554,11 +1538,12 @@ RDE_INTERNAL void fude_zoom_graph_siblings(fude_zoom_graph_work* _w) {
     if(_ns == 0) {
         return;
     }
-    f64* _now   = (f64*)fude_zoom_graph_alloc(_ns + 1u, sizeof(f64));
-    f64* _then  = (f64*)fude_zoom_graph_alloc(_ns + 1u, sizeof(f64));
-    u32* _count = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
-    u32* _fixed = (u32*)fude_zoom_graph_alloc(_ns + 1u, sizeof(u32));
-    fude_zoom_graph_sorted* _kids = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_ns, sizeof(fude_zoom_graph_sorted));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    f64* _now   = (f64*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(f64));
+    f64* _then  = (f64*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(f64));
+    u32* _count = (u32*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(u32));
+    u32* _fixed = (u32*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(u32));
+    fude_zoom_graph_sorted* _kids = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _ns, sizeof(fude_zoom_graph_sorted));
     const fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
     for(u32 _i = 0; _i < _nv; _i++) {
         const u32 _size = _w->layer_first[_v[_i].rank + 1] - _w->layer_first[_v[_i].rank];
@@ -1591,11 +1576,7 @@ RDE_INTERNAL void fude_zoom_graph_siblings(fude_zoom_graph_work* _w) {
             _w->sib[_kids[_k].i] = _k;
         }
     }
-    fude_zoom_graph_free(_now);
-    fude_zoom_graph_free(_then);
-    fude_zoom_graph_free(_count);
-    fude_zoom_graph_free(_fixed);
-    fude_zoom_graph_free(_kids);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 typedef struct {
@@ -1617,12 +1598,13 @@ RDE_INTERNAL void fude_zoom_graph_arrange_level(fude_zoom_graph_work* _w, u32 _s
         return;
     }
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
-    fude_zoom_graph_sorted* _by    = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_m, sizeof(fude_zoom_graph_sorted));
-    fude_zoom_graph_sorted* _keyed = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_m, sizeof(fude_zoom_graph_sorted));
-    fude_zoom_graph_sorted* _kind  = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_m, sizeof(fude_zoom_graph_sorted));
-    fude_zoom_graph_item*   _items = (fude_zoom_graph_item*)fude_zoom_graph_alloc(_m, sizeof(fude_zoom_graph_item));
-    u32*                    _slots = (u32*)fude_zoom_graph_alloc(_m, sizeof(u32));
-    u32*                    _seq   = (u32*)fude_zoom_graph_alloc(_m, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    fude_zoom_graph_sorted* _by    = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _m, sizeof(fude_zoom_graph_sorted));
+    fude_zoom_graph_sorted* _keyed = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _m, sizeof(fude_zoom_graph_sorted));
+    fude_zoom_graph_sorted* _kind  = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _m, sizeof(fude_zoom_graph_sorted));
+    fude_zoom_graph_item*   _items = (fude_zoom_graph_item*)fude_zoom_graph_table(&_tables, _m, sizeof(fude_zoom_graph_item));
+    u32*                    _slots = (u32*)fude_zoom_graph_table(&_tables, _m, sizeof(u32));
+    u32*                    _seq   = (u32*)fude_zoom_graph_table(&_tables, _m, sizeof(u32));
     for(u32 _i = 0; _i < _m; _i++) {
         _v[_list[_i]].group = fude_zoom_graph_child_of(_w, _v[_list[_i]].sub, _s);
         _by[_i] = (fude_zoom_graph_sorted){ (f64)_v[_list[_i]].group, (f64)_v[_list[_i]].order, _list[_i] };
@@ -1690,12 +1672,7 @@ RDE_INTERNAL void fude_zoom_graph_arrange_level(fude_zoom_graph_work* _w, u32 _s
         }
         _at += _it->count;
     }
-    fude_zoom_graph_free(_by);
-    fude_zoom_graph_free(_keyed);
-    fude_zoom_graph_free(_kind);
-    fude_zoom_graph_free(_items);
-    fude_zoom_graph_free(_slots);
-    fude_zoom_graph_free(_seq);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 RDE_INTERNAL void fude_zoom_graph_arrange(fude_zoom_graph_work* _w, u32 _r) {
@@ -1716,8 +1693,9 @@ RDE_INTERNAL u64 fude_zoom_graph_crossings(fude_zoom_graph_work* _w) {
         const u32 _m = _w->layer_first[_r + 1u] - _w->layer_first[_r];
         _widest = _m > _widest ? _m : _widest;
     }
-    u32* _tree = (u32*)fude_zoom_graph_alloc(_widest + 1u, sizeof(u32));
-    u32* _at   = (u32*)fude_zoom_graph_alloc(_w->most_degree + 1u, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _tree = (u32*)fude_zoom_graph_table(&_tables, _widest + 1u, sizeof(u32));
+    u32* _at   = (u32*)fude_zoom_graph_table(&_tables, _w->most_degree + 1u, sizeof(u32));
     u64  _total = 0;
     for(u32 _r = 0; _r + 1u < _w->ranks; _r++) {
         const u32 _below = _w->layer_first[_r + 2u] - _w->layer_first[_r + 1u];
@@ -1746,8 +1724,7 @@ RDE_INTERNAL u64 fude_zoom_graph_crossings(fude_zoom_graph_work* _w) {
             }
         }
     }
-    fude_zoom_graph_free(_tree);
-    fude_zoom_graph_free(_at);
+    fude_zoom_graph_tables_free(&_tables);
     return _total;
 }
 
@@ -1758,9 +1735,10 @@ RDE_INTERNAL void fude_zoom_graph_order(fude_zoom_graph_work* _w) {
     const u32 _nv = fude_zoom_graph_count(&_w->verts);
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
     // The walk.
-    u32* _stack = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
-    u32* _it    = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
-    u8*  _seen  = (u8*)fude_zoom_graph_alloc(_nv, sizeof(u8));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _stack = (u32*)fude_zoom_graph_table(&_tables, _nv, sizeof(u32));
+    u32* _it    = (u32*)fude_zoom_graph_table(&_tables, _nv, sizeof(u32));
+    u8*  _seen  = (u8*)fude_zoom_graph_table(&_tables, _nv, sizeof(u8));
     u32  _disc  = 0;
     for(u32 _root = 0; _root < _nv; _root++) {
         if(_seen[_root]) {
@@ -1786,13 +1764,11 @@ RDE_INTERNAL void fude_zoom_graph_order(fude_zoom_graph_work* _w) {
             }
         }
     }
-    fude_zoom_graph_free(_stack);
-    fude_zoom_graph_free(_it);
-    fude_zoom_graph_free(_seen);
+    fude_zoom_graph_tables_clear(&_tables);
     // The ranks, each in the walk's order.
-    _w->layer_first = (u32*)fude_zoom_graph_alloc(_w->ranks + 1u, sizeof(u32));
-    _w->layer       = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
-    fude_zoom_graph_sorted* _all = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_nv, sizeof(fude_zoom_graph_sorted));
+    _w->layer_first = (u32*)fude_zoom_graph_table(&_w->tables, _w->ranks + 1u, sizeof(u32));
+    _w->layer       = (u32*)fude_zoom_graph_table(&_w->tables, _nv, sizeof(u32));
+    fude_zoom_graph_sorted* _all = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _nv, sizeof(fude_zoom_graph_sorted));
     for(u32 _i = 0; _i < _nv; _i++) {
         _all[_i] = (fude_zoom_graph_sorted){ (f64)_v[_i].rank, (f64)_v[_i].disc, _i };
         _w->layer_first[_v[_i].rank + 1]++;
@@ -1805,7 +1781,7 @@ RDE_INTERNAL void fude_zoom_graph_order(fude_zoom_graph_work* _w) {
         _w->layer[_i] = _all[_i].i;
         _v[_all[_i].i].order = _i - _w->layer_first[_v[_all[_i].i].rank];
     }
-    fude_zoom_graph_free(_all);
+    fude_zoom_graph_tables_clear(&_tables);
     fude_zoom_graph_siblings(_w);
     for(u32 _r = 0; _r < _w->ranks; _r++) {
         for(u32 _i = _w->layer_first[_r]; _i < _w->layer_first[_r + 1u]; _i++) {
@@ -1813,7 +1789,7 @@ RDE_INTERNAL void fude_zoom_graph_order(fude_zoom_graph_work* _w) {
         }
         fude_zoom_graph_arrange(_w, _r);
     }
-    u32* _best       = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
+    u32* _best       = (u32*)fude_zoom_graph_table(&_tables, _nv, sizeof(u32));
     u64  _best_cross = fude_zoom_graph_crossings(_w);
     memcpy(_best, _w->layer, (usize)_nv * sizeof(u32));
     for(u32 _sweep = 0; _sweep < FUDE_ZOOM_GRAPH_SWEEPS && _best_cross > 0; _sweep++) {
@@ -1849,7 +1825,7 @@ RDE_INTERNAL void fude_zoom_graph_order(fude_zoom_graph_work* _w) {
             _v[_w->layer[_i]].order = _i - _w->layer_first[_r];
         }
     }
-    fude_zoom_graph_free(_best);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // --- places ------------------------------------------------------------------------------------
@@ -1943,8 +1919,9 @@ RDE_INTERNAL b8 fude_zoom_graph_rules(fude_zoom_graph_work* _w, b8 _boxes) {
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
     _w->nvars = _nv + 2u * _ns;
     rde_arr_clear(&_w->rules);
-    u32* _pa = (u32*)fude_zoom_graph_alloc(_w->most_depth + 1u, sizeof(u32));
-    u32* _pb = (u32*)fude_zoom_graph_alloc(_w->most_depth + 1u, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _pa = (u32*)fude_zoom_graph_table(&_tables, _w->most_depth + 1u, sizeof(u32));
+    u32* _pb = (u32*)fude_zoom_graph_table(&_tables, _w->most_depth + 1u, sizeof(u32));
     for(u32 _r = 0; _r < _w->ranks; _r++) {
         u32 _a = FUDE_ZOOM_GRAPH_NONE, _na = 0;
         for(u32 _i = _w->row_first[_r]; _i <= _w->row_first[_r + 1u]; _i++) {
@@ -1989,24 +1966,20 @@ RDE_INTERNAL b8 fude_zoom_graph_rules(fude_zoom_graph_work* _w, b8 _boxes) {
             memcpy(_pa, _pb, (usize)_nb * sizeof(u32));
         }
     }
-    fude_zoom_graph_free(_pa);
-    fude_zoom_graph_free(_pb);
+    fude_zoom_graph_tables_clear(&_tables);
     // Each variable's rules both ways, and an order every rule goes forward in
     // (Kahn's, by index on ties).
     const u32 _nr = fude_zoom_graph_count(&_w->rules), _nvar = _w->nvars;
     const fude_zoom_graph_rule* _rule = (const fude_zoom_graph_rule*)_w->rules.memory;
-    any _old[] = { _w->rin_first, _w->rin, _w->rout_first, _w->rout, _w->topo };
-    for(u32 _k = 0; _k < sizeof(_old) / sizeof(_old[0]); _k++) {
-        fude_zoom_graph_free(_old[_k]);
-    }
-    _w->rin_first  = (u32*)fude_zoom_graph_alloc(_nvar + 1u, sizeof(u32));
-    _w->rout_first = (u32*)fude_zoom_graph_alloc(_nvar + 1u, sizeof(u32));
-    _w->rin        = (u32*)fude_zoom_graph_alloc(_nr, sizeof(u32));
-    _w->rout       = (u32*)fude_zoom_graph_alloc(_nr, sizeof(u32));
-    _w->topo       = (u32*)fude_zoom_graph_alloc(_nvar, sizeof(u32));
-    u32* _fill_in  = (u32*)fude_zoom_graph_alloc(_nvar + 1u, sizeof(u32));
-    u32* _fill_out = (u32*)fude_zoom_graph_alloc(_nvar + 1u, sizeof(u32));
-    u32* _in       = (u32*)fude_zoom_graph_alloc(_nvar, sizeof(u32));
+    fude_zoom_graph_tables_clear(&_w->rule_tables);   // (the last time's)
+    _w->rin_first  = (u32*)fude_zoom_graph_table(&_w->rule_tables, _nvar + 1u, sizeof(u32));
+    _w->rout_first = (u32*)fude_zoom_graph_table(&_w->rule_tables, _nvar + 1u, sizeof(u32));
+    _w->rin        = (u32*)fude_zoom_graph_table(&_w->rule_tables, _nr, sizeof(u32));
+    _w->rout       = (u32*)fude_zoom_graph_table(&_w->rule_tables, _nr, sizeof(u32));
+    _w->topo       = (u32*)fude_zoom_graph_table(&_w->rule_tables, _nvar, sizeof(u32));
+    u32* _fill_in  = (u32*)fude_zoom_graph_table(&_tables, _nvar + 1u, sizeof(u32));
+    u32* _fill_out = (u32*)fude_zoom_graph_table(&_tables, _nvar + 1u, sizeof(u32));
+    u32* _in       = (u32*)fude_zoom_graph_table(&_tables, _nvar, sizeof(u32));
     for(u32 _k = 0; _k < _nr; _k++) {
         _w->rout_first[_rule[_k].a + 1u]++;
         _w->rin_first[_rule[_k].b + 1u]++;
@@ -2032,9 +2005,7 @@ RDE_INTERNAL b8 fude_zoom_graph_rules(fude_zoom_graph_work* _w, b8 _boxes) {
             if(--_in[_rule[_w->rout[_k]].b] == 0) _w->topo[_nt++] = _rule[_w->rout[_k]].b;
         }
     }
-    fude_zoom_graph_free(_fill_in);
-    fude_zoom_graph_free(_fill_out);
-    fude_zoom_graph_free(_in);
+    fude_zoom_graph_tables_free(&_tables);
     return _nt == _nvar;
 }
 
@@ -2150,8 +2121,9 @@ RDE_INTERNAL void fude_zoom_graph_legalise(fude_zoom_graph_work* _w) {
     const u32 _nv = _w->nv, _nvar = _w->nvars;
     const fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
     const fude_zoom_graph_rule* _rule = (const fude_zoom_graph_rule*)_w->rules.memory;
-    f64* _right = (f64*)fude_zoom_graph_alloc(_nvar, sizeof(f64));
-    f64* _left  = (f64*)fude_zoom_graph_alloc(_nvar, sizeof(f64));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    f64* _right = (f64*)fude_zoom_graph_table(&_tables, _nvar, sizeof(f64));
+    f64* _left  = (f64*)fude_zoom_graph_table(&_tables, _nvar, sizeof(f64));
     for(u32 _i = 0; _i < _nv; _i++) {
         _right[_i] = _v[_i].x;
     }
@@ -2193,8 +2165,7 @@ RDE_INTERNAL void fude_zoom_graph_legalise(fude_zoom_graph_work* _w) {
             fude_zoom_graph_set_at(_w, _i, 0.5 * (_right[_i] + _left[_i]));
         }
     }
-    fude_zoom_graph_free(_right);
-    fude_zoom_graph_free(_left);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // Long edges made straight where their rows let them: each edge's dummies in
@@ -2203,7 +2174,8 @@ RDE_INTERNAL void fude_zoom_graph_legalise(fude_zoom_graph_work* _w) {
 RDE_INTERNAL void fude_zoom_graph_straighten(fude_zoom_graph_work* _w) {
     fude_zoom_graph_vertex* _v     = fude_zoom_graph_v(_w);
     const u32*              _chain = (const u32*)_w->chain.memory;
-    f64*                    _xs    = (f64*)fude_zoom_graph_alloc(_w->ranks + 1u, sizeof(f64));
+    rde_arr                 _tables = fude_zoom_graph_tables_new();
+    f64*                    _xs    = (f64*)fude_zoom_graph_table(&_tables, _w->ranks + 1u, sizeof(f64));
     for(u32 _e = 0; _e < _w->ne; _e++) {
         const u32  _n = _w->chain_count[_e];
         const u32* _c = &_chain[_w->chain_first[_e]];
@@ -2231,7 +2203,7 @@ RDE_INTERNAL void fude_zoom_graph_straighten(fude_zoom_graph_work* _w) {
             _k = _end > _k ? _end : _k + 1u;
         }
     }
-    fude_zoom_graph_free(_xs);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // The pinned nodes kept clear of: along each row, left to right, a vertex
@@ -2239,7 +2211,8 @@ RDE_INTERNAL void fude_zoom_graph_straighten(fude_zoom_graph_work* _w) {
 // if there is room), and the rest of the row after it.
 RDE_INTERNAL void fude_zoom_graph_avoid(fude_zoom_graph_work* _w) {
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
-    fude_zoom_graph_sorted* _obs = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_w->n, sizeof(fude_zoom_graph_sorted));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    fude_zoom_graph_sorted* _obs = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _w->n, sizeof(fude_zoom_graph_sorted));
     const f64 _g = _w->sp.node_gap;
     for(u32 _r = 0; _r < _w->ranks; _r++) {
         const f64 _top = _w->rank_y[_r] - _w->rank_h[_r] * 0.5, _bottom = _w->rank_y[_r] + _w->rank_h[_r] * 0.5;
@@ -2277,7 +2250,7 @@ RDE_INTERNAL void fude_zoom_graph_avoid(fude_zoom_graph_work* _w) {
             _prev = _w->row[_i];
         }
     }
-    fude_zoom_graph_free(_obs);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // Each rank's line along the flow: as tall as its tallest (pinned ones count,
@@ -2286,18 +2259,19 @@ RDE_INTERNAL void fude_zoom_graph_avoid(fude_zoom_graph_work* _w) {
 RDE_INTERNAL void fude_zoom_graph_rank_lines(fude_zoom_graph_work* _w) {
     const u32 _ns = _w->ns, _nv = _w->nv;
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
-    _w->rank_y = (f64*)fude_zoom_graph_alloc(_w->ranks, sizeof(f64));
-    _w->rank_h = (f64*)fude_zoom_graph_alloc(_w->ranks, sizeof(f64));
-    f64* _below = (f64*)fude_zoom_graph_alloc(_w->ranks, sizeof(f64));
-    f64* _above = (f64*)fude_zoom_graph_alloc(_w->ranks, sizeof(f64));
+    _w->rank_y = (f64*)fude_zoom_graph_table(&_w->tables, _w->ranks, sizeof(f64));
+    _w->rank_h = (f64*)fude_zoom_graph_table(&_w->tables, _w->ranks, sizeof(f64));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    f64* _below = (f64*)fude_zoom_graph_table(&_tables, _w->ranks, sizeof(f64));
+    f64* _above = (f64*)fude_zoom_graph_table(&_tables, _w->ranks, sizeof(f64));
     for(u32 _i = 0; _i < _nv; _i++) {
         _w->rank_h[_v[_i].rank] = fmax(_w->rank_h[_v[_i].rank], _v[_i].h);
     }
     if(_ns > 0) {
         // How far each box reaches past its first and last ranks: its own pad
         // and that of the boxes inside it ending there too.
-        f64* _top    = (f64*)fude_zoom_graph_alloc(_ns + 1u, sizeof(f64));
-        f64* _bottom = (f64*)fude_zoom_graph_alloc(_ns + 1u, sizeof(f64));
+        f64* _top    = (f64*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(f64));
+        f64* _bottom = (f64*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(f64));
         for(u32 _d = _w->most_depth; _d > 0; _d--) {
             for(u32 _s = 1; _s <= _ns; _s++) {
                 if(_w->depth[_s] != _d || _w->smin[_s] > _w->smax[_s]) {
@@ -2312,8 +2286,6 @@ RDE_INTERNAL void fude_zoom_graph_rank_lines(fude_zoom_graph_work* _w) {
                 if(_p != 0 && _w->smax[_p] == _w->smax[_s]) _bottom[_p] = fmax(_bottom[_p], _bottom[_s]);
             }
         }
-        fude_zoom_graph_free(_top);
-        fude_zoom_graph_free(_bottom);
     }
     const f64 _base = _w->labels ? _w->sp.rank_gap * 0.5 : _w->sp.rank_gap;
     for(u32 _r = 0; _r < _w->ranks; _r++) {
@@ -2325,8 +2297,7 @@ RDE_INTERNAL void fude_zoom_graph_rank_lines(fude_zoom_graph_work* _w) {
         const f64 _gap   = _boxes > 0.0 ? fmax(_base, _boxes + _base * 0.5) : _base;
         _w->rank_y[_r] = _w->rank_y[_r - 1u] + _w->rank_h[_r - 1u] * 0.5 + _gap + _w->rank_h[_r] * 0.5;
     }
-    fude_zoom_graph_free(_below);
-    fude_zoom_graph_free(_above);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // Along each rank: packed, drawn towards their neighbours, the boxes made
@@ -2336,9 +2307,9 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
     const u32 _nv = _w->nv;
     fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
     // The rows: each rank without its pinned nodes.
-    _w->row_first = (u32*)fude_zoom_graph_alloc(_w->ranks + 1u, sizeof(u32));
-    _w->row       = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
-    _w->row_at    = (u32*)fude_zoom_graph_alloc(_nv, sizeof(u32));
+    _w->row_first = (u32*)fude_zoom_graph_table(&_w->tables, _w->ranks + 1u, sizeof(u32));
+    _w->row       = (u32*)fude_zoom_graph_table(&_w->tables, _nv, sizeof(u32));
+    _w->row_at    = (u32*)fude_zoom_graph_table(&_w->tables, _nv, sizeof(u32));
     u32 _nrow = 0, _widest = 0;
     for(u32 _r = 0; _r < _w->ranks; _r++) {
         _w->row_first[_r] = _nrow;
@@ -2351,9 +2322,10 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
     _w->row_first[_w->ranks] = _nrow;
     // Lines along the flow, moved to where the pinned nodes have their ranks.
     fude_zoom_graph_rank_lines(_w);
+    rde_arr _tables = fude_zoom_graph_tables_new();
     f64 _centre = 0.0;
     if(_w->any_pinned) {
-        fude_zoom_graph_sorted* _off = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_w->n, sizeof(fude_zoom_graph_sorted));
+        fude_zoom_graph_sorted* _off = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _w->n, sizeof(fude_zoom_graph_sorted));
         u32 _np = 0;
         for(u32 _i = 0; _i < _w->n; _i++) {
             if(_v[_i].pinned) {
@@ -2367,7 +2339,7 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
             _w->rank_y[_r] += _shift;
         }
         _centre /= (f64)_np;
-        fude_zoom_graph_free(_off);
+        fude_zoom_graph_tables_clear(&_tables);
     }
     for(u32 _i = 0; _i < _nv; _i++) {
         if(!_v[_i].pinned) _v[_i].y = _w->rank_y[_v[_i].rank];
@@ -2391,15 +2363,15 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
         }
     }
     fude_zoom_graph_scratch _s;
-    _s.want   = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.weight = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.sep    = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.x      = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.off    = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.bv     = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.bw     = (f64*)fude_zoom_graph_alloc(_widest, sizeof(f64));
-    _s.bstart = (u32*)fude_zoom_graph_alloc(_widest, sizeof(u32));
-    _s.near   = (f64*)fude_zoom_graph_alloc(_w->most_degree + 1u, sizeof(f64));
+    _s.want   = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.weight = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.sep    = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.x      = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.off    = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.bv     = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.bw     = (f64*)fude_zoom_graph_table(&_tables, _widest, sizeof(f64));
+    _s.bstart = (u32*)fude_zoom_graph_table(&_tables, _widest, sizeof(u32));
+    _s.near   = (f64*)fude_zoom_graph_table(&_tables, _w->most_degree + 1u, sizeof(f64));
     for(u32 _pass = 0; _pass < FUDE_ZOOM_GRAPH_NUDGES; _pass++) {
         for(u32 _r = 1; _r < _w->ranks; _r++) fude_zoom_graph_nudge(_w, _r, FUDE_ZOOM_GRAPH_ABOVE, false, &_s);
         for(u32 _r = _w->ranks; _r-- > 0;) fude_zoom_graph_nudge(_w, _r, FUDE_ZOOM_GRAPH_BELOW, false, &_s);
@@ -2407,14 +2379,14 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
     // The rules, with the boxes if they hold together (else without), the
     // boxes made whole, and a few more passes inside them.
     _w->rules = rde_arr_new(sizeof(fude_zoom_graph_rule), rde_memory_allocator_get_default_std());
-    _w->wall  = (f64*)fude_zoom_graph_alloc(2u * _w->ns, sizeof(f64));
+    _w->wall  = (f64*)fude_zoom_graph_table(&_w->tables, 2u * _w->ns, sizeof(f64));
     const b8 _boxes = _w->ns > 0 && fude_zoom_graph_rules(_w, true);
     if(!_boxes) {
         fude_zoom_graph_rules(_w, false);
     } else {
         fude_zoom_graph_legalise(_w);
     }
-    u32* _deepest = (u32*)fude_zoom_graph_alloc(_w->ns, sizeof(u32));
+    u32* _deepest = (u32*)fude_zoom_graph_table(&_tables, _w->ns, sizeof(u32));
     for(u32 _d = _w->most_depth, _k = 0; _d > 0; _d--) {
         for(u32 _t = 1; _t <= _w->ns; _t++) {
             if(_w->depth[_t] == _d) _deepest[_k++] = _t;
@@ -2429,16 +2401,7 @@ RDE_INTERNAL void fude_zoom_graph_place(fude_zoom_graph_work* _w) {
         for(u32 _r = _both ? 0u : _w->ranks; !_both && _r-- > 0;) fude_zoom_graph_nudge(_w, _r, FUDE_ZOOM_GRAPH_BELOW, true, &_s);
         fude_zoom_graph_hug(_w, _deepest);
     }
-    fude_zoom_graph_free(_deepest);
-    fude_zoom_graph_free(_s.want);
-    fude_zoom_graph_free(_s.weight);
-    fude_zoom_graph_free(_s.sep);
-    fude_zoom_graph_free(_s.x);
-    fude_zoom_graph_free(_s.off);
-    fude_zoom_graph_free(_s.bv);
-    fude_zoom_graph_free(_s.bw);
-    fude_zoom_graph_free(_s.bstart);
-    fude_zoom_graph_free(_s.near);
+    fude_zoom_graph_tables_free(&_tables);
     fude_zoom_graph_straighten(_w);
     if(_w->any_pinned) {
         fude_zoom_graph_avoid(_w);
@@ -2537,8 +2500,9 @@ RDE_INTERNAL void fude_zoom_graph_bends(fude_zoom_graph_work* _w) {
     rde_arr_clear(&_g->bends);
     // Edges side by side between the same two nodes, with no bend to keep
     // them apart: each after the first bent aside at its middle, by turns.
-    fude_zoom_graph_sorted* _pairs = (fude_zoom_graph_sorted*)fude_zoom_graph_alloc(_w->ne, sizeof(fude_zoom_graph_sorted));
-    u32* _aside = (u32*)fude_zoom_graph_alloc(_w->ne, sizeof(u32));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    fude_zoom_graph_sorted* _pairs = (fude_zoom_graph_sorted*)fude_zoom_graph_table(&_tables, _w->ne, sizeof(fude_zoom_graph_sorted));
+    u32* _aside = (u32*)fude_zoom_graph_table(&_tables, _w->ne, sizeof(u32));
     u32  _np = 0;
     for(u32 _e = 0; _e < _w->ne; _e++) {
         if(_w->tail[_e] != FUDE_ZOOM_GRAPH_NONE && _w->tail[_e] != _w->head[_e] && _w->chain_count[_e] <= 2u) {
@@ -2584,8 +2548,7 @@ RDE_INTERNAL void fude_zoom_graph_bends(fude_zoom_graph_work* _w) {
             _edge->bend_count = 1u;
         }
     }
-    fude_zoom_graph_free(_pairs);
-    fude_zoom_graph_free(_aside);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 // Each label: on its own vertex if it has one; a loop's beside the loop; else
@@ -2641,7 +2604,8 @@ RDE_INTERNAL void fude_zoom_graph_boxes(fude_zoom_graph_work* _w) {
         return;
     }
     const fude_zoom_graph_vertex* _v = fude_zoom_graph_v(_w);
-    fude_zoom_box* _box = (fude_zoom_box*)fude_zoom_graph_alloc(_ns + 1u, sizeof(fude_zoom_box));
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    fude_zoom_box* _box = (fude_zoom_box*)fude_zoom_graph_table(&_tables, _ns + 1u, sizeof(fude_zoom_box));
     for(u32 _s = 0; _s <= _ns; _s++) {
         _box[_s] = (fude_zoom_box){ 1e300, 1e300, -1e300, -1e300 };
     }
@@ -2683,18 +2647,12 @@ RDE_INTERNAL void fude_zoom_graph_boxes(fude_zoom_graph_work* _w) {
             _sg->h = fabs(_b.y - _a.y);
         }
     }
-    fude_zoom_graph_free(_box);
+    fude_zoom_graph_tables_free(&_tables);
 }
 
 RDE_INTERNAL void fude_zoom_graph_work_free(fude_zoom_graph_work* _w) {
-    any _all[] = {
-        _w->tail, _w->head, _w->minlen, _w->reversed, _w->chain_first, _w->chain_count, _w->label_vertex,
-        _w->up_first, _w->up, _w->down_first, _w->down, _w->layer_first, _w->layer, _w->row_first, _w->row,
-        _w->row_at, _w->rin_first, _w->rin, _w->rout_first, _w->rout, _w->topo, _w->wall, _w->rank_y, _w->rank_h, _w->parent, _w->depth, _w->smin, _w->smax, _w->sib,
-    };
-    for(u32 _i = 0; _i < sizeof(_all) / sizeof(_all[0]); _i++) {
-        fude_zoom_graph_free(_all[_i]);
-    }
+    fude_zoom_graph_tables_free(&_w->tables);
+    fude_zoom_graph_tables_free(&_w->rule_tables);
     if(rde_arr_is_inited(&_w->verts)) rde_arr_free(&_w->verts);
     if(rde_arr_is_inited(&_w->chain)) rde_arr_free(&_w->chain);
     if(rde_arr_is_inited(&_w->rules)) rde_arr_free(&_w->rules);
@@ -2728,11 +2686,13 @@ void fude_zoom_graph_layout(fude_zoom_graph* _g, fude_zoom_graph_spacing _sp) {
         _w.pad[_k] = _w.sp.subgraph_pad;
     }
     _w.pad[_dir == FUDE_ZOOM_FLOW_TB ? 2 : (_dir == FUDE_ZOOM_FLOW_BT ? 3 : 0)] += _w.sp.subgraph_title;
+    _w.tables      = fude_zoom_graph_tables_new();
+    _w.rule_tables = fude_zoom_graph_tables_new();
     fude_zoom_graph_tree(&_w);
-    _w.sib = (u32*)fude_zoom_graph_alloc(_w.ns + 1u, sizeof(u32));
+    _w.sib = (u32*)fude_zoom_graph_table(&_w.tables, _w.ns + 1u, sizeof(u32));
     // The nodes as vertices (first, at their own index), where they were.
     _w.verts = rde_arr_new(sizeof(fude_zoom_graph_vertex), rde_memory_allocator_get_default_std());
-    fude_zoom_v2* _before = (fude_zoom_v2*)fude_zoom_graph_alloc(_w.n, sizeof(fude_zoom_v2));
+    fude_zoom_v2* _before = (fude_zoom_v2*)fude_zoom_graph_table(&_w.tables, _w.n, sizeof(fude_zoom_v2));   // (freed with the work)
     for(u32 _i = 0; _i < _w.n; _i++) {
         const fude_zoom_graph_node* _node = fude_zoom_graph_node_at(_g, _i);
         const f64 _nw = fude_zoom_graph_sane(_node->w), _nh = fude_zoom_graph_sane(_node->h);
@@ -2752,10 +2712,10 @@ void fude_zoom_graph_layout(fude_zoom_graph* _g, fude_zoom_graph_spacing _sp) {
         }
     }
     // The edges: ends, lengths, and whether labels keep ranks of their own.
-    _w.tail     = (u32*)fude_zoom_graph_alloc(_w.ne, sizeof(u32));
-    _w.head     = (u32*)fude_zoom_graph_alloc(_w.ne, sizeof(u32));
-    _w.minlen   = (u32*)fude_zoom_graph_alloc(_w.ne, sizeof(u32));
-    _w.reversed = (b8*)fude_zoom_graph_alloc(_w.ne, sizeof(b8));
+    _w.tail     = (u32*)fude_zoom_graph_table(&_w.tables, _w.ne, sizeof(u32));
+    _w.head     = (u32*)fude_zoom_graph_table(&_w.tables, _w.ne, sizeof(u32));
+    _w.minlen   = (u32*)fude_zoom_graph_table(&_w.tables, _w.ne, sizeof(u32));
+    _w.reversed = (b8*)fude_zoom_graph_table(&_w.tables, _w.ne, sizeof(b8));
     for(u32 _e = 0; _e < _w.ne; _e++) {
         const fude_zoom_graph_edge* _edge = fude_zoom_graph_edge_at(_g, _e);
         _w.labels = _w.labels || (_edge->from < _w.n && _edge->to < _w.n && _edge->from != _edge->to &&
@@ -2849,6 +2809,5 @@ void fude_zoom_graph_layout(fude_zoom_graph* _g, fude_zoom_graph_spacing _sp) {
     for(u32 _i = 0; _i < _w.n; _i++) {
         fude_zoom_graph_node_at(_g, _i)->placed = true;
     }
-    fude_zoom_graph_free(_before);
     fude_zoom_graph_work_free(&_w);
 }

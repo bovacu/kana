@@ -3,6 +3,8 @@
 #include "zoom/select.h"
 #include "zoom/connect.h"
 #include "zoom/shape.h"
+#include "zoom/circuit.h"
+#include "zoom/props.h"
 #include "drawing/base/theme.h"
 
 #include <math.h>
@@ -38,10 +40,9 @@ void fude_zoom_select_init(fude_zoom_selection* _sel) {
 }
 
 RDE_INTERNAL void fude_zoom_select_clip_clear(fude_zoom_selection* _sel) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_clip*       _c    = (fude_zoom_clip*)_sel->clip.memory;
+    fude_zoom_clip* _c = (fude_zoom_clip*)_sel->clip.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_sel->clip); _i++) {
-        _heap->free(_heap->allocator, _c[_i].bytes);
+        rde_arr_free(&_c[_i].bytes);
     }
     rde_arr_clear(&_sel->clip);
 }
@@ -115,7 +116,25 @@ void fude_zoom_select_update(fude_zoom_selection* _sel, const fude_zoom_scene* _
         if(_sel->grab >= FUDE_ZOOM_GRAB_MOVE) {
             _to = fude_zoom_sim_compose(_sel->drag, _to);
         }
-        _sel->box = fude_zoom_box_union(_sel->box, fude_zoom_sim_box(_to, fude_zoom_scene_object(_s, _p->object)->box));
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _p->object);
+        if(_o->kind == FUDE_ZOOM_KIND_SHAPE && _o->channels == FUDE_ZOOM_SHAPE_GUIDE && _sel->half.x > 0.0) {
+            // A guide: the part of it on the screen (it reaches far past it).
+            const fude_zoom_sim _all = fude_zoom_sim_compose(_to, fude_zoom_object_sim(_o));
+            f64 _n[3];
+            const u32 _count = fude_zoom_scene_shape_numbers(_s, _p->object, _n, 3u);
+            rde_arr _pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+            b8 _closed;
+            fude_zoom_shape_outline(FUDE_ZOOM_SHAPE_GUIDE, _n, _count, 1u, &_pts, &_closed);
+            if(rde_arr_length(&_pts) == 2u) {
+                fude_zoom_v2 _a = fude_zoom_sim_apply(_all, ((const fude_zoom_v2*)_pts.memory)[0]), _b = fude_zoom_sim_apply(_all, ((const fude_zoom_v2*)_pts.memory)[1]);
+                if(fude_zoom_clip_line(&_a, &_b, (fude_zoom_box){ -_sel->half.x, -_sel->half.y, _sel->half.x, _sel->half.y })) {
+                    _sel->box = fude_zoom_box_union(_sel->box, (fude_zoom_box){ fmin(_a.x, _b.x), fmin(_a.y, _b.y), fmax(_a.x, _b.x), fmax(_a.y, _b.y) });
+                }
+            }
+            rde_arr_free(&_pts);
+            continue;
+        }
+        _sel->box = fude_zoom_box_union(_sel->box, fude_zoom_sim_box(_to, _o->box));
     }
 }
 
@@ -125,6 +144,18 @@ b8 fude_zoom_select_box(const fude_zoom_selection* _sel, fude_zoom_box* _out) {
     }
     *_out = fude_zoom_box_grow(_sel->box, FUDE_ZOOM_SELECT_PAD);
     return true;
+}
+
+// Things moved, one undo step: the circuit's wires joined to them (circuit.h) made again to their pins where they are now.
+RDE_INTERNAL void fude_zoom_select_push_moved(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _ids, const fude_zoom_place* _before,
+                                              const fude_zoom_place* _after, u32 _n) {
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr _died = rde_arr_new(sizeof(u32), _heap), _born = rde_arr_new(sizeof(u32), _heap);
+    fude_zoom_wire_follow(_s, _ids, _n, &_died, &_born);
+    fude_zoom_history_push_all(_s, _frame, _box, (const u32*)_died.memory, (u32)rde_arr_length(&_died), (const u32*)_born.memory, (u32)rde_arr_length(&_born),
+                               _ids, _before, _after, _n);
+    rde_arr_free(&_died);
+    rde_arr_free(&_born);
 }
 
 // --- the loop ---------------------------------------------------------------------------------
@@ -201,8 +232,8 @@ RDE_INTERNAL void fude_zoom_select_take(fude_zoom_selection* _sel, fude_zoom_sce
             const u32               _object = ((const u32*)_sel->found.memory)[_i];
             const fude_zoom_object* _o      = fude_zoom_scene_object(_s, _object);
             if(_o->kind == FUDE_ZOOM_KIND_FRAME || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER || _o->count == 0 ||
-               !fude_zoom_scene_touchable(_s, _o)) {
-                continue;   // (a bookmark is never picked: it is not drawn; nor what a hidden or locked layer holds)
+               !fude_zoom_scene_touchable(_s, _o) || (_o->kind == FUDE_ZOOM_KIND_SHAPE && fude_zoom_shape_is_attribute(_o->channels))) {
+                continue;   // (a bookmark is never picked: it is not drawn; nor a constraint; nor what a hidden or locked layer holds)
             }
             if(_all) {
                 fude_zoom_select_add(_sel, _object);
@@ -305,6 +336,10 @@ RDE_INTERNAL i32 fude_zoom_select_handle(const fude_zoom_selection* _sel, rde_ve
         }
     }
     return fude_zoom_box_contains(_b, (fude_zoom_v2){ _p.x, _p.y }) ? 5 : -1;
+}
+
+i32 fude_zoom_select_handle_at(const fude_zoom_selection* _sel, rde_vec_2F _screen) {
+    return fude_zoom_select_any(_sel) ? fude_zoom_select_handle(_sel, _screen) : -1;
 }
 
 void fude_zoom_select_down(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_renderer* _r, rde_vec_2F _screen) {
@@ -470,9 +505,11 @@ RDE_INTERNAL void fude_zoom_select_commit(fude_zoom_selection* _sel, fude_zoom_s
     const u32 _n = fude_zoom_pick_count(_sel);
     const b8  _moved = fabs(_sel->drag.a - 1.0) > 1e-9 || fabs(_sel->drag.b) > 1e-9 || fabs(_sel->drag.tx) > 1e-6 || fabs(_sel->drag.ty) > 1e-6;
     if(_moved && _n > 0) {
-        rde_memory_allocator* _heap   = rde_memory_allocator_get_default_std();
-        u32*                  _ids    = _heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));
-        fude_zoom_place*      _after  = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_place));
+        rde_memory_allocator*         _heap      = rde_memory_allocator_get_default_std();
+        rde_arr TYPE(u32)             _ids_arr   = rde_arr_new(sizeof(u32), _heap);
+        rde_arr TYPE(fude_zoom_place) _after_arr = rde_arr_new(sizeof(fude_zoom_place), _heap);
+        u32*                          _ids       = (u32*)rde_arr_add_n(&_ids_arr, _n);   // (sized once: they stay put)
+        fude_zoom_place*              _after     = (fude_zoom_place*)rde_arr_add_n(&_after_arr, _n);
         for(u32 _i = 0; _i < _n; _i++) {
             const fude_zoom_pick* _p  = &fude_zoom_picks(_sel)[_i];
             const fude_zoom_sim   _to = fude_zoom_select_to_screen(_s, fude_zoom_pick_frame(_s, _p));
@@ -506,13 +543,13 @@ RDE_INTERNAL void fude_zoom_select_commit(fude_zoom_selection* _sel, fude_zoom_s
             fude_zoom_connect_follow(_s, _frames[_k], _ids, _n, &_all_ids, &_all_before, &_all_after);
         }
         const fude_zoom_box _view = fude_zoom_sim_box(fude_zoom_sim_inverse(fude_zoom_camera_sim(&_s->camera)), _sel->box);
-        fude_zoom_history_push_moved(_s, _s->camera.frame, _view, (const u32*)_all_ids.memory, (const fude_zoom_place*)_all_before.memory,
+        fude_zoom_select_push_moved(_s, _s->camera.frame, _view, (const u32*)_all_ids.memory, (const fude_zoom_place*)_all_before.memory,
                                      (const fude_zoom_place*)_all_after.memory, (u32)rde_arr_length(&_all_ids));
         rde_arr_free(&_all_ids);
         rde_arr_free(&_all_before);
         rde_arr_free(&_all_after);
-        _heap->free(_heap->allocator, _ids);
-        _heap->free(_heap->allocator, _after);
+        rde_arr_free(&_ids_arr);
+        rde_arr_free(&_after_arr);
     }
     fude_zoom_select_unlift(_sel);
     _sel->grab = FUDE_ZOOM_GRAB_NONE;
@@ -619,6 +656,7 @@ void fude_zoom_select_delete(fude_zoom_selection* _sel, fude_zoom_scene* _s) {
             rde_arr_add(&_died, (any)&_o);
         }
     }
+    fude_zoom_wire_orphans(_s, &_died);   // (the wires their parts kept go with them)
     const fude_zoom_box _view = fude_zoom_sim_box(fude_zoom_sim_inverse(fude_zoom_camera_sim(&_s->camera)), _sel->box);
     fude_zoom_history_push(_s, _s->camera.frame, _view, (const u32*)_died.memory, (u32)rde_arr_length(&_died), NULL, 0);
     rde_arr_free(&_died);
@@ -733,30 +771,55 @@ u32 fude_zoom_select_to_layer(fude_zoom_selection* _sel, fude_zoom_scene* _s, u1
     return _moved;
 }
 
+// A copy of object _object onto _out (not a frame, a mark, a layer, nothing gone).
+RDE_INTERNAL void fzsel_clip_add(const fude_zoom_scene* _s, u32 _object, rde_arr* _out) {
+    const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
+    if(_o->kind == FUDE_ZOOM_KIND_FRAME || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER || _o->blob == 0 || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
+        return;
+    }
+    const fude_zoom_blob* _b = &((const fude_zoom_blob*)_s->blobs.memory)[_o->blob - 1u];
+    fude_zoom_clip _c = { .look = *_o };
+    fude_zoom_clip_put(&_c, fude_zoom_blob_bytes(_b), fude_zoom_blob_size(_b));
+    _c.on_screen = fude_zoom_sim_compose(fude_zoom_select_to_screen(_s, _o->frame), fude_zoom_object_sim(_o));
+    rde_arr_add(_out, &_c);
+}
+
 void fude_zoom_select_clips_of(const fude_zoom_scene* _s, const u32* _objects, u32 _n, rde_arr* _out) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    const u32 _count = fude_zoom_scene_object_count(_s);
+    rde_arr _copied = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_copied, _count);
     for(u32 _i = 0; _i < _n; _i++) {
-        if(_objects[_i] >= fude_zoom_scene_object_count(_s)) {
+        if(_objects[_i] >= _count) {
             continue;
         }
-        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _objects[_i]);
-        if(_o->kind == FUDE_ZOOM_KIND_FRAME || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER || _o->blob == 0 || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
+        fzsel_clip_add(_s, _objects[_i], _out);
+        ((u8*)_copied.memory)[_objects[_i]] = 1u;
+    }
+    // The properties on them (a body's, a probe's light: props.h) copied with them, to be on their copies.
+    for(u32 _a = 0; _a < _count; _a++) {
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _a);
+        if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind != FUDE_ZOOM_KIND_SHAPE || _o->channels != FUDE_ZOOM_SHAPE_PROPS) {
             continue;
         }
-        const fude_zoom_blob* _b = &((const fude_zoom_blob*)_s->blobs.memory)[_o->blob - 1u];
-        fude_zoom_clip _c = { .look = *_o, .size = _b->size };
-        _c.bytes = _heap->malloc(_heap->allocator, _b->size > 0 ? _b->size : 1u);
-        memcpy(_c.bytes, _b->data, _b->size);
-        _c.on_screen = fude_zoom_sim_compose(fude_zoom_select_to_screen(_s, _o->frame), fude_zoom_object_sim(_o));
-        rde_arr_add(_out, &_c);
+        const u32 _t = fude_zoom_props_target(_s, _a);
+        if(_t != FUDE_ZOOM_NONE && _t < _count && ((const u8*)_copied.memory)[_t]) {
+            fzsel_clip_add(_s, _a, _out);
+        }
+    }
+    rde_arr_free(&_copied);
+}
+
+void fude_zoom_clip_put(fude_zoom_clip* _c, const u8* _data, u32 _size) {
+    _c->bytes = rde_arr_new_with_capacity(sizeof(u8), (usize)_size + 1u, rde_memory_allocator_get_default_std());
+    if(_size > 0u) {
+        memcpy(rde_arr_add_n(&_c->bytes, _size), _data, _size);
     }
 }
 
 void fude_zoom_select_clips_free(rde_arr* _clips) {
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_clip*       _c    = (fude_zoom_clip*)_clips->memory;
+    fude_zoom_clip* _c = (fude_zoom_clip*)_clips->memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(_clips); _i++) {
-        _heap->free(_heap->allocator, _c[_i].bytes);
+        rde_arr_free(&_c[_i].bytes);
     }
     rde_arr_clear(_clips);
 }
@@ -824,10 +887,10 @@ RDE_INTERNAL fude_zoom_sim fude_zoom_select_put_sim(const fude_zoom_clip* _c, co
     const b8  _across = fabs(fude_zoom_select_wrap(_ra - _th)) <= fabs(fude_zoom_select_wrap(_rb - _th));
     const f64 _r = _across ? _ra : _rb;
     fude_zoom_v2 _at = _t;
-    if(_c->look.kind == FUDE_ZOOM_KIND_TEXT && _c->size >= 3u * sizeof(f64)) {
+    if(_c->look.kind == FUDE_ZOOM_KIND_TEXT && fude_zoom_clip_size(_c) >= 3u * sizeof(f64)) {
         f64 _w, _h;
-        memcpy(&_w, _c->bytes + sizeof(f64), sizeof(f64));
-        memcpy(&_h, _c->bytes + 2u * sizeof(f64), sizeof(f64));
+        memcpy(&_w, fude_zoom_clip_data(_c) + sizeof(f64), sizeof(f64));
+        memcpy(&_h, fude_zoom_clip_data(_c) + 2u * sizeof(f64), sizeof(f64));
         const fude_zoom_v2 _corner = fude_zoom_sim_apply(_c->on_screen, _across ? (fude_zoom_v2){ _w, 0.0 } : (fude_zoom_v2){ 0.0, -_h });
         _at = FUDE_ZOOM_REFLECT(_corner);
     }
@@ -848,7 +911,8 @@ u32 fude_zoom_select_put(fude_zoom_selection* _sel, fude_zoom_scene* _s, const f
     rde_arr _num  = rde_arr_new(sizeof(f64), _heap);
     const u32 _times = _mirror != NULL ? 1u : _m;
     // Each copy's things' ids, by their originals': a dimension copied with what it measures is joined to the copies.
-    fude_zoom_id* _was_id = _heap->malloc(_heap->allocator, (usize)_n * 2u * sizeof(fude_zoom_id));
+    rde_arr TYPE(fude_zoom_id) _id_arr = rde_arr_new(sizeof(fude_zoom_id), _heap);
+    fude_zoom_id* _was_id = (fude_zoom_id*)rde_arr_add_n(&_id_arr, 2u * _n);   // (sized once: it stays put)
     fude_zoom_id* _now_id = _was_id + _n;
     for(u32 _k = 0; _k < _times; _k++) {
         memset(_now_id, 0, (usize)_n * sizeof(fude_zoom_id));
@@ -856,39 +920,52 @@ u32 fude_zoom_select_put(fude_zoom_selection* _sel, fude_zoom_scene* _s, const f
             // (dimensions after the rest: what they are joined to made first)
             const u32 _i = _j % _n;
             const fude_zoom_clip* _c = &_clips[_i];
-            const b8 _dim = _c->look.kind == FUDE_ZOOM_KIND_SHAPE && (_c->look.channels == FUDE_ZOOM_SHAPE_DIMENSION || _c->look.channels == FUDE_ZOOM_SHAPE_RADIAL);
+            const b8 _dim   = _c->look.kind == FUDE_ZOOM_KIND_SHAPE && (_c->look.channels == FUDE_ZOOM_SHAPE_DIMENSION || _c->look.channels == FUDE_ZOOM_SHAPE_RADIAL);
+            const b8 _props = _c->look.kind == FUDE_ZOOM_KIND_SHAPE && _c->look.channels == FUDE_ZOOM_SHAPE_PROPS;
             _was_id[_i] = _c->look.id;
-            if(_c->look.kind == FUDE_ZOOM_KIND_MARK || _dim != (_j >= _n)) {
+            if(_c->look.kind == FUDE_ZOOM_KIND_MARK || (_dim || _props) != (_j >= _n)) {
                 continue;
             }
             b8 _flip = false;
             const fude_zoom_sim   _m2 = fude_zoom_sim_compose(_from_sc, fude_zoom_select_put_sim(_c, _mirror != NULL ? NULL : &_moves[_k], _mirror, &_flip));
             const fude_zoom_place _at = { { _m2.tx, _m2.ty }, atan2(_m2.b, _m2.a), hypot(_m2.a, _m2.b) };
             u32 _o = FUDE_ZOOM_NONE;
-            if(_c->look.kind == FUDE_ZOOM_KIND_IMAGE && _c->size > 2u * sizeof(f64)) {
+            if(_c->look.kind == FUDE_ZOOM_KIND_IMAGE && fude_zoom_clip_size(_c) > 2u * sizeof(f64)) {
                 f64 _hw, _hh;
-                memcpy(&_hw, _c->bytes, sizeof(f64));
-                memcpy(&_hh, _c->bytes + sizeof(f64), sizeof(f64));
-                _o = fude_zoom_scene_add_image(_s, _frame, _at, _hw, _hh, _c->bytes + 2u * sizeof(f64), _c->size - 2u * (u32)sizeof(f64), 0);
-            } else if(_c->look.kind == FUDE_ZOOM_KIND_TEXT && _c->size >= 3u * sizeof(f64) + sizeof(u32)) {
+                memcpy(&_hw, fude_zoom_clip_data(_c), sizeof(f64));
+                memcpy(&_hh, fude_zoom_clip_data(_c) + sizeof(f64), sizeof(f64));
+                _o = fude_zoom_scene_add_image(_s, _frame, _at, _hw, _hh, fude_zoom_clip_data(_c) + 2u * sizeof(f64), fude_zoom_clip_size(_c) - 2u * (u32)sizeof(f64), 0);
+            } else if(_c->look.kind == FUDE_ZOOM_KIND_TEXT && fude_zoom_clip_size(_c) >= 3u * sizeof(f64) + sizeof(u32)) {
                 f64 _size, _w, _h;
                 u32 _style;
-                memcpy(&_size, _c->bytes, sizeof(f64));
-                memcpy(&_w, _c->bytes + sizeof(f64), sizeof(f64));
-                memcpy(&_h, _c->bytes + 2u * sizeof(f64), sizeof(f64));
-                memcpy(&_style, _c->bytes + 3u * sizeof(f64), sizeof(u32));
+                memcpy(&_size, fude_zoom_clip_data(_c), sizeof(f64));
+                memcpy(&_w, fude_zoom_clip_data(_c) + sizeof(f64), sizeof(f64));
+                memcpy(&_h, fude_zoom_clip_data(_c) + 2u * sizeof(f64), sizeof(f64));
+                memcpy(&_style, fude_zoom_clip_data(_c) + 3u * sizeof(f64), sizeof(u32));
                 const u32 _head = 3u * (u32)sizeof(f64) + (u32)sizeof(u32);
                 _o = fude_zoom_scene_add_text(_s, _frame, _at, _size, _w, _h, (u8)_style, _c->look.color, _c->look.fill,
-                                              (const c8*)(_c->bytes + _head), _c->size - _head, 0);
+                                              (const c8*)(fude_zoom_clip_data(_c) + _head), fude_zoom_clip_size(_c) - _head, 0);
             } else if(_c->look.kind == FUDE_ZOOM_KIND_SHAPE) {
-                const u32 _count = _c->size / (u32)sizeof(f64);
+                const u32 _count = fude_zoom_clip_size(_c) / (u32)sizeof(f64);
                 rde_arr_clear(&_num);
                 f64* _nn = rde_arr_add_n(&_num, _count > 0u ? _count : 1u);
-                memcpy(_nn, _c->bytes, (usize)_count * sizeof(f64));
+                memcpy(_nn, fude_zoom_clip_data(_c), (usize)_count * sizeof(f64));
                 if(_flip) {
                     fude_zoom_shape_mirror(_c->look.channels, _nn, _count);
                 }
                 u32 _cnt = _count;
+                if(_props) {
+                    // On the copy of its thing (none of it made: not put).
+                    fude_zoom_id _to = 0;
+                    const fude_zoom_id _id = _cnt >= 3u ? fude_zoom_id_get(&_nn[1]) : 0u;
+                    for(u32 _q = 0; _q < _n && _id != 0; _q++) {
+                        _to = _was_id[_q] == _id ? _now_id[_q] : _to;
+                    }
+                    if(_to == 0u) {
+                        continue;
+                    }
+                    fude_zoom_id_put(&_nn[1], _to);
+                }
                 if(_dim) {
                     // Joined to the copies of what it measures, else to nothing (a copy never follows the originals).
                     const u32 _at_id[2] = { _c->look.channels == FUDE_ZOOM_SHAPE_RADIAL ? 3u : 4u, _c->look.channels == FUDE_ZOOM_SHAPE_RADIAL ? FUDE_ZOOM_NONE : 6u };
@@ -912,7 +989,7 @@ u32 fude_zoom_select_put(fude_zoom_selection* _sel, fude_zoom_scene* _s, const f
                 rde_arr_clear(&_sel->q);
                 rde_arr_add_n(&_sel->q, _c->look.count);
                 fude_zoom_qpoint* _qp = (fude_zoom_qpoint*)_sel->q.memory;
-                if(!fude_zoom_codec_decode(_c->bytes, _c->size, _qp, _c->look.count, _c->look.channels)) {
+                if(!fude_zoom_codec_decode(fude_zoom_clip_data(_c), fude_zoom_clip_size(_c), _qp, _c->look.count, _c->look.channels)) {
                     continue;
                 }
                 if(_flip) {
@@ -929,12 +1006,14 @@ u32 fude_zoom_select_put(fude_zoom_selection* _sel, fude_zoom_scene* _s, const f
             }
             if(_o != FUDE_ZOOM_NONE) {
                 rde_arr_add(&_born, (any)&_o);
-                fude_zoom_select_add(_sel, _o);
+                if(!_props) {
+                    fude_zoom_select_add(_sel, _o);   // (a property is not held: it goes with its thing)
+                }
                 _now_id[_i] = fude_zoom_scene_object(_s, _o)->id;
             }
         }
     }
-    _heap->free(_heap->allocator, _was_id);
+    rde_arr_free(&_id_arr);
     // The originals let go with it (turned over where they were), all in one step.
     fude_zoom_box _box = fude_zoom_box_empty();
     for(u32 _i = 0; _i < _dead_n; _i++) {
@@ -994,7 +1073,8 @@ b8 fude_zoom_select_arrange(fude_zoom_selection* _sel, fude_zoom_scene* _s, FUDE
         return false;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_arranged* _a = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_arranged));
+    rde_arr TYPE(fude_zoom_arranged) _a_arr = rde_arr_new(sizeof(fude_zoom_arranged), _heap);
+    fude_zoom_arranged* _a = (fude_zoom_arranged*)rde_arr_add_n(&_a_arr, _n);   // (sized once: it stays put)
     fude_zoom_box _all = fude_zoom_box_empty();
     for(u32 _i = 0; _i < _n; _i++) {
         const fude_zoom_pick* _p = &fude_zoom_picks(_sel)[_i];
@@ -1003,8 +1083,9 @@ b8 fude_zoom_select_arrange(fude_zoom_selection* _sel, fude_zoom_scene* _s, FUDE
         _all = fude_zoom_box_union(_all, _a[_i].box);
     }
     // Each one's move on the screen.
-    fude_zoom_v2* _d = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_v2));
-    memset(_d, 0, (usize)_n * sizeof(fude_zoom_v2));
+    rde_arr TYPE(fude_zoom_v2) _d_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr_resize(&_d_arr, _n);
+    fude_zoom_v2* _d = (fude_zoom_v2*)_d_arr.memory;
     if(_how == FUDE_ZOOM_ARRANGE_ACROSS || _how == FUDE_ZOOM_ARRANGE_DOWN) {
         const b8 _x = _how == FUDE_ZOOM_ARRANGE_ACROSS;
         qsort(_a, _n, sizeof(_a[0]), _x ? fude_zoom_arranged_by_x : fude_zoom_arranged_by_y);
@@ -1053,19 +1134,19 @@ b8 fude_zoom_select_arrange(fude_zoom_selection* _sel, fude_zoom_scene* _s, FUDE
     }
     const u32 _moved = (u32)rde_arr_length(&_ids);
     if(_moved > 0) {
-        u32* _just = _heap->malloc(_heap->allocator, (usize)_moved * sizeof(u32));
-        memcpy(_just, _ids.memory, (usize)_moved * sizeof(u32));
-        fude_zoom_connect_follow(_s, _s->camera.frame, _just, _moved, &_ids, &_before, &_after);
-        _heap->free(_heap->allocator, _just);
+        rde_arr TYPE(u32) _just = rde_arr_new(sizeof(u32), _heap);
+        memcpy(rde_arr_add_n(&_just, _moved), _ids.memory, (usize)_moved * sizeof(u32));
+        fude_zoom_connect_follow(_s, _s->camera.frame, (const u32*)_just.memory, _moved, &_ids, &_before, &_after);
+        rde_arr_free(&_just);
         const fude_zoom_box _view = fude_zoom_sim_box(fude_zoom_sim_inverse(fude_zoom_camera_sim(&_s->camera)), _all);
-        fude_zoom_history_push_moved(_s, _s->camera.frame, _view, (const u32*)_ids.memory, (const fude_zoom_place*)_before.memory,
+        fude_zoom_select_push_moved(_s, _s->camera.frame, _view, (const u32*)_ids.memory, (const fude_zoom_place*)_before.memory,
                                      (const fude_zoom_place*)_after.memory, (u32)rde_arr_length(&_ids));
     }
     rde_arr_free(&_ids);
     rde_arr_free(&_before);
     rde_arr_free(&_after);
-    _heap->free(_heap->allocator, _a);
-    _heap->free(_heap->allocator, _d);
+    rde_arr_free(&_a_arr);
+    rde_arr_free(&_d_arr);
     fude_zoom_select_update(_sel, _s);
     return _moved > 0;
 }

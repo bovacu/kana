@@ -21,12 +21,21 @@
 #include "zoom/piece.h"
 #include "zoom/sheet.h"
 #include "zoom/stl.h"
+#include "zoom/trim.h"
+#include "zoom/circuit.h"
+#include "zoom/mech.h"
+#include "zoom/props.h"
+#include "sim/body.h"
+#include "zoom/calc.h"
+#include "zoom/plot.h"
+#include "zoom/symbol.h"
 #include "zoom/symbol.h"
 #include "zoom/select.h"
 #include "zoom/render.h"
 #include "zoom/cut.h"
 #include "zoom/snap.h"
 #include "zoom/nest.h"
+#include "zoom/logic.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -144,6 +153,9 @@ static void test_sim_and_index(void) {
 
 // --- strokes ------------------------------------------------------------------------------------
 
+// A scratch table of n zeroed items, size bytes each (an rde_arr: freed by the caller), its first.
+static any table(rde_arr* a, usize size, u32 n) { *a = rde_arr_new(size, NULL); rde_arr_resize(a, n); return a->memory; }
+
 // A straight stroke from a to b in the camera frame, points every `step`, as the page draws one.
 static u32 line(fude_zoom_scene* s, f64 ax, f64 ay, f64 bx, f64 by, f64 step, f32 radius) {
     const u32 frame = s->camera.frame;
@@ -151,7 +163,7 @@ static u32 line(fude_zoom_scene* s, f64 ax, f64 ay, f64 bx, f64 by, f64 step, f3
     const f64 g     = ldexp(1.0, q);
     const f64 len   = hypot(bx - ax, by - ay);
     const u32 n     = (u32)(len / step) + 1u;
-    fude_zoom_qpoint* pts = calloc(n + 1, sizeof(*pts));
+    rde_arr pa; fude_zoom_qpoint* pts = table(&pa, sizeof(*pts), n + 1);
     for(u32 i = 0; i < n; i++) {
         const f64 t = n > 1 ? (f64)i / (f64)(n - 1) : 0.0;
         pts[i].x = (i32)llround((bx - ax) * t / g); pts[i].y = (i32)llround((by - ay) * t / g);
@@ -159,7 +171,7 @@ static u32 line(fude_zoom_scene* s, f64 ax, f64 ay, f64 bx, f64 by, f64 step, f3
     }
     const u32 o = fude_zoom_scene_add_stroke(s, frame, (fude_zoom_v2){ ax, ay }, q, pts, n, FUDE_ZOOM_CHANNEL_PRESSURE | FUDE_ZOOM_CHANNEL_TIME,
                                              (rde_color){ 10, 20, 30, 255 }, radius, FUDE_ZOOM_FLAG_FROM_PEN, 0, 0);
-    free(pts);
+    rde_arr_free(&pa);
     fude_zoom_history_push(s, frame, fude_zoom_scene_object(s, o)->box, NULL, 0, &o, 1);
     return o;
 }
@@ -169,10 +181,10 @@ static b8 alive(const fude_zoom_scene* s, u32 o) { return (fude_zoom_scene_objec
 // The alive strokes' ends, frame units.
 static void ends(const fude_zoom_scene* s, u32 o, fude_zoom_v2* a, fude_zoom_v2* b) {
     const fude_zoom_object* ob = fude_zoom_scene_object(s, o);
-    fude_zoom_qpoint* q = calloc(ob->count, sizeof(*q));
+    rde_arr qa; fude_zoom_qpoint* q = table(&qa, sizeof(*q), ob->count);
     fude_zoom_scene_points(s, o, q);
     *a = fude_zoom_scene_point_at(ob, &q[0]); *b = fude_zoom_scene_point_at(ob, &q[ob->count - 1]);
-    free(q);
+    rde_arr_free(&qa);
 }
 
 static u32 alive_count(const fude_zoom_scene* s) { return fude_zoom_scene_alive_strokes(s, NULL); }
@@ -302,11 +314,11 @@ static b8 filled_at(const fude_zoom_scene* s, f64 x, f64 y) {
     for(u32 i = 0; i < fude_zoom_scene_object_count(s) && !in; i++) {
         const fude_zoom_object* o = fude_zoom_scene_object(s, i);
         if(o->kind != FUDE_ZOOM_KIND_FILL || !alive(s, i)) continue;
-        fude_zoom_qpoint* q = calloc(o->count, sizeof(*q)); fude_zoom_v2* p = calloc(o->count, sizeof(*p)); u32* r = calloc(o->count, sizeof(u32));
+        rde_arr qa, pa, ra; fude_zoom_qpoint* q = table(&qa, sizeof(*q), o->count); fude_zoom_v2* p = table(&pa, sizeof(*p), o->count); u32* r = table(&ra, sizeof(u32), o->count);
         fude_zoom_scene_points(s, i, q);
         for(u32 k = 0; k < o->count; k++) { p[k] = fude_zoom_scene_point_at(o, &q[k]); r[k] = q[k].time; }
         in = fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ x, y });
-        free(q); free(p); free(r);
+        rde_arr_free(&qa); rde_arr_free(&pa); rde_arr_free(&ra);
     }
     return in;
 }
@@ -1006,6 +1018,37 @@ static void test_shapes(void) {
     { const fude_zoom_v2 c[4] = { { 0, 0 }, { 300, 6 }, { 297, 206 }, { -3, 200 } }; const u32 n = hand(p, 4096, c, 4, true, 3.0);
       CHECK(fude_zoom_shape_recognize(p, n, &f) && f.type == FUDE_ZOOM_SHAPE_RECT);
       CHECK(fabs(f.rotation) < 1e-9 && fabs(f.n[0] - 150) < 10 && fabs(f.n[1] - 100) < 10); }
+    // ...whichever corner it is drawn from, either way round, however the hand wobbles: level, the same rectangle (its
+    // angle within a quarter turn either way: turned half round it would be upside down).
+    {
+        const fude_zoom_v2 base[4] = { { 0, 0 }, { 300, 6 }, { 297, 206 }, { -3, 200 } };
+        const u32 rng_was = rng;
+        u32 tries = 0, level = 0;
+        for(u32 k = 0; k < 400u; k++) {
+            rng = 7919u * (k + 1u);
+            fude_zoom_v2 c[4];
+            const u32 from = k % 4u;
+            for(u32 i = 0; i < 4u; i++) c[i] = base[(k & 4u) ? (from + 4u - i) % 4u : (from + i) % 4u];
+            const u32 n = hand(p, 4096, c, 4, true, 3.0);
+            tries++;
+            level += fude_zoom_shape_recognize(p, n, &f) && f.type == FUDE_ZOOM_SHAPE_RECT && fabs(f.rotation) < 1e-9 &&
+                     fabs(f.n[0] - 150) < 10 && fabs(f.n[1] - 100) < 10 && fabs(f.at.x - 148.5) < 8 && fabs(f.at.y - 103) < 8;
+        }
+        CHECK(level == tries);
+        // Tilted on purpose (20°): kept tilted, its angle within a quarter turn.
+        u32 tilted = 0;
+        for(u32 k = 0; k < 200u; k++) {
+            rng = 104729u * (k + 1u);
+            const f64 a = 0.349 + (k & 1u ? 3.14159265358979 : 0.0), ca = cos(a), sa = sin(a);
+            fude_zoom_v2 c[4];
+            const fude_zoom_v2 r[4] = { { 0, 0 }, { 300, 0 }, { 300, 200 }, { 0, 200 } };
+            for(u32 i = 0; i < 4u; i++) c[i] = (fude_zoom_v2){ r[(i + k) % 4u].x * ca - r[(i + k) % 4u].y * sa, r[(i + k) % 4u].x * sa + r[(i + k) % 4u].y * ca };
+            const u32 n = hand(p, 4096, c, 4, true, 2.0);
+            tilted += fude_zoom_shape_recognize(p, n, &f) && f.type == FUDE_ZOOM_SHAPE_RECT && fabs(f.rotation - 0.349) < 0.05 ? 1u : 0u;
+        }
+        CHECK(tilted == 200u);
+        rng = rng_was;
+    }
     // A triangle.
     { const fude_zoom_v2 c[3] = { { 0, 0 }, { 260, 0 }, { 120, 220 } }; const u32 n = hand(p, 4096, c, 3, true, 3.0);
       CHECK(fude_zoom_shape_recognize(p, n, &f) && f.type == FUDE_ZOOM_SHAPE_POLYGON && f.count == 6); }
@@ -1467,7 +1510,7 @@ static void test_filling(void) {
     CHECK(cutf != FUDE_ZOOM_NONE && (fude_zoom_scene_object(&s, cutf)->channels & FUDE_ZOOM_CHANNEL_TIME));
     if(cutf != FUDE_ZOOM_NONE) {
         const fude_zoom_object* co = fude_zoom_scene_object(&s, cutf);
-        fude_zoom_qpoint* cq = calloc(co->count, sizeof(*cq)); fude_zoom_v2* cp = calloc(co->count, sizeof(*cp)); u32* cr = calloc(co->count, sizeof(u32));
+        rde_arr cqa, cpa, cra; fude_zoom_qpoint* cq = table(&cqa, sizeof(*cq), co->count); fude_zoom_v2* cp = table(&cpa, sizeof(*cp), co->count); u32* cr = table(&cra, sizeof(u32), co->count);
         fude_zoom_scene_points(&s, cutf, cq);
         for(u32 i = 0; i < co->count; i++) { cp[i] = fude_zoom_scene_point_at(co, &cq[i]); cr[i] = cq[i].time; }
         rde_arr ct = rde_arr_new(sizeof(fude_zoom_v2), NULL);
@@ -1475,7 +1518,7 @@ static void test_filling(void) {
         const f64 circle = 0.5 * 64 * 100 * 100 * sin(6.283185307 / 64);
         CHECK(fabs(tri_area(&ct) - (circle - 20.0 * 200.0)) < circle * 0.02);   // less a band 20 wide across it (a little more at its rims)
         CHECK(!fude_zoom_fill_inside_rings(cp, cr, co->count, (fude_zoom_v2){ 0, 0 }) && fude_zoom_fill_inside_rings(cp, cr, co->count, (fude_zoom_v2){ 0, 50 }));
-        rde_arr_free(&ct); free(cq); free(cp); free(cr);
+        rde_arr_free(&ct); rde_arr_free(&cqa); rde_arr_free(&cpa); rde_arr_free(&cra);
         // Undone: the whole circle back.
         CHECK(fude_zoom_history_undo(&s) && alive(&s, f) && !alive(&s, cutf));
         CHECK(fude_zoom_history_redo(&s) && !alive(&s, f) && alive(&s, cutf));
@@ -1512,12 +1555,12 @@ static void test_filling(void) {
             for(u32 i = fude_zoom_scene_object_count(&ps); i-- > 0;) {
                 const fude_zoom_object* o = fude_zoom_scene_object(&ps, i);
                 if(o->kind != FUDE_ZOOM_KIND_FILL || !(o->flags & FUDE_ZOOM_FLAG_ALIVE)) continue;
-                fude_zoom_qpoint* q = calloc(o->count, sizeof(*q)); fude_zoom_v2* p = calloc(o->count, sizeof(*p)); u32* r = calloc(o->count, sizeof(u32));
+                rde_arr qa, pa, ra; fude_zoom_qpoint* q = table(&qa, sizeof(*q), o->count); fude_zoom_v2* p = table(&pa, sizeof(*p), o->count); u32* r = table(&ra, sizeof(u32), o->count);
                 fude_zoom_scene_points(&ps, i, q);
                 for(u32 j = 0; j < o->count; j++) { p[j] = fude_zoom_scene_point_at(o, &q[j]); r[j] = q[j].time; }
                 rde_arr_clear(&tris);
                 fude_zoom_fill_triangulate_rings(p, r, o->count, &tris);
-                free(q); free(p); free(r);
+                rde_arr_free(&qa); rde_arr_free(&pa); rde_arr_free(&ra);
                 break;
             }
             worst = fmax(worst, (f64)(clock() - s0) * 1000.0 / CLOCKS_PER_SEC);
@@ -1546,14 +1589,14 @@ static void test_filling(void) {
         CHECK(tf != FUDE_ZOOM_NONE);
         if(tf != FUDE_ZOOM_NONE) {
             const fude_zoom_object* o = fude_zoom_scene_object(&ts, tf);
-            fude_zoom_qpoint* q = calloc(o->count, sizeof(*q)); fude_zoom_v2* p = calloc(o->count, sizeof(*p)); u32* r = calloc(o->count, sizeof(u32));
+            rde_arr qa, pa, ra; fude_zoom_qpoint* q = table(&qa, sizeof(*q), o->count); fude_zoom_v2* p = table(&pa, sizeof(*p), o->count); u32* r = table(&ra, sizeof(u32), o->count);
             fude_zoom_scene_points(&ts, tf, q);
             for(u32 i = 0; i < o->count; i++) { p[i] = fude_zoom_scene_point_at(o, &q[i]); r[i] = q[i].time; }
             CHECK(!fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ 0, 18 }));    // the notch
             CHECK(fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ 0, -15 }));    // its other side
             CHECK(fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ 50, 18 }));    // and along
             CHECK(fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ -110, 0 }) && !fude_zoom_fill_inside_rings(p, r, o->count, (fude_zoom_v2){ 0, 25 }));   // its round end; not past its side
-            free(q); free(p); free(r);
+            rde_arr_free(&qa); rde_arr_free(&pa); rde_arr_free(&ra);
         }
         CHECK(fude_zoom_history_undo(&ts) && alive(&ts, th));   // one step: the stroke back
         fude_zoom_eraser_destroy(&te);
@@ -2231,7 +2274,7 @@ static void test_pieces(void) {
     CHECK(strcmp(back.name, "Jig") == 0 && back.box.max_y == 240.0 && rde_arr_length(&back.items) == 2u);
     const fude_zoom_clip* c0 = (const fude_zoom_clip*)clips.memory;
     const fude_zoom_clip* r0 = (const fude_zoom_clip*)back.items.memory;
-    CHECK(r0[0].look.kind == FUDE_ZOOM_KIND_STROKE && r0[0].size == c0[0].size && memcmp(r0[0].bytes, c0[0].bytes, c0[0].size) == 0 && r0[0].look.count == c0[0].look.count);
+    CHECK(r0[0].look.kind == FUDE_ZOOM_KIND_STROKE && fude_zoom_clip_size(&r0[0]) == fude_zoom_clip_size(&c0[0]) && memcmp(fude_zoom_clip_data(&r0[0]), fude_zoom_clip_data(&c0[0]), fude_zoom_clip_size(&c0[0])) == 0 && r0[0].look.count == c0[0].look.count);
     CHECK(r0[1].look.kind == FUDE_ZOOM_KIND_SHAPE && r0[1].look.channels == FUDE_ZOOM_SHAPE_RECT && r0[1].look.fill.r == 255 && r0[1].on_screen.ty == c0[1].on_screen.ty);
     // Its lines: the stroke's middle (open, from 0 to 100), the rectangle's outline (closed).
     rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL), lines = rde_arr_new(sizeof(fude_zoom_piece_line), NULL);
@@ -2803,11 +2846,11 @@ static void test_repeat(void) {
     CHECK(rde_arr_length(&pts) == 3u && fabs(q[0].x - 100.0) < 1e-9 && fabs(q[1].x - 90.0) < 1e-9 && fabs(q[2].x - 100.0) < 1e-9 && fabs(q[2].y - 20.0) < 1e-9);
     // ...the stroke's points (from 100, 40 back to 90, 45)...
     const fude_zoom_object* so = fude_zoom_scene_object(&s, base + 1u);
-    fude_zoom_qpoint* sq = calloc(so->count, sizeof(*sq));
+    rde_arr sqa; fude_zoom_qpoint* sq = table(&sqa, sizeof(*sq), so->count);
     CHECK(fude_zoom_scene_points(&s, base + 1u, sq));
     const fude_zoom_v2 s0 = fude_zoom_scene_point_at(so, &sq[0]), s1 = fude_zoom_scene_point_at(so, &sq[so->count - 1u]);
     CHECK(fabs(s0.x - 100.0) < 0.1 && fabs(s0.y - 40.0) < 0.1 && fabs(s1.x - 90.0) < 0.1 && fabs(s1.y - 45.0) < 0.1);
-    free(sq);
+    rde_arr_free(&sqa);
     // ...the text upright, its box where the mirror puts it (its top left the mirror of its top right).
     const fude_zoom_object* to = fude_zoom_scene_object(&s, base + 2u);
     CHECK(to->kind == FUDE_ZOOM_KIND_TEXT && fabs(fude_zoom_select_wrap_test(to->rotation)) < 1e-9 && fabs(to->t.x - 70.0) < 1e-9 && fabs(to->t.y - 80.0) < 1e-9);
@@ -3010,12 +3053,12 @@ static void test_stl(void) {
     memcpy(&count, (const u8*)stl.memory + 80u, 4u);
     CHECK(count == said.triangles);
     // Its volume: the rectangle 60 × 40 × 3, the board 80 × 50 × 18 (each triangle: its facing, then its corners).
-    f32* corners = malloc((usize)count * 9u * sizeof(f32));
+    rde_arr ca; f32* corners = table(&ca, sizeof(f32), count * 9u);
     for(u32 i = 0; i < count; i++) {
         memcpy(&corners[i * 9u], (const u8*)stl.memory + 84u + i * 50u + 12u, 36u);
     }
     CHECK(fabs(stl_volume(corners, count) - (60.0 * 40.0 * 3.0 + 80.0 * 50.0 * 18.0)) < 1e-1);
-    free(corners);
+    rde_arr_free(&ca);
     rde_arr_free(&stl);
     fude_zoom_scene_destroy(&s);
     // A shape's line: dashed, its pieces 7 widths long and 3.5 apart along it; a centre line's dash and dot.
@@ -3045,22 +3088,859 @@ static void test_snap_from(void) {
     v.frame = s.root; v.to_screen = (fude_zoom_sim){ 1.0, 0.0, 0.0, 0.0 };
     const fude_zoom_v2 ways[2] = { { 1, 0 }, { 0, 1 } };
     // From (10, 150) to near the line: its foot, where the line from there is square to it.
-    fude_zoom_snap h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 30, -95 }, 14.0, (fude_zoom_v2){ 10, 150 }, ways, 2u);
+    fude_zoom_snap h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 30, -95 }, 14.0, (fude_zoom_v2){ 10, 150 }, ways, 2u, 0.0);
     const f64 t = (260.0 * 500.0 + 270.0 * 30.0) / (500.0 * 500.0 + 30.0 * 30.0);
     CHECK(h.kind == FUDE_ZOOM_SNAP_PERP && fabs(h.at.x - (-250.0 + 500.0 * t)) < 1e-9 && fabs(h.at.y - (-120.0 + 30.0 * t)) < 1e-9);
     CHECK(fabs((h.at.x - 10.0) * 500.0 + (h.at.y - 150.0) * 30.0) < 1e-6 && h.a.x == -250.0 && h.b.x == 250.0);
     // Along it, from above: brought onto the line from there its way.
-    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 150, 124 }, 14.0, (fude_zoom_v2){ -200, 100 }, ways, 2u);
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 150, 124 }, 14.0, (fude_zoom_v2){ -200, 100 }, ways, 2u, 0.0);
     CHECK(h.kind == FUDE_ZOOM_SNAP_PARALLEL && fabs((h.at.y - 100.0) / (h.at.x + 200.0) - 30.0 / 500.0) < 1e-9);
     // Across (a way asked for), far from the line.
-    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 703 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u);
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 703 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u, 0.0);
     CHECK(h.kind == FUDE_ZOOM_SNAP_PARALLEL && fabs(h.at.y - 700.0) < 1e-9 && fabs(h.at.x - 300.0) < 1e-9 && h.a.x == h.b.x);
     // Nothing there, no way near: none.
-    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 760 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u);
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 300, 760 }, 14.0, (fude_zoom_v2){ 0, 700 }, ways, 2u, 0.0);
     CHECK(h.kind == FUDE_ZOOM_SNAP_NONE);
     // The line's end there: an end, not its foot.
-    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 248, -92 }, 14.0, (fude_zoom_v2){ 240, 150 }, ways, 2u);
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 248, -92 }, 14.0, (fude_zoom_v2){ 240, 150 }, ways, 2u, 0.0);
     CHECK(h.kind == FUDE_ZOOM_SNAP_END);
+    // Right on the line between its ends, with nothing better: its nearest point (reached from nowhere too).
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 100, -95 }, 14.0);
+    {
+        const f64 ll = 500.0 * 500.0 + 30.0 * 30.0, tt = (350.0 * 500.0 + 25.0 * 30.0) / ll;   // (its nearest: the pen's foot on it)
+        CHECK(h.kind == FUDE_ZOOM_SNAP_NEAREST && fabs(h.at.x - (-250.0 + 500.0 * tt)) < 1e-9 && fabs(h.at.y - (-120.0 + 30.0 * tt)) < 1e-9);
+    }
+    // Carried on past its end (far from what else is drawn): onto its line.
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 400, -78 }, 14.0, (fude_zoom_v2){ 400, 300 }, NULL, 0u, 0.0);
+    {
+        const f64 ll = 500.0 * 500.0 + 30.0 * 30.0, tt = (650.0 * 500.0 + 42.0 * 30.0) / ll;   // (the pen's foot on its line, past its end)
+        CHECK(h.kind == FUDE_ZOOM_SNAP_EXTENSION && fabs(h.at.x - (-250.0 + 500.0 * tt)) < 1e-9 && fabs(h.at.y - (-120.0 + 30.0 * tt)) < 1e-9);
+    }
+    // An angle's step: 30° from the way across, the pen a little off it.
+    const fude_zoom_v2 across[1] = { { 1, 0 } };
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ 0 + 200.0 * cos(0.5236) + 2.0, 1500 + 200.0 * sin(0.5236) }, 14.0, (fude_zoom_v2){ 0, 1500 }, across, 1u, 15.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_PARALLEL && fabs(atan2(h.at.y - 1500.0, h.at.x) - 3.14159265358979323846 / 6.0) < 1e-9);
+    // A circle near the pen: where the line from a point outside it touches it.
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 3000 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_ELLIPSE, (const f64[2]){ 50, 50 }, 2u, c, 1.0f, 0u, 0);
+    const f64 tl = sqrt(200.0 * 200.0 - 50.0 * 50.0);   // (from (200, 3000): the touch point, 50 round from the centre)
+    const fude_zoom_v2 touch = { 50.0 * 50.0 / 200.0, 3000.0 + 50.0 * tl / 200.0 };
+    h = fude_zoom_snap_find_from(&s, &v, 1, (fude_zoom_v2){ touch.x + 3.0, touch.y + 4.0 }, 14.0, (fude_zoom_v2){ 200, 3000 }, NULL, 0u, 0.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_TANGENT && fabs(h.at.x - touch.x) < 1e-9 && fabs(h.at.y - touch.y) < 1e-9);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Electronics (circuit.h): parts as symbols, wires pin to pin, the circuit solved.
+static u32 part_put(fude_zoom_scene* s, const c8* id, f64 x, f64 y, f64 hw, f64 hh, const c8* text) {
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS + 200];
+    const u32 kind = fude_zoom_symbol_find(id);
+    CHECK(kind != FUDE_ZOOM_NONE);
+    const u32 k = fude_zoom_symbol_numbers(n, kind, hw, hh, 2.0, text);
+    return fude_zoom_scene_add_shape(s, s->root, (fude_zoom_place){ { x, y }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, n, k, (rde_color){ 1, 1, 1, 255 }, 0.2f, 0u, 0);
+}
+
+static u32 wire_put(fude_zoom_scene* s, u32 a, u32 pa, u32 b, u32 pb) {
+    fude_zoom_v2 p0, p1, r[6];
+    CHECK(fude_zoom_part_pin_at(s, a, pa, &p0) && fude_zoom_part_pin_at(s, b, pb, &p1));
+    const u32 m = fude_zoom_wire_route(p0, fude_zoom_part_side_at(s, a, pa), p1, fude_zoom_part_side_at(s, b, pb), 10.0, r);
+    return fude_zoom_wire_add(s, s->root, r, m, a, (i32)pa, b, (i32)pb, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+}
+
+static const fude_zoom_circuit_part* circuit_part(const fude_zoom_circuit* c, u32 object) {
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) {
+        if(((const fude_zoom_circuit_part*)c->parts.memory)[i].object == object) return &((const fude_zoom_circuit_part*)c->parts.memory)[i];
+    }
+    return NULL;
+}
+
+static f64 circuit_volts(const fude_zoom_circuit* c, u32 object, u32 pin) {
+    const fude_zoom_circuit_part* p = circuit_part(c, object);
+    return p != NULL && p->node[pin] != FUDE_ZOOM_NONE ? (p->node[pin] == 0u ? 0.0 : c->v[p->node[pin]]) : -999.0;
+}
+
+static void test_circuits(void) {
+    f64 v = 0.0;
+    CHECK(fude_zoom_circuit_value("4.7k", 0u, &v) && fabs(v - 4700.0) < 1e-9);
+    CHECK(fude_zoom_circuit_value("4k7", 0u, &v) && fabs(v - 4700.0) < 1e-9);
+    CHECK(fude_zoom_circuit_value("100uF", 0u, &v) && fabs(v - 1e-4) < 1e-15);
+    CHECK(fude_zoom_circuit_value("5V 50Hz", 1u, &v) && fabs(v - 50.0) < 1e-12);
+    CHECK(fude_zoom_circuit_value("10mA", 0u, &v) && fabs(v - 0.01) < 1e-15);
+    CHECK(fude_zoom_circuit_value("2.2 M", 0u, &v) && fabs(v - 2.2e6) < 1e-6);
+    CHECK(!fude_zoom_circuit_value("red", 0u, &v));
+    // (as the Value card writes them)
+    CHECK(fude_zoom_circuit_value("4.7k\xCE\xA9", 0u, &v) && fabs(v - 4700.0) < 1e-9);
+    CHECK(fude_zoom_circuit_value("2.2M\xCE\xA9", 0u, &v) && fabs(v - 2.2e6) < 1e-6);
+    CHECK(fude_zoom_circuit_value("100\xC2\xB5" "F", 0u, &v) && fabs(v - 1e-4) < 1e-15);
+    CHECK(fude_zoom_circuit_value("1.5V", 0u, &v) && fabs(v - 1.5) < 1e-12);
+    CHECK(fude_zoom_circuit_value("20mA", 0u, &v) && fabs(v - 0.02) < 1e-15);
+    // A divider: 10 V over two 1 kΩ, its middle at 5 V.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 src = part_put(&s, "DC source", 0, 0, 20, 30, "10V");
+        const u32 r1  = part_put(&s, "resistor", 100, 60, 30, 10, "1k");
+        const u32 r2  = part_put(&s, "resistor", 200, 0, 30, 10, "1k");
+        const u32 g   = part_put(&s, "ground", 0, -100, 20, 20, "");
+        wire_put(&s, src, 0, r1, 0);
+        wire_put(&s, r1, 1, r2, 0);
+        wire_put(&s, r2, 1, g, 0);
+        wire_put(&s, src, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        CHECK(fude_zoom_circuit_build(&c, &s) == 4u && c.grounded);
+        CHECK(fude_zoom_circuit_dc(&c));
+        CHECK(fabs(circuit_volts(&c, r1, 1) - 5.0) < 1e-3 && fabs(circuit_volts(&c, src, 0) - 10.0) < 1e-3);
+        // Each resistor's current 5 mA, into its first pin; the wires between them carry it.
+        CHECK(fabs(circuit_part(&c, r1)->pin_i[0] - 0.005) < 1e-6 && fabs(circuit_part(&c, r2)->pin_i[0] - 0.005) < 1e-6);
+        const fude_zoom_circuit_wire* w = (const fude_zoom_circuit_wire*)c.wires.memory;
+        CHECK(fabs(fabs(w[1].current[0]) - 0.005) < 1e-6);
+        // Played alone (its scope: the source, R1 and the ground; a lone resistor elsewhere not): their wires come too.
+        const u32 lone = part_put(&s, "resistor", 900, 900, 30, 10, "1k");
+        u8 scope[64] = { 0 };
+        scope[src] = scope[r1] = scope[g] = 1u;
+        CHECK(fude_zoom_circuit_build_in(&c, &s, scope) == 3u && circuit_part(&c, lone) == NULL && circuit_part(&c, r2) == NULL);
+        CHECK(rde_arr_length(&c.wires) == 4u);   // (src–R1, R1–R2 and R2–ground by their ends on its parts, src–ground)
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Into a breadboard's hole: straight in, never past it and back (a hole has no side: FUDE_ZOOM_PIN_ANY).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bb = part_put(&s, "breadboard", 0, 0, 200, 120, "");
+        const u32 r  = part_put(&s, "resistor", -400, -300, 30, 10, "1k");
+        fude_zoom_v2 hole, pin, way[6];
+        CHECK(fude_zoom_part_pin_at(&s, bb, 5u, &hole) && fude_zoom_part_pin_at(&s, r, 1u, &pin));   // (a hole on the top rail)
+        CHECK(fude_zoom_part_side_at(&s, bb, 5u) == 255u);
+        const u32 m = fude_zoom_wire_route(pin, fude_zoom_part_side_at(&s, r, 1u), hole, fude_zoom_part_side_at(&s, bb, 5u), 10.0, way);
+        f64 top = -1e300;
+        for(u32 i = 0; i < m; i++) { top = fmax(top, way[i].y); }
+        CHECK(m >= 2u && hypot(way[m - 1u].x - hole.x, way[m - 1u].y - hole.y) < 1e-9 && top <= hole.y + 1e-9);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A device whose ids are large (a tablet's: its half above 2^20): a wire still keeps its parts exactly, and follows
+    // one moved. (Before 0.1.49 an id was one number, its last bits lost.)
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 0x342F1234u);
+        const u32 ra = part_put(&s, "resistor", 0, 0, 30, 10, "1k");
+        const u32 rb = part_put(&s, "resistor", 200, 100, 30, 10, "1k");
+        const u32 w = wire_put(&s, ra, 1, rb, 0);
+        f64 n[1u + 2u * FUDE_ZOOM_WIRE_POINTS + 8u];
+        const u32 c = fude_zoom_scene_shape_numbers(&s, w, n, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 8u);
+        fude_zoom_id from = 0, to = 0;
+        i32 fp = -1, tp = -1;
+        CHECK(fude_zoom_wire_of(n, c, NULL, &from, &fp, &to, &tp) >= 2u && from == fude_zoom_scene_object(&s, ra)->id && to == fude_zoom_scene_object(&s, rb)->id);
+        fude_zoom_place pl = fude_zoom_scene_place_of(&s, rb);
+        pl.t.y += 50.0;
+        fude_zoom_scene_set_place(&s, rb, pl);
+        rde_arr died = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std()), born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        CHECK(fude_zoom_wire_follow(&s, &rb, 1u, &died, &born) == 1u);
+        rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+        b8 closed;
+        fude_zoom_scene_shape_outline(&s, ((const u32*)born.memory)[0], 1u, &pts, &closed);
+        fude_zoom_v2 pin;
+        CHECK(fude_zoom_part_pin_at(&s, rb, 0, &pin));
+        const fude_zoom_v2 last = ((const fude_zoom_v2*)pts.memory)[rde_arr_length(&pts) - 1u];
+        CHECK(hypot(last.x - pin.x, last.y - pin.y) < 1e-6);
+        // An old save's wire (each id one number, rounded): its parts still found, by their pins where its ends are.
+        f64 old[1u + 2u * 2u + 4u] = { 2.0, 0.0, 0.0, 0.0, 0.0, (f64)fude_zoom_scene_object(&s, ra)->id, 1.0, (f64)fude_zoom_scene_object(&s, rb)->id, 0.0 };
+        fude_zoom_v2 a1, b0;
+        fude_zoom_part_pin_at(&s, ra, 1, &a1);
+        fude_zoom_part_pin_at(&s, rb, 0, &b0);
+        CHECK(fude_zoom_wire_of(old, 9u, NULL, &from, &fp, &to, &tp) == 2u && fp == 1 && tp == 0);
+        CHECK(fude_zoom_wire_part(&s, from, fp, s.root, a1) == ra && fude_zoom_wire_part(&s, to, tp, s.root, b0) == rb);
+        rde_arr_free(&died); rde_arr_free(&born); rde_arr_free(&pts);
+        fude_zoom_scene_destroy(&s);
+    }
+    // An LED from a 9 V battery through 1 kΩ: about 7 mA, lit about 0.7.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", 0, 0, 20, 30, "9V");
+        const u32 r   = part_put(&s, "resistor", 100, 60, 30, 10, "1k");
+        const u32 led = part_put(&s, "LED", 200, 0, 30, 20, "red");
+        wire_put(&s, bat, 0, r, 0);
+        wire_put(&s, r, 1, led, 0);
+        wire_put(&s, led, 1, bat, 1);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_dc(&c));
+        const fude_zoom_circuit_part* l = circuit_part(&c, led);
+        CHECK(l->pin_i[0] > 0.0068 && l->pin_i[0] < 0.0076);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 100u) && fabs(l->shown - l->pin_i[0] / 0.01) < 1e-9);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A capacitor charging: 5 V, 1 kΩ, 1 mF — after one time constant, 63 %.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 src = part_put(&s, "DC source", 0, 0, 20, 30, "5V");
+        const u32 r   = part_put(&s, "resistor", 100, 60, 30, 10, "1k");
+        const u32 cap = part_put(&s, "capacitor", 200, 0, 20, 20, "1mF");
+        const u32 g   = part_put(&s, "ground", 0, -100, 20, 20, "");
+        wire_put(&s, src, 0, r, 0);
+        wire_put(&s, r, 1, cap, 0);
+        wire_put(&s, cap, 1, g, 0);
+        wire_put(&s, src, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_run(&c, 1.0, 2000u));
+        CHECK(fabs(c.time - 1.0) < 1e-6 && fabs(circuit_volts(&c, cap, 0) - 5.0 * (1.0 - exp(-1.0))) < 0.01);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A 555 astable: 1 kΩ, 10 kΩ, 10 µF — about 6.9 Hz.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 src = part_put(&s, "DC source", -300, 0, 20, 30, "9V");
+        const u32 g   = part_put(&s, "ground", -300, -200, 20, 20, "");
+        const u32 t   = part_put(&s, "NE555", 0, 0, 70, 50, "NE555");
+        const u32 r1  = part_put(&s, "resistor", 200, 150, 30, 10, "1k");
+        const u32 r2  = part_put(&s, "resistor", 200, 80, 30, 10, "10k");
+        const u32 cap = part_put(&s, "capacitor", 200, -150, 20, 20, "10uF");
+        wire_put(&s, src, 1, g, 0);
+        wire_put(&s, src, 0, t, 7);    // VCC
+        wire_put(&s, t, 7, t, 3);      // RESET to VCC
+        wire_put(&s, t, 0, g, 0);      // GND
+        wire_put(&s, t, 7, r1, 0);     // VCC → R1
+        wire_put(&s, r1, 1, t, 6);     // R1 → DISCH
+        wire_put(&s, t, 6, r2, 0);     // DISCH → R2
+        wire_put(&s, r2, 1, t, 5);     // R2 → THRES
+        wire_put(&s, t, 5, t, 1);      // THRES = TRIG
+        wire_put(&s, t, 1, cap, 0);
+        wire_put(&s, cap, 1, g, 0);
+        const u32 load = part_put(&s, "resistor", -150, -60, 30, 10, "1k");   // (its output into a load)
+        wire_put(&s, t, 2, load, 1);
+        wire_put(&s, load, 0, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        c.step = 1e-4;
+        u32 rises = 0;
+        b8 was = false;
+        for(u32 k = 0; k < 2000u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 1e-3, 20u));
+            const b8 high = circuit_volts(&c, t, 2) > 4.0;
+            rises += high && !was ? 1u : 0u;
+            was = high;
+        }
+        // (its first cycle longer: charging from nothing to two thirds)
+        CHECK(rises >= 11u && rises <= 15u);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Logic: an input through a NOT gate to a probe; tapped, the probe the other way.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 in  = part_put(&s, "logic input", 0, 0, 30, 20, "0");
+        const u32 nt  = part_put(&s, "NOT gate", 100, 0, 40, 30, "");
+        const u32 pr  = part_put(&s, "logic probe", 200, 0, 20, 20, "");
+        wire_put(&s, in, 0, nt, 0);
+        wire_put(&s, nt, 1, pr, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 10u) && circuit_part(&c, pr)->shown == 1.0);
+        c8 say[32];
+        u32 idx = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.parts); i++) if(((const fude_zoom_circuit_part*)c.parts.memory)[i].object == in) idx = i;
+        CHECK(fude_zoom_circuit_tap(&c, idx, -1, say, sizeof(say)) && strcmp(say, "1") == 0);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 10u) && circuit_part(&c, pr)->shown == 0.0);
+        // Built again (the canvas changed): its state kept.
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 10u) && circuit_part(&c, pr)->shown == 0.0);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A breadboard: a resistor's pins in holes a1 and a7, the battery's wires in b1 and b7 — joined by the strips.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bb = part_put(&s, "breadboard", 0, 0, 165, 92.5, "");
+        fude_zoom_v2 h1, h7, b1, b7;
+        CHECK(fude_zoom_part_pin_at(&s, bb, 2u * FUDE_ZOOM_BREADBOARD_COLS + 0u, &h1) && fude_zoom_part_pin_at(&s, bb, 2u * FUDE_ZOOM_BREADBOARD_COLS + 6u, &h7));
+        CHECK(fude_zoom_part_pin_at(&s, bb, 3u * FUDE_ZOOM_BREADBOARD_COLS + 0u, &b1) && fude_zoom_part_pin_at(&s, bb, 3u * FUDE_ZOOM_BREADBOARD_COLS + 6u, &b7));
+        CHECK(fabs(h7.x - h1.x - 60.0) < 1e-3 && fabs(h1.y - b1.y - 10.0) < 1e-3);   // (holes 10 apart)
+        const u32 r = part_put(&s, "resistor", (h1.x + h7.x) * 0.5, h1.y, 30, 6, "100");
+        const u32 bat = part_put(&s, "battery", -300, 0, 20, 30, "5V");
+        fude_zoom_v2 bp, bm, rr[6];
+        fude_zoom_part_pin_at(&s, bat, 0u, &bp);
+        fude_zoom_part_pin_at(&s, bat, 1u, &bm);
+        u32 m = fude_zoom_wire_route(bp, FUDE_ZOOM_PIN_UP, b1, 255u, 10.0, rr);
+        fude_zoom_wire_add(&s, s.root, rr, m, bat, 0, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        m = fude_zoom_wire_route(bm, FUDE_ZOOM_PIN_DOWN, b7, 255u, 10.0, rr);
+        fude_zoom_wire_add(&s, s.root, rr, m, bat, 1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_dc(&c));
+        const f64 i = circuit_part(&c, r)->pin_i[0];
+        CHECK(fabs(i - 5.0 / 100.5) < 1e-4);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+}
+
+// A function of x as written: worked out.
+static void test_calc(void) {
+    fude_zoom_calc c;
+    CHECK(fude_zoom_calc_parse(&c, "y = 2x + 3") && fabs(fude_zoom_calc_at(&c, 4.0) - 11.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "x^2/4 - 1") && fabs(fude_zoom_calc_at(&c, 2.0) - 0.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "-x^2") && fabs(fude_zoom_calc_at(&c, 3.0) + 9.0) < 1e-12);   // (−(x²))
+    CHECK(fude_zoom_calc_parse(&c, "2^3^2") && fabs(fude_zoom_calc_at(&c, 0.0) - 512.0) < 1e-9);  // (right to left)
+    CHECK(fude_zoom_calc_parse(&c, "3(x+1)(x-2)") && fabs(fude_zoom_calc_at(&c, 3.0) - 12.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "f(x) = sin(x) + cos x") && fabs(fude_zoom_calc_at(&c, 0.5) - (sin(0.5) + cos(0.5))) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "sqrt(abs(x))") && fabs(fude_zoom_calc_at(&c, -16.0) - 4.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "e^-x") && fabs(fude_zoom_calc_at(&c, 1.0) - exp(-1.0)) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "|x - 3|") && fabs(fude_zoom_calc_at(&c, 1.0) - 2.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "2pi x") && fabs(fude_zoom_calc_at(&c, 1.0) - 2.0 * 3.14159265358979323846) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "Y = 2·X − 1") && fabs(fude_zoom_calc_at(&c, 2.0) - 3.0) < 1e-12);
+    CHECK(fude_zoom_calc_parse(&c, "1/x") && isnan(fude_zoom_calc_at(&c, 0.0)));
+    CHECK(fude_zoom_calc_parse(&c, "ln(x)") && isnan(fude_zoom_calc_at(&c, -1.0)));
+    CHECK(!fude_zoom_calc_parse(&c, "2 +") && !fude_zoom_calc_parse(&c, "sin(") && !fude_zoom_calc_parse(&c, "2 * * 3"));
+    // Variables: a·sin(b·x) with a 2, b 3; not given, nothing.
+    f64 vars[26];
+    for(u32 i = 0; i < 26u; i++) vars[i] = NAN;
+    vars[0] = 2.0; vars[1] = 3.0;
+    CHECK(fude_zoom_calc_parse(&c, "y = a sin(b x)") && c.vars == 3u && fabs(fude_zoom_calc_at_with(&c, 0.5, vars) - 2.0 * sin(1.5)) < 1e-12);
+    CHECK(isnan(fude_zoom_calc_at(&c, 0.5)));
+    CHECK(fude_zoom_calc_parse(&c, "k(x - h)^2") && c.vars == ((1u << 10) | (1u << 7)));
+}
+
+// A graph's curves stay inside it, broken at an asymptote; a number line's ticks and numbers.
+static void test_plot(void) {
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap), labels = rde_arr_new(sizeof(fude_zoom_plot_label), heap);
+    CHECK(fude_zoom_plot_is("graph") && fude_zoom_plot_is("number line") && !fude_zoom_plot_is("box"));
+    CHECK(fude_zoom_plot_lines("graph", "y = x\nx -5 5\ny -5 5", 160.0, 110.0, &pts, &parts, &labels) == 1u);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+    u32 curves = 0, inside = 1;
+    for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+        for(u32 k = 0; k < pa[i].count; k++) {
+            const fude_zoom_v2 q = p[pa[i].first + k];
+            inside &= (fabs(q.x) <= 160.0 + 1e-9 && fabs(q.y) <= 110.0 + 1e-9) ? 1u : 0u;
+        }
+        curves += pa[i].flags >= 32u ? 1u : 0u;
+    }
+    CHECK(inside == 1u && curves == 1u && rde_arr_length(&labels) > 4u);
+    // 1/x: two pieces (no line drawn across x = 0).
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    CHECK(fude_zoom_plot_lines("graph", "1/x\ny -5 5", 160.0, 110.0, &pts, &parts, &labels) == 1u);
+    pa = (const fude_zoom_symbol_part*)parts.memory;
+    curves = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) { curves += pa[i].flags >= 32u ? 1u : 0u; }
+    CHECK(curves >= 2u);
+    // A number line from -5 to 5: eleven numbers.
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    fude_zoom_plot_lines("number line", "-5 5", 160.0, 25.0, &pts, &parts, &labels);
+    const fude_zoom_plot_label* lb = (const fude_zoom_plot_label*)labels.memory;
+    u32 found = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) { found += (strcmp(lb[i].text, "-5") == 0 || strcmp(lb[i].text, "5") == 0 || strcmp(lb[i].text, "0") == 0) ? 1u : 0u; }
+    CHECK(rde_arr_length(&labels) == 11u && found == 3u);
+    // Variables: y = a·x with a from 1 to 3; not playing, a is 1; a second and a half in, 2 (half way); a slider's, its.
+    fude_zoom_plot_var vs[4];
+    CHECK(fude_zoom_plot_vars("graph", "y = a x\na = 1..3\nx = 2\n(1, 1)", vs, 4u) == 2u && vs[0].letter == 'a' && vs[0].range && vs[1].letter == 'x');
+    fude_zoom_plot_play play;
+    play.time = NAN;
+    for(u32 i = 0; i < 26u; i++) play.held[i] = NAN;
+    CHECK(fabs(fude_zoom_plot_var_value(&vs[0], &play) - 1.0) < 1e-12);
+    play.time = 1.5;
+    CHECK(fabs(fude_zoom_plot_var_value(&vs[0], &play) - 2.0) < 1e-12);
+    play.held[0] = 2.5;
+    CHECK(fabs(fude_zoom_plot_var_value(&vs[0], &play) - 2.5) < 1e-12);
+    // Drawn with a = 2.5: the point marked at x = 2 is (2, 5), its numbers by it; the legend says a's value.
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    CHECK(fude_zoom_plot_lines_play("graph", "y = a x\na = 1..3\nx = 2\ny -10 10", 160.0, 110.0, &play, &pts, &parts, &labels) == 1u);
+    lb = (const fude_zoom_plot_label*)labels.memory;
+    u32 said = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) { said += (strcmp(lb[i].text, "(2, 5)") == 0 || strcmp(lb[i].text, "a = 2.5") == 0) ? 1u : 0u; }
+    CHECK(said == 2u);
+    rde_arr_free(&pts); rde_arr_free(&parts); rde_arr_free(&labels);
+}
+
+// Mechanisms: what hinges where, a motor's speed, gears that touch, a spring's ends; gear trains' speeds.
+static void test_mechanisms(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    // A crank on a motor at (0,0), a link pinned to its other end, a fixed pivot under the link's far end.
+    const u32 motor = part_put(&s, "drive motor", 0, 0, 30, 30, "60 rpm");
+    const u32 crank = part_put(&s, "link", 48, 0, 60, 12, "");          // (its holes at 0 and 96)
+    const u32 rod   = part_put(&s, "link", 96 + 48, 0, 60, 12, "");     // (its holes at 96 and 192)
+    const u32 piv   = part_put(&s, "fixed pivot", 192, -10, 20, 20, "");  // (its hole at y = -10 + 10 = 0)
+    RDE_UNUSED(motor); RDE_UNUSED(crank); RDE_UNUSED(rod); RDE_UNUSED(piv);
+    fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+    CHECK(fude_zoom_mech_plan_build(&p, &s, NULL) == 4u);
+    const fude_zoom_mech_hinge* h = (const fude_zoom_mech_hinge*)p.hinges.memory;
+    u32 grounds = 0, between = 0, motors = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&p.hinges); i++) {
+        grounds += h[i].b == FUDE_ZOOM_NONE ? 1u : 0u;
+        between += h[i].b != FUDE_ZOOM_NONE ? 1u : 0u;
+        if(h[i].motor) { motors++; CHECK(fabs(h[i].speed - 2.0 * 3.14159265358979323846) < 1e-9 && fabs(h[i].at.x) < 1e-9); }
+    }
+    CHECK(rde_arr_length(&p.hinges) == 3u && grounds == 2u && between == 1u && motors == 1u);
+    // Two gears whose pitch circles touch (20T: 50 round, 40T: 100: centres 150 apart), a third apart from them.
+    const u32 g1 = part_put(&s, "gear 20T", 0, 500, 55, 55, "20T");
+    const u32 g2 = part_put(&s, "gear 40T", 150, 500, 105, 105, "40T");
+    part_put(&s, "gear 10T", 0, 900, 30, 30, "10T");
+    RDE_UNUSED(g1); RDE_UNUSED(g2);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    CHECK(rde_arr_length(&p.meshes) == 1u);
+    CHECK(rde_arr_length(&p.hinges) == 6u);   // (each gear nothing holds on an axle of its own: they turn, they do not fall)
+    const fude_zoom_mech_mesh* m = (const fude_zoom_mech_mesh*)p.meshes.memory;
+    CHECK(fabs(m[0].ratio - 0.5) < 1e-12);
+    // The 20T turning at 2: the 40T at -1.
+    const u32 nb = (u32)rde_arr_length(&p.bodies);
+    f64 omega[16] = { 0 };
+    b8 driven[16] = { 0 };
+    omega[m[0].a] = 2.0;
+    driven[m[0].a] = true;
+    fude_zoom_mech_gears(&p, omega, driven);
+    CHECK(nb <= 16u && fabs(omega[m[0].b] + 1.0) < 1e-12);
+    // A spring from the pivot's hole to a weight's: held by the ground at one end, the weight at the other.
+    fude_zoom_scene t; fude_zoom_scene_init(&t, 7);
+    part_put(&t, "fixed pivot", 0, -10, 20, 20, "");
+    part_put(&t, "spring", 0 + 45, 0, 50, 12, "");        // (its ends at 0 and 90)
+    part_put(&t, "weight", 90, 0, 20, 20, "2 kg");
+    fude_zoom_mech_plan_build(&p, &t, NULL);
+    CHECK(rde_arr_length(&p.springs) == 1u);
+    const fude_zoom_mech_spring* sp = (const fude_zoom_mech_spring*)p.springs.memory;
+    CHECK(sp[0].a == FUDE_ZOOM_NONE && sp[0].b != FUDE_ZOOM_NONE && fabs(sp[0].length - 90.0) < 1e-4);
+    CHECK(fabs(((const fude_zoom_mech_body*)p.bodies.memory)[sp[0].b].value - 2.0) < 1e-12);
+    // A pulley (its rope's groove 39 round), a rope down each side of it: a 1 kg weight on one, a 2 kg crate on the other.
+    fude_zoom_scene u; fude_zoom_scene_init(&u, 7);
+    part_put(&u, "pulley", 0, 0, 50, 50, "");
+    const u32 r1 = part_put(&u, "rope", -39, -100, 100, 6, "");   // (turned upright below: its ends at y -5 and -195)
+    const u32 r2 = part_put(&u, "rope", 39, -100, 100, 6, "");
+    for(u32 k = 0; k < 2u; k++) {
+        const u32 r = k == 0u ? r1 : r2;
+        fude_zoom_place pl = fude_zoom_scene_place_of(&u, r);
+        pl.rotation = 1.5707963267948966;
+        fude_zoom_scene_set_place(&u, r, pl);
+    }
+    part_put(&u, "weight", -39, -200, 20, 20, "1 kg");
+    part_put(&u, "crate", 39, -205, 25, 20, "2 kg");
+    fude_zoom_mech_plan_build(&p, &u, NULL);
+    CHECK(rde_arr_length(&p.ropes) == 2u);
+    const fude_zoom_mech_rope* ro = (const fude_zoom_mech_rope*)p.ropes.memory;
+    const fude_zoom_mech_body* bo = (const fude_zoom_mech_body*)p.bodies.memory;
+    CHECK(ro[0].over != FUDE_ZOOM_NONE && ro[0].over == ro[1].over && ro[0].pair == 1u && ro[1].pair == 0u);
+    CHECK(ro[0].a != FUDE_ZOOM_NONE && ro[0].b == FUDE_ZOOM_NONE && bo[ro[0].a].part->kind == FUDE_ZOOM_MECH_WEIGHT && fabs(ro[0].length - 190.0) < 1e-4);
+    CHECK(ro[1].a != FUDE_ZOOM_NONE && bo[ro[1].a].part->kind == FUDE_ZOOM_MECH_CRATE && fabs(bo[ro[1].a].value - 2.0) < 1e-12);
+    // Run as an Atwood machine (point masses, gravity 9.81, a 240th of a second a step): the crate goes down at g/3.
+    fude_zoom_v2 at[2] = { { -39.0, -195.0 }, { 39.0, -195.0 } }, v[2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
+    const fude_zoom_v2 rim[2] = { { -39.0, -5.0 }, { 39.0, -5.0 } };
+    const f64 mass[2] = { 1.0, 2.0 }, dt = 1.0 / 240.0, total = 380.0;
+    for(u32 step = 0; step < 240u; step++) {
+        fude_zoom_mech_pull pull[2];
+        f64 len = 0.0;
+        for(u32 k = 0; k < 2u; k++) {
+            v[k].y -= 9.81 * dt;
+            at[k].x += v[k].x * dt;
+            at[k].y += v[k].y * dt;
+            const f64 d = hypot(at[k].x - rim[k].x, at[k].y - rim[k].y);
+            len += d;
+            pull[k] = (fude_zoom_mech_pull){ v[k], { (at[k].x - rim[k].x) / d, (at[k].y - rim[k].y) / d }, 1.0 / mass[k], { 0, 0 }, { 0, 0 } };
+        }
+        fude_zoom_mech_rope_keep(pull, 2u, len - total);
+        for(u32 k = 0; k < 2u; k++) {
+            v[k].x += pull[k].dv.x; v[k].y += pull[k].dv.y;
+            at[k].x += pull[k].dp.x; at[k].y += pull[k].dp.y;
+        }
+    }
+    CHECK(fabs(v[1].y + 9.81 / 3.0) < 0.05 && fabs(v[0].y - 9.81 / 3.0) < 0.05);   // (after a second: g/3 down, g/3 up)
+    CHECK(fabs(hypot(at[0].x - rim[0].x, at[0].y - rim[0].y) + hypot(at[1].x - rim[1].x, at[1].y - rim[1].y) - total) < 1e-6);
+    // A slider on a rail: along the rail, as far as its ends; a 20-tooth gear (pitch radius 50) over a rack: meshed, the
+    // rack going on 50 a radian the gear turns anticlockwise (its turn − travel / 50 kept).
+    fude_zoom_scene sv; fude_zoom_scene_init(&sv, 7);
+    part_put(&sv, "rail", 100, 0, 150, 8, "");
+    part_put(&sv, "slider", 60, 0, 30, 18, "");
+    part_put(&sv, "gear 20T", 0, 300, 55, 55, "");
+    part_put(&sv, "rack", 0, 245, 150, 15, "");   // (its pitch line 5 over its middle: at 250, the gear's pitch circle's bottom)
+    fude_zoom_mech_plan_build(&p, &sv, NULL);
+    CHECK(rde_arr_length(&p.slides) == 2u);
+    const fude_zoom_mech_slide* sl = (const fude_zoom_mech_slide*)p.slides.memory;
+    b8 rail_ok = false;
+    for(u32 i = 0; i < 2u; i++) {
+        if(((const fude_zoom_mech_body*)p.bodies.memory)[sl[i].body].part->kind == FUDE_ZOOM_MECH_SLIDER) {
+            rail_ok = fabs(sl[i].axis.x - 1.0) < 1e-9 && fabs(sl[i].lower + 80.0) < 1e-4 && fabs(sl[i].upper - 160.0) < 1e-4;
+        }
+    }
+    CHECK(rail_ok);
+    const fude_zoom_mech_mesh* rm = (const fude_zoom_mech_mesh*)p.meshes.memory;
+    CHECK(rde_arr_length(&p.meshes) == 1u && rm[0].rack && fabs(rm[0].ratio + 1.0 / 50.0) < 1e-4);
+    fude_zoom_scene_destroy(&sv);
+    // A slack rope does nothing.
+    fude_zoom_mech_pull one = { { 0.0, -1.0 }, { 0.0, -1.0 }, 1.0, { 0, 0 }, { 0, 0 } };
+    fude_zoom_mech_rope_keep(&one, 1u, -5.0);
+    CHECK(one.dv.y == 0.0 && one.dp.y == 0.0);
+    fude_zoom_mech_plan_destroy(&p);
+    fude_zoom_scene_destroy(&s);
+    fude_zoom_scene_destroy(&t);
+    fude_zoom_scene_destroy(&u);
+}
+
+// A stroke through _p (its first point its place), closed back to its first when _close.
+static u32 poly_stroke(fude_zoom_scene* s, const fude_zoom_v2* p, u32 n, b8 close) {
+    const i8  q = fude_zoom_quantum_for(s->camera.z);
+    const f64 g = ldexp(1.0, q);
+    const u32 m = n + (close ? 1u : 0u);
+    rde_arr pts_arr = rde_arr_new(sizeof(fude_zoom_qpoint), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&pts_arr, m + 1u);
+    fude_zoom_qpoint* pts = (fude_zoom_qpoint*)pts_arr.memory;
+    for(u32 i = 0; i < m; i++) {
+        const fude_zoom_v2 a = p[i % n];
+        pts[i].x = (i32)llround((a.x - p[0].x) / g); pts[i].y = (i32)llround((a.y - p[0].y) / g);
+        pts[i].pressure = 600; pts[i].time = i * 4u;
+    }
+    const u32 o = fude_zoom_scene_add_stroke(s, s->camera.frame, p[0], q, pts, m, FUDE_ZOOM_CHANNEL_PRESSURE | FUDE_ZOOM_CHANNEL_TIME,
+                                             (rde_color){ 10, 20, 30, 255 }, 0.5f, FUDE_ZOOM_FLAG_FROM_PEN, 0, 0);
+    rde_arr_free(&pts_arr);
+    return o;
+}
+
+static u32 body_on(fude_zoom_scene* s, u32 target, u32 material, b8 fixed, f64 mass) {
+    const fude_zoom_body_props bp = { material, fixed, mass, -1.0, -1.0 };
+    return fude_zoom_props_add_body(s, target, &bp);
+}
+
+// The plan's bodies of kind _kind.
+static u32 bodies_of(const fude_zoom_mech_plan* p, u8 kind, u32* out, u32 max) {
+    u32 n = 0;
+    const fude_zoom_mech_body* b = (const fude_zoom_mech_body*)p->bodies.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&p->bodies); i++) if(b[i].part->kind == kind && n < max) out[n++] = i;
+    return n;
+}
+
+// The area of a drawn body's pieces together.
+static f64 pieces_area(const fude_zoom_mech_plan* p, const fude_zoom_mech_body* b) {
+    const u32* c = (const u32*)p->piece_counts.memory;
+    const fude_zoom_v2* q = (const fude_zoom_v2*)p->piece_points.memory;
+    u32 first = 0;
+    for(u32 k = 0; k < b->piece; k++) first += c[k];
+    f64 a = 0.0;
+    for(u32 k = b->piece; k < b->piece + b->pieces; k++) {
+        fude_sim_v2 v[8];
+        for(u32 i = 0; i < c[k] && i < 8u; i++) v[i] = (fude_sim_v2){ q[first + i].x, q[first + i].y };
+        CHECK(c[k] >= 3u && c[k] <= 8u && fude_sim_polygon_convex(v, c[k]));
+        a += fude_sim_polygon_area(v, c[k]);
+        first += c[k];
+    }
+    return a;
+}
+
+// Drawings made bodies (props.h): their properties kept and followed; their outlines; their pieces, centres, masses;
+// fixed ground lines; pins joining them; ropes on them; only what is played.
+static void test_drawn_bodies(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 0x342F1234u);   // (a tablet's large ids)
+    const fude_zoom_v2 sq[4] = { { 0, 0 }, { 40, 0 }, { 40, 40 }, { 0, 40 } };
+    const u32 a = poly_stroke(&s, sq, 4u, true);
+    // Its outline: closed; an open line's not; an attribute's none.
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    b8 closed = false;
+    CHECK(fude_zoom_scene_object_outline(&s, a, 32u, &pts, &closed) && closed && rde_arr_length(&pts) >= 4u);
+    const fude_zoom_v2 zig[4] = { { 100, 0 }, { 150, 30 }, { 200, 0 }, { 250, 30 } };
+    const u32 line_o = poly_stroke(&s, zig, 4u, false);
+    CHECK(fude_zoom_scene_object_outline(&s, line_o, 32u, &pts, &closed) && !closed);
+    // Properties: on it, found, read back; on the thing it is made again as; nothing once it is gone.
+    const u32 pa = body_on(&s, a, 1u, false, 0.0);   // (steel)
+    CHECK(!fude_zoom_scene_object_outline(&s, pa, 32u, &pts, &closed));
+    CHECK(fude_zoom_props_find(&s, a, FUDE_ZOOM_PROPS_BODY) == pa && fude_zoom_props_target(&s, pa) == a && fude_zoom_props_kind(&s, pa) == FUDE_ZOOM_PROPS_BODY);
+    fude_zoom_body_props bp;
+    CHECK(fude_zoom_props_body(&s, pa, &bp) && bp.material == 1u && !bp.fixed && bp.mass == 0.0 && bp.friction < 0.0);
+    CHECK(fude_zoom_props_find(&s, line_o, FUDE_ZOOM_PROPS_BODY) == FUDE_ZOOM_NONE && fude_zoom_props_kind(&s, a) == 0u);
+    const u32 a2 = poly_stroke(&s, sq, 4u, true);
+    const fude_zoom_id ida = fude_zoom_scene_object(&s, a)->id, ida2 = fude_zoom_scene_object(&s, a2)->id, other = 12345u;
+    CHECK(fude_zoom_props_remap(&s, pa, &other, &other, 1u) == FUDE_ZOOM_NONE);
+    const u32 pa2 = fude_zoom_props_remap(&s, pa, &ida, &ida2, 1u);
+    CHECK(pa2 != FUDE_ZOOM_NONE && fude_zoom_props_target(&s, pa2) == a2);
+    fude_zoom_scene_set_alive(&s, a2, false);
+    CHECK(fude_zoom_props_target(&s, pa2) == FUDE_ZOOM_NONE);
+    fude_zoom_scene_set_alive(&s, pa2, false);
+    // In the plan: a steel square, 40 × 40, its centre its middle, its mass 7850 kg/m³ × 1600 mm² × 10 mm.
+    fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    u32 drawn[16];
+    CHECK(bodies_of(&p, FUDE_ZOOM_MECH_DRAWN, drawn, 16u) == 1u);
+    const fude_zoom_mech_body* b = &((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]];
+    CHECK(b->object == a && !b->fixed && fabs(b->at.x - 20.0) < 1e-3 && fabs(b->at.y - 20.0) < 1e-3 && fabs(b->mass - 7850.0 * 1600e-6 * 0.01) < 1e-6);
+    CHECK(fabs(pieces_area(&p, b) - 1600.0) < 1e-3 && fabs(b->friction - fude_sim_material_at(1u)->friction) < 1e-12);
+    // An L (concave): more than one piece, its area and centre as the L's; fixed; its mass as given.
+    fude_zoom_scene_set_alive(&s, a, false);
+    const fude_zoom_v2 ell[6] = { { 0, 0 }, { 60, 0 }, { 60, 20 }, { 20, 20 }, { 20, 80 }, { 0, 80 } };
+    const u32 l = poly_stroke(&s, ell, 6u, true);
+    body_on(&s, l, 0u, true, 3.5);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    CHECK(bodies_of(&p, FUDE_ZOOM_MECH_DRAWN, drawn, 16u) == 1u);
+    b = &((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]];
+    fude_sim_v2 lv[6]; for(u32 i = 0; i < 6u; i++) lv[i] = (fude_sim_v2){ ell[i].x, ell[i].y };
+    const fude_sim_v2 lc = fude_sim_polygon_centroid(lv, 6u);
+    CHECK(b->pieces >= 2u && b->fixed && b->mass == 3.5 && fabs(pieces_area(&p, b) - 2400.0) < 1e-2 && hypot(b->at.x - lc.x, b->at.y - lc.y) < 1e-3);
+    // An open line made a body: fixed ground, a thin piece along each stretch.
+    body_on(&s, line_o, 4u, false, 0.0);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    CHECK(bodies_of(&p, FUDE_ZOOM_MECH_DRAWN, drawn, 16u) == 2u);
+    const fude_zoom_mech_body* lb = ((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]].object == line_o ? &((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]] : &((const fude_zoom_mech_body*)p.bodies.memory)[drawn[1]];
+    CHECK(lb->object == line_o && lb->fixed && lb->pieces == 3u);
+    // A figure eight (it crosses itself): its box, one piece.
+    fude_zoom_scene_set_alive(&s, l, false);
+    fude_zoom_scene_set_alive(&s, line_o, false);
+    const fude_zoom_v2 bow[4] = { { 300, 0 }, { 340, 40 }, { 340, 0 }, { 300, 40 } };
+    const u32 bw = poly_stroke(&s, bow, 4u, true);
+    body_on(&s, bw, 2u, false, 0.0);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    CHECK(bodies_of(&p, FUDE_ZOOM_MECH_DRAWN, drawn, 16u) == 1u);
+    b = &((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]];
+    CHECK(b->pieces >= 1u && pieces_area(&p, b) > 0.0);
+    fude_zoom_scene_set_alive(&s, bw, false);
+    // Pins: two squares overlapping, a pin where they do: hinged together; a pin on one alone: to the ground; a pin on
+    // one over a wall: to the ground; a pin on nothing: nothing.
+    const fude_zoom_v2 s1[4] = { { 1000, 0 }, { 1040, 0 }, { 1040, 40 }, { 1000, 40 } }, s2[4] = { { 1030, 0 }, { 1070, 0 }, { 1070, 40 }, { 1030, 40 } };
+    const u32 q1 = poly_stroke(&s, s1, 4u, true), q2 = poly_stroke(&s, s2, 4u, true);
+    body_on(&s, q1, 0u, false, 0.0); body_on(&s, q2, 0u, false, 0.0);
+    part_put(&s, "pin", 1035, 20, 8, 8, "");
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    const fude_zoom_mech_hinge* h = (const fude_zoom_mech_hinge*)p.hinges.memory;
+    const fude_zoom_mech_body* pb = (const fude_zoom_mech_body*)p.bodies.memory;
+    CHECK(rde_arr_length(&p.hinges) == 1u && h[0].b != FUDE_ZOOM_NONE && pb[h[0].a].part->kind == FUDE_ZOOM_MECH_DRAWN && pb[h[0].b].part->kind == FUDE_ZOOM_MECH_DRAWN &&
+          fabs(h[0].at.x - 1035.0) < 1e-6);
+    part_put(&s, "pin", 1005, 20, 8, 8, "");   // (on the first alone: a nail)
+    part_put(&s, "pin", 5000, 20, 8, 8, "");   // (on nothing)
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    h = (const fude_zoom_mech_hinge*)p.hinges.memory;
+    u32 to_ground = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&p.hinges); i++) to_ground += h[i].b == FUDE_ZOOM_NONE ? 1u : 0u;
+    CHECK(rde_arr_length(&p.hinges) == 2u && to_ground == 1u);
+    // Shapes made bodies (a rectangle, an ellipse, a polygon): closed, moving; a bar pinned near one end: hinged to the
+    // ground there (a pendulum), still moving.
+    {
+        fude_zoom_scene r3; fude_zoom_scene_init(&r3, 9);
+        const f64 rect[3] = { 70.0, 8.0, 0.0 }, ell[2] = { 26.0, 26.0 }, poly[6] = { -20, -10, 20, -10, 0, 25 };
+        const u32 sr = fude_zoom_scene_add_shape(&r3, r3.root, (fude_zoom_place){ { 40, 240 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, rect, 3u, (rde_color){ 1, 1, 1, 255 }, 1.5f, 0u, 0);
+        const u32 se = fude_zoom_scene_add_shape(&r3, r3.root, (fude_zoom_place){ { -265, 200 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_ELLIPSE, ell, 2u, (rde_color){ 1, 1, 1, 255 }, 1.5f, 0u, 0);
+        const u32 sp = fude_zoom_scene_add_shape(&r3, r3.root, (fude_zoom_place){ { 400, 200 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_POLYGON, poly, 6u, (rde_color){ 1, 1, 1, 255 }, 1.5f, 0u, 0);
+        rde_arr outl = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+        b8 cl_r = false, cl_e = false, cl_p = false;
+        CHECK(fude_zoom_scene_object_outline(&r3, sr, 32u, &outl, &cl_r) && fude_zoom_scene_object_outline(&r3, se, 32u, &outl, &cl_e) &&
+              fude_zoom_scene_object_outline(&r3, sp, 32u, &outl, &cl_p));
+        CHECK(cl_r && cl_e && cl_p);
+        rde_arr_free(&outl);
+        body_on(&r3, sr, 2u, false, 0.0); body_on(&r3, se, 1u, false, 0.0); body_on(&r3, sp, 0u, false, 0.0);
+        part_put(&r3, "pin", -26, 240, 8, 8, "");
+        fude_zoom_mech_plan p3; fude_zoom_mech_plan_init(&p3);
+        fude_zoom_mech_plan_build(&p3, &r3, NULL);
+        u32 d3[8];
+        CHECK(bodies_of(&p3, FUDE_ZOOM_MECH_DRAWN, d3, 8u) == 3u);
+        const fude_zoom_mech_body* b3 = (const fude_zoom_mech_body*)p3.bodies.memory;
+        u32 moving = 0;
+        for(u32 i = 0; i < 3u; i++) moving += !b3[d3[i]].fixed;
+        CHECK(moving == 3u);
+        const fude_zoom_mech_hinge* h3 = (const fude_zoom_mech_hinge*)p3.hinges.memory;
+        CHECK(rde_arr_length(&p3.hinges) == 1u && h3[0].b == FUDE_ZOOM_NONE && b3[h3[0].a].object == sr && fabs(h3[0].at.x + 26.0) < 1e-6);
+        fude_zoom_mech_plan_destroy(&p3);
+        fude_zoom_scene_destroy(&r3);
+    }
+    // A rope from a pivot's pin down to the first square: held by it there.
+    part_put(&s, "fixed pivot", 1020, 190, 20, 20, "");   // (its pin at 200)
+    const u32 r = part_put(&s, "rope", 1020, 110, 95, 6, "");   // (turned upright: its ends at 20 and 200)
+    fude_zoom_place pl = fude_zoom_scene_place_of(&s, r); pl.rotation = 1.5707963267948966; fude_zoom_scene_set_place(&s, r, pl);
+    fude_zoom_mech_plan_build(&p, &s, NULL);
+    pb = (const fude_zoom_mech_body*)p.bodies.memory;
+    const fude_zoom_mech_rope* ro = (const fude_zoom_mech_rope*)p.ropes.memory;
+    CHECK(rde_arr_length(&p.ropes) == 1u && ((ro[0].a != FUDE_ZOOM_NONE && pb[ro[0].a].object == q1 && ro[0].b == FUDE_ZOOM_NONE) ||
+                                             (ro[0].b != FUDE_ZOOM_NONE && pb[ro[0].b].object == q1 && ro[0].a == FUDE_ZOOM_NONE)));
+    // Only what is played: the first square lassoed (its properties not): the second not in it.
+    u8 scope[512] = { 0 };
+    scope[q1] = 1u;
+    fude_zoom_mech_plan_build(&p, &s, scope);
+    CHECK(bodies_of(&p, FUDE_ZOOM_MECH_DRAWN, drawn, 16u) == 1u && ((const fude_zoom_mech_body*)p.bodies.memory)[drawn[0]].object == q1);
+    // Random shapes drawn (stars of 3 to 60 corners, anywhere, any size): one body each, its pieces convex, at most eight
+    // corners, as many as a body holds, their area within 3 % of the drawing's, its centre near the drawing's.
+    u32 shapes = 0, shapes_right = 0;
+    for(u32 k = 0; k < 600u; k++) {
+        fude_zoom_scene r2; fude_zoom_scene_init(&r2, 7);
+        const u32 n = 3u + (u32)(rndf() * 58.0);
+        const f64 R = 5.0 + rndf() * 500.0, cx = (rndf() - 0.5) * 1e4, cy = (rndf() - 0.5) * 1e4;
+        fude_zoom_v2 st[64]; fude_sim_v2 sv[64];
+        for(u32 i = 0; i < n; i++) {
+            const f64 ang = ((f64)i + 0.05 + 0.9 * rndf()) * 6.283185307179586 / (f64)n, rr = R * (0.3 + 0.7 * rndf());
+            st[i] = (fude_zoom_v2){ cx + cos(ang) * rr, cy + sin(ang) * rr };
+            sv[i] = (fude_sim_v2){ st[i].x, st[i].y };
+        }
+        const u32 o = poly_stroke(&r2, st, n, true);
+        body_on(&r2, o, (u32)(rndf() * 8.0) % 8u, false, 0.0);
+        fude_zoom_mech_plan pr; fude_zoom_mech_plan_init(&pr);
+        fude_zoom_mech_plan_build(&pr, &r2, NULL);
+        u32 d[4];
+        b8 ok = bodies_of(&pr, FUDE_ZOOM_MECH_DRAWN, d, 4u) == 1u;
+        if(ok) {
+            const fude_zoom_mech_body* bb = &((const fude_zoom_mech_body*)pr.bodies.memory)[d[0]];
+            const f64 area = fude_sim_polygon_area(sv, n), got = pieces_area(&pr, bb);
+            const fude_sim_v2 c = fude_sim_polygon_centroid(sv, n);
+            ok = bb->pieces >= 1u && bb->pieces <= RDE_PHYSICS_2D_MAX_COMPOUND_SHAPES + 1u && fabs(got - area) <= 0.03 * area && hypot(bb->at.x - c.x, bb->at.y - c.y) <= 0.03 * R && bb->mass > 0.0;
+            if(!ok) printf("  star %u (%u corners): %u pieces, area %.1f of %.1f, centre %.2f off\n", k, n, bb->pieces, got, area, hypot(bb->at.x - c.x, bb->at.y - c.y));
+        }
+        shapes++;
+        shapes_right += ok ? 1u : 0u;
+        fude_zoom_mech_plan_destroy(&pr);
+        fude_zoom_scene_destroy(&r2);
+    }
+    printf("  drawn bodies: %u random drawings\n", shapes);
+    CHECK(shapes_right == shapes);
+    rde_arr_free(&pts);
+    fude_zoom_mech_plan_destroy(&p);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Constraints: a line kept parallel / square / the same length as another, round its middle, as the other turns.
+static f64 line_angle(const fude_zoom_scene* s, u32 o, f64* len, fude_zoom_v2* mid) {
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    b8 closed;
+    fude_zoom_scene_shape_outline(s, o, 1u, &pts, &closed);
+    const fude_zoom_v2 a = ((const fude_zoom_v2*)pts.memory)[0], b = ((const fude_zoom_v2*)pts.memory)[1];
+    rde_arr_free(&pts);
+    if(len != NULL) *len = hypot(b.x - a.x, b.y - a.y);
+    if(mid != NULL) *mid = (fude_zoom_v2){ (a.x + b.x) * 0.5, (a.y + b.y) * 0.5 };
+    return atan2(b.y - a.y, b.x - a.x);
+}
+
+static void test_constraints(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    const u32 a = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 100, 0 }, 2u, c, 0.5f, 0u, 0);
+    const u32 b = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 50 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 60.0 * cos(0.5), 60.0 * sin(0.5) }, 2u, c, 0.5f, 0u, 0);
+    fude_zoom_v2 mid0, mid1;
+    f64 len;
+    line_angle(&s, b, NULL, &mid0);
+    // Made parallel: turned round its middle onto the first's way.
+    fude_zoom_sim m;
+    CHECK(fude_zoom_connect_constrain(&s, FUDE_ZOOM_CONSTRAINT_PARALLEL, a, b, &m));
+    fude_zoom_scene_set_place(&s, b, fude_zoom_place_moved(fude_zoom_scene_place_of(&s, b), m));
+    CHECK(fabs(line_angle(&s, b, &len, &mid1)) < 1e-9 && fabs(len - 60.0) < 1e-9 && fabs(mid1.x - mid0.x) < 1e-9 && fabs(mid1.y - mid0.y) < 1e-9);
+    CHECK(!fude_zoom_connect_constrain(&s, FUDE_ZOOM_CONSTRAINT_PARALLEL, a, b, &m));   // (so already)
+    // Kept so: the first turned a quarter (moved), the second follows in the same step.
+    const u32 k = fude_zoom_connect_constraint_add(&s, FUDE_ZOOM_CONSTRAINT_PARALLEL, a, b);
+    u8 kind; u32 ka, kb;
+    CHECK(fude_zoom_connect_constraint_of(&s, k, &kind, &ka, &kb) && kind == FUDE_ZOOM_CONSTRAINT_PARALLEL && ka == a && kb == b);
+    const f64 q = 3.14159265358979323846 * 0.5;
+    fude_zoom_scene_set_place(&s, a, (fude_zoom_place){ { 0, 0 }, q, 1.0 });
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr objs = rde_arr_new(sizeof(u32), heap), before = rde_arr_new(sizeof(fude_zoom_place), heap), after = rde_arr_new(sizeof(fude_zoom_place), heap);
+    CHECK(fude_zoom_connect_follow(&s, s.root, &a, 1u, &objs, &before, &after) == 1u && ((const u32*)objs.memory)[0] == b);
+    CHECK(fabs(fabs(line_angle(&s, b, NULL, &mid1)) - q) < 1e-9 && fabs(mid1.x - mid0.x) < 1e-9);
+    // The same length: stretched round its middle.
+    CHECK(fude_zoom_connect_constrain(&s, FUDE_ZOOM_CONSTRAINT_EQUAL, a, b, &m));
+    fude_zoom_scene_set_place(&s, b, fude_zoom_place_moved(fude_zoom_scene_place_of(&s, b), m));
+    line_angle(&s, b, &len, NULL);
+    CHECK(fabs(len - 100.0) < 1e-9);
+    // Square: a quarter from the first's way.
+    CHECK(fude_zoom_connect_constrain(&s, FUDE_ZOOM_CONSTRAINT_SQUARE, a, b, &m));
+    fude_zoom_scene_set_place(&s, b, fude_zoom_place_moved(fude_zoom_scene_place_of(&s, b), m));
+    CHECK(fabs(sin(line_angle(&s, b, NULL, NULL))) < 1e-9);
+    rde_arr_free(&objs); rde_arr_free(&before); rde_arr_free(&after);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Combine: two squares joined, overlapped, one cut out of the other; apart, joined they stay two.
+static f64 combine_area(const rde_arr* out, const rde_arr* rings, const rde_arr* piece) {
+    const fude_zoom_v2* p = (const fude_zoom_v2*)out->memory;
+    const u32* r = (const u32*)rings->memory;
+    const u32* k = (const u32*)piece->memory;
+    const u32 n = (u32)rde_arr_length(out);
+    f64 a = 0.0;
+    for(u32 from = 0; from < n;) {
+        u32 to = from;
+        while(to < n && r[to] == r[from] && k[to] == k[from]) to++;
+        a += fude_zoom_cut_area(&p[from], to - from);   // (holes clockwise: less)
+        from = to;
+    }
+    return a;
+}
+
+static void test_combine(void) {
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr out = rde_arr_new(sizeof(fude_zoom_v2), heap), rings = rde_arr_new(sizeof(u32), heap), piece = rde_arr_new(sizeof(u32), heap);
+    const fude_zoom_v2 a[4] = { { 0, 0 }, { 10, 0 }, { 10, 10 }, { 0, 10 } };
+    const fude_zoom_v2 b[4] = { { 5, 5 }, { 15, 5 }, { 15, 15 }, { 5, 15 } };
+    u32 n = fude_zoom_cut_combine(a, NULL, 4u, b, NULL, 4u, FUDE_ZOOM_CUT_UNION, &out, &rings, &piece);
+    CHECK(n == 1u && fabs(combine_area(&out, &rings, &piece) - 175.0) < 1e-9 && rde_arr_length(&out) == 8u);
+    n = fude_zoom_cut_combine(a, NULL, 4u, b, NULL, 4u, FUDE_ZOOM_CUT_INTERSECT, &out, &rings, &piece);
+    CHECK(n == 1u && fabs(combine_area(&out, &rings, &piece) - 25.0) < 1e-9 && rde_arr_length(&out) == 4u);
+    n = fude_zoom_cut_combine(a, NULL, 4u, b, NULL, 4u, FUDE_ZOOM_CUT_SUBTRACT, &out, &rings, &piece);
+    CHECK(n == 1u && fabs(combine_area(&out, &rings, &piece) - 75.0) < 1e-9);
+    // A small square inside: subtracted, a hole; joined, just the big one.
+    const fude_zoom_v2 c[4] = { { 3, 3 }, { 6, 3 }, { 6, 6 }, { 3, 6 } };
+    n = fude_zoom_cut_combine(a, NULL, 4u, c, NULL, 4u, FUDE_ZOOM_CUT_SUBTRACT, &out, &rings, &piece);
+    CHECK(n == 1u && fabs(combine_area(&out, &rings, &piece) - 91.0) < 1e-9 && rde_arr_length(&out) == 8u);
+    n = fude_zoom_cut_combine(a, NULL, 4u, c, NULL, 4u, FUDE_ZOOM_CUT_UNION, &out, &rings, &piece);
+    CHECK(n == 1u && fabs(combine_area(&out, &rings, &piece) - 100.0) < 1e-9 && rde_arr_length(&out) == 4u);
+    // Apart: joined, two; overlapping nowhere, nothing kept.
+    const fude_zoom_v2 d[4] = { { 20, 0 }, { 30, 0 }, { 30, 10 }, { 20, 10 } };
+    n = fude_zoom_cut_combine(a, NULL, 4u, d, NULL, 4u, FUDE_ZOOM_CUT_UNION, &out, &rings, &piece);
+    CHECK(n == 2u && fabs(combine_area(&out, &rings, &piece) - 200.0) < 1e-9);
+    n = fude_zoom_cut_combine(a, NULL, 4u, d, NULL, 4u, FUDE_ZOOM_CUT_INTERSECT, &out, &rings, &piece);
+    CHECK(n == 0u);
+    rde_arr_free(&out); rde_arr_free(&rings); rde_arr_free(&piece);
+}
+
+// Trim and extend: where a line is crossed (shapes, strokes), the pieces kept; a chamfer's corner.
+static void test_trim(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    // A line from (0,0) to (100,0); an upright line through x=30, a circle round (70,0) r10, a stroke across x=120.
+    const u32 line = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 100, 0 }, 2u, c, 0.5f, 0u, 0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 30, -20 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 0, 40 }, 2u, c, 0.5f, 0u, 0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 70, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_ELLIPSE, (const f64[2]){ 10, 10 }, 2u, c, 0.5f, 0u, 0);
+    f64 t[16];
+    u32 n = fude_zoom_trim_crossings(&s, s.root, line, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 100, 0 }, 0.0, 1.0, t, 16u);
+    CHECK(n == 3u && fabs(t[0] - 0.3) < 1e-9 && fabs(t[1] - 0.6) < 2e-3 && fabs(t[2] - 0.8) < 2e-3);
+    // Tapped between the upright line and the circle: that piece away, the rest kept.
+    f64 keep[4];
+    u32 k = fude_zoom_trim_keep(t, n, 0.45, keep);
+    CHECK(k == 2u && keep[0] == 0.0 && fabs(keep[1] - 0.3) < 1e-9 && fabs(keep[2] - t[1]) < 1e-12 && keep[3] == 1.0);
+    // Tapped before the first crossing: only what is past it kept; with none at all, nothing.
+    k = fude_zoom_trim_keep(t, n, 0.1, keep);
+    CHECK(k == 1u && fabs(keep[0] - 0.3) < 1e-9 && keep[1] == 1.0);
+    CHECK(fude_zoom_trim_keep(NULL, 0u, 0.5, keep) == 0u);
+    // Past its end (extend): the line beyond 100 meets nothing yet; a guide at x=150 is met at 1.5.
+    n = fude_zoom_trim_crossings(&s, s.root, line, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 100, 0 }, 1.0 + 1e-9, 50.0, t, 16u);
+    CHECK(n == 0u);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 150, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_GUIDE, (const f64[3]){ 0, 1, 500 }, 3u, c, 0.1f, 0u, 0);
+    n = fude_zoom_trim_crossings(&s, s.root, line, (fude_zoom_v2){ 0, 0 }, (fude_zoom_v2){ 100, 0 }, 1.0 + 1e-9, 50.0, t, 16u);
+    CHECK(n == 1u && fabs(t[0] - 1.5) < 1e-9);
+    // A chamfer 10 back from where (0,0)→(100,0) and (0,-50)→(0,50)... (0,5)→(0,50) meet: each cut back from (0,0).
+    fude_zoom_v2 ak, ae, bk, be;
+    CHECK(fude_zoom_shape_chamfer((fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 20, 0 }, (fude_zoom_v2){ 0, 5 }, (fude_zoom_v2){ 0, 50 }, 10.0, &ak, &ae, &bk, &be));
+    CHECK(ak.x == 100.0 && fabs(ae.x - 10.0) < 1e-9 && fabs(ae.y) < 1e-9 && bk.y == 50.0 && fabs(be.y - 10.0) < 1e-9 && fabs(be.x) < 1e-9);
+    // 0: carried on to meet; too far back: none.
+    CHECK(fude_zoom_shape_chamfer((fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 20, 0 }, (fude_zoom_v2){ 0, 5 }, (fude_zoom_v2){ 0, 50 }, 0.0, &ak, &ae, &bk, &be));
+    CHECK(fabs(ae.x) < 1e-9 && fabs(be.y) < 1e-9);
+    CHECK(!fude_zoom_shape_chamfer((fude_zoom_v2){ 100, 0 }, (fude_zoom_v2){ 20, 0 }, (fude_zoom_v2){ 0, 5 }, (fude_zoom_v2){ 0, 50 }, 60.0, &ak, &ae, &bk, &be));
+    fude_zoom_scene_destroy(&s);
+}
+
+// Guides: as long as their reach, crossed and snapped along, never ends of their own, never exported.
+static void test_guides(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const rde_color c = { 1, 1, 1, 255 };
+    // Up through (100, 0), 2000 each way; a line across it.
+    const u32 g = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 100, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_GUIDE, (const f64[3]){ 0, 5, 2000 }, 3u, c, 0.5f, 0u, 0);
+    const fude_zoom_object* o = fude_zoom_scene_object(&s, g);
+    CHECK(fabs(o->box.min_y + 2000.0) < 1.0 && fabs(o->box.max_y - 2000.0) < 1.0 && o->box.max_x - o->box.min_x < 2.0);
+    fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { -300, 40 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_LINE, (const f64[2]){ 800, 0 }, 2u, c, 1.0f, 0u, 0);
+    fude_zoom_visible v; memset(&v, 0, sizeof v);
+    v.frame = s.root; v.to_screen = (fude_zoom_sim){ 1.0, 0.0, 0.0, 0.0 };
+    // Where the line crosses it.
+    fude_zoom_snap h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 104, 37 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_CROSS && fabs(h.at.x - 100.0) < 1e-9 && fabs(h.at.y - 40.0) < 1e-9);
+    // Along it, far from anything else; its middle (where it was put) no snap of its own.
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 103, 900 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_NEAREST && fabs(h.at.x - 100.0) < 1e-9 && fabs(h.at.y - 900.0) < 1e-9);
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 101, 3 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_NEAREST);
+    // Its end: none (2000 up).
+    h = fude_zoom_snap_find(&s, &v, 1, (fude_zoom_v2){ 101, 1999 }, 14.0);
+    CHECK(h.kind == FUDE_ZOOM_SNAP_NEAREST);
+    // Exported: only the line.
+    fude_bytes svg = fude_bytes_new(256);
+    CHECK(fude_zoom_export_svg(&s, (fude_zoom_v2){ 400, 300 }, (rde_color){ 255, 255, 255, 255 }, &svg));
+    rde_arr_add(&svg, &(u8){ 0 });
+    u32 paths = 0;
+    for(const c8* q = (const c8*)svg.memory; (q = strstr(q, "<path")) != NULL; q++) {
+        paths++;
+    }
+    CHECK(paths == 1u);
+    rde_arr_free(&svg);
     fude_zoom_scene_destroy(&s);
 }
 
@@ -3324,10 +4204,12 @@ static void test_pictures(void) {
 
 // --- the file ----------------------------------------------------------------------------------
 
-static u8* read_all(const char* p, u32* n) {
-    FILE* f = fopen(p, "rb"); if(!f) { *n = 0; return NULL; }
+// Its bytes (none when it is not there): rde_arr_free after.
+static rde_arr read_all(const char* p) {
+    rde_arr d = rde_arr_new(sizeof(u8), NULL);
+    FILE* f = fopen(p, "rb"); if(!f) return d;
     fseek(f, 0, SEEK_END); long sz = ftell(f); rewind(f);
-    u8* d = malloc((size_t)sz + 1); *n = (u32)fread(d, 1, (size_t)sz, f); fclose(f); return d;
+    rde_arr_resize(&d, (usize)sz); rde_arr_resize(&d, fread(d.memory, 1, (size_t)sz, f)); fclose(f); return d;
 }
 static void write_all(const char* p, const u8* d, u32 n) { FILE* f = fopen(p, "wb"); fwrite(d, 1, n, f); fclose(f); }
 
@@ -3379,10 +4261,10 @@ static void test_file(void) {
             const u32 j = fude_zoom_scene_find_object(&t, o->id);
             if(j == FUDE_ZOOM_NONE) { same = false; continue; }
             const fude_zoom_object* p = fude_zoom_scene_object(&t, j);
-            fude_zoom_qpoint* qa = calloc(o->count, sizeof(*qa)); fude_zoom_qpoint* qb = calloc(o->count, sizeof(*qb));
+            rde_arr qaa, qba; fude_zoom_qpoint* qa = table(&qaa, sizeof(*qa), o->count); fude_zoom_qpoint* qb = table(&qba, sizeof(*qb), o->count);
             fude_zoom_scene_points(&s, i, qa); fude_zoom_scene_points(&t, j, qb);
             if(p->count != o->count || memcmp(qa, qb, o->count * sizeof(*qa)) || p->t.x != o->t.x || p->t.y != o->t.y || p->q != o->q) same = false;
-            free(qa); free(qb);
+            rde_arr_free(&qaa); rde_arr_free(&qba);
         }
         CHECK(same);
         // Undo after reopening brings back what the original's undo would.
@@ -3417,14 +4299,14 @@ static void test_file(void) {
         saved[nsaved++] = state_of(&s, &f);   // safe once its journal is on disk
         if(round == 5) fude_zoom_file_checkpoint(&f, &s);
     }
-    u32 total; u8* whole = read_all(path, &total);
+    rde_arr whole = read_all(path); const u32 total = (u32)rde_arr_length(&whole);
     CHECK(total == f.size);
     printf("  file: %u bytes, every cut tried\n", total);
     const char* cut = "./saves/cut.zoom";
     b8 all_ok = true;
     for(u32 len = 0; len <= total; len++) {
         remove(cut); remove("./saves/cut.zoom.bak"); remove("./saves/cut.zoom.bad"); remove("./saves/cut.zoom.tmp");
-        write_all(cut, whole, len);
+        write_all(cut, whole.memory, len);
         fude_zoom_scene t; fude_zoom_scene_init(&t, 7); fude_zoom_file g;
         const FUDE_LOAD_ r = fude_zoom_file_open(&g, cut, &t);
         // The newest saved state whose bytes are all within the cut.
@@ -3444,7 +4326,7 @@ static void test_file(void) {
 
     // A flipped byte in the last journal chunk: opens to the state before it.
     {
-        u8* bad = malloc(total); memcpy(bad, whole, total);
+        rde_arr ba; u8* bad = table(&ba, sizeof(u8), total); memcpy(bad, whole.memory, total);
         bad[total - 6] ^= 0x5A;
         remove(cut); write_all(cut, bad, total);
         fude_zoom_scene t; fude_zoom_scene_init(&t, 7); fude_zoom_file g;
@@ -3453,7 +4335,7 @@ static void test_file(void) {
         for(u32 k = 0; k < nsaved; k++) if(saved[k].size < total) want = (i32)k;
         CHECK(want >= 0 && signature(&t) == saved[want].sig);
         fude_zoom_scene_destroy(&t);
-        free(bad);
+        rde_arr_free(&ba);
     }
     // Not a canvas at all: kept as .bad, nothing loaded.
     {
@@ -3463,7 +4345,7 @@ static void test_file(void) {
         struct stat st; CHECK(stat("./saves/cut.zoom.bad", &st) == 0);
         fude_zoom_scene_destroy(&t);
     }
-    free(whole);
+    rde_arr_free(&whole);
 
     // Compaction: the same canvas, smaller, and still opening the same.
     const state before = state_of(&s, &f);
@@ -3501,6 +4383,911 @@ static void test_file(void) {
     fude_zoom_scene_destroy(&s);
 }
 
+// --- logic on the canvas (logic.h): gates, latches, flip-flops, chips on a breadboard, custom parts, all run by the
+// simulation's digital engine; bridged where they meet LEDs, resistors, switches and batteries --------------------
+
+#include "../support/parts.h"
+
+// A part's pin by its name (a chip's, a custom part's); NONE: none so named.
+static u32 pin_named(const fude_zoom_scene* s, u32 o, const c8* name) {
+    const fude_zoom_part* p = fude_zoom_part_of(s, o);
+    for(u32 k = 0; p != NULL && k < p->pin_count; k++) if(p->pins[k].name != NULL && strcmp(p->pins[k].name, name) == 0) return k;
+    return FUDE_ZOOM_NONE;
+}
+
+static fude_zoom_circuit_part* cpart(fude_zoom_circuit* c, u32 object) {
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) if(((fude_zoom_circuit_part*)c->parts.memory)[i].object == object) return &((fude_zoom_circuit_part*)c->parts.memory)[i];
+    return NULL;
+}
+
+// A logic input set (as tapped) and the circuit run a step on.
+static void set_in(fude_zoom_circuit* c, u32 object, u32 v) {
+    fude_zoom_circuit_part* p = cpart(c, object);
+    CHECK(p != NULL);
+    if(p != NULL) p->switch_on = v & 1u;
+}
+static b8 step(fude_zoom_circuit* c) { return fude_zoom_circuit_run(c, 1e-3, 4u); }
+static u32 probe(fude_zoom_circuit* c, u32 object) { const fude_zoom_circuit_part* p = cpart(c, object); return p != NULL && p->shown > 0.5 ? 1u : 0u; }
+
+// A chip seated on breadboard bb across its gap (rows e and f), its pin 1 at column col (as a person seats it: turned a
+// quarter, its notch to the left, pins 1 to n/2 along row f, the rest back along row e).
+static u32 seat_chip(fude_zoom_scene* s, u32 bb, const c8* id, u32 col, u32 pins) {
+    fude_zoom_v2 e0, f0, f1;
+    const u32 cols = FUDE_ZOOM_BREADBOARD_COLS;
+    CHECK(fude_zoom_part_pin_at(s, bb, 6u * cols + col, &e0) && fude_zoom_part_pin_at(s, bb, 7u * cols + col, &f0) && fude_zoom_part_pin_at(s, bb, 7u * cols + col + 1u, &f1));
+    const f64 pitch = f1.x - f0.x, half = (f64)(pins / 2u);
+    const f64 hw = (e0.y - f0.y) * 0.5, hh = pitch * (half + 1.0) * 0.5;
+    const u32 o = part_put(s, id, f0.x + pitch * (half - 1.0) * 0.5, (e0.y + f0.y) * 0.5, hw, hh, "");
+    fude_zoom_place pl = fude_zoom_scene_place_of(s, o); pl.rotation = 1.5707963267948966; fude_zoom_scene_set_place(s, o, pl);
+    // (each pin on its hole)
+    for(u32 k = 0; k < pins; k++) {
+        fude_zoom_v2 at, hole;
+        const u32 h = k < pins / 2u ? 7u * cols + col + k : 6u * cols + col + (pins - 1u - k);
+        CHECK(fude_zoom_part_pin_at(s, o, k, &at) && fude_zoom_part_pin_at(s, bb, h, &hole));
+        CHECK(hypot(at.x - hole.x, at.y - hole.y) < 1e-3);   // (pins' places are f32s)
+    }
+    return o;
+}
+
+// A chip's pin k's strip's free hole (a row away from the chip, on its side), for a wire.
+static u32 strip_hole(u32 col, u32 pins, u32 k, u32 rows_away) {
+    const u32 cols = FUDE_ZOOM_BREADBOARD_COLS;
+    return k < pins / 2u ? (7u + rows_away) * cols + col + k : (6u - rows_away) * cols + col + (pins - 1u - k);
+}
+
+// A straight wire from part a's pin pa to b's pb (no route round: on a breadboard, its ends' columns kept clear).
+static u32 wire_line(fude_zoom_scene* s, u32 a, u32 pa, u32 b, u32 pb) {
+    fude_zoom_v2 r[2];
+    CHECK(fude_zoom_part_pin_at(s, a, pa, &r[0]) && fude_zoom_part_pin_at(s, b, pb, &r[1]));
+    return fude_zoom_wire_add(s, s->root, r, 2u, a, (i32)pa, b, (i32)pb, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+}
+
+static fude_zoom_v2 hole_at(const fude_zoom_scene* s, u32 bb, u32 row, u32 col) {
+    fude_zoom_v2 p = { 0, 0 };
+    CHECK(fude_zoom_part_pin_at(s, bb, row * FUDE_ZOOM_BREADBOARD_COLS + col, &p));
+    return p;
+}
+
+static void test_canvas_logic(void) {
+    // Every gate's table, drawn: two switches into it, a probe on its output.
+    {
+        const c8* const gates[8] = { "AND gate", "OR gate", "NAND gate", "NOR gate", "XOR gate", "XNOR gate", "NOT gate", "buffer" };
+        u32 right = 0, cases = 0;
+        for(u32 g = 0; g < 8u; g++) {
+            fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+            const u32 a = part_put(&s, "logic input", 0, 40, 30, 20, "0"), b = part_put(&s, "logic input", 0, -40, 30, 20, "0");
+            const u32 gt = part_put(&s, gates[g], 150, 0, 40, 30, ""), pr = part_put(&s, "logic probe", 300, 0, 20, 20, "");
+            const b8 one = g >= 6u;
+            wire_put(&s, a, 0, gt, 0);
+            if(!one) wire_put(&s, b, 0, gt, 1);
+            wire_put(&s, gt, one ? 1u : 2u, pr, 0);
+            fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+            fude_zoom_circuit_build(&c, &s);
+            for(u32 v = 0; v < 4u; v++) {
+                const u32 x = v & 1u, y = v >> 1;
+                set_in(&c, a, x); set_in(&c, b, y);
+                CHECK(step(&c));
+                const u32 want = g == 0 ? (x & y) : g == 1 ? (x | y) : g == 2 ? !(x & y) : g == 3 ? !(x | y) : g == 4 ? (x ^ y) : g == 5 ? !(x ^ y) : g == 6 ? !x : x;
+                cases++; right += probe(&c, pr) == want;
+            }
+            fude_zoom_circuit_destroy(&c);
+            fude_zoom_scene_destroy(&s);
+        }
+        CHECK(right == cases && cases == 32u);
+    }
+    // A latch of two NANDs drawn, crossed: set, held, reset, held — only logic on its nodes (one net each).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 ns = part_put(&s, "logic input", 0, 60, 30, 20, "1"), nr = part_put(&s, "logic input", 0, -60, 30, 20, "1");
+        const u32 g1 = part_put(&s, "NAND gate", 150, 60, 40, 30, ""), g2 = part_put(&s, "NAND gate", 150, -60, 40, 30, "");
+        const u32 q = part_put(&s, "logic probe", 320, 60, 20, 20, ""), nq = part_put(&s, "logic probe", 320, -60, 20, 20, "");
+        wire_put(&s, ns, 0, g1, 0); wire_put(&s, nr, 0, g2, 1);
+        wire_put(&s, g1, 2, g2, 0); wire_put(&s, g2, 2, g1, 1);   // (crossed)
+        wire_put(&s, g1, 2, q, 0); wire_put(&s, g2, 2, nq, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        set_in(&c, ns, 0); CHECK(step(&c) && probe(&c, q) == 1u && probe(&c, nq) == 0u);
+        set_in(&c, ns, 1); CHECK(step(&c) && probe(&c, q) == 1u && probe(&c, nq) == 0u);
+        set_in(&c, nr, 0); CHECK(step(&c) && probe(&c, q) == 0u && probe(&c, nq) == 1u);
+        set_in(&c, nr, 1); CHECK(step(&c) && probe(&c, q) == 0u && probe(&c, nq) == 1u);
+        // Built again (the canvas changed): what it held kept.
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c) && probe(&c, q) == 0u && probe(&c, nq) == 1u);
+        CHECK(c.logic->on && rde_arr_length(&c.logic->bridges) == 0u);   // (nothing analog: no bridge)
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A ripple counter of four T flip-flops (each clocked by the last's /Q), a switch its clock; and a D flip-flop.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 one = part_put(&s, "logic input", -200, 200, 30, 20, "1"), ck = part_put(&s, "logic input", -200, 0, 30, 20, "0");
+        u32 t[4], pr[4];
+        for(u32 i = 0; i < 4u; i++) {
+            t[i] = part_put(&s, "T flip-flop", (f64)i * 200.0, 0, 40, 40, "");
+            pr[i] = part_put(&s, "logic probe", (f64)i * 200.0 + 60.0, 150, 20, 20, "");
+            wire_put(&s, one, 0, t[i], 0);
+            wire_put(&s, i == 0u ? ck : t[i - 1u], i == 0u ? 0u : 3u, t[i], 1);
+            wire_put(&s, t[i], 2, pr[i], 0);
+        }
+        const u32 d = part_put(&s, "logic input", -200, -200, 30, 20, "0"), df = part_put(&s, "D flip-flop", 0, -200, 40, 40, "");
+        const u32 dq = part_put(&s, "logic probe", 150, -200, 20, 20, "");
+        wire_put(&s, d, 0, df, 0); wire_put(&s, ck, 0, df, 1); wire_put(&s, df, 2, dq, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        u32 right = 0, dq_ref = 0;
+        for(u32 k = 1; k <= 40u; k++) {
+            const u32 dv = (k * 7u + 3u) % 5u < 2u;
+            set_in(&c, d, dv); CHECK(step(&c));
+            set_in(&c, ck, 1); CHECK(step(&c));
+            dq_ref = dv;
+            set_in(&c, ck, 0); CHECK(step(&c));
+            const u32 got = probe(&c, pr[0]) | probe(&c, pr[1]) << 1 | probe(&c, pr[2]) << 2 | probe(&c, pr[3]) << 3;
+            right += got == (k & 15u) && probe(&c, dq) == dq_ref;
+            if(k == 20u) fude_zoom_circuit_build(&c, &s);   // (made again mid-count: it counts on)
+        }
+        CHECK(right == 40u);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Logic meeting the analog circuit: a switch's output through a resistor lights an LED (a bridge out, 5 V); a
+    // battery through a push switch, a resistor pulling down, into a gate (a bridge in).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 in = part_put(&s, "logic input", 0, 0, 30, 20, "0");
+        const u32 r = part_put(&s, "resistor", 150, 0, 30, 6, "330"), led = part_put(&s, "LED", 300, 0, 20, 20, "red"), gnd = part_put(&s, "ground", 400, -100, 20, 20, "");
+        wire_put(&s, in, 0, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, gnd, 0);
+        const u32 bat = part_put(&s, "battery", 0, -300, 20, 30, "5V"), sw = part_put(&s, "SPST switch", 150, -250, 30, 20, "off");
+        const u32 pd = part_put(&s, "resistor", 300, -350, 30, 6, "10k"), g = part_put(&s, "AND gate", 450, -250, 40, 30, "");
+        const u32 en = part_put(&s, "logic input", 300, -150, 30, 20, "1"), pr = part_put(&s, "logic probe", 600, -250, 20, 20, "");
+        wire_put(&s, bat, 0, sw, 0); wire_put(&s, sw, 1, g, 0); wire_put(&s, sw, 1, pd, 0); wire_put(&s, pd, 1, gnd, 0); wire_put(&s, bat, 1, gnd, 0);
+        wire_put(&s, en, 0, g, 1); wire_put(&s, g, 2, pr, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c) && cpart(&c, led)->shown < 0.05 && probe(&c, pr) == 0u);
+        set_in(&c, in, 1);
+        CHECK(step(&c) && cpart(&c, led)->shown > 0.5);
+        const f64 i_led = cpart(&c, led)->pin_i[0];
+        CHECK(i_led > 0.005 && i_led < 0.012);   // (about (5 − 2) / (330 + 25) A)
+        cpart(&c, sw)->switch_on = 1u;
+        CHECK(step(&c) && probe(&c, pr) == 1u);
+        set_in(&c, en, 0);
+        CHECK(step(&c) && probe(&c, pr) == 0u);
+        cpart(&c, sw)->switch_on = 0u; set_in(&c, en, 1);
+        CHECK(step(&c) && probe(&c, pr) == 0u);   // (pulled down)
+        u32 first, n = fude_zoom_logic_bridges_of(c.logic, (u32)(cpart(&c, g) - (fude_zoom_circuit_part*)c.parts.memory), &first);
+        CHECK(n == 1u && ((const fude_zoom_bridge*)c.logic->bridges.memory)[first].way == FUDE_ZOOM_BRIDGE_IN);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A chip, unpowered, then powered: a 74HC04's inverter into an LED — dark without its supply, lit with it.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 ic = part_put(&s, "74HC04", 0, 0, 100, 80, "");
+        CHECK(fude_zoom_part_of(&s, ic) != NULL && fude_zoom_part_of(&s, ic)->pin_count == 14u && pin_named(&s, ic, "VCC") == 13u && pin_named(&s, ic, "GND") == 6u);
+        const u32 in = part_put(&s, "logic input", -300, 100, 30, 20, "0");
+        const u32 r = part_put(&s, "resistor", 300, 100, 30, 6, "330"), led = part_put(&s, "LED", 450, 100, 20, 20, "green"), gnd = part_put(&s, "ground", 500, -200, 20, 20, "");
+        wire_put(&s, in, 0, ic, pin_named(&s, ic, "1A")); wire_put(&s, ic, pin_named(&s, ic, "1Y"), r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, gnd, 0);
+        wire_put(&s, ic, pin_named(&s, ic, "GND"), gnd, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c) && cpart(&c, led)->shown < 0.05);   // (no supply: its output not driven)
+        const u32 bat = part_put(&s, "battery", -300, -200, 20, 30, "5V");
+        wire_put(&s, bat, 0, ic, pin_named(&s, ic, "VCC")); wire_put(&s, bat, 1, gnd, 0);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c) && cpart(&c, led)->shown > 0.5);    // (input low: output high)
+        set_in(&c, in, 1);
+        CHECK(step(&c) && cpart(&c, led)->shown < 0.05);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // A 74HC161 seated on a breadboard, a battery on its top rails (jumpered to the bottom ones), a 100 Hz clock into
+    // it, four LEDs on its outputs (each through a resistor to the minus rail): after n periods, n on its LEDs. Every
+    // wire straight, along its own column on the board (a wire's end on another wire would join them).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bb = part_put(&s, "breadboard", 0, 0, 165, 92.5, "");
+        const u32 col = 6u, pins = 16u, cols = FUDE_ZOOM_BREADBOARD_COLS;
+        const u32 ic = seat_chip(&s, bb, "74HC161", col, pins);
+        const fude_zoom_v2 top = hole_at(&s, bb, 0u, 2u), low = hole_at(&s, bb, 13u, 2u);
+        const u32 bat = part_put(&s, "battery", top.x - 140.0, top.y + 120.0, 20, 30, "5V");
+        wire_line(&s, bat, 0, bb, 0u * cols + 2u); wire_line(&s, bat, 1, bb, 1u * cols + 2u);
+        wire_line(&s, bb, 0u * cols + 1u, bb, 12u * cols + 1u);    // (plus, top to bottom, down column 2)
+        wire_line(&s, bb, 1u * cols + 28u, bb, 13u * cols + 28u);  // (minus, down column 29)
+        // Each pin to its rail, along its column: row f's down to the bottom rails, row e's up to the top ones.
+        // (~CLR 1, ENP 7, ~LOAD 9, ENT 10, VCC 16 to plus; A B C D 3–6 and GND 8 to minus)
+        const u32 hi[5] = { 0u, 6u, 8u, 9u, 15u }, lo[5] = { 2u, 3u, 4u, 5u, 7u };
+        for(u32 k = 0; k < 5u; k++) {
+            const u32 ch = hi[k] < 8u ? col + hi[k] : col + 15u - hi[k], cl = col + lo[k];
+            wire_line(&s, bb, strip_hole(col, pins, hi[k], 3u), bb, (hi[k] < 8u ? 12u : 0u) * cols + ch);
+            wire_line(&s, bb, strip_hole(col, pins, lo[k], 3u), bb, 13u * cols + cl);
+        }
+        // The clock below the board under CLK's column; its minus to the bottom minus rail far along.
+        const fude_zoom_v2 ck_hole = hole_at(&s, bb, 10u, col + 1u);
+        const u32 clk = part_put(&s, "clock", ck_hole.x, low.y - 120.0, 20, 30, "100Hz");
+        wire_line(&s, clk, 0, bb, 10u * cols + col + 1u);
+        wire_line(&s, clk, 1, bb, 13u * cols + 22u);
+        const c8* const q[4] = { "QA", "QB", "QC", "QD" };
+        u32 led[4];
+        for(u32 i = 0; i < 4u; i++) {
+            const u32 k = pin_named(&s, ic, q[i]);
+            CHECK(k == 13u - i);
+            const fude_zoom_v2 h = hole_at(&s, bb, 3u, col + 15u - k);
+            const u32 r = part_put(&s, "resistor", h.x + 7.0, top.y + 80.0 + (f64)i * 45.0, 30, 6, "330");
+            led[i] = part_put(&s, "LED", h.x + 107.0, top.y + 80.0 + (f64)i * 45.0, 20, 20, "red");
+            wire_line(&s, bb, 3u * cols + col + 15u - k, r, 0); wire_line(&s, r, 1, led[i], 0);
+            wire_line(&s, led[i], 1, bb, 1u * cols + 20u + i);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(c.logic->on && c.grounded == false);
+        u32 counted_right = 0;
+        for(u32 n = 1; n <= 12u; n++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.01, 1000u));   // (a period: one rising edge in each)
+            u32 lit = 0;
+            for(u32 i = 0; i < 4u; i++) lit |= (cpart(&c, led[i])->shown > 0.5 ? 1u : 0u) << i;
+            counted_right += lit == (n & 15u) ? 1u : 0u;
+        }
+        CHECK(counted_right == 12u);
+        // Its supply's draw and its LEDs': current from the battery.
+        CHECK(cpart(&c, bat)->pin_i[0] != 0.0);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Custom parts placed on the canvas by name: a 4-bit adder of full adders (every sum), and a 4 × 4 memory of
+    // registers of flip-flops of latches of gates (random writes and reads).
+    {
+        for(u32 i = 0; i < PARTS_N; i++) {
+            c8 err[160];
+            CHECK(fude_zoom_logic_learn(PARTS_ALL[i], strlen(PARTS_ALL[i]), err, sizeof err) != NULL);
+        }
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 add = part_put(&s, "custom part", 0, 0, 60, 100, "4-bit adder");
+        const fude_zoom_part* ap = fude_zoom_part_of(&s, add);
+        CHECK(fude_zoom_part_custom(ap) && ap->pin_count == 14u && pin_named(&s, add, "CI") == 8u && pin_named(&s, add, "CO") == 13u);
+        CHECK(ap->pins[0].side == FUDE_ZOOM_PIN_LEFT && ap->pins[13].side == FUDE_ZOOM_PIN_RIGHT);
+        const c8* const ins[9] = { "A0", "A1", "A2", "A3", "B0", "B1", "B2", "B3", "CI" };
+        const c8* const outs[5] = { "S0", "S1", "S2", "S3", "CO" };
+        u32 in[9], out[5];
+        for(u32 i = 0; i < 9u; i++) { in[i] = part_put(&s, "logic input", -300, 200 - (f64)i * 50, 30, 20, "0"); wire_put(&s, in[i], 0, add, pin_named(&s, add, ins[i])); }
+        for(u32 i = 0; i < 5u; i++) { out[i] = part_put(&s, "logic probe", 300, 200 - (f64)i * 50, 20, 20, ""); wire_put(&s, add, pin_named(&s, add, outs[i]), out[i], 0); }
+        const u32 ram = part_put(&s, "custom part", 0, -600, 60, 100, "4 x 4 memory of registers");
+        const c8* const rins[8] = { "A0", "A1", "D0", "D1", "D2", "D3", "WE", "CLK" };
+        u32 rin[8], rout[4];
+        for(u32 i = 0; i < 8u; i++) { rin[i] = part_put(&s, "logic input", -300, -400 - (f64)i * 50, 30, 20, "0"); wire_put(&s, rin[i], 0, ram, pin_named(&s, ram, rins[i])); }
+        for(u32 i = 0; i < 4u; i++) { c8 n[4]; snprintf(n, sizeof n, "Q%u", i); rout[i] = part_put(&s, "logic probe", 300, -400 - (f64)i * 50, 20, 20, ""); wire_put(&s, ram, pin_named(&s, ram, n), rout[i], 0); }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(c.logic->on);
+        u32 sums = 0;
+        for(u32 v = 0; v < 512u; v++) {
+            for(u32 i = 0; i < 9u; i++) set_in(&c, in[i], (v >> i) & 1u);
+            CHECK(step(&c));
+            const u32 want = (v & 15u) + ((v >> 4) & 15u) + (v >> 8);
+            u32 got = 0;
+            for(u32 i = 0; i < 5u; i++) got |= probe(&c, out[i]) << i;
+            sums += got == want;
+        }
+        CHECK(sums == 512u);
+        u32 mem[4] = { 0, 0, 0, 0 }, known = 0, reads = 0, reads_right = 0;
+        for(u32 k = 0; k < 300u; k++) {
+            const u32 a = (rnd() % 4u);
+            set_in(&c, rin[0], a & 1u); set_in(&c, rin[1], a >> 1);
+            if((rnd() % 3u) == 0u) {
+                const u32 v = (rnd() % 16u);
+                for(u32 i = 0; i < 4u; i++) set_in(&c, rin[2u + i], (v >> i) & 1u);
+                set_in(&c, rin[6], 1); CHECK(step(&c));
+                set_in(&c, rin[7], 1); CHECK(step(&c));
+                set_in(&c, rin[7], 0); set_in(&c, rin[6], 0); CHECK(step(&c));
+                mem[a] = v; known |= 1u << a;
+            } else {
+                CHECK(step(&c));
+                if(known & (1u << a)) {
+                    u32 got = 0;
+                    for(u32 i = 0; i < 4u; i++) got |= probe(&c, rout[i]) << i;
+                    reads++; reads_right += got == mem[a];
+                }
+            }
+        }
+        CHECK(reads > 50u && reads_right == reads);
+        // A custom part the library does not know: drawn as a block, no pins, left out of the circuit (nothing breaks).
+        const u32 lost = part_put(&s, "custom part", 600, 0, 60, 60, "no such part");
+        CHECK(fude_zoom_part_of(&s, lost) != NULL && fude_zoom_part_of(&s, lost)->pin_count == 0u);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c));
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Make part, as a person does it: a full adder drawn of gates (inputs and probes named A, B, CI, S, CO) made a part;
+    // four of it placed and joined into a 4-bit adder, drawn; that made a part too (a part of parts, made on the
+    // canvas); one of it placed: every sum right. Nothing to make one of, and nothing marked its inputs: said why.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 a = part_put(&s, "logic input", 0, 200, 30, 20, "A"), b = part_put(&s, "logic input", 0, 100, 30, 20, "B");
+        const u32 ci = part_put(&s, "logic input", 0, 0, 30, 20, "CI");
+        const u32 x1 = part_put(&s, "XOR gate", 200, 150, 40, 30, ""), x2 = part_put(&s, "XOR gate", 400, 100, 40, 30, "");
+        const u32 a1 = part_put(&s, "AND gate", 200, -50, 40, 30, ""), a2 = part_put(&s, "AND gate", 400, -50, 40, 30, "");
+        const u32 o1 = part_put(&s, "OR gate", 600, -50, 40, 30, "");
+        const u32 sp = part_put(&s, "logic probe", 700, 150, 20, 20, "S"), cp = part_put(&s, "logic probe", 800, -50, 20, 20, "CO");
+        wire_put(&s, a, 0, x1, 0); wire_put(&s, b, 0, x1, 1); wire_put(&s, x1, 2, x2, 0); wire_put(&s, ci, 0, x2, 1); wire_put(&s, x2, 2, sp, 0);
+        wire_put(&s, a, 0, a1, 0); wire_put(&s, b, 0, a1, 1); wire_put(&s, x1, 2, a2, 0); wire_put(&s, ci, 0, a2, 1);
+        wire_put(&s, a1, 2, o1, 0); wire_put(&s, a2, 2, o1, 1); wire_put(&s, o1, 2, cp, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        u32 problem = 9;
+        fude_sim_def* fa = fude_zoom_logic_make(&c, &s, "user/drawn-fa", "Drawn full adder", &problem);
+        CHECK(fa != NULL && problem == FUDE_ZOOM_MAKE_OK);
+        if(fa != NULL) {
+            const fude_sim_port* fp = (const fude_sim_port*)fa->ports.memory;
+            CHECK(rde_arr_length(&fa->ports) == 5u && strcmp(fp[0].name, "A") == 0 && strcmp(fp[1].name, "B") == 0 && strcmp(fp[2].name, "CI") == 0 &&
+                  strcmp(fp[3].name, "S") == 0 && strcmp(fp[4].name, "CO") == 0 && fp[0].dir == FUDE_SIM_IN && fp[4].dir == FUDE_SIM_OUT);
+            CHECK(rde_arr_length(&fa->insts) == 5u);
+            // (saved as text, learnt back: what Make part keeps in My parts)
+            rde_arr text = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
+            fude_sim_def_write(fa, &text);
+            c8 err[160];
+            CHECK(fude_zoom_logic_learn((const c8*)text.memory, rde_arr_length(&text), err, sizeof err) != NULL);
+            rde_arr_free(&text);
+            fude_sim_def_free(fa);
+        }
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+        // The 4-bit adder of four of them, drawn.
+        fude_zoom_scene s2; fude_zoom_scene_init(&s2, 7);
+        u32 fas[4], ain[4], bin[4], sout[4];
+        const u32 cin = part_put(&s2, "logic input", -300, 900, 30, 20, "CI");
+        for(u32 i = 0; i < 4u; i++) {
+            c8 an[4], bn[4], sn[4];
+            snprintf(an, sizeof an, "A%u", i); snprintf(bn, sizeof bn, "B%u", i); snprintf(sn, sizeof sn, "S%u", i);
+            fas[i] = part_put(&s2, "custom part", 0, 700 - (f64)i * 250, 60, 80, "Drawn full adder");
+            ain[i] = part_put(&s2, "logic input", -300, 760 - (f64)i * 250 - 10, 30, 20, an);
+            bin[i] = part_put(&s2, "logic input", -300, 720 - (f64)i * 250 - 10, 30, 20, bn);
+            sout[i] = part_put(&s2, "logic probe", 300, 700 - (f64)i * 250, 20, 20, sn);
+            wire_put(&s2, ain[i], 0, fas[i], pin_named(&s2, fas[i], "A")); wire_put(&s2, bin[i], 0, fas[i], pin_named(&s2, fas[i], "B"));
+            wire_put(&s2, fas[i], pin_named(&s2, fas[i], "S"), sout[i], 0);
+            if(i > 0u) wire_put(&s2, fas[i - 1u], pin_named(&s2, fas[i - 1u], "CO"), fas[i], pin_named(&s2, fas[i], "CI"));
+        }
+        wire_put(&s2, cin, 0, fas[0], pin_named(&s2, fas[0], "CI"));
+        const u32 cout = part_put(&s2, "logic probe", 300, -300, 20, 20, "CO");
+        wire_put(&s2, fas[3], pin_named(&s2, fas[3], "CO"), cout, 0);
+        fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s2);
+        fude_sim_def* add = fude_zoom_logic_make(&c, &s2, "user/drawn-add4", "Drawn 4-bit adder", &problem);
+        CHECK(add != NULL && rde_arr_length(&add->ports) == 14u && rde_arr_length(&add->insts) == 4u);
+        if(add != NULL) {
+            rde_arr text = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
+            fude_sim_def_write(add, &text);
+            c8 err[160];
+            CHECK(fude_zoom_logic_learn((const c8*)text.memory, rde_arr_length(&text), err, sizeof err) != NULL);
+            rde_arr_free(&text);
+            fude_sim_def_free(add);
+        }
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s2);
+        // One of it placed, its pins as made (inputs top to bottom on the left as they were drawn: CI, A0, B0, A1…).
+        fude_zoom_scene s3; fude_zoom_scene_init(&s3, 7);
+        const u32 ad = part_put(&s3, "custom part", 0, 0, 60, 160, "Drawn 4-bit adder");
+        CHECK(fude_zoom_part_of(&s3, ad)->pin_count == 14u && pin_named(&s3, ad, "CI") == 0u && pin_named(&s3, ad, "A0") == 1u);
+        const c8* const ins[9] = { "A0", "A1", "A2", "A3", "B0", "B1", "B2", "B3", "CI" };
+        const c8* const outs[5] = { "S0", "S1", "S2", "S3", "CO" };
+        u32 in[9], out[5];
+        for(u32 i = 0; i < 9u; i++) { in[i] = part_put(&s3, "logic input", -300, 300 - (f64)i * 60, 30, 20, "0"); wire_put(&s3, in[i], 0, ad, pin_named(&s3, ad, ins[i])); }
+        for(u32 i = 0; i < 5u; i++) { out[i] = part_put(&s3, "logic probe", 300, 300 - (f64)i * 60, 20, 20, ""); wire_put(&s3, ad, pin_named(&s3, ad, outs[i]), out[i], 0); }
+        fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s3);
+        u32 sums = 0;
+        for(u32 v = 0; v < 512u; v++) {
+            for(u32 i = 0; i < 9u; i++) set_in(&c, in[i], (v >> i) & 1u);
+            CHECK(step(&c));
+            u32 got = 0;
+            for(u32 i = 0; i < 5u; i++) got |= probe(&c, out[i]) << i;
+            sums += got == (v & 15u) + ((v >> 4) & 15u) + (v >> 8) ? 1u : 0u;
+        }
+        CHECK(sums == 512u);
+        // Made again with the same id (Edit part, done again): a newer version, the instance following it.
+        const fude_sim_def* was = fude_zoom_logic_find("Drawn 4-bit adder");
+        const u32 version = was != NULL ? was->version : 0u;
+        const c8* again = "fude-part 1\nid user/drawn-add4\nname Drawn 4-bit adder\nport X logic in\nport Y logic out 1 right\ninst not N \"\" X Y\nend\n";
+        c8 err2[160];
+        CHECK(fude_zoom_logic_learn(again, strlen(again), err2, sizeof err2) != NULL);
+        CHECK(fude_zoom_logic_find("Drawn 4-bit adder")->version == version + 1u && fude_zoom_part_of(&s3, ad)->pin_count == 2u);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s3);
+        // Nothing to make one of; and no inputs or outputs marked.
+        fude_zoom_scene s4; fude_zoom_scene_init(&s4, 7);
+        part_put(&s4, "resistor", 0, 0, 30, 6, "1k");
+        fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s4);
+        CHECK(fude_zoom_logic_make(&c, &s4, "user/x", "X", &problem) == NULL && problem == FUDE_ZOOM_MAKE_NOTHING);
+        part_put(&s4, "NOT gate", 200, 0, 40, 30, "");
+        fude_zoom_circuit_build(&c, &s4);
+        CHECK(fude_zoom_logic_make(&c, &s4, "user/x", "X", &problem) == NULL && problem == FUDE_ZOOM_MAKE_NO_PORTS);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s4);
+    }
+    // Borja's tablet circuit: A through a NOT into an AND; A and B into an OR (A's wire branching off its wire to the NOT,
+    // a junction); the OR into the AND (branching off the OR's wire on) and into a last OR with the AND: A or B.
+    // Every way its switches can be, through Play's own path (built, reset, built again) and through taps.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 a = part_put(&s, "logic input", 0, 100, 30, 20, "0"), b = part_put(&s, "logic input", 0, -60, 30, 20, "0");
+        const u32 nt = part_put(&s, "NOT gate", 180, 100, 40, 30, ""), og = part_put(&s, "OR gate", 180, -40, 40, 30, "");
+        const u32 ag = part_put(&s, "AND gate", 420, 80, 40, 30, ""), fo = part_put(&s, "OR gate", 640, 40, 40, 30, "");
+        const u32 pr = part_put(&s, "logic probe", 800, 40, 20, 20, "");
+        const u32 wa = wire_put(&s, a, 0, nt, 0);            // (A to the NOT)
+        wire_put(&s, b, 0, og, 1);
+        wire_put(&s, nt, 1, ag, 0);
+        const u32 wo = wire_put(&s, og, 2, fo, 1);           // (the OR's output on to the last OR)
+        wire_put(&s, ag, 2, fo, 0);
+        wire_put(&s, fo, 2, pr, 0);
+        // (from the OR's first input up to a point along A's wire; from the AND's second input down to the OR's wire on)
+        fude_zoom_v2 pa[FUDE_ZOOM_WIRE_POINTS], po[FUDE_ZOOM_WIRE_POINTS], q0, q1;
+        rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+        f64 nn[1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u];
+        u32 cnt = fude_zoom_scene_shape_numbers(&s, wa, nn, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u);
+        fude_zoom_id f0, t0; i32 fp0, tp0;
+        const u32 ka = fude_zoom_wire_of(nn, cnt, pa, &f0, &fp0, &t0, &tp0);
+        cnt = fude_zoom_scene_shape_numbers(&s, wo, nn, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u);
+        const u32 ko = fude_zoom_wire_of(nn, cnt, po, &f0, &fp0, &t0, &tp0);
+        CHECK(ka >= 2u && ko >= 2u);
+        // (a point along each: the middle of its longest piece, in the root frame: wires here are at the root)
+        fude_zoom_v2 mid_a = pa[0], mid_o = po[0];
+        f64 best = -1.0;
+        for(u32 k = 0; k + 1u < ka; k++) { const f64 l = hypot(pa[k + 1].x - pa[k].x, pa[k + 1].y - pa[k].y); if(l > best) { best = l; mid_a = (fude_zoom_v2){ (pa[k].x + pa[k + 1].x) * 0.5, (pa[k].y + pa[k + 1].y) * 0.5 }; } }
+        best = -1.0;
+        for(u32 k = 0; k + 1u < ko; k++) { const f64 l = hypot(po[k + 1].x - po[k].x, po[k + 1].y - po[k].y); if(l > best) { best = l; mid_o = (fude_zoom_v2){ (po[k].x + po[k + 1].x) * 0.5, (po[k].y + po[k + 1].y) * 0.5 }; } }
+        const fude_zoom_object* wao = fude_zoom_scene_object(&s, wa);
+        mid_a = fude_zoom_sim_apply(fude_zoom_object_sim(wao), mid_a);
+        mid_o = fude_zoom_sim_apply(fude_zoom_object_sim(fude_zoom_scene_object(&s, wo)), mid_o);
+        CHECK(fude_zoom_part_pin_at(&s, og, 0, &q0) && fude_zoom_part_pin_at(&s, ag, 1, &q1));
+        const fude_zoom_v2 j1[2] = { q0, mid_a }, j2[2] = { q1, mid_o };
+        fude_zoom_wire_add(&s, s.root, j1, 2u, og, 0, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        fude_zoom_wire_add(&s, s.root, j2, 2u, ag, 1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        rde_arr_free(&pts);
+        RDE_UNUSED(po); RDE_UNUSED(pa);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        // (as Play makes it: built, reset, built again)
+        fude_zoom_circuit_build(&c, &s);
+        fude_zoom_circuit_reset(&c);
+        fude_zoom_circuit_build(&c, &s);
+        u32 right = 0;
+        for(u32 round = 0; round < 3u; round++) {
+            for(u32 v = 0; v < 4u; v++) {
+                const u32 av = (v >> 1) & 1u, bv = v & 1u;
+                set_in(&c, a, av); set_in(&c, b, bv);
+                CHECK(step(&c));
+                const u32 got = probe(&c, pr);
+                if(got != (av | bv)) printf("  A %u B %u: probe %u\n", av, bv, got);
+                right += got == (av | bv);
+            }
+        }
+        CHECK(right == 12u);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // ...as Borja drew it on the tablet: the branch to the OR started not on A's wire but on the NOT gate's input lead
+    // (the gate's own line between its pin and its body, right of where A's wire ends): on the pin all the same. And a
+    // wire left dangling: its end loose (Play shows it so), the others not.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 a = part_put(&s, "logic input", 0, 100, 30, 20, "0"), b = part_put(&s, "logic input", 0, -60, 30, 20, "0");
+        const u32 nt = part_put(&s, "NOT gate", 180, 100, 40, 30, ""), og = part_put(&s, "OR gate", 180, -40, 40, 30, "");
+        const u32 pr = part_put(&s, "logic probe", 400, -40, 20, 20, "");
+        wire_put(&s, a, 0, nt, 0);
+        wire_put(&s, b, 0, og, 1);
+        wire_put(&s, og, 2, pr, 0);
+        fude_zoom_v2 pin, q0;
+        CHECK(fude_zoom_part_pin_at(&s, nt, 0, &pin) && fude_zoom_part_pin_at(&s, og, 0, &q0));
+        const fude_zoom_v2 on_lead = { pin.x + 0.25 * 40.0, pin.y };   // (a quarter of its half width in: on its lead)
+        const fude_zoom_v2 jl[3] = { q0, { on_lead.x, q0.y }, on_lead };
+        const u32 branch = fude_zoom_wire_add(&s, s.root, jl, 3u, og, 0, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        const fude_zoom_v2 jd[2] = { { 600, 300 }, { 700, 300 } };
+        const u32 dangling = fude_zoom_wire_add(&s, s.root, jd, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        u32 right = 0;
+        for(u32 v = 0; v < 4u; v++) {
+            set_in(&c, a, v >> 1); set_in(&c, b, v & 1u);
+            CHECK(step(&c));
+            right += probe(&c, pr) == ((v >> 1) | (v & 1u)) ? 1u : 0u;
+        }
+        CHECK(right == 4u);
+        const fude_zoom_circuit_wire* cw = (const fude_zoom_circuit_wire*)c.wires.memory;
+        u32 loose = 0, checked = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.wires); i++) {
+            if(cw[i].object == dangling) { CHECK(cw[i].loose[0] && cw[i].loose[1]); checked++; }
+            else if(cw[i].object == branch) { CHECK(!cw[i].loose[0] && !cw[i].loose[1]); checked++; }
+            else loose += cw[i].loose[0] + cw[i].loose[1];
+        }
+        CHECK(checked == 2u && loose == 0u);
+        // A wire's end inside a part's body, past its lead: not on it (only what looks joined is).
+        const fude_zoom_v2 inside[2] = { { 180, 300 }, { 180.0 - 0.1 * 40.0, 100 } };   // (near the NOT's middle)
+        const u32 wi = fude_zoom_wire_add(&s, s.root, inside, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        fude_zoom_circuit_build(&c, &s);
+        cw = (const fude_zoom_circuit_wire*)c.wires.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.wires); i++) if(cw[i].object == wi) CHECK(cw[i].loose[1]);
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Level and plumb (parts' pins lined up as they are moved): against a brute-force model of it, many random moves:
+    // each way the nearest target within reach pulled to, independently; nothing within reach, the move as it was;
+    // pulled, a mover exactly on the line said.
+    {
+        u32 cases = 0, right = 0;
+        for(u32 k = 0; k < 3000u; k++) {
+            fude_zoom_v2 mv[12], tg[40];
+            const u32 nm = 1u + rnd() % 12u, ntg = rnd() % 40u;
+            for(u32 i = 0; i < nm; i++) mv[i] = (fude_zoom_v2){ (rndf() - 0.5) * 800.0, (rndf() - 0.5) * 800.0 };
+            for(u32 i = 0; i < ntg; i++) tg[i] = (fude_zoom_v2){ (rndf() - 0.5) * 800.0, (rndf() - 0.5) * 800.0 };
+            const f64 dx = (rndf() - 0.5) * 200.0, dy = (rndf() - 0.5) * 200.0, reach = 2.0 + rndf() * 12.0;
+            f64 ox, oy, lx = NAN, ly = NAN;
+            fude_zoom_snap_align(mv, nm, tg, ntg, dx, dy, reach, reach, &ox, &oy, &lx, &ly);
+            // (the model: the smallest |gap| each way under reach)
+            f64 bx = reach, by = reach, ex = 0.0, ey = 0.0;
+            b8 hx = false, hy = false;
+            for(u32 i = 0; i < nm; i++) for(u32 j = 0; j < ntg; j++) {
+                const f64 gx = tg[j].x - (mv[i].x + dx), gy = tg[j].y - (mv[i].y + dy);
+                if(fabs(gx) < bx) { bx = fabs(gx); ex = gx; hx = true; }
+                if(fabs(gy) < by) { by = fabs(gy); ey = gy; hy = true; }
+            }
+            b8 ok = fabs(ox - (dx + ex)) < 1e-9 && fabs(oy - (dy + ey)) < 1e-9 && (hx ? !isnan(lx) : isnan(lx)) && (hy ? !isnan(ly) : isnan(ly));
+            // (pulled: some mover now exactly on each line)
+            if(ok && hx) { b8 on = false; for(u32 i = 0; i < nm; i++) on = on || fabs(mv[i].x + ox - lx) < 1e-9; ok = on; }
+            if(ok && hy) { b8 on = false; for(u32 i = 0; i < nm; i++) on = on || fabs(mv[i].y + oy - ly) < 1e-9; ok = on; }
+            // (and never further than reach from where the pen put it)
+            ok = ok && fabs(ox - dx) < reach && fabs(oy - dy) < reach;
+            cases++; right += ok;
+        }
+        CHECK(right == cases);
+        // Two parts drawn: one's pin a few units off level with the other's: aligned, their pins exactly level.
+        const fude_zoom_v2 a_pins[2] = { { 100, 52.5 }, { 160, 52.5 } }, b_pins[1] = { { 300, 50 } };
+        f64 ox, oy, lx = NAN, ly = NAN;
+        fude_zoom_snap_align(a_pins, 2u, b_pins, 1u, 20.0, 0.0, 9.0, 13.0, &ox, &oy, &lx, &ly);
+        CHECK(fabs(oy + 2.5) < 1e-12 && ly == 50.0 && isnan(lx) && ox == 20.0);
+        // Held: dragged on past reach but within keep, the same line; past keep, let go; a nearer target taken over it.
+        fude_zoom_snap_align(a_pins, 2u, b_pins, 1u, 20.0, -11.0, 9.0, 13.0, &ox, &oy, &lx, &ly);   // (13.5 − … : 11 off now)
+        CHECK(ly == 50.0 && fabs(oy + 2.5) < 1e-12);
+        fude_zoom_snap_align(a_pins, 2u, b_pins, 1u, 20.0, -20.0, 9.0, 13.0, &ox, &oy, &lx, &ly);   // (17.5 off: let go)
+        CHECK(isnan(ly) && oy == -20.0);
+        const fude_zoom_v2 two[2] = { { 300, 50 }, { 400, 45 } };
+        ly = 50.0;
+        fude_zoom_snap_align(a_pins, 2u, two, 2u, 20.0, -7.0, 9.0, 13.0, &ox, &oy, &lx, &ly);   // (45 is 0.5 off, 50 is 4.5)
+        CHECK(ly == 45.0 && fabs(oy + 7.5) < 1e-12);
+        // The grid: to the nearest line from its origin; none (a step of 0): as it was.
+        CHECK(fude_zoom_snap_grid(23.0, 3.0, 10.0) == 23.0 && fude_zoom_snap_grid(27.9, 3.0, 10.0) == 23.0 && fude_zoom_snap_grid(28.1, 3.0, 10.0) == 33.0);
+        CHECK(fude_zoom_snap_grid(-7.2, 3.0, 10.0) == -7.0 && fude_zoom_snap_grid(5.5, 0.0, 0.0) == 5.5);
+        u32 grid_right = 0;
+        for(u32 k = 0; k < 2000u; k++) {
+            const f64 v = (rndf() - 0.5) * 1e4, o = (rndf() - 0.5) * 100.0, st = 0.5 + rndf() * 40.0, g = fude_zoom_snap_grid(v, o, st);
+            const f64 q = (g - o) / st;
+            grid_right += fabs(q - round(q)) < 1e-6 && fabs(g - v) <= st * 0.5 + 1e-9 ? 1u : 0u;
+        }
+        CHECK(grid_right == 2000u);
+    }
+    // A wire joins two things or is not (Borja): what deleting takes with it — the wires at a deleted part's pins; the
+    // branches ending on a deleted wire and on nothing else (and theirs in turn); not a branch that ends on another
+    // wire too, nor anything elsewhere — in the same undo step; the eraser taking a wire whole, its branches with it.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", 0, 0, 20, 30, "5V");
+        const u32 r1 = part_put(&s, "resistor", 200, 100, 30, 6, "1k"), r2 = part_put(&s, "resistor", 200, -100, 30, 6, "1k");
+        const u32 led = part_put(&s, "LED", 400, 0, 20, 20, "red");
+        const u32 w1 = wire_put(&s, bat, 0, r1, 0), w2 = wire_put(&s, r1, 1, led, 0), w3 = wire_put(&s, led, 1, r2, 1), w4 = wire_put(&s, r2, 0, bat, 1);
+        // (a branch off w2 ending on it — a junction — and a branch off that branch; a branch off w3 that also ends on w4)
+        fude_zoom_v2 p2a, p2b;
+        CHECK(fude_zoom_part_pin_at(&s, r1, 1, &p2a) && fude_zoom_part_pin_at(&s, led, 0, &p2b));
+        f64 nn[1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u];
+        fude_zoom_v2 pts[FUDE_ZOOM_WIRE_POINTS];
+        u32 cnt = fude_zoom_scene_shape_numbers(&s, w2, nn, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u);
+        const u32 k2 = fude_zoom_wire_of(nn, cnt, pts, NULL, NULL, NULL, NULL);
+        const fude_zoom_sim w2s = fude_zoom_object_sim(fude_zoom_scene_object(&s, w2));
+        fude_zoom_v2 on2 = fude_zoom_sim_apply(w2s, (fude_zoom_v2){ (pts[0].x + pts[1].x) * 0.5, (pts[0].y + pts[1].y) * 0.5 });
+        RDE_UNUSED(k2);
+        const fude_zoom_v2 b1[2] = { on2, { on2.x, on2.y + 150.0 } };
+        const u32 br1 = fude_zoom_wire_add(&s, s.root, b1, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        const fude_zoom_v2 b2[2] = { { on2.x, on2.y + 75.0 }, { on2.x + 120.0, on2.y + 75.0 } };   // (its end on br1)
+        const u32 br2 = fude_zoom_wire_add(&s, s.root, b2, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        RDE_UNUSED(p2a); RDE_UNUSED(p2b); RDE_UNUSED(w3); RDE_UNUSED(w4);
+        const u32 other = part_put(&s, "capacitor", -400, 300, 20, 10, "1uF");
+        fude_zoom_selection sel; fude_zoom_select_init(&sel);
+        // Deleting the first resistor: w1 and w2 (its pins'), br1 (on w2 only), br2 (on br1 only) — the rest stay.
+        rde_arr_add(&sel.picks, &(fude_zoom_pick){ r1 });
+        const u32 before = s.history_pushes;
+        fude_zoom_select_delete(&sel, &s);
+        CHECK(s.history_pushes == before + 1u);
+        const u32 gone[5] = { r1, w1, w2, br1, br2 }, kept[6] = { bat, r2, led, w3, w4, other };
+        for(u32 i = 0; i < 5u; i++) CHECK(!(fude_zoom_scene_object(&s, gone[i])->flags & FUDE_ZOOM_FLAG_ALIVE));
+        for(u32 i = 0; i < 6u; i++) CHECK(fude_zoom_scene_object(&s, kept[i])->flags & FUDE_ZOOM_FLAG_ALIVE);
+        // Undone: all of it back, at once.
+        CHECK(fude_zoom_history_undo(&s));
+        for(u32 i = 0; i < 5u; i++) CHECK(fude_zoom_scene_object(&s, gone[i])->flags & FUDE_ZOOM_FLAG_ALIVE);
+        // Deleting something unrelated takes no wire.
+        rde_arr_add(&sel.picks, &(fude_zoom_pick){ other });
+        fude_zoom_select_delete(&sel, &s);
+        u32 wires_alive = 0;
+        for(u32 i = 0; i < fude_zoom_scene_object_count(&s); i++) {
+            const fude_zoom_object* o = fude_zoom_scene_object(&s, i);
+            wires_alive += (o->flags & FUDE_ZOOM_FLAG_ALIVE) && o->kind == FUDE_ZOOM_KIND_SHAPE && o->channels == FUDE_ZOOM_SHAPE_WIRE;
+        }
+        CHECK(wires_alive == 6u);
+        // A branch ending on two wires: one of them deleted, it stays (still joined).
+        const fude_zoom_v2 b3[2] = { { on2.x, on2.y + 150.0 }, { on2.x, on2.y + 75.0 } };   // (from br1's far end back onto br1 and br2's start)
+        const u32 br3 = fude_zoom_wire_add(&s, s.root, b3, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        rde_arr died = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_scene_set_alive(&s, br2, false);
+        rde_arr_add(&died, (any)&br2);
+        fude_zoom_wire_orphans(&s, &died);
+        CHECK(fude_zoom_scene_object(&s, br3)->flags & FUDE_ZOOM_FLAG_ALIVE);   // (its end still on br1)
+        rde_arr_free(&died);
+        // The eraser across w3: taken whole (not cut into a plain line), nothing of it left as a stroke.
+        const u32 count_before = fude_zoom_scene_object_count(&s);
+        fude_zoom_eraser e; fude_zoom_eraser_init(&e);
+        fude_zoom_erase_begin(&e, FUDE_ZOOM_ERASE_PARTIAL);
+        fude_zoom_v2 l0, l1;
+        CHECK(fude_zoom_part_pin_at(&s, led, 1, &l0) && fude_zoom_part_pin_at(&s, r2, 1, &l1));
+        cnt = fude_zoom_scene_shape_numbers(&s, w3, nn, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u);
+        const u32 k3 = fude_zoom_wire_of(nn, cnt, pts, NULL, NULL, NULL, NULL);
+        const fude_zoom_sim w3s = fude_zoom_object_sim(fude_zoom_scene_object(&s, w3));
+        const fude_zoom_v2 mid3 = fude_zoom_sim_apply(w3s, (fude_zoom_v2){ (pts[k3 / 2u - 1u].x + pts[k3 / 2u].x) * 0.5, (pts[k3 / 2u - 1u].y + pts[k3 / 2u].y) * 0.5 });
+        fude_zoom_erase_step(&s, &e, s.root, (fude_zoom_v2){ mid3.x - 3.0, mid3.y - 3.0 }, (fude_zoom_v2){ mid3.x + 3.0, mid3.y + 3.0 }, 2.0, 0.5);
+        fude_zoom_erase_end(&s, &e, s.root, (fude_zoom_box){ -1000, -1000, 1000, 1000 });
+        CHECK(!(fude_zoom_scene_object(&s, w3)->flags & FUDE_ZOOM_FLAG_ALIVE));
+        u32 born_lines = 0;
+        for(u32 i = count_before; i < fude_zoom_scene_object_count(&s); i++) born_lines += (fude_zoom_scene_object(&s, i)->flags & FUDE_ZOOM_FLAG_ALIVE) ? 1u : 0u;
+        CHECK(born_lines == 0u);
+        fude_zoom_eraser_destroy(&e);
+        fude_zoom_select_destroy(&sel);
+        fude_zoom_scene_destroy(&s);
+    }
+    // ...at random: chains of parts wired in a row, branches on branches; any of them deleted: afterwards no wire alive
+    // keeps a dead part's pin or ends only on dead wires; and every wire alive before whose ends are all still held is
+    // alive.
+    {
+        u32 rounds = 0, right = 0;
+        for(u32 k = 0; k < 60u; k++) {
+            fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+            const u32 np = 3u + rnd() % 6u;
+            u32 parts[8];
+            for(u32 i = 0; i < np; i++) parts[i] = part_put(&s, "resistor", (f64)i * 150.0, (f64)(rnd() % 5u) * 40.0, 30, 6, "1k");
+            u32 wires[32], nw = 0;
+            for(u32 i = 0; i + 1u < np; i++) wires[nw++] = wire_put(&s, parts[i], 1, parts[i + 1u], 0);
+            // (branches: from a point along a random wire, straight down; some from a point along a branch)
+            for(u32 b = 0; b < 6u && nw < 32u; b++) {
+                const u32 host = wires[rnd() % nw];
+                f64 nn[1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u];
+                fude_zoom_v2 pts[FUDE_ZOOM_WIRE_POINTS];
+                const u32 cnt = fude_zoom_scene_shape_numbers(&s, host, nn, 1u + 2u * FUDE_ZOOM_WIRE_POINTS + 4u);
+                const u32 kk = fude_zoom_wire_of(nn, cnt, pts, NULL, NULL, NULL, NULL);
+                if(kk < 2u) continue;
+                const u32 seg = rnd() % (kk - 1u);
+                const fude_zoom_sim hs = fude_zoom_object_sim(fude_zoom_scene_object(&s, host));
+                const fude_zoom_v2 at = fude_zoom_sim_apply(hs, (fude_zoom_v2){ (pts[seg].x + pts[seg + 1u].x) * 0.5, (pts[seg].y + pts[seg + 1u].y) * 0.5 });
+                const fude_zoom_v2 bp[2] = { at, { at.x + 7.0 * (f64)(b + 1u), at.y - 300.0 - 17.0 * (f64)b } };
+                wires[nw++] = fude_zoom_wire_add(&s, s.root, bp, 2u, FUDE_ZOOM_NONE, -1, FUDE_ZOOM_NONE, -1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+            }
+            // Delete one or two things at random.
+            fude_zoom_selection sel; fude_zoom_select_init(&sel);
+            const u32 victims = 1u + rnd() % 2u;
+            for(u32 v = 0; v < victims; v++) {
+                const u32 pick = rnd() % (np + nw);
+                rde_arr_add(&sel.picks, &(fude_zoom_pick){ pick < np ? parts[pick] : wires[pick - np] });
+            }
+            fude_zoom_select_delete(&sel, &s);
+            // The circuit built over what is left: no wire with a loose end that was not loose before deleting.
+            fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+            fude_zoom_circuit_build(&c, &s);
+            const fude_zoom_circuit_wire* cw = (const fude_zoom_circuit_wire*)c.wires.memory;
+            b8 ok = true;
+            for(u32 i = 0; i < (u32)rde_arr_length(&c.wires); i++) {
+                // (branches' far ends are loose by making: only their joined end matters — its first)
+                b8 is_branch = false;
+                for(u32 j = np - 1u; j < nw; j++) is_branch = is_branch || wires[j] == cw[i].object;
+                ok = ok && !cw[i].loose[0] && (is_branch || !cw[i].loose[1]);
+            }
+            rounds++; right += ok;
+            fude_zoom_circuit_destroy(&c);
+            fude_zoom_select_destroy(&sel);
+            fude_zoom_scene_destroy(&s);
+        }
+        CHECK(right == rounds);
+    }
+    // A ring of three NOT gates (no rest: it oscillates as fast as its gates): the circuit still steps, nothing hangs.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        u32 n[3];
+        for(u32 i = 0; i < 3u; i++) n[i] = part_put(&s, "NOT gate", (f64)i * 150.0, 0, 40, 30, "");
+        for(u32 i = 0; i < 3u; i++) wire_put(&s, n[i], 1, n[(i + 1u) % 3u], 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 20u));
+        fude_zoom_circuit_destroy(&c);
+        fude_zoom_scene_destroy(&s);
+    }
+}
+
+// Play's tags are as big as the parts look: half the typical part's smaller half-size on the screen, at most a tag
+// beside the pen's, none below a pin name's least.
+static void test_play_tags(void) {
+    const f64 most = 13.0, least = 6.0;
+    // A circuit drawn: three logic inputs, five gates, a probe and a breadboard (its size not the typical one's).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        u32 parts[10], np = 0;
+        for(u32 i = 0; i < 3u; i++) parts[np++] = part_put(&s, "logic input", -200.0, (f64)i * 80.0, 20, 15, "0");
+        for(u32 i = 0; i < 5u; i++) parts[np++] = part_put(&s, "AND gate", (f64)i * 90.0, 0.0, 30, 30, "");
+        parts[np++] = part_put(&s, "logic probe", 500.0, 0.0, 15, 15, "");
+        parts[np++] = part_put(&s, "breadboard", 0.0, -600.0, 400, 150, "");
+        f64 got[6];
+        const f64 zooms[6] = { 4.0, 1.0, 0.5, 0.4, 0.3, 0.1 };
+        for(u32 z = 0; z < 6u; z++) {
+            f64 sizes[10];
+            for(u32 i = 0; i < np; i++) {
+                f64 n[3] = { 0.0, 1.0, 1.0 };
+                fude_zoom_scene_shape_numbers(&s, parts[i], n, 3u);
+                sizes[i] = fmin(fabs(n[1]), fabs(n[2])) * fude_zoom_sim_scale(fude_zoom_object_sim(fude_zoom_scene_object(&s, parts[i]))) * zooms[z];
+            }
+            got[z] = fude_zoom_circuit_tag_px(sizes, np, most, least);
+        }
+        // (sorted: 15 15 15 15 30 30 30 30 30 150 — the typical part a gate, 30: letters 15 at 1, 7.5 at a half)
+        CHECK(got[0] == most && got[1] == most);
+        CHECK(fabs(got[2] - 7.5) < 1e-9);
+        CHECK(got[3] == 6.0);
+        CHECK(got[4] == 0.0 && got[5] == 0.0);
+        fude_zoom_scene_destroy(&s);
+    }
+    // One huge part among small ones: the small ones' size.
+    {
+        f64 sizes[10] = { 10, 10, 10, 10, 10, 10, 10, 10, 10, 4000 };
+        CHECK(fude_zoom_circuit_tag_px(sizes, 10u, most, least) == 0.0);   // (5: under the least)
+        f64 twice[10] = { 20, 20, 20, 20, 20, 20, 20, 20, 20, 8000 };
+        CHECK(fude_zoom_circuit_tag_px(twice, 10u, most, least) == 10.0);
+    }
+    // Nothing to go by: none.
+    {
+        f64 junk[5] = { 0.0, -3.0, NAN, INFINITY, -INFINITY };
+        CHECK(fude_zoom_circuit_tag_px(junk, 5u, most, least) == 0.0);
+        CHECK(fude_zoom_circuit_tag_px(junk, 0u, most, least) == 0.0);
+        f64 some[6] = { NAN, 24.0, 0.0, INFINITY, 24.0, -1.0 };
+        CHECK(fude_zoom_circuit_tag_px(some, 6u, most, least) == 12.0);   // (the sizes there are, only)
+    }
+    // Random circuits at random zooms: 0 or between the least and the most; never smaller zoomed in; the parts' order
+    // nothing to it; twice as big on the screen (both in range), twice as big.
+    {
+        u32 rounds = 0, right = 0;
+        for(u32 r = 0; r < 500u; r++) {
+            const u32 n = 1u + rnd() % 40u;
+            f64 a[40], b[40], c[40], d[40];
+            for(u32 i = 0; i < n; i++) {
+                a[i] = 2.0 + rndf() * (rnd() % 8u == 0u ? 600.0 : 40.0);
+                if(rnd() % 20u == 0u) a[i] = rnd() % 2u ? NAN : 0.0;
+            }
+            const f64 k = 0.05 + rndf() * 4.0;
+            for(u32 i = 0; i < n; i++) { b[i] = a[i] * k; c[i] = a[i] * k * 1.7; d[i] = a[n - 1u - i] * k; }
+            const f64 pb = fude_zoom_circuit_tag_px(b, n, most, least);
+            const f64 pc = fude_zoom_circuit_tag_px(c, n, most, least);
+            const f64 pd = fude_zoom_circuit_tag_px(d, n, most, least);
+            b8 ok = (pb == 0.0 || (pb >= least && pb <= most)) && pc >= pb && pd == pb;
+            for(u32 i = 0; i < n; i++) { b[i] = a[i] * k; c[i] = a[i] * k * 2.0; }
+            const f64 p1 = fude_zoom_circuit_tag_px(b, n, 1e9, 0.0), p2 = fude_zoom_circuit_tag_px(c, n, 1e9, 0.0);
+            ok = ok && (p1 == 0.0 ? p2 == 0.0 : fabs(p2 - 2.0 * p1) < 1e-9 * p2);
+            rounds++; right += ok;
+        }
+        CHECK(right == rounds);
+    }
+}
+
+// The lit colour of the circuit's part on object o (none: alpha 0).
+static rde_color lit_of(const fude_zoom_circuit* c, u32 o) {
+    const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c->parts.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) if(p[i].object == o) return p[i].lit;
+    return (rde_color){ 0, 0, 0, 0 };
+}
+static b8 same_color(rde_color a, rde_color b) { return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a; }
+
+// A logic probe's light (props.h): kept, read by the circuit, carried by copies (a body's properties too).
+static void test_probe_light(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 in  = part_put(&s, "logic input", -100, 0, 20, 15, "1");
+    const u32 pr  = part_put(&s, "logic probe", 100, 0, 15, 15, "S");
+    const u32 pr2 = part_put(&s, "logic probe", 100, -100, 15, 15, "T");
+    wire_put(&s, in, 0, pr, 0);
+    wire_put(&s, in, 0, pr2, 0);
+    const rde_color green = { 40, 230, 70, 255 }, blue = { 60, 130, 255, 255 };
+    const u32 li = fude_zoom_props_add_light(&s, pr, green);
+    rde_color got = { 0, 0, 0, 0 };
+    fude_zoom_body_props bp;
+    CHECK(fude_zoom_props_kind(&s, li) == FUDE_ZOOM_PROPS_LIGHT && fude_zoom_props_target(&s, li) == pr);
+    CHECK(fude_zoom_props_light(&s, li, &got) && same_color(got, green));
+    CHECK(fude_zoom_props_find(&s, pr, FUDE_ZOOM_PROPS_LIGHT) == li && fude_zoom_props_find(&s, pr2, FUDE_ZOOM_PROPS_LIGHT) == FUDE_ZOOM_NONE);
+    CHECK(!fude_zoom_props_body(&s, li, &bp) && fude_zoom_props_find(&s, pr, FUDE_ZOOM_PROPS_BODY) == FUDE_ZOOM_NONE);
+    // The circuit: that probe lit green, the other red as ever.
+    {
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(same_color(lit_of(&c, pr), green) && same_color(lit_of(&c, pr2), FUDE_ZOOM_PROBE_LIT));
+        fude_zoom_circuit_destroy(&c);
+    }
+    // Chosen again (the old one let go): the new one's colour.
+    fude_zoom_scene_set_alive(&s, li, false);
+    const u32 li2 = fude_zoom_props_add_light(&s, pr, blue);
+    CHECK(fude_zoom_props_find(&s, pr, FUDE_ZOOM_PROPS_LIGHT) == li2 && fude_zoom_props_light(&s, li2, &got) && same_color(got, blue));
+    {
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(same_color(lit_of(&c, pr), blue));
+        fude_zoom_circuit_destroy(&c);
+    }
+    // Copied: the probe's light with it; the other probe alone, nothing more.
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr clips = rde_arr_new(sizeof(fude_zoom_clip), heap), lone = rde_arr_new(sizeof(fude_zoom_clip), heap);
+    fude_zoom_select_clips_of(&s, &pr, 1u, &clips);
+    fude_zoom_select_clips_of(&s, &pr2, 1u, &lone);
+    CHECK(rde_arr_length(&clips) == 2u && rde_arr_length(&lone) == 1u);
+    // Put once (Duplicate's, Paste's way): the copy held, its light on it (not held), the original's where it was.
+    fude_zoom_selection sel; fude_zoom_select_init(&sel);
+    const fude_zoom_sim down = { 1, 0, 0, -200 };
+    CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 2u, &down, 1u, NULL, NULL, 0u) == 2u);
+    CHECK(rde_arr_length(&sel.picks) == 1u);
+    const u32 copy = ((const fude_zoom_pick*)sel.picks.memory)[0].object;
+    const u32 cl = fude_zoom_props_find(&s, copy, FUDE_ZOOM_PROPS_LIGHT);
+    CHECK(copy != pr && fude_zoom_part_of(&s, copy) != NULL && fude_zoom_part_of(&s, copy)->model == FUDE_ZOOM_MODEL_LOGIC_OUT);
+    CHECK(cl != FUDE_ZOOM_NONE && cl != li2 && fude_zoom_props_light(&s, cl, &got) && same_color(got, blue));
+    CHECK(fude_zoom_props_find(&s, pr, FUDE_ZOOM_PROPS_LIGHT) == li2);
+    CHECK(fude_zoom_history_undo(&s) && !alive(&s, copy) && !alive(&s, cl) && alive(&s, pr) && alive(&s, li2));
+    // Repeated three times: three lights, each on its own copy.
+    {
+        fude_zoom_select_clear(&sel);
+        const fude_zoom_sim moves[3] = { { 1, 0, 0, -150 }, { 1, 0, 0, -300 }, { 1, 0, 0, -450 } };
+        CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 2u, moves, 3u, NULL, NULL, 0u) == 6u);
+        CHECK(rde_arr_length(&sel.picks) == 3u);
+        u32 lights[3], right = 0;
+        for(u32 i = 0; i < 3u; i++) {
+            const u32 o = ((const fude_zoom_pick*)sel.picks.memory)[i].object;
+            lights[i] = fude_zoom_props_find(&s, o, FUDE_ZOOM_PROPS_LIGHT);
+            right += lights[i] != FUDE_ZOOM_NONE && fude_zoom_props_target(&s, lights[i]) == o && fude_zoom_props_light(&s, lights[i], &got) && same_color(got, blue);
+        }
+        CHECK(right == 3u && lights[0] != lights[1] && lights[1] != lights[2] && lights[0] != lights[2]);
+        CHECK(fude_zoom_history_undo(&s));
+    }
+    // Turned over in place (the original let go): the light on the mirrored copy.
+    {
+        fude_zoom_select_clear(&sel);
+        const fude_zoom_select_mirror m = { { 0, 0 }, 3.14159265358979323846 * 0.5 };
+        CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 2u, NULL, 0u, &m, &pr, 1u) == 2u);
+        const u32 o = ((const fude_zoom_pick*)sel.picks.memory)[0].object;
+        const u32 l = fude_zoom_props_find(&s, o, FUDE_ZOOM_PROPS_LIGHT);
+        CHECK(!alive(&s, pr) && l != FUDE_ZOOM_NONE && fude_zoom_props_light(&s, l, &got) && same_color(got, blue));
+        CHECK(fude_zoom_history_undo(&s) && alive(&s, pr));
+    }
+    // A light in the clips whose probe is not: not put (the copy of nothing's).
+    {
+        fude_zoom_select_clear(&sel);
+        const u32 before = fude_zoom_scene_object_count(&s);
+        CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory + 1, 1u, &down, 1u, NULL, NULL, 0u) == 0u);
+        CHECK(fude_zoom_scene_object_count(&s) == before);
+    }
+    fude_zoom_select_clips_free(&clips);
+    fude_zoom_select_clips_free(&lone);
+    // A drawing made a body: duplicated, the copy a body as it was (its material, fixed, its mass).
+    {
+        const f64 tri[6] = { 0, 0, 40, 0, 0, 60 };
+        const u32 poly = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 300, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_POLYGON, tri, 6u, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+        const fude_zoom_body_props was = { 2u, true, 3.0, -1.0, -1.0 };
+        fude_zoom_props_add_body(&s, poly, &was);
+        fude_zoom_select_clips_of(&s, &poly, 1u, &clips);
+        CHECK(rde_arr_length(&clips) == 2u);
+        fude_zoom_select_clear(&sel);
+        CHECK(fude_zoom_select_put(&sel, &s, (const fude_zoom_clip*)clips.memory, 2u, &down, 1u, NULL, NULL, 0u) == 2u);
+        const u32 o = ((const fude_zoom_pick*)sel.picks.memory)[0].object;
+        const u32 b = fude_zoom_props_find(&s, o, FUDE_ZOOM_PROPS_BODY);
+        CHECK(o != poly && b != FUDE_ZOOM_NONE && fude_zoom_props_body(&s, b, &bp) && bp.material == 2u && bp.fixed && fabs(bp.mass - 3.0) < 1e-12);
+        fude_zoom_select_clips_free(&clips);
+    }
+    rde_arr_free(&clips);
+    rde_arr_free(&lone);
+    fude_zoom_select_destroy(&sel);
+    fude_zoom_scene_destroy(&s);
+}
+
 int main(void) {
     test_codec();
     test_sim_and_index();
@@ -3525,6 +5312,18 @@ int main(void) {
     test_cuts();
     test_snap_cross();
     test_snap_from();
+    test_guides();
+    test_trim();
+    test_combine();
+    test_constraints();
+    test_circuits();
+    test_canvas_logic();
+    test_play_tags();
+    test_probe_light();
+    test_mechanisms();
+    test_calc();
+    test_drawn_bodies();
+    test_plot();
     test_repeat();
     test_dims();
     test_stl();

@@ -97,6 +97,7 @@ RDE_INTERNAL void fude_zoom_snap_straights(const fude_zoom_scene* _s, const fude
             f64 _n[FUDE_ZOOM_SHAPE_NUMBERS];
             const u32 _count = fude_zoom_scene_shape_numbers(_s, _object, _n, FUDE_ZOOM_SHAPE_NUMBERS);
             const b8 _straight = _type == FUDE_ZOOM_SHAPE_LINE || _type == FUDE_ZOOM_SHAPE_POLYGON || _type == FUDE_ZOOM_SHAPE_SHEET || _type == FUDE_ZOOM_SHAPE_DIMENSION ||
+                                 _type == FUDE_ZOOM_SHAPE_GUIDE ||
                                  (_type == FUDE_ZOOM_SHAPE_RECT && (_count < 3u || _n[2] <= 0.0)) ||
                                  (_type == FUDE_ZOOM_SHAPE_BOARD && !fude_zoom_board_is_cut(_n, _count));
             if(!_straight) {
@@ -161,14 +162,51 @@ u32 fude_zoom_snap_rays(const fude_zoom_scene* _s, const fude_zoom_visible* _fra
     return _n;
 }
 
+// Circles and arcs whose round passes near the pen (screen): each one's centre and radius, into _out (pairs of
+// fude_zoom_v2: its centre, then its radius in x).
+RDE_INTERNAL void fude_zoom_snap_rounds(const fude_zoom_scene* _s, const fude_zoom_visible* _frames, u32 _frame_count, fude_zoom_v2 _screen, f64 _radius, rde_arr* _out) {
+    rde_arr _found = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    for(u32 _f = 0; _f < _frame_count && (u32)rde_arr_length(_out) < 64u; _f++) {
+        const fude_zoom_sim _to = _frames[_f].to_screen;
+        const f64 _scale = fude_zoom_sim_scale(_to);
+        if(!(_scale > 0.0)) {
+            continue;
+        }
+        const fude_zoom_v2 _c = fude_zoom_sim_apply(fude_zoom_sim_inverse(_to), _screen);
+        const f64 _r = _radius / _scale;
+        rde_arr_clear(&_found);
+        fude_zoom_scene_query(_s, _frames[_f].frame, (fude_zoom_box){ _c.x - _r, _c.y - _r, _c.x + _r, _c.y + _r }, &_found);
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_found); _i++) {
+            const u32 _object = ((const u32*)_found.memory)[_i];
+            const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
+            if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || fude_zoom_scene_hides(_s, _o) || _o->kind != FUDE_ZOOM_KIND_SHAPE ||
+               (_o->channels != FUDE_ZOOM_SHAPE_ELLIPSE && _o->channels != FUDE_ZOOM_SHAPE_ARC)) {
+                continue;
+            }
+            f64 _n[3];
+            const u32 _count = fude_zoom_scene_shape_numbers(_s, _object, _n, 3u);
+            if(_count < 2u || (_o->channels == FUDE_ZOOM_SHAPE_ELLIPSE && fabs(fabs(_n[0]) - fabs(_n[1])) > 1e-6 * fabs(_n[0]))) {
+                continue;   // (an ellipse: no one radius)
+            }
+            const fude_zoom_sim _all = fude_zoom_sim_compose(_to, fude_zoom_object_sim(_o));
+            const fude_zoom_v2 _pair[2] = { fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 }), { fabs(_n[0]) * fude_zoom_sim_scale(_all), 0.0 } };
+            if(fabs(hypot(_screen.x - _pair[0].x, _screen.y - _pair[0].y) - _pair[1].x) <= 2.0 * _radius) {
+                rde_arr_add(_out, (any)&_pair[0]);
+                rde_arr_add(_out, (any)&_pair[1]);
+            }
+        }
+    }
+    rde_arr_free(&_found);
+}
+
 fude_zoom_snap fude_zoom_snap_find_from(const fude_zoom_scene* _s, const fude_zoom_visible* _frames, u32 _frame_count, fude_zoom_v2 _screen, f64 _radius,
-                                        fude_zoom_v2 _from, const fude_zoom_v2* _ways, u32 _way_count) {
+                                        fude_zoom_v2 _from, const fude_zoom_v2* _ways, u32 _way_count, f64 _step_deg) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _pieces = rde_arr_new(sizeof(fude_zoom_snap_piece), _heap);
     f64 _best_d = 1e300;
     fude_zoom_snap _best = fude_zoom_snap_search(_s, _frames, _frame_count, _screen, _radius, &_pieces, &_best_d);
     const f64 _away = hypot(_screen.x - _from.x, _screen.y - _from.y);
-    if(_best.kind != FUDE_ZOOM_SNAP_NONE || _away < 2.0 * _radius) {
+    if((_best.kind != FUDE_ZOOM_SNAP_NONE && _best.kind < FUDE_ZOOM_SNAP_PERP) || _away < 2.0 * _radius) {
         rde_arr_free(&_pieces);
         return _best;   // (on something drawn: that; too near the start for a way to show)
     }
@@ -189,21 +227,49 @@ fude_zoom_snap fude_zoom_snap_find_from(const fude_zoom_scene* _s, const fude_zo
             fude_zoom_snap_offer_by(&_best, &_best_d, _foot, FUDE_ZOOM_SNAP_PERP, _screen, _radius, _pc[_i].a, _pc[_i].b);
         }
     }
-    // Along a straight thing near, or a way asked for: the pen's point brought onto the line from _from that way.
-    if(_best.kind == FUDE_ZOOM_SNAP_NONE) {
+    // Touching a circle or an arc near the pen: where the line from _from is its tangent (the one of the two nearer).
+    {
+        rde_arr _rounds = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+        fude_zoom_snap_rounds(_s, _frames, _frame_count, _screen, _radius, &_rounds);
+        const fude_zoom_v2* _rp = (const fude_zoom_v2*)_rounds.memory;
+        for(u32 _i = 0; _i + 1u < (u32)rde_arr_length(&_rounds); _i += 2u) {
+            const fude_zoom_v2 _c = _rp[_i];
+            const f64 _r = _rp[_i + 1u].x, _dc = hypot(_from.x - _c.x, _from.y - _c.y);
+            if(!(_dc > _r * (1.0 + 1e-9))) {
+                continue;   // (from inside it: none)
+            }
+            const f64 _th = atan2(_from.y - _c.y, _from.x - _c.x), _al = acos(_r / _dc);
+            for(u32 _k = 0; _k < 2u; _k++) {
+                const f64 _a = _th + (_k == 0u ? _al : -_al);
+                const fude_zoom_v2 _t = { _c.x + cos(_a) * _r, _c.y + sin(_a) * _r };
+                fude_zoom_snap_offer_by(&_best, &_best_d, _t, FUDE_ZOOM_SNAP_TANGENT, _screen, _radius, _c, (fude_zoom_v2){ _r, 0.0 });
+            }
+        }
+        rde_arr_free(&_rounds);
+    }
+    // Along a straight thing near, or a way asked for (or one of its turns every _step_deg): the pen's point brought
+    // onto the line from _from that way. Carried on past a straight thing's end: onto that.
+    {
         rde_arr _straights = rde_arr_new(sizeof(fude_zoom_snap_piece), _heap);
         fude_zoom_snap_straights(_s, _frames, _frame_count, _screen, FUDE_ZOOM_SNAP_ALONG, &_straights);
         const u32 _ns = (u32)rde_arr_length(&_straights);
         const fude_zoom_snap_piece* _sp = (const fude_zoom_snap_piece*)_straights.memory;
-        for(u32 _i = 0; _i < _ns + _way_count; _i++) {
+        const u32 _steps = _step_deg > 0.0 && _way_count > 0u ? (u32)floor(180.0 / _step_deg + 1e-9) : 0u;
+        for(u32 _i = 0; _i < _ns + _way_count + _steps; _i++) {
             fude_zoom_v2 _d, _a, _b;
+            f64 _tol = _radius * 0.7;
             if(_i < _ns) {
                 _d = (fude_zoom_v2){ _sp[_i].b.x - _sp[_i].a.x, _sp[_i].b.y - _sp[_i].a.y };
                 _a = _sp[_i].a;
                 _b = _sp[_i].b;
-            } else {
+            } else if(_i < _ns + _way_count) {
                 _d = _ways[_i - _ns];
                 _a = _b = _from;
+            } else {
+                const f64 _turn = (f64)(_i - _ns - _way_count) * _step_deg * 3.14159265358979323846 / 180.0, _c = cos(_turn), _sn = sin(_turn);
+                _d = (fude_zoom_v2){ _ways[0].x * _c - _ways[0].y * _sn, _ways[0].x * _sn + _ways[0].y * _c };
+                _a = _b = _from;
+                _tol = _radius * 0.35;   // (an angle's step: only near it)
             }
             const f64 _l = hypot(_d.x, _d.y);
             if(!(_l > 0.0)) {
@@ -212,7 +278,16 @@ fude_zoom_snap fude_zoom_snap_find_from(const fude_zoom_scene* _s, const fude_zo
             _d.x /= _l; _d.y /= _l;
             const f64 _along = (_screen.x - _from.x) * _d.x + (_screen.y - _from.y) * _d.y;
             const fude_zoom_v2 _p = { _from.x + _d.x * _along, _from.y + _d.y * _along };
-            fude_zoom_snap_offer_by(&_best, &_best_d, _p, FUDE_ZOOM_SNAP_PARALLEL, _screen, _radius * 0.7, _a, _b);
+            fude_zoom_snap_offer_by(&_best, &_best_d, _p, FUDE_ZOOM_SNAP_PARALLEL, _screen, _tol, _a, _b);
+            if(_i < _ns) {
+                // Its own line carried on past an end, the pen near it (not far out): onto it.
+                const f64 _t = ((_screen.x - _a.x) * _d.x + (_screen.y - _a.y) * _d.y) / _l;
+                const f64 _past = _t < 0.0 ? -_t * _l : (_t > 1.0 ? (_t - 1.0) * _l : 0.0);
+                if(_past > 0.0 && _past <= FUDE_ZOOM_SNAP_FAR_ON) {
+                    const fude_zoom_v2 _e = { _a.x + _d.x * _t * _l, _a.y + _d.y * _t * _l };
+                    fude_zoom_snap_offer_by(&_best, &_best_d, _e, FUDE_ZOOM_SNAP_EXTENSION, _screen, _radius * 0.7, _a, _b);
+                }
+            }
         }
         rde_arr_free(&_straights);
     }
@@ -274,6 +349,9 @@ RDE_INTERNAL fude_zoom_snap fude_zoom_snap_search(const fude_zoom_scene* _s, con
                         _l[_k] = fude_zoom_sim_apply(_to, _l[_k]);
                     }
                     fude_zoom_snap_pieces(_pieces_out, _l, (u32)rde_arr_length(&_line), _shut, _object, _screen, _radius);
+                }
+                if(_type == FUDE_ZOOM_SHAPE_GUIDE || fude_zoom_shape_is_attribute(_type)) {
+                    continue;   // a guide: where things cross it and along it only (its ends are no ends); a constraint: nothing
                 }
                 // Corners exactly: a rectangle's and a polygon's outline points are their corners (no round corners asked for).
                 fude_zoom_scene_shape_outline(_s, _object, _type == FUDE_ZOOM_SHAPE_ELLIPSE ? 64u : 1u, &_pts, &_closed);
@@ -357,10 +435,70 @@ RDE_INTERNAL fude_zoom_snap fude_zoom_snap_search(const fude_zoom_scene* _s, con
             fude_zoom_snap_offer(&_best, &_best_d, (fude_zoom_sim){ 1.0, 0.0, 0.0, 0.0 }, _x, FUDE_ZOOM_SNAP_CROSS, _screen, _radius);
         }
     }
+    // Nothing better: on a line or an outline right under the pen, its nearest point.
+    if(_best.kind == FUDE_ZOOM_SNAP_NONE) {
+        f64 _nd = FUDE_ZOOM_SNAP_REACH_ON;
+        for(u32 _i = 0; _i < _np; _i++) {
+            const fude_zoom_v2 _d = { _pc[_i].b.x - _pc[_i].a.x, _pc[_i].b.y - _pc[_i].a.y };
+            const f64 _ll = _d.x * _d.x + _d.y * _d.y;
+            const f64 _t  = _ll > 0.0 ? fmin(fmax(((_screen.x - _pc[_i].a.x) * _d.x + (_screen.y - _pc[_i].a.y) * _d.y) / _ll, 0.0), 1.0) : 0.0;
+            const fude_zoom_v2 _q = { _pc[_i].a.x + _d.x * _t, _pc[_i].a.y + _d.y * _t };
+            const f64 _dq = hypot(_q.x - _screen.x, _q.y - _screen.y);
+            if(_dq <= _nd) {
+                _nd   = _dq;
+                _best = (fude_zoom_snap){ FUDE_ZOOM_SNAP_NEAREST, _q, _pc[_i].a, _pc[_i].b, FUDE_ZOOM_NONE, FUDE_ZOOM_SNAP_NO_KEY };
+                _best_d = _dq;
+            }
+        }
+    }
     rde_arr_free(&_found);
     rde_arr_free(&_q);
     rde_arr_free(&_pts);
     rde_arr_free(&_line);
     *_best_out = _best_d;
     return _best;
+}
+
+void fude_zoom_snap_align(const fude_zoom_v2* _movers, u32 _nm, const fude_zoom_v2* _targets, u32 _nt, f64 _dx, f64 _dy, f64 _reach,
+                          f64 _keep, f64* _out_dx, f64* _out_dy, f64* _line_x, f64* _line_y) {
+    const f64 _was_x = *_line_x, _was_y = *_line_y;
+    f64 _bx = _reach, _by = _reach, _px = 0.0, _py = 0.0;
+    *_line_x = NAN;
+    *_line_y = NAN;
+    for(u32 _i = 0; _i < _nm; _i++) {
+        const f64 _mx = _movers[_i].x + _dx, _my = _movers[_i].y + _dy;
+        // (what it lines up with already: held a little further)
+        if(!isnan(_was_x) && fabs(_was_x - _mx) < fmax(_keep, _bx)) {
+            _bx = fabs(_was_x - _mx);
+            _px = _was_x - _mx;
+            *_line_x = _was_x;
+        }
+        if(!isnan(_was_y) && fabs(_was_y - _my) < fmax(_keep, _by)) {
+            _by = fabs(_was_y - _my);
+            _py = _was_y - _my;
+            *_line_y = _was_y;
+        }
+        for(u32 _j = 0; _j < _nt; _j++) {
+            const f64 _ex = _targets[_j].x - _mx, _ey = _targets[_j].y - _my;
+            if(fabs(_ex) < _bx) {
+                _bx = fabs(_ex);
+                _px = _ex;
+                *_line_x = _targets[_j].x;
+            }
+            if(fabs(_ey) < _by) {
+                _by = fabs(_ey);
+                _py = _ey;
+                *_line_y = _targets[_j].y;
+            }
+        }
+    }
+    *_out_dx = _dx + _px;
+    *_out_dy = _dy + _py;
+}
+
+f64 fude_zoom_snap_grid(f64 _v, f64 _origin, f64 _step) {
+    if(!(_step > 0.0)) {
+        return _v;
+    }
+    return _origin + round((_v - _origin) / _step) * _step;
 }

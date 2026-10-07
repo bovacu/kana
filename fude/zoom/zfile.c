@@ -392,33 +392,25 @@ typedef struct {
     u32 size;    // its payload's
 } fude_zoom_chunk_ref;
 
-// A chunk's payload, read and its CRC checked (without the CRC: *_size is the
-// rest). NULL: unreadable or damaged.
-RDE_INTERNAL u8* fude_zoom_file_payload(rde_file* _file, const fude_zoom_chunk_ref* _c, u32* _size) {
+// A chunk's payload, read into _buf (rde_arr of u8) and its CRC checked
+// (without the CRC: *_size is the rest). NULL: unreadable or damaged. Good
+// until _buf's next read.
+RDE_INTERNAL u8* fude_zoom_file_payload(rde_file* _file, const fude_zoom_chunk_ref* _c, rde_arr* _buf, u32* _size) {
     if(_c->size < 4u) {
         return NULL;
     }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    u8* _data = _heap->malloc(_heap->allocator, _c->size);
+    rde_arr_resize(_buf, _c->size);
+    u8* _data = (u8*)_buf->memory;
     if(rde_file_read_at(_file, _c->at + 8u, _data, _c->size) != _c->size) {
-        _heap->free(_heap->allocator, _data);
         return NULL;
     }
     const u32 _body = _c->size - 4u;
     const u32 _crc  = (u32)_data[_body] | ((u32)_data[_body + 1u] << 8) | ((u32)_data[_body + 2u] << 16) | ((u32)_data[_body + 3u] << 24);
     if(fude_zoom_crc32(_data, _body) != _crc) {
-        _heap->free(_heap->allocator, _data);
         return NULL;
     }
     *_size = _body;
     return _data;
-}
-
-RDE_INTERNAL void fude_zoom_file_free(u8* _data) {
-    if(_data != NULL) {
-        rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-        _heap->free(_heap->allocator, _data);
-    }
 }
 
 RDE_INTERNAL i32 fude_zoom_file_find(const rde_arr* _chunks, u64 _at, u32 _tag) {
@@ -491,6 +483,8 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
     }
     const fude_zoom_chunk_ref* _c = (const fude_zoom_chunk_ref*)_chunks.memory;
     const u32                  _n = (u32)rde_arr_length(&_chunks);
+    rde_arr _buf    = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());   // each chunk read in turn
+    rde_arr _ix_buf = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());   // the index's, kept to the end
 
     // The last good footer, and its good index.
     i32 _foot = -1, _indx = -1;
@@ -501,14 +495,13 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
             continue;
         }
         u32 _fs;
-        u8* _fp = fude_zoom_file_payload(_file, &_c[_i], &_fs);
+        u8* _fp = fude_zoom_file_payload(_file, &_c[_i], &_buf, &_fs);
         if(_fp == NULL) {
             continue;
         }
         fude_reader _fr = fude_reader_make(_fp, _fs);
         const u64 _at    = fude_get_u64(&_fr);
         const u32 _magic = fude_get_u32(&_fr);
-        fude_zoom_file_free(_fp);
         if(!_fr.ok || _magic != FUDE_ZOOM_FOOT_MAGIC) {
             continue;
         }
@@ -516,7 +509,7 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
         if(_ii < 0) {
             continue;
         }
-        _ix = fude_zoom_file_payload(_file, &_c[_ii], &_ix_size);
+        _ix = fude_zoom_file_payload(_file, &_c[_ii], &_ix_buf, &_ix_size);
         if(_ix != NULL) {
             _foot = _i;
             _indx = _ii;
@@ -553,14 +546,13 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
         // The frames.
         const i32 _fi = fude_zoom_file_find(&_chunks, _fram, FUDE_ZOOM_TAG_FRAM);
         u32 _fs = 0;
-        u8* _fp = _fi >= 0 ? fude_zoom_file_payload(_file, &_c[_fi], &_fs) : NULL;
+        u8* _fp = _fi >= 0 ? fude_zoom_file_payload(_file, &_c[_fi], &_buf, &_fs) : NULL;
         if(_fp == NULL) {
             goto done;
         }
         fude_reader _frr = fude_reader_make(_fp, _fs);
         const u32 _fcount = fude_get_u32(&_frr);
         const b8 _frames_ok = _frr.ok && fude_zoom_file_records(_s, &_frr, _fcount, fude_zoom_get_frame);
-        fude_zoom_file_free(_fp);
         const u32 _root_slot = fude_zoom_scene_find_frame(_s, _root);
         if(!_frames_ok || _root_slot == FUDE_ZOOM_NONE) {
             goto done;
@@ -580,9 +572,8 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
                 const u32 _size = fude_get_u32(&_r);
                 const i32 _bi   = fude_zoom_file_find(&_chunks, _at, FUDE_ZOOM_TAG_BKTS);
                 u32 _bs = 0;
-                u8* _bp = _bi >= 0 ? fude_zoom_file_payload(_file, &_c[_bi], &_bs) : NULL;
+                u8* _bp = _bi >= 0 ? fude_zoom_file_payload(_file, &_c[_bi], &_buf, &_bs) : NULL;
                 if(!_r.ok || _bp == NULL) {
-                    fude_zoom_file_free(_bp);
                     goto done;
                 }
                 fude_reader _br = fude_reader_make(_bp, _bs);
@@ -590,7 +581,6 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
                 fude_get_u32(&_br);   // the bucket's number
                 const u32 _count = fude_get_u32(&_br);
                 const b8  _ok    = _br.ok && fude_zoom_file_records(_s, &_br, _count, fude_zoom_get_object);
-                fude_zoom_file_free(_bp);
                 if(!_ok) {
                     goto done;
                 }
@@ -604,7 +594,7 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
         // The history.
         const i32 _hi = fude_zoom_file_find(&_chunks, _hist, FUDE_ZOOM_TAG_HIST);
         u32 _hs = 0;
-        u8* _hp = _hi >= 0 ? fude_zoom_file_payload(_file, &_c[_hi], &_hs) : NULL;
+        u8* _hp = _hi >= 0 ? fude_zoom_file_payload(_file, &_c[_hi], &_buf, &_hs) : NULL;
         if(_hp == NULL) {
             goto done;
         }
@@ -614,7 +604,6 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
         // An action over something missing ends the history there; the canvas still opens.
         fude_zoom_file_records(_s, &_hr2, _actions, fude_zoom_get_action);
         _s->action_count = _action_count <= (u32)rde_arr_length(&_s->actions) ? _action_count : (u32)rde_arr_length(&_s->actions);
-        fude_zoom_file_free(_hp);
         _f->live += _c[_fi].size + _c[_hi].size + _c[_indx].size + _c[_foot].size + 4u * 8u;
 
         // What the buckets hold is what the file has: nothing is dirty yet.
@@ -640,14 +629,13 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
                 continue;
             }
             u32 _js = 0;
-            u8* _jp = fude_zoom_file_payload(_file, &_c[_i], &_js);
+            u8* _jp = fude_zoom_file_payload(_file, &_c[_i], &_buf, &_js);
             if(_jp == NULL) {
                 _torn = true;
                 break;
             }
             fude_reader _jr = fude_reader_make(_jp, _js);
             const b8 _ok = fude_zoom_apply_ops(_s, &_jr);
-            fude_zoom_file_free(_jp);
             if(!_ok) {
                 _torn = true;
                 break;
@@ -662,7 +650,8 @@ RDE_INTERNAL FUDE_LOAD_ fude_zoom_file_read(fude_zoom_file* _f, const c8* _path,
     }
 
 done:
-    fude_zoom_file_free(_ix);
+    rde_arr_free(&_ix_buf);
+    rde_arr_free(&_buf);
     rde_arr_free(&_chunks);
     rde_file_close(_file);
     return _result;

@@ -25,7 +25,7 @@ struct fude_ui;
 struct fude_doc_line;   // doc.h
 
 // A tool of the app's on the toolbar, after Paper (Kana's camera).
-#define FUDE_EXTENSION_TOOLS   8u
+#define FUDE_EXTENSION_TOOLS   12u   // (an app with fewer: its bar as it was)
 #define FUDE_EXTENSION_CHOICES 16u
 
 // One of a tool's choices, in its panel: its name, its icon, and what choosing

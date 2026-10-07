@@ -48,14 +48,8 @@ u32 fude_zoom_smooth_points(const fude_zoom_v2* _raw, u32 _n, f64 _sigma, fude_z
         _back += hypot(_raw[_lo].x - _raw[_lo - 1u].x, _raw[_lo].y - _raw[_lo - 1u].y);
         _lo--;
     }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    f64* _s = (f64*)_heap->malloc(_heap->allocator, (usize)(_n - _lo) * sizeof(f64));
-    if(_s == NULL) {
-        for(u32 _i = _from; _i < _n; _i++) {
-            _out[_i] = _raw[_i];
-        }
-        return _n;
-    }
+    rde_arr TYPE(f64) _s_arr = rde_arr_new(sizeof(f64), rde_memory_allocator_get_default_std());
+    f64* _s = (f64*)rde_arr_add_n(&_s_arr, _n - _lo);   // (sized once: it stays put)
     _s[0] = 0.0;
     for(u32 _i = _lo + 1u; _i < _n; _i++) {
         _s[_i - _lo] = _s[_i - _lo - 1u] + hypot(_raw[_i].x - _raw[_i - 1u].x, _raw[_i].y - _raw[_i - 1u].y);
@@ -106,7 +100,7 @@ u32 fude_zoom_smooth_points(const fude_zoom_v2* _raw, u32 _n, f64 _sigma, fude_z
             _out[_i] = _raw[_i];
         }
     }
-    _heap->free(_heap->allocator, _s);
+    rde_arr_free(&_s_arr);
     return _settled;
 }
 

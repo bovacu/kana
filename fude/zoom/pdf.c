@@ -715,10 +715,9 @@ b8 fude_zoom_pdf_finish(fude_zoom_pdf* _pdf, fude_bytes* _out) {
     if((u64)fude_bytes_size(_out) + _room > 0xFFFFFFFFu) {
         return false;
     }
-    u32* _offsets = (u32*)calloc((usize)_count + (usize)_images + 1u, sizeof(u32));
-    if(_offsets == NULL) {
-        return false;
-    }
+    rde_arr _offsets_arr = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_offsets_arr, (usize)_count + (usize)_images + 1u);
+    u32* _offsets = (u32*)_offsets_arr.memory;   // (sized once: it stays put)
     u32* _image_obj = _offsets + _count;   // each image's object (its mask the next)
     for(u32 _i = 0, _n = _image; _i < _images; _i++) {
         _image_obj[_i] = _n;
@@ -828,6 +827,6 @@ b8 fude_zoom_pdf_finish(fude_zoom_pdf* _pdf, fude_bytes* _out) {
         fude_zoom_pdf_put(_out, "%010u 00000 n\r\n", (unsigned)_offsets[_i]);
     }
     fude_zoom_pdf_put(_out, "trailer\n<< /Size %u /Root 1 0 R >>\nstartxref\n%u\n%%%%EOF\n", (unsigned)_count, (unsigned)_xref);
-    free(_offsets);
+    rde_arr_free(&_offsets_arr);
     return true;
 }

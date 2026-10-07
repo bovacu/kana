@@ -172,10 +172,13 @@ typedef struct {
 #define FUDE_ZOOM_BUCKET 512u
 
 typedef struct {
-    u8* data;
-    u32 size;
-    u32 refs;
+    rde_arr TYPE(u8) data;
+    u32              refs;
 } fude_zoom_blob;
+
+// A blob's bytes, how many.
+static inline u8*  fude_zoom_blob_bytes(const fude_zoom_blob* _b) { return _b->data.memory; }
+static inline u32  fude_zoom_blob_size(const fude_zoom_blob* _b)  { return _b->data.count; }
 
 typedef struct {
     u32          frame;
@@ -202,21 +205,13 @@ typedef struct {
     u32           bytes;      // what it keeps alive (the history's budget)
 } fude_zoom_action;
 
-// id → slot, for what the file names by id.
-typedef struct {
-    fude_zoom_id* keys;
-    u32*          values;
-    u32           capacity;   // a power of two
-    u32           count;
-} fude_zoom_map;
-
 typedef struct {
     rde_arr TYPE(fude_zoom_frame)  frames;
     rde_arr TYPE(fude_zoom_object) objects;
     rde_arr TYPE(fude_zoom_blob)   blobs;
     rde_arr TYPE(u32)              free_blobs;
-    fude_zoom_map                  object_ids;
-    fude_zoom_map                  frame_ids;
+    rde_hash_map TYPE(fude_zoom_id, u32) object_ids;   // id → slot, for what the file names by id
+    rde_hash_map TYPE(fude_zoom_id, u32) frame_ids;
     u32                            root;
     u32                            home;       // the canvas's own frame (its first root; a new root above
                                                // leaves it so): its zoom 1 is ×1, and Reset view's
@@ -287,6 +282,16 @@ fude_zoom_object* fude_zoom_scene_object(const fude_zoom_scene* _s, u32 _index);
 u32               fude_zoom_scene_frame_count(const fude_zoom_scene* _s);
 u32               fude_zoom_scene_object_count(const fude_zoom_scene* _s);
 u32               fude_zoom_scene_find_object(const fude_zoom_scene* _s, fude_zoom_id _id);   // FUDE_ZOOM_NONE: none
+
+// An object's id kept in a shape's numbers exactly (a wire's ends', a constraint's lines'): its two halves, each a
+// whole number a double holds as it is (an id as one number loses its last bits once a device's half is large).
+static inline void fude_zoom_id_put(f64* _n, fude_zoom_id _id) {
+    _n[0] = (f64)(u32)(_id >> 32);
+    _n[1] = (f64)(u32)(_id & 0xFFFFFFFFu);
+}
+static inline fude_zoom_id fude_zoom_id_get(const f64* _n) {
+    return _n[0] >= 0.0 && _n[1] >= 0.0 ? (((fude_zoom_id)(u32)_n[0]) << 32) | (fude_zoom_id)(u32)_n[1] : 0u;
+}
 u32               fude_zoom_scene_find_frame(const fude_zoom_scene* _s, fude_zoom_id _id);
 // How many parents up the root is (the root: 0).
 u32               fude_zoom_scene_depth(const fude_zoom_scene* _s, u32 _frame);
@@ -339,6 +344,10 @@ u32  fude_zoom_scene_shape_numbers(const fude_zoom_scene* _s, u32 _object, f64* 
 u32  fude_zoom_scene_shape_numbers_all(const fude_zoom_scene* _s, u32 _object, rde_arr* _out);
 // A shape's outline where it is, its frame's units, into _out (fude_zoom_v2).
 void fude_zoom_scene_shape_outline(const fude_zoom_scene* _s, u32 _object, u32 _segments, rde_arr* _out, b8* _closed);
+// Any drawn thing's outline in its frame (fude_zoom_v2s into _out): a shape's (its own, its curves in _segments), a
+// fill's (its outline ring), a stroke's line — closed when it closes (a stroke: its ends within a few of its widths).
+// False: it has none (a measure, a connector, a guide, an attribute, a text, a picture; or it is gone).
+b8   fude_zoom_scene_object_outline(const fude_zoom_scene* _s, u32 _object, u32 _segments, rde_arr* _out, b8* _closed);
 
 // A picture in _frame at _place, _hw by _hh each way of its middle (frame units),
 // from its file's bytes (JPEG or PNG: _bytes, _size). Its index. Not an undo
@@ -447,6 +456,9 @@ void fude_zoom_scene_keep_frame(fude_zoom_scene* _s, u32 _frame);
 void fude_zoom_history_push(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count);
 b8   fude_zoom_history_undo(fude_zoom_scene* _s);
 b8   fude_zoom_history_redo(fude_zoom_scene* _s);
+// ...both in one step: _died let go, _born made, _moved moved (one undo undoes all of it).
+void fude_zoom_history_push_all(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
+                                const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count);
 // Things moved (scaled, turned): from _before to _after, already where _after says.
 void fude_zoom_history_push_moved(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _objects, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _count);
 b8   fude_zoom_history_can_undo(const fude_zoom_scene* _s);

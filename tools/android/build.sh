@@ -75,7 +75,7 @@ if [ "$WHAT" = "sketching" ]; then
         --android_deps_file=$K/apps/sketching/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
         --android_internet --android_network_state --android_wake_lock --android_camera \
         $VERSION "$@" \
-        apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) \
+        apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) $(ls fude/sim/*.c) \
         fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c \
         fude/study/services/mlkit.c fude/study/services/mlkit_android.c \
         -I$K/fude -I$K/apps/sketching/src -Wall -Wextra \

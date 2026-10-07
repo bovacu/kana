@@ -145,9 +145,13 @@ u32 fude_zoom_nest(f64 _board_w, f64 _board_h, f64 _kerf, const fude_zoom_nest_p
     }
     _kerf = _kerf > 0.0 ? _kerf : 0.0;
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_nest_sort*  _keys  = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_nest_sort));
-    u32*                  _order = _heap->malloc(_heap->allocator, (usize)_n * sizeof(u32));
-    fude_zoom_nest_place* _try   = _heap->malloc(_heap->allocator, (usize)_n * sizeof(fude_zoom_nest_place));
+    rde_arr _keys_arr = rde_arr_new(sizeof(fude_zoom_nest_sort), _heap), _order_arr = rde_arr_new(sizeof(u32), _heap), _try_arr = rde_arr_new(sizeof(fude_zoom_nest_place), _heap);
+    rde_arr_resize(&_keys_arr, _n);
+    rde_arr_resize(&_order_arr, _n);
+    rde_arr_resize(&_try_arr, _n);
+    fude_zoom_nest_sort*  _keys  = (fude_zoom_nest_sort*)_keys_arr.memory;   // (sized once: they stay put)
+    u32*                  _order = (u32*)_order_arr.memory;
+    fude_zoom_nest_place* _try   = (fude_zoom_nest_place*)_try_arr.memory;
     f64 _best = -1.0;
     for(u32 _o = 0; _o < FUDE_ZOOM_NEST_ORDERS; _o++) {
         for(u32 _i = 0; _i < _n; _i++) {
@@ -167,8 +171,8 @@ u32 fude_zoom_nest(f64 _board_w, f64 _board_h, f64 _kerf, const fude_zoom_nest_p
     for(u32 _i = 0; _i < _n; _i++) {
         _placed += _out[_i].placed ? 1u : 0u;
     }
-    _heap->free(_heap->allocator, _keys);
-    _heap->free(_heap->allocator, _order);
-    _heap->free(_heap->allocator, _try);
+    rde_arr_free(&_keys_arr);
+    rde_arr_free(&_order_arr);
+    rde_arr_free(&_try_arr);
     return _placed;
 }

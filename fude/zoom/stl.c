@@ -56,8 +56,11 @@ RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const
     rde_arr_clear(_out);
     memcpy(rde_arr_add_n(_out, _n), _outside, (usize)_n * sizeof(fude_zoom_v2));
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    u32* _order = _heap->malloc(_heap->allocator, (usize)(_h > 0u ? _h : 1u) * sizeof(u32));
-    u32* _right = _heap->malloc(_heap->allocator, (usize)(_h > 0u ? _h : 1u) * sizeof(u32));
+    rde_arr _order_arr = rde_arr_new(sizeof(u32), _heap), _right_arr = rde_arr_new(sizeof(u32), _heap), _ins_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr_resize(&_order_arr, _h);
+    rde_arr_resize(&_right_arr, _h);
+    u32* _order = (u32*)_order_arr.memory;   // (sized once: they stay put)
+    u32* _right = (u32*)_right_arr.memory;
     for(u32 _i = 0; _i < _h; _i++) {
         _order[_i] = _i;
         _right[_i] = 0;
@@ -124,7 +127,8 @@ RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const
         }
         // The ring: up to P, P, then the hole from M round to M, then back to P.
         const u32 _hn = _counts[_hi];
-        fude_zoom_v2* _ins = _heap->malloc(_heap->allocator, (usize)(_hn + 2u) * sizeof(fude_zoom_v2));
+        rde_arr_resize(&_ins_arr, (usize)_hn + 2u);
+        fude_zoom_v2* _ins = (fude_zoom_v2*)_ins_arr.memory;
         for(u32 _k = 0; _k <= _hn; _k++) {
             _ins[_k] = _holes[_hi][(_right[_hi] + _k) % _hn];
         }
@@ -132,10 +136,10 @@ RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const
         for(u32 _k = 0; _k < _hn + 2u; _k++) {
             rde_arr_insert(_out, _p + 1u + _k, (any)&_ins[_k]);
         }
-        _heap->free(_heap->allocator, _ins);
     }
-    _heap->free(_heap->allocator, _order);
-    _heap->free(_heap->allocator, _right);
+    rde_arr_free(&_ins_arr);
+    rde_arr_free(&_order_arr);
+    rde_arr_free(&_right_arr);
 }
 
 // A ring (counter-clockwise, simple but for its cuts there and back) as triangles, ears clipped one by one, into _out
@@ -144,8 +148,9 @@ RDE_INTERNAL u32 fude_zoom_stl_ears(const fude_zoom_v2* _p, u32 _n, rde_arr* _ou
     if(_n < 3u) {
         return 0u;
     }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    u32* _next = _heap->malloc(_heap->allocator, (usize)_n * 2u * sizeof(u32));
+    rde_arr _links = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_links, (usize)_n * 2u);
+    u32* _next = (u32*)_links.memory;
     u32* _prev = _next + _n;
     for(u32 _i = 0; _i < _n; _i++) {
         _next[_i] = (_i + 1u) % _n;
@@ -186,7 +191,7 @@ RDE_INTERNAL u32 fude_zoom_stl_ears(const fude_zoom_v2* _p, u32 _n, rde_arr* _ou
             _made++;
         }
     }
-    _heap->free(_heap->allocator, _next);
+    rde_arr_free(&_links);
     return _made;
 }
 
@@ -212,11 +217,9 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
     if(_t == 0u) {
         return;
     }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_stl_edge* _e = _heap->malloc(_heap->allocator, (usize)_t * 3u * sizeof(fude_zoom_stl_edge));
-    if(_e == NULL) {
-        return;
-    }
+    rde_arr _e_arr = rde_arr_new(sizeof(fude_zoom_stl_edge), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_e_arr, (usize)_t * 3u);
+    fude_zoom_stl_edge* _e = (fude_zoom_stl_edge*)_e_arr.memory;
     for(u32 _k = 0; _k < _t; _k++) {
         for(u32 _s = 0; _s < 3u; _s++) {
             const fude_zoom_v2 _a = _tp[3u * _k + _s], _b = _tp[3u * _k + (_s + 1u) % 3u];
@@ -244,7 +247,7 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
         }
         _i = _j;
     }
-    _heap->free(_heap->allocator, _e);
+    rde_arr_free(&_e_arr);
 }
 
 u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const f64* _heights, rde_arr* _out, u32* _solids) {
@@ -282,6 +285,7 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     // Each outside (an even depth) with its holes (the odd ones it is the parent of): its top and bottom (the outside
     // counter-clockwise, its holes clockwise, together as the fill's rings) and its walls.
     rde_arr _pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), _ids = rde_arr_new(sizeof(u32), _heap), _tris = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr _holes_arr = rde_arr_new(sizeof(const fude_zoom_v2*), _heap), _counts_arr = rde_arr_new(sizeof(u32), _heap);
     const u32 _before = (u32)rde_arr_length(_out) / 9u;
     u32 _made = 0;
     for(u32 _i = 0; _i < _nr; _i++) {
@@ -316,8 +320,10 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
         const u32* _rec = (const u32*)_ids.memory;
         const fude_zoom_v2* _outside_p = NULL;
         u32 _outside_n = 0;
-        const fude_zoom_v2** _holes = _heap->malloc(_heap->allocator, (usize)(_nh + 1u) * sizeof(fude_zoom_v2*));
-        u32* _counts = _heap->malloc(_heap->allocator, (usize)(_nh + 1u) * sizeof(u32));
+        rde_arr_resize(&_holes_arr, _nh);
+        rde_arr_resize(&_counts_arr, _nh);
+        const fude_zoom_v2** _holes = (const fude_zoom_v2**)_holes_arr.memory;
+        u32* _counts = (u32*)_counts_arr.memory;
         u32 _off = 0, _hk = 0;
         for(u32 _j = 0; _j < (u32)rde_arr_length(&_ids) / 2u; _j++) {
             if(_rec[2u * _j] == 0u) {
@@ -335,8 +341,6 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
         rde_arr_clear(&_tris);
         const u32 _t = fude_zoom_stl_ears((const fude_zoom_v2*)_ring.memory, (u32)rde_arr_length(&_ring), &_tris);
         rde_arr_free(&_ring);
-        _heap->free(_heap->allocator, _holes);
-        _heap->free(_heap->allocator, _counts);
         fude_zoom_v2* _tp = (fude_zoom_v2*)_tris.memory;
         for(u32 _k = 0; _k < _t; _k++) {
             fude_zoom_v2* _c3 = &_tp[3u * _k];
@@ -354,6 +358,8 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     rde_arr_free(&_pts);
     rde_arr_free(&_ids);
     rde_arr_free(&_tris);
+    rde_arr_free(&_holes_arr);
+    rde_arr_free(&_counts_arr);
     rde_arr_free(&_list);
     if(_solids != NULL) {
         *_solids = _made;
@@ -383,7 +389,7 @@ RDE_INTERNAL void fude_zoom_stl_on_object(void* _self, const fude_zoom_scene* _s
     _w->skip   = _o->kind != FUDE_ZOOM_KIND_SHAPE && _o->kind != FUDE_ZOOM_KIND_FILL;
     if(_o->kind == FUDE_ZOOM_KIND_SHAPE) {
         const u8 _t = _o->channels;
-        _w->skip = _t == FUDE_ZOOM_SHAPE_SYMBOL || _t == FUDE_ZOOM_SHAPE_SHEET || _t == FUDE_ZOOM_SHAPE_DIMENSION || _t == FUDE_ZOOM_SHAPE_RADIAL ||
+        _w->skip = _t == FUDE_ZOOM_SHAPE_SYMBOL || _t == FUDE_ZOOM_SHAPE_SHEET || _t == FUDE_ZOOM_SHAPE_GUIDE || fude_zoom_shape_is_attribute(_t) || _t == FUDE_ZOOM_SHAPE_DIMENSION || _t == FUDE_ZOOM_SHAPE_RADIAL ||
                    _t == FUDE_ZOOM_SHAPE_ANGLE || _t == FUDE_ZOOM_SHAPE_ARROW || _t == FUDE_ZOOM_SHAPE_LINE || _t == FUDE_ZOOM_SHAPE_ARC;
         if(_t == FUDE_ZOOM_SHAPE_BOARD) {
             f64 _n[3];

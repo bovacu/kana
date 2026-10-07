@@ -174,9 +174,8 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
     return !_threw && _ok == JNI_TRUE;
 }
 
-b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
-    *_out  = NULL;
-    *_size = 0u;
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, rde_arr* _out) {
+    rde_arr_clear(_out);
     JNIEnv*   _env  = fude_android_env();
     jmethodID _read = fude_android_method(FUDE_JAVA_PDF, "pictureJpeg", "([BI)[B");
     if(_path == NULL || _env == NULL || _read == NULL) {
@@ -189,14 +188,13 @@ b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
         return false;
     }
     usize _n = 0;
-    *_out = (u8*)fude_android_take_alloc(_env, _jpeg, &_n);   // NULL: it could not be read
-    if(*_out == NULL || _n == 0u) {
-        free(*_out);
-        *_out = NULL;
-        return false;
+    u8* _taken = (u8*)fude_android_take_alloc(_env, _jpeg, &_n);   // NULL: it could not be read
+    const b8 _ok = _taken != NULL && _n > 0u;
+    if(_ok) {
+        memcpy(rde_arr_add_n(_out, _n), _taken, _n);
     }
-    *_size = (u32)_n;
-    return true;
+    free(_taken);   // (fude_android_take_alloc's)
+    return _ok;
 }
 
 // --- the learner's turns ---------------------------------------------------------------------

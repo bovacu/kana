@@ -188,21 +188,20 @@ typedef struct {
 
 #define FUDE_ZOOM_HAND_LATER 24u
 
-RDE_INTERNAL void fude_zoom_hand_flush(fude_zoom_hand_later* _later, u32* _n, rde_arr* _points, rde_arr* _ends) {
-    for(u32 _i = 0; _i < *_n; _i++) {
-        if(_later[_i].mark != 0) {
-            fude_zoom_hand_mark(_later[_i].mark, _later[_i].cx, _later[_i].top, &_later[_i].place, _points, _ends);
+RDE_INTERNAL void fude_zoom_hand_flush(rde_arr* _later, rde_arr* _points, rde_arr* _ends) {
+    const fude_zoom_hand_later* _l = (const fude_zoom_hand_later*)_later->memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(_later); _i++) {
+        if(_l[_i].mark != 0) {
+            fude_zoom_hand_mark(_l[_i].mark, _l[_i].cx, _l[_i].top, &_l[_i].place, _points, _ends);
         } else {
-            fude_zoom_hand_put(&_later[_i].dot, &_later[_i].place, _points, _ends, false);
+            fude_zoom_hand_put(&_l[_i].dot, &_l[_i].place, _points, _ends, false);
         }
     }
-    *_n = 0;
+    rde_arr_clear(_later);
 }
 
 u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points, rde_arr* _ends) {
-    rde_memory_allocator* _heap  = rde_memory_allocator_get_default_std();
-    fude_zoom_hand_later* _later = _heap->malloc(_heap->allocator, sizeof(fude_zoom_hand_later) * FUDE_ZOOM_HAND_LATER);
-    u32                   _later_n = 0;
+    rde_arr TYPE(fude_zoom_hand_later) _later = rde_arr_new(sizeof(fude_zoom_hand_later), rde_memory_allocator_get_default_std());
     const u32 _first_end = (u32)rde_arr_length(_ends);
     fude_zoom_hand_rng _rng = { _seed * 2654435761u + 12345u };
     const f64 _unit = _cap / FUDE_ZOOM_HAND_CAP;   // ours a font unit
@@ -215,7 +214,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
             break;
         }
         if(_cp == '\n') {
-            fude_zoom_hand_flush(_later, &_later_n, _points, _ends);
+            fude_zoom_hand_flush(&_later, _points, _ends);
             _pen_x    = 0.0;
             _line_y  -= _cap * FUDE_ZOOM_HAND_LINE;
             _joinable = false;
@@ -247,7 +246,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
         _pl.y            = _line_y + fude_zoom_hand_spread(&_rng, 0.35) * _unit;
         _pl.wobble_phase = fude_zoom_hand_rand(&_rng) * 6.2831853;
         if(_base == ' ') {
-            fude_zoom_hand_flush(_later, &_later_n, _points, _ends);
+            fude_zoom_hand_flush(&_later, _points, _ends);
             _pen_x   += (_right - _left) * _unit * (1.0 + fude_zoom_hand_spread(&_rng, 0.08));
             _joinable = false;
             continue;
@@ -276,11 +275,11 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
                     _dot = _lo > FUDE_ZOOM_HAND_XTOP + 0.5 && _w < 3.0;
                 }
                 if(_dot) {
-                    if(!_dotless && _later_n < FUDE_ZOOM_HAND_LATER) {
-                        _later[_later_n].mark  = 0;
-                        _later[_later_n].place = _pl;
-                        _later[_later_n].dot   = _st;
-                        _later_n++;
+                    if(!_dotless && rde_arr_length(&_later) < FUDE_ZOOM_HAND_LATER) {
+                        fude_zoom_hand_later* _l = (fude_zoom_hand_later*)rde_arr_add_n(&_later, 1u);
+                        _l->mark  = 0;
+                        _l->place = _pl;
+                        _l->dot   = _st;
                     }
                 } else if(_st.n > 0) {
                     // The first stroke runs on from the last letter's when it begins where that one ended.
@@ -290,7 +289,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
                         _join = hypot(_start.x - _last_end.x, _start.y - _last_end.y) <= FUDE_ZOOM_HAND_JOIN * _unit;
                     }
                     if(_first && !_join) {
-                        fude_zoom_hand_flush(_later, &_later_n, _points, _ends);   // the run before ended: its marks
+                        fude_zoom_hand_flush(&_later, _points, _ends);   // the run before ended: its marks
                     }
                     fude_zoom_hand_put(&_st, &_pl, _points, _ends, _join);
                     _last_end = fude_zoom_hand_at(&_pl, _st.p[_st.n - 1u]);
@@ -311,20 +310,20 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
             _sum_n++;
         }
         // Its mark: over its middle, at a small letter's top or a capital's.
-        if(_mark != 0 && _mark != FUDE_ZOOM_HAND_TURNED && _later_n < FUDE_ZOOM_HAND_LATER) {
+        if(_mark != 0 && _mark != FUDE_ZOOM_HAND_TURNED && rde_arr_length(&_later) < FUDE_ZOOM_HAND_LATER) {
             const b8  _capital = _base >= 'A' && _base <= 'Z';
             const f64 _cx      = _sum_n > 0 ? _sum_x / (f64)_sum_n : (_left + _right) * 0.5;
-            _later[_later_n].mark  = _mark;
-            _later[_later_n].cx    = _cx + (_capital ? 1.5 : 0.8);
-            _later[_later_n].top   = _capital ? FUDE_ZOOM_HAND_CAP : FUDE_ZOOM_HAND_XTOP;
-            _later[_later_n].place = _pl;
-            _later_n++;
+            fude_zoom_hand_later* _l = (fude_zoom_hand_later*)rde_arr_add_n(&_later, 1u);
+            _l->mark  = _mark;
+            _l->cx    = _cx + (_capital ? 1.5 : 0.8);
+            _l->top   = _capital ? FUDE_ZOOM_HAND_CAP : FUDE_ZOOM_HAND_XTOP;
+            _l->place = _pl;
         }
         // Small letters run on to the next; capitals, figures and marks may start a run.
         _joinable = (_base >= 'a' && _base <= 'z') || (_base >= 'A' && _base <= 'Z');
         _pen_x   += (_right - _left) * _pl.scale + fude_zoom_hand_spread(&_rng, 0.4) * _unit;
     }
-    fude_zoom_hand_flush(_later, &_later_n, _points, _ends);
-    _heap->free(_heap->allocator, _later);
+    fude_zoom_hand_flush(&_later, _points, _ends);
+    rde_arr_free(&_later);
     return (u32)rde_arr_length(_ends) - _first_end;
 }

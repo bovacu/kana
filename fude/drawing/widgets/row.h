@@ -25,7 +25,7 @@
 
 struct fude_app;
 
-#define FUDE_ROW_BUTTONS 10u           // a row's buttons, at most
+#define FUDE_ROW_BUTTONS 24u           // a row's buttons, at most (FUDE_ROW_DEF: more, not built)
 #define FUDE_ROW_NONE    UINT32_MAX    // no row (screen.h: row)
 #define FUDE_ROW_LABEL   128u
 
@@ -54,7 +54,9 @@ typedef struct {
     u32                    count;
 } fude_row_def;
 
-#define FUDE_ROW_DEF(_buttons) { (_buttons), (u32)(sizeof(_buttons) / sizeof((_buttons)[0])) }
+// (A row of more than FUDE_ROW_BUTTONS does not build: its last ones would be left out unseen.)
+#define FUDE_ROW_DEF(_buttons) { (_buttons), (u32)(sizeof(_buttons) / sizeof((_buttons)[0]) + \
+                                 0u * sizeof(char[sizeof(_buttons) / sizeof((_buttons)[0]) <= FUDE_ROW_BUTTONS ? 1 : -1])) }
 
 // Which of _def's buttons does _press (FUDE_ROW_NONE: none): a row put together
 // from others' buttons (the page's menus) finds theirs.

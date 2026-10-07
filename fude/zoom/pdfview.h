@@ -51,7 +51,7 @@ struct fude_zoom_pdfview_job;
 typedef struct {
     fude_pdf*                 pdf;          // NULL: none open
     c8                        path[RDE_MAX_PATH];
-    fude_zoom_pdfview_page*       pages;
+    rde_arr TYPE(fude_zoom_pdfview_page) pages;
     u32                       page_count;
     fude_zoom_box             bounds;       // every page, home frame units
     struct fude_zoom_pdfview_job* job;          // the piece being drawn (NULL: none)
@@ -60,7 +60,7 @@ typedef struct {
     fude_zoom_sim             seen;         // the home frame on screen, to tell the view resting
     f64                       moved_at;
     // A search (Find): its matches as they come, the one gone to.
-    fude_pdf_match*           matches;      // FUDE_PDF_MATCHES
+    rde_arr TYPE(fude_pdf_match) matches;   // FUDE_PDF_MATCHES
     u32                       match_count;
     u32                       match_at;     // the one gone to (match_count: none yet)
     b8                        searching;
@@ -68,6 +68,9 @@ typedef struct {
     b8                        search_go;    // go to the first as it comes
     c8                        query[128];
 } fude_zoom_pdfview;
+
+// Its pages (page_count of them while it is open).
+static inline fude_zoom_pdfview_page* fude_zoom_pdfview_pages(const fude_zoom_pdfview* _v) { return (fude_zoom_pdfview_page*)_v->pages.memory; }
 
 void fude_zoom_pdfview_init(fude_zoom_pdfview* _v);
 // The PDF at _path open over the canvas (the one before let go). False: it does not open.

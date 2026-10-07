@@ -3,7 +3,6 @@
 #include "zoom/bucket.h"
 #include "zoom/fill.h"
 #include <math.h>
-#include <stdlib.h>
 #include <string.h>
 
 // The distance from _q to the segment _a–_b, less its half-width.
@@ -66,13 +65,15 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
         return FUDE_ZOOM_BUCKET_NOTHING;
     }
     const usize _cells = (usize)_w * _h;
-    f32* _d    = (f32*)malloc(_cells * sizeof(f32));
-    u8*  _area = (u8*)calloc(_cells, 1u);
-    u32* _todo = (u32*)malloc(_cells * sizeof(u32));
-    if(_d == NULL || _area == NULL || _todo == NULL) {
-        free(_d); free(_area); free(_todo);
-        return FUDE_ZOOM_BUCKET_NOTHING;
-    }
+    rde_arr _d_arr    = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
+    rde_arr _area_arr = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr _todo_arr = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_d_arr, _cells);
+    rde_arr_resize(&_area_arr, _cells);
+    rde_arr_resize(&_todo_arr, _cells);
+    f32* _d    = (f32*)_d_arr.memory;   // (sized once: they stay put)
+    u8*  _area = (u8*)_area_arr.memory;
+    u32* _todo = (u32*)_todo_arr.memory;
     // 1. Each cell's distance to the ink (stamped piece by piece, as far as the walls reach).
     for(usize _i = 0; _i < _cells; _i++) {
         _d[_i] = 1e30f;
@@ -94,7 +95,7 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
     const usize _start = (usize)_tj * _w + (usize)_ti;
     if(_d[_start] < (f32)_wall) {
         const b8 _on = _d[_start] < 0.0f;
-        free(_d); free(_area); free(_todo);
+        rde_arr_free(&_d_arr); rde_arr_free(&_area_arr); rde_arr_free(&_todo_arr);
         return _on ? FUDE_ZOOM_BUCKET_ON_INK : FUDE_ZOOM_BUCKET_NOTHING;
     }
     // 2–3. The cells reached from the tap, walls not crossed; the edge reached: not closed.
@@ -117,19 +118,19 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
             }
         }
     }
-    free(_todo);
+    rde_arr_free(&_todo_arr);
     if(_open) {
-        free(_d); free(_area);
+        rde_arr_free(&_d_arr); rde_arr_free(&_area_arr);
         return FUDE_ZOOM_BUCKET_OPEN;
     }
     // 4. Grown back under the ink: the field is the distance to the area (out)
     //    or to its outside (in), less the growth; its 0 line is the fill's edge.
-    f32* _out_d = (f32*)malloc(_cells * sizeof(f32));
-    u8*  _not   = (u8*)malloc(_cells);
-    if(_out_d == NULL || _not == NULL) {
-        free(_d); free(_area); free(_out_d); free(_not);
-        return FUDE_ZOOM_BUCKET_NOTHING;
-    }
+    rde_arr _out_d_arr = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
+    rde_arr _not_arr   = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_out_d_arr, _cells);
+    rde_arr_resize(&_not_arr, _cells);
+    f32* _out_d = (f32*)_out_d_arr.memory;
+    u8*  _not   = (u8*)_not_arr.memory;
     fude_zoom_bucket_chamfer(_area, _w, _h, _out_d);
     for(usize _i = 0; _i < _cells; _i++) {
         _not[_i] = _area[_i] ? 0u : 1u;
@@ -150,6 +151,6 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
         _d[(usize)_j * _w + _w - 1u] = fmaxf(_d[(usize)_j * _w + _w - 1u], 1.0f);
     }
     const u32 _k = fude_zoom_fill_contour(_d, _w, _h, _x0, _y0, _cell, _out, _rings);
-    free(_d); free(_area); free(_out_d); free(_not);
+    rde_arr_free(&_d_arr); rde_arr_free(&_area_arr); rde_arr_free(&_out_d_arr); rde_arr_free(&_not_arr);
     return _k >= 3u ? FUDE_ZOOM_BUCKET_FILLED : FUDE_ZOOM_BUCKET_NOTHING;
 }

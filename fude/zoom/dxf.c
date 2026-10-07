@@ -616,11 +616,10 @@ RDE_INTERNAL f64 fude_zoom_dxf_key(const fude_zoom_dxf* _d, const fude_zoom_dxf_
 
 // Marks _dup[i] for every entity the same as an earlier one. How many.
 RDE_INTERNAL u32 fude_zoom_dxf_duplicates(const fude_zoom_dxf* _d, f64 _tiny, b8* _dup) {
-    const u32             _n    = (u32)rde_arr_length(&_d->entities);
-    fude_zoom_dxf_sorted* _sort = (fude_zoom_dxf_sorted*)malloc((usize)_n * sizeof(fude_zoom_dxf_sorted));
-    if(_sort == NULL) {
-        return 0;
-    }
+    const u32 _n        = (u32)rde_arr_length(&_d->entities);
+    rde_arr   _sort_arr = rde_arr_new(sizeof(fude_zoom_dxf_sorted), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_sort_arr, _n);
+    fude_zoom_dxf_sorted* _sort = (fude_zoom_dxf_sorted*)_sort_arr.memory;   // (sized once: it stays put)
     for(u32 _i = 0; _i < _n; _i++) {
         _sort[_i].key   = fude_zoom_dxf_key(_d, fude_zoom_dxf_entity_at(_d, _i));
         _sort[_i].index = _i;
@@ -637,7 +636,7 @@ RDE_INTERNAL u32 fude_zoom_dxf_duplicates(const fude_zoom_dxf* _d, f64 _tiny, b8
             }
         }
     }
-    free(_sort);
+    rde_arr_free(&_sort_arr);
     return _count;
 }
 
@@ -719,21 +718,25 @@ RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const
 }
 
 RDE_INTERNAL u32 fude_zoom_dxf_open(const fude_zoom_dxf* _d, f64 _tiny, const b8* _dup) {
-    const usize        _n      = rde_arr_length(&_d->entities);
-    u32*               _piece  = (u32*)malloc(_n * sizeof(u32));
-    u32*               _parent = (u32*)malloc(_n * sizeof(u32));
-    b8*                _loose  = (b8*)calloc(_n, sizeof(b8));
-    b8*                _met    = (b8*)calloc(_n * 2u, sizeof(b8));
-    fude_zoom_dxf_end* _ends   = (fude_zoom_dxf_end*)malloc(_n * 2u * sizeof(fude_zoom_dxf_end));
-    u32                _open   = 0;
-    if(_piece != NULL && _parent != NULL && _loose != NULL && _met != NULL && _ends != NULL) {
-        _open = fude_zoom_dxf_open_in(_d, _tiny, _dup, _piece, _parent, _loose, _met, _ends);
-    }
-    free(_piece);
-    free(_parent);
-    free(_loose);
-    free(_met);
-    free(_ends);
+    const usize           _n      = rde_arr_length(&_d->entities);
+    rde_memory_allocator* _heap   = rde_memory_allocator_get_default_std();
+    rde_arr               _piece  = rde_arr_new(sizeof(u32), _heap);
+    rde_arr               _parent = rde_arr_new(sizeof(u32), _heap);
+    rde_arr               _loose  = rde_arr_new(sizeof(b8), _heap);
+    rde_arr               _met    = rde_arr_new(sizeof(b8), _heap);
+    rde_arr               _ends   = rde_arr_new(sizeof(fude_zoom_dxf_end), _heap);
+    rde_arr_resize(&_piece, _n);
+    rde_arr_resize(&_parent, _n);
+    rde_arr_resize(&_loose, _n);
+    rde_arr_resize(&_met, _n * 2u);
+    rde_arr_resize(&_ends, _n * 2u);
+    const u32 _open = fude_zoom_dxf_open_in(_d, _tiny, _dup, (u32*)_piece.memory, (u32*)_parent.memory, (b8*)_loose.memory, (b8*)_met.memory,
+                                            (fude_zoom_dxf_end*)_ends.memory);
+    rde_arr_free(&_piece);
+    rde_arr_free(&_parent);
+    rde_arr_free(&_loose);
+    rde_arr_free(&_met);
+    rde_arr_free(&_ends);
     return _open;
 }
 
@@ -774,12 +777,10 @@ fude_zoom_dxf_check fude_zoom_dxf_preflight(const fude_zoom_dxf* _d, f64 _tiny_m
                 break;
         }
     }
-    b8* _dup = (b8*)calloc((usize)_n, sizeof(b8));
-    if(_dup == NULL) {
-        return _c;
-    }
-    _c.duplicates = fude_zoom_dxf_duplicates(_d, _tiny, _dup);
-    _c.open_paths = fude_zoom_dxf_open(_d, _tiny, _dup);
-    free(_dup);
+    rde_arr _dup = rde_arr_new(sizeof(b8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_dup, _n);
+    _c.duplicates = fude_zoom_dxf_duplicates(_d, _tiny, (b8*)_dup.memory);
+    _c.open_paths = fude_zoom_dxf_open(_d, _tiny, (const b8*)_dup.memory);
+    rde_arr_free(&_dup);
     return _c;
 }

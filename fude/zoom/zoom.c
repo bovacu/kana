@@ -99,3 +99,32 @@ fude_zoom_box fude_zoom_sim_box(fude_zoom_sim _s, fude_zoom_box _b) {
     }
     return _out;
 }
+
+// _a to _b cut to _box (false: none of it in it) — Liang–Barsky.
+b8 fude_zoom_clip_line(fude_zoom_v2* _a, fude_zoom_v2* _b, fude_zoom_box _box) {
+    const f64 _dx = _b->x - _a->x, _dy = _b->y - _a->y;
+    const f64 _p[4] = { -_dx, _dx, -_dy, _dy };
+    const f64 _q[4] = { _a->x - _box.min_x, _box.max_x - _a->x, _a->y - _box.min_y, _box.max_y - _a->y };
+    f64 _t0 = 0.0, _t1 = 1.0;
+    for(u32 _i = 0; _i < 4u; _i++) {
+        if(_p[_i] == 0.0) {
+            if(_q[_i] < 0.0) {
+                return false;
+            }
+            continue;
+        }
+        const f64 _t = _q[_i] / _p[_i];
+        if(_p[_i] < 0.0) {
+            _t0 = fmax(_t0, _t);
+        } else {
+            _t1 = fmin(_t1, _t);
+        }
+        if(_t0 > _t1) {
+            return false;
+        }
+    }
+    const fude_zoom_v2 _from = *_a;
+    *_a = (fude_zoom_v2){ _from.x + _dx * _t0, _from.y + _dy * _t0 };
+    *_b = (fude_zoom_v2){ _from.x + _dx * _t1, _from.y + _dy * _t1 };
+    return true;
+}

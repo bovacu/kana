@@ -21,16 +21,15 @@
 #define FUDE_IMPORT_MAX 64u   // files at once, at most (a scan's pages, pictures picked)
 
 RDE_INTERNAL struct {
-    b8  waiting;
-    u8  kind;     // FUDE_IMPORT_
-    u32 count;
-    c8* paths[FUDE_IMPORT_MAX];
+    b8      waiting;
+    u8      kind;     // FUDE_IMPORT_
+    u32     count;
+    rde_str paths[FUDE_IMPORT_MAX];
 } fude_import_in;
 
 RDE_INTERNAL void fude_import_forget(void) {
     for(u32 _i = 0; _i < fude_import_in.count; _i++) {
-        free(fude_import_in.paths[_i]);
-        fude_import_in.paths[_i] = NULL;
+        rde_str_free(&fude_import_in.paths[_i]);
     }
     fude_import_in.count   = 0;
     fude_import_in.waiting = false;
@@ -42,9 +41,7 @@ void fude_import_arrived(u8 _kind, const c8* const* _paths, u32 _count) {
     fude_import_in.waiting = true;
     for(u32 _i = 0; _paths != NULL && _i < _count && fude_import_in.count < FUDE_IMPORT_MAX; _i++) {
         if(_paths[_i] != NULL && _paths[_i][0] != 0) {
-            const usize _n = strlen(_paths[_i]) + 1u;
-            fude_import_in.paths[fude_import_in.count] = (c8*)malloc(_n);
-            memcpy(fude_import_in.paths[fude_import_in.count++], _paths[_i], _n);
+            fude_import_in.paths[fude_import_in.count++] = rde_str_new(_paths[_i], rde_memory_allocator_get_default_std());
         }
     }
 }
@@ -136,12 +133,17 @@ b8 fude_import_update(fude_app* _app) {
     if(fude_import_in.count == 0u) {
         return false;   // cancelled
     }
+    // Their paths (until fude_import_forget).
+    const c8* _paths[FUDE_IMPORT_MAX];
+    for(u32 _i = 0; _i < fude_import_in.count; _i++) {
+        _paths[_i] = rde_str_to_char_ptr(&fude_import_in.paths[_i]);
+    }
     // The app's own page takes them (Sketching: pictures on the canvas).
     const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
     if(_kind != NULL && _kind->imported != NULL) {
-        _kind->imported(_app, fude_import_in.kind, (const c8* const*)fude_import_in.paths, fude_import_in.count);
+        _kind->imported(_app, fude_import_in.kind, _paths, fude_import_in.count);
         for(u32 _i = 0; fude_import_in.kind != FUDE_IMPORT_FILES && _i < fude_import_in.count; _i++) {
-            rde_file_delete(fude_import_in.paths[_i]);
+            rde_file_delete(_paths[_i]);
         }
         fude_import_forget();
         return false;
@@ -151,10 +153,10 @@ b8 fude_import_update(fude_app* _app) {
     const c8* _pictures[FUDE_IMPORT_MAX];
     u32       _picture_count = 0;
     for(u32 _i = 0; _i < fude_import_in.count; _i++) {
-        if(fude_import_is_pdf(fude_import_in.paths[_i])) {
-            _pdf = _pdf != NULL ? _pdf : fude_import_in.paths[_i];
+        if(fude_import_is_pdf(_paths[_i])) {
+            _pdf = _pdf != NULL ? _pdf : _paths[_i];
         } else {
-            _pictures[_picture_count++] = fude_import_in.paths[_i];
+            _pictures[_picture_count++] = _paths[_i];
         }
     }
     c8 _name[FUDE_NOTE_NAME];
@@ -189,7 +191,7 @@ b8 fude_import_update(fude_app* _app) {
     }
     // The pictures the pickers wrote for it are the app's to delete (Files' are the learner's).
     for(u32 _i = 0; fude_import_in.kind != FUDE_IMPORT_FILES && _i < fude_import_in.count; _i++) {
-        rde_file_delete(fude_import_in.paths[_i]);
+        rde_file_delete(_paths[_i]);
     }
     fude_import_forget();
     if(_id == 0u) {

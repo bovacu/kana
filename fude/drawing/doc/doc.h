@@ -103,7 +103,7 @@ typedef struct fude_doc {
     c8                   path[RDE_MAX_PATH];   // the PDF open ("": none)
     b8                   failed;               // it could not be opened (not tried again)
     fude_pdf*            pdf;
-    fude_doc_page*       pages;
+    rde_arr TYPE(fude_doc_page) pages;
     u32                  page_count;
     struct fude_doc_job* job;                  // the piece being drawn (NULL: none)
     b8                   dark;                 // drawn in a dark theme's colours
@@ -114,7 +114,7 @@ typedef struct fude_doc {
     u32                  page_shown;           // the page in the middle, last shown in the pill
     f64                  page_shown_at;
     // A search (the document bar's): its matches as they come, the one shown.
-    fude_pdf_match*      matches;              // FUDE_PDF_MATCHES: the PDF's own, then the read lines'
+    rde_arr TYPE(fude_pdf_match) matches;      // FUDE_PDF_MATCHES: the PDF's own, then the read lines'
     u32                  match_count;
     u32                  match_at;             // the one shown (match_count: none yet)
     b8                   searching;            // asked, matches coming or kept
@@ -123,14 +123,14 @@ typedef struct fude_doc {
     // The pages' text read from their pictures (see the top).
     rde_arr TYPE(fude_doc_line) lines;
     c8                   lines_path[RDE_MAX_PATH];   // where they are kept ("": not kept — a book of the app's)
-    fude_doc_line*       read_lines;           // FUDE_DOC_READ_MAX: a page's, as the reader hands them over
+    rde_arr TYPE(fude_doc_line) read_lines;    // FUDE_DOC_READ_MAX: a page's, as the reader hands them over
     u32                  reading;              // the page being read (UINT32_MAX: none)
     u32                  read_w;               // ...its picture's width
     u32                  probe;                // the next page asked whether it has text of its own
     u32                  wanted;               // a page to read before the others (UINT32_MAX: none)
     b8                   reader_off;           // the reader said no: not asked again while this one is open
     b8                   reader_drain;         // a reading of a document let go: taken and dropped
-    u8*                  turned;               // each page's quarter turns, as laid out (the canvas's page says: canvas.h)
+    rde_arr TYPE(u8)     turned;               // each page's quarter turns, as laid out (the canvas's page says: canvas.h)
 } fude_doc;
 
 void fude_doc_init(fude_doc* _doc);

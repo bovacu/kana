@@ -103,14 +103,14 @@ RDE_STRUCT {
     rde_ui_button*  new_folder;
     rde_ui_button*  new_canvas;
     rde_ui_scroll_area* notes_list;
-    fude_side_note_ref* _note_refs;       // a row's and its "…"'s, rebuilt with the list
+    rde_arr TYPE(fude_side_note_ref) _note_refs;   // a row's and its "…"'s, rebuilt with the list
     u32             _notes_revision;      // what the list was built for
     u32             _notes_open;
     b8              _notes_built;
     f32             _list_width;          // as laid out
     rde_vec_2F      _list_bl;             // the list's bottom-left, UI units (the panel sits at the origin)
     rde_vec_2F      _list_size;
-    fude_side_row*  _rows;                // the list as built, top to bottom
+    rde_arr TYPE(fude_side_row) _rows;    // the list as built, top to bottom
     u32             _row_count;
 
     // Dragging a row by its handle.
@@ -169,8 +169,8 @@ RDE_STRUCT {
     rde_ui_label*       licences_lines[FUDE_SIDE_LICENCE_LINES];
     rde_ui_button*      licences_close;
     u32                 licences_doc;
-    c8*                 _licence_text;    // the document shown
-    u32*                _licence_starts;  // where each of its wrapped lines starts (and one more: the end)
+    rde_arr TYPE(c8)    _licence_text;    // the document shown
+    rde_arr TYPE(u32)   _licence_starts;  // where each of its wrapped lines starts (and one more: the end)
     u32                 _licence_count;   // lines
     i32                 _licence_first;   // the first line with a label now (-1: none placed)
     f32                 _licence_line_h;

@@ -479,14 +479,15 @@ void fude_notes_remove(fude_notes* _notes, u32 _id) {
     // The note, and everything inside a folder, at any depth. (Decided before
     // anything is removed: removing breaks the parent chains it walks.)
     const u32 _count = (u32)rde_arr_length(&_notes->notes);
-    b8*       _gone  = (b8*)calloc(_count > 0 ? _count : 1u, sizeof(b8));
+    rde_arr   _gone  = rde_arr_new(sizeof(b8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_gone, _count);
     for(u32 _i = 0; _i < _count; _i++) {
-        _gone[_i] = fude_notes_is_within(_notes, fude_notes_at(_notes, _i)->id, _id);
+        ((b8*)_gone.memory)[_i] = fude_notes_is_within(_notes, fude_notes_at(_notes, _i)->id, _id);
     }
     u32 _kept = 0;
     for(u32 _i = 0; _i < _count; _i++) {
         const fude_note _n    = *fude_notes_at(_notes, _i);
-        const b8        _goes = _gone[_i];
+        const b8        _goes = ((const b8*)_gone.memory)[_i];
         if(_goes) {
             if(_n.kind == FUDE_NOTE_CANVAS) {
                 fude_notes_delete_files(_n.id);
@@ -495,8 +496,8 @@ void fude_notes_remove(fude_notes* _notes, u32 _id) {
         }
         *fude_notes_at(_notes, _kept++) = _n;
     }
-    _notes->notes.count = _kept;   // rde_arr has no truncate: rde_arr_clear's operation, to a length
-    free(_gone);
+    rde_arr_resize(&_notes->notes, _kept);
+    rde_arr_free(&_gone);
 
     fude_notes_repair(_notes);    // the open canvas may have gone: another, or a new one
     _notes->revision++;

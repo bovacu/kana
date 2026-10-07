@@ -31,6 +31,15 @@ typedef enum {
     FUDE_ZOOM_SYMBOL_FAMILY_ARCHITECTURE, // C4, servers, services, cloud, network
     FUDE_ZOOM_SYMBOL_FAMILY_BPMN,
     FUDE_ZOOM_SYMBOL_FAMILY_PLANNING,     // Kanban columns and cards, swimlanes, milestones
+    FUDE_ZOOM_SYMBOL_FAMILY_ELECTRONICS,  // circuit.h's parts: passive, sources, semiconductors, a breadboard
+    FUDE_ZOOM_SYMBOL_FAMILY_LOGIC,        // ...logic gates, flip-flops, inputs and probes
+    FUDE_ZOOM_SYMBOL_FAMILY_CHIPS,        // ...chips and modules of hobby projects
+    FUDE_ZOOM_SYMBOL_FAMILY_BOARDS,       // ...Arduino, Raspberry Pi, ESP boards
+    FUDE_ZOOM_SYMBOL_FAMILY_MECHANISMS,   // mech.h's parts: links, gears, pivots, motors, springs, weights
+    FUDE_ZOOM_SYMBOL_FAMILY_FLOORPLAN,    // plan.h's: doors, windows, furniture, fittings (true size)
+    FUDE_ZOOM_SYMBOL_FAMILY_WIRING,       // ...house wiring's symbols
+    FUDE_ZOOM_SYMBOL_FAMILY_MATHS,        // plot.h's: a graph, axes, a number line (drawn from their text)
+    FUDE_ZOOM_SYMBOL_FAMILY_SEWING,       // a pattern's marks: grainline, fold, notches, buttons, darts, labels
     FUDE_ZOOM_SYMBOL_FAMILIES
 } FUDE_ZOOM_SYMBOL_FAMILY_;
 
@@ -40,11 +49,17 @@ typedef enum {
     FUDE_ZOOM_SYMBOL_FILLED = 2,   // filled as the shape is (its fill: the paper, or the Fill tool's colour)
     FUDE_ZOOM_SYMBOL_SOLID  = 4,   // filled with its line's colour (a black dot, a fork bar, an arrowhead)
     FUDE_ZOOM_SYMBOL_DASHED = 8,   // dashed (a boundary, a lifeline)
+    FUDE_ZOOM_SYMBOL_TINTED = 16,  // filled with its own colour (its fill: a part's art's — a board's green, a copper pad)
+    FUDE_ZOOM_SYMBOL_NO_LINE = 64, // no line round it: its fill only
+    FUDE_ZOOM_SYMBOL_JOIN   = 128, // another ring of the part before it, filled with it: a hole in it (a washer's)
 } FUDE_ZOOM_SYMBOL_PART_;
 
 typedef struct {
-    u32 first, count;   // its points
-    u8  flags;          // FUDE_ZOOM_SYMBOL_PART_
+    u32       first, count;   // its points
+    u8        flags;          // FUDE_ZOOM_SYMBOL_PART_
+    rde_color fill;           // TINTED: its fill's colour (its alpha too)
+    rde_color line;           // its line's colour (alpha 0: the symbol's own)
+    f32       width;          // its line's width (its own units; 0: the symbol's line)
 } fude_zoom_symbol_part;
 
 // Where its text goes.
@@ -75,6 +90,10 @@ const fude_zoom_symbol_info* fude_zoom_symbol_info_of(u32 _kind);
 // Its parts (_points, _parts cleared first) for half sizes _hw × _hh, its round
 // parts in _segments a whole turn. How many parts.
 u32  fude_zoom_symbol_parts(u32 _kind, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts);
+// Art drawn instead of a symbol's own drawing (the app's: its SVG files, symbolart.h): kind _kind's parts for half sizes
+// _hw × _hh, as fude_zoom_symbol_parts makes them (its first part its outline); 0: none for it (its own drawing).
+typedef u32 (*fude_zoom_symbol_art_fn)(u32 _kind, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts);
+void fude_zoom_symbol_set_art(fude_zoom_symbol_art_fn _fn);
 // Its outline (part 0, or its box: info's box_hull) into _points (cleared first).
 u32  fude_zoom_symbol_outline(u32 _kind, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points);
 // Its text boxes (own units, top down), _count of them (its text's parts, at least info's boxes): where

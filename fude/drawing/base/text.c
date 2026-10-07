@@ -35,25 +35,25 @@ typedef struct {
     FUDE_TEXT_ id;
     u32        key_len;
     c8         key[FUDE_TEXT_KEY];
-    c8*        text;
+    rde_str    text;   // not inited: none
 } fude_text_render_slot;
 
-RDE_INTERNAL c8*                   fude_text_plain[FUDE_TEXT_COUNT];     // the language's (or English's) plain strings
-RDE_INTERNAL c8*                   fude_text_english[FUDE_TEXT_COUNT];   // English's, as written: a template's stand-in
+RDE_INTERNAL rde_str               fude_text_plain[FUDE_TEXT_COUNT];     // the language's (or English's) plain strings
+RDE_INTERNAL rde_str               fude_text_english[FUDE_TEXT_COUNT];   // English's, as written: a template's stand-in
 RDE_INTERNAL b8                    fude_text_missing[FUDE_TEXT_COUNT];   // the language lacks it: English stands in
 RDE_INTERNAL fude_text_render_slot fude_text_renders[FUDE_TEXT_RENDERS];
 RDE_INTERNAL RDE_LANGUAGE_         fude_text_active  = RDE_LANGUAGE_NONE;
 RDE_INTERNAL u32                   fude_text_changes = 0;
 
-RDE_INTERNAL c8* fude_text_dup(const c8* _s) {
-    const usize _n = strlen(_s);
-    c8*         _d = (c8*)malloc(_n + 1u);
-    memcpy(_d, _s, _n + 1u);
-    return _d;
+// A kept string let go (one never kept: nothing).
+RDE_INTERNAL void fude_text_drop(rde_str* _s) {
+    if(rde_str_is_inited(_s)) {
+        rde_str_free(_s);
+    }
 }
 
 // _id rendered by RDE with _args, in the language loaded now; a copy of our own.
-RDE_INTERNAL c8* fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args, u32 _count) {
+RDE_INTERNAL rde_str fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args, u32 _count) {
     rde_localization_binding _binding = rde_localization_binding_new(FUDE_TEXT_NAMES[_id]);
     for(u32 _i = 0; _i < _count; _i++) {
         if(_args[_i].kind == 0) {
@@ -65,11 +65,13 @@ RDE_INTERNAL c8* fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args, u3
     const c8* _rendered = rde_localization_render(&_binding);
     // In the language's digits (its @digits: Arabic's ٠١٢٣٤٥٦٧٨٩), every number
     // of a UI string — RDE leaves a bare {0} as it is.
-    const usize _n    = strlen(_rendered != NULL ? _rendered : "");
-    c8*         _copy = (c8*)malloc(_n * 4u + 1u);
-    memcpy(_copy, _rendered != NULL ? _rendered : "", _n + 1u);
-    const usize _len  = rde_localization_localize_digits(_copy, _n * 4u + 1u);
-    _copy             = (c8*)realloc(_copy, _len + 1u);
+    const usize _n      = strlen(_rendered != NULL ? _rendered : "");
+    rde_arr     _digits = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());   // room for them (up to 4 bytes each)
+    rde_arr_resize(&_digits, _n * 4u + 1u);
+    memcpy(_digits.memory, _rendered != NULL ? _rendered : "", _n + 1u);
+    rde_localization_localize_digits((c8*)_digits.memory, _n * 4u + 1u);
+    rde_str _copy = rde_str_new((const c8*)_digits.memory, rde_memory_allocator_get_default_std());
+    rde_arr_free(&_digits);
     rde_localization_free_translation(_rendered);
     rde_localization_binding_free(&_binding);
     return _copy;
@@ -120,7 +122,7 @@ RDE_INTERNAL void fude_text_fill(c8* _out, usize _size, const c8* _template, con
 
 RDE_INTERNAL void fude_text_forget_renders(void) {
     for(u32 _i = 0; _i < FUDE_TEXT_RENDERS; _i++) {
-        free(fude_text_renders[_i].text);
+        fude_text_drop(&fude_text_renders[_i].text);
     }
     memset(fude_text_renders, 0, sizeof(fude_text_renders));
 }
@@ -136,7 +138,7 @@ b8 fude_text_set_language(RDE_LANGUAGE_ _language) {
         return false;
     }
     for(u32 _i = 0; _i < FUDE_TEXT_COUNT; _i++) {
-        free(fude_text_english[_i]);
+        fude_text_drop(&fude_text_english[_i]);
         fude_text_english[_i] = fude_text_render((FUDE_TEXT_)_i, NULL, 0);
     }
     if(_language != RDE_LANGUAGE_EN_US && !rde_localization_load(FUDE_TEXT_FILE, _code, NULL)) {
@@ -145,9 +147,10 @@ b8 fude_text_set_language(RDE_LANGUAGE_ _language) {
         rde_localization_load(FUDE_TEXT_FILE, "EN-US", NULL);
     }
     for(u32 _i = 0; _i < FUDE_TEXT_COUNT; _i++) {
-        free(fude_text_plain[_i]);
+        fude_text_drop(&fude_text_plain[_i]);
         fude_text_missing[_i] = !rde_localization_string_id_exists(FUDE_TEXT_NAMES[_i]);
-        fude_text_plain[_i]   = fude_text_missing[_i] ? fude_text_dup(fude_text_english[_i]) : fude_text_render((FUDE_TEXT_)_i, NULL, 0);
+        fude_text_plain[_i]   = fude_text_missing[_i] ? rde_str_new(rde_str_to_char_ptr(&fude_text_english[_i]), rde_memory_allocator_get_default_std())
+                                                      : fude_text_render((FUDE_TEXT_)_i, NULL, 0);
     }
     fude_text_forget_renders();
     fude_text_active = _language;
@@ -211,19 +214,19 @@ const c8* fude_text(FUDE_TEXT_ _id) {
     if((u32)_id >= FUDE_TEXT_COUNT) {
         return "";
     }
-    return fude_text_plain[_id] != NULL ? fude_text_plain[_id] : FUDE_TEXT_NAMES[_id];
+    return rde_str_is_inited(&fude_text_plain[_id]) ? rde_str_to_char_ptr(&fude_text_plain[_id]) : FUDE_TEXT_NAMES[_id];
 }
 
 void fude_text_format(c8* _out, usize _size, FUDE_TEXT_ _id, const fude_text_arg* _args, u32 _count) {
     if(_size == 0) {
         return;
     }
-    if((u32)_id >= FUDE_TEXT_COUNT || fude_text_plain[_id] == NULL) {
+    if((u32)_id >= FUDE_TEXT_COUNT || !rde_str_is_inited(&fude_text_plain[_id])) {
         snprintf(_out, _size, "%s", (u32)_id < FUDE_TEXT_COUNT ? FUDE_TEXT_NAMES[_id] : "");
         return;
     }
     if(fude_text_missing[_id]) {
-        fude_text_fill(_out, _size, fude_text_english[_id], _args, _count);
+        fude_text_fill(_out, _size, rde_str_to_char_ptr(&fude_text_english[_id]), _args, _count);
         return;
     }
 
@@ -247,22 +250,22 @@ void fude_text_format(c8* _out, usize _size, FUDE_TEXT_ _id, const fude_text_arg
         _hash = (_hash ^ (u8)_key[_i]) * 16777619u;
     }
     fude_text_render_slot* _slot = &fude_text_renders[_hash % FUDE_TEXT_RENDERS];
-    if(_keep && _slot->text != NULL && _slot->hash == _hash && _slot->id == _id && _slot->key_len == _len && memcmp(_slot->key, _key, _len) == 0) {
-        snprintf(_out, _size, "%s", _slot->text);
+    if(_keep && rde_str_is_inited(&_slot->text) && _slot->hash == _hash && _slot->id == _id && _slot->key_len == _len && memcmp(_slot->key, _key, _len) == 0) {
+        snprintf(_out, _size, "%s", rde_str_to_char_ptr(&_slot->text));
         return;
     }
 
-    c8* _text = fude_text_render(_id, _args, _count);
-    snprintf(_out, _size, "%s", _text);
+    rde_str _text = fude_text_render(_id, _args, _count);
+    snprintf(_out, _size, "%s", rde_str_to_char_ptr(&_text));
     if(_keep) {
-        free(_slot->text);
+        fude_text_drop(&_slot->text);
         _slot->hash    = _hash;
         _slot->id      = _id;
         _slot->key_len = _len;
         memcpy(_slot->key, _key, _len);
         _slot->text    = _text;
     } else {
-        free(_text);
+        rde_str_free(&_text);
     }
 }
 

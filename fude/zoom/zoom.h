@@ -53,6 +53,8 @@ fude_zoom_box fude_zoom_box_empty(void);
 b8            fude_zoom_box_is_empty(fude_zoom_box _b);
 fude_zoom_box fude_zoom_box_union(fude_zoom_box _a, fude_zoom_box _b);
 fude_zoom_box fude_zoom_box_grow(fude_zoom_box _b, f64 _by);
+// _a to _b cut to _box (false: none of it in it).
+b8 fude_zoom_clip_line(fude_zoom_v2* _a, fude_zoom_v2* _b, fude_zoom_box _box);
 b8            fude_zoom_box_overlaps(fude_zoom_box _a, fude_zoom_box _b);
 b8            fude_zoom_box_contains(fude_zoom_box _b, fude_zoom_v2 _p);
 f64           fude_zoom_box_area(fude_zoom_box _b);

@@ -52,8 +52,8 @@ b8         fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* 
 // or PNG when it has see-through parts (a logo, a diagram), turned as it was
 // taken and no larger than _max_px on its longer side — by ImageIO on Apple's
 // devices, Android's ImageDecoder on Android (pdf_android.c); elsewhere the
-// file's own bytes. Into *_out (free() them), *_size. False: unreadable.
-b8         fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size);
+// file's own bytes. Into _out (an rde_arr of u8: cleared first). False: unreadable.
+b8         fude_picture_bytes(const c8* _path, u32 _max_px, rde_arr* _out);
 
 // --- writing one: a document with what was written on it -----------------------------
 // Pages copied from a PDF as they are (their text stays text), with strokes

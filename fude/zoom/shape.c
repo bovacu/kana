@@ -29,7 +29,42 @@ u32 fude_zoom_shape_segments(f64 _size) {
 void fude_zoom_shape_outline(u8 _type, const f64* _n, u32 _count, u32 _segments, rde_arr* _out, b8* _closed) {
     rde_arr_clear(_out);
     *_closed = _type != FUDE_ZOOM_SHAPE_LINE && _type != FUDE_ZOOM_SHAPE_DIMENSION && _type != FUDE_ZOOM_SHAPE_ARROW && _type != FUDE_ZOOM_SHAPE_ARC &&
-               _type != FUDE_ZOOM_SHAPE_RADIAL && _type != FUDE_ZOOM_SHAPE_ANGLE;
+               _type != FUDE_ZOOM_SHAPE_RADIAL && _type != FUDE_ZOOM_SHAPE_ANGLE && _type != FUDE_ZOOM_SHAPE_GUIDE && !fude_zoom_shape_is_attribute(_type) &&
+               _type != FUDE_ZOOM_SHAPE_WIRE;
+    if(_type == FUDE_ZOOM_SHAPE_WALL && _count >= 3u) {
+        const f64 _l = hypot(_n[0], _n[1]), _t = fabs(_n[2]) * 0.5;
+        const fude_zoom_v2 _u = _l > 0.0 ? (fude_zoom_v2){ _n[0] / _l, _n[1] / _l } : (fude_zoom_v2){ 1.0, 0.0 };
+        const fude_zoom_v2 _v = { -_u.y * _t, _u.x * _t };
+        const fude_zoom_v2 _a = { -_u.x * _t, -_u.y * _t }, _b = { _n[0] + _u.x * _t, _n[1] + _u.y * _t };
+        const fude_zoom_v2 _c[4] = { { _a.x - _v.x, _a.y - _v.y }, { _b.x - _v.x, _b.y - _v.y }, { _b.x + _v.x, _b.y + _v.y }, { _a.x + _v.x, _a.y + _v.y } };
+        for(u32 _i = 0; _i < 4u; _i++) {
+            rde_arr_add(_out, (any)&_c[_i]);
+        }
+        return;
+    }
+    if(_type == FUDE_ZOOM_SHAPE_WIRE) {
+        const u32 _k = _count >= 1u && _n[0] >= 2.0 && _n[0] <= 1024.0 ? (u32)_n[0] : 0u;
+        for(u32 _i = 0; _i < _k && 2u + 2u * _i < _count; _i++) {
+            const fude_zoom_v2 _p = { _n[1u + 2u * _i], _n[2u + 2u * _i] };
+            rde_arr_add(_out, (any)&_p);
+        }
+        return;
+    }
+    if(fude_zoom_shape_is_attribute(_type)) {
+        const fude_zoom_v2 _p = { 0.0, 0.0 };   // (nothing to draw: a point, for its box)
+        rde_arr_add(_out, (any)&_p);
+        return;
+    }
+    if(_type == FUDE_ZOOM_SHAPE_GUIDE && _count >= 2u) {
+        // A line as long as its reach each way (boxed, snapped and crossed by it).
+        const f64 _l = hypot(_n[0], _n[1]);
+        const f64 _r = _count >= 3u && _n[2] > 0.0 ? _n[2] : FUDE_ZOOM_GUIDE_REACH;
+        const fude_zoom_v2 _u = _l > 0.0 ? (fude_zoom_v2){ _n[0] / _l * _r, _n[1] / _l * _r } : (fude_zoom_v2){ _r, 0.0 };
+        const fude_zoom_v2 _p[2] = { { -_u.x, -_u.y }, _u };
+        rde_arr_add(_out, (any)&_p[0]);
+        rde_arr_add(_out, (any)&_p[1]);
+        return;
+    }
     if(_type == FUDE_ZOOM_SHAPE_RADIAL && _count >= 3u) {
         // Its line: from the centre (or right across) out to the circle.
         const fude_zoom_v2 _u = { cos(_n[1]) * _n[0], sin(_n[1]) * _n[0] };
@@ -353,6 +388,86 @@ b8 fude_zoom_shape_fillet(fude_zoom_v2 _a0, fude_zoom_v2 _a1, fude_zoom_v2 _b0, 
     return true;
 }
 
+RDE_INTERNAL int fude_zoom_hatch_by_f64(const void* _a, const void* _b) {
+    const f64 _x = *(const f64*)_a, _y = *(const f64*)_b;
+    return _x < _y ? -1 : (_x > _y ? 1 : 0);
+}
+
+u32 fude_zoom_hatch_lines(const fude_zoom_v2* _p, u32 _n, f64 _angle, f64 _apart, fude_zoom_box _view, rde_arr* _out) {
+    if(_n < 3u || !(_apart > 0.0)) {
+        return 0;
+    }
+    // In turned axes: u along the lines, v across them; a line at each v = k·apart.
+    const f64 _c = cos(_angle), _s = sin(_angle);
+    f64 _v0 = 1e300, _v1 = -1e300;
+    for(u32 _i = 0; _i < _n; _i++) {
+        const f64 _v = -_p[_i].x * _s + _p[_i].y * _c;
+        _v0 = fmin(_v0, _v);
+        _v1 = fmax(_v1, _v);
+    }
+    // ...only where the view is (its corners' v).
+    f64 _w0 = 1e300, _w1 = -1e300;
+    const fude_zoom_v2 _corner[4] = { { _view.min_x, _view.min_y }, { _view.max_x, _view.min_y }, { _view.max_x, _view.max_y }, { _view.min_x, _view.max_y } };
+    for(u32 _i = 0; _i < 4u; _i++) {
+        const f64 _v = -_corner[_i].x * _s + _corner[_i].y * _c;
+        _w0 = fmin(_w0, _v);
+        _w1 = fmax(_w1, _v);
+    }
+    _v0 = fmax(_v0, _w0);
+    _v1 = fmin(_v1, _w1);
+    if(!(_v1 > _v0) || (_v1 - _v0) / _apart > 20000.0) {
+        return 0;
+    }
+    const u32 _from = (u32)rde_arr_length(_out);
+    f64 _cuts[256];
+    for(f64 _k = ceil(_v0 / _apart); _k * _apart <= _v1; _k += 1.0) {
+        const f64 _v = _k * _apart;
+        u32 _m = 0;
+        for(u32 _i = 0; _i < _n && _m < 256u; _i++) {
+            const fude_zoom_v2 _a = _p[_i], _b = _p[(_i + 1u) % _n];
+            const f64 _va = -_a.x * _s + _a.y * _c, _vb = -_b.x * _s + _b.y * _c;
+            if((_va > _v) == (_vb > _v)) {
+                continue;
+            }
+            const f64 _t = (_v - _va) / (_vb - _va);
+            const fude_zoom_v2 _x = { _a.x + (_b.x - _a.x) * _t, _a.y + (_b.y - _a.y) * _t };
+            _cuts[_m++] = _x.x * _c + _x.y * _s;   // (its u)
+        }
+        qsort(_cuts, _m, sizeof(f64), fude_zoom_hatch_by_f64);
+        for(u32 _i = 0; _i + 1u < _m; _i += 2u) {
+            const fude_zoom_v2 _a = { _cuts[_i] * _c - _v * _s, _cuts[_i] * _s + _v * _c };
+            const fude_zoom_v2 _b = { _cuts[_i + 1u] * _c - _v * _s, _cuts[_i + 1u] * _s + _v * _c };
+            rde_arr_add(_out, (any)&_a);
+            rde_arr_add(_out, (any)&_b);
+        }
+    }
+    return ((u32)rde_arr_length(_out) - _from) / 2u;
+}
+
+b8 fude_zoom_shape_chamfer(fude_zoom_v2 _a0, fude_zoom_v2 _a1, fude_zoom_v2 _b0, fude_zoom_v2 _b1, f64 _back,
+                           fude_zoom_v2* _a_keep, fude_zoom_v2* _a_end, fude_zoom_v2* _b_keep, fude_zoom_v2* _b_end) {
+    const fude_zoom_v2 _da = { _a1.x - _a0.x, _a1.y - _a0.y }, _db = { _b1.x - _b0.x, _b1.y - _b0.y };
+    const f64 _cross = _da.x * _db.y - _da.y * _db.x;
+    const f64 _la = hypot(_da.x, _da.y), _lb = hypot(_db.x, _db.y);
+    if(!(_back >= 0.0) || !(_la > 0.0) || !(_lb > 0.0) || fabs(_cross) <= 1e-12 * _la * _lb) {
+        return false;
+    }
+    const f64 _t = ((_b0.x - _a0.x) * _db.y - (_b0.y - _a0.y) * _db.x) / _cross;
+    const fude_zoom_v2 _x = { _a0.x + _da.x * _t, _a0.y + _da.y * _t };
+    const b8 _a_near0 = hypot(_a0.x - _x.x, _a0.y - _x.y) < hypot(_a1.x - _x.x, _a1.y - _x.y);
+    const b8 _b_near0 = hypot(_b0.x - _x.x, _b0.y - _x.y) < hypot(_b1.x - _x.x, _b1.y - _x.y);
+    const fude_zoom_v2 _af = _a_near0 ? _a1 : _a0, _bf = _b_near0 ? _b1 : _b0;
+    const f64 _fa = hypot(_af.x - _x.x, _af.y - _x.y), _fb = hypot(_bf.x - _x.x, _bf.y - _x.y);
+    if(!(_fa > _back) || !(_fb > _back)) {
+        return false;
+    }
+    *_a_keep = _af;
+    *_b_keep = _bf;
+    *_a_end  = (fude_zoom_v2){ _x.x + (_af.x - _x.x) / _fa * _back, _x.y + (_af.y - _x.y) / _fa * _back };
+    *_b_end  = (fude_zoom_v2){ _x.x + (_bf.x - _x.x) / _fb * _back, _x.y + (_bf.y - _x.y) / _fb * _back };
+    return true;
+}
+
 u8 fude_zoom_board_look(const f64* _n, u32 _count) {
     if(_count < 4u || !(_n[3] >= 0.5) || !(_n[3] < 256.0)) {
         return 0;
@@ -510,10 +625,9 @@ u32 fude_zoom_shape_fit_path(const fude_zoom_v2* _p, u32 _n, f64 _tol, u32 _most
         _out[0] = _p[0];
         return 1u;
     }
-    u8* _keep = (u8*)malloc(_n);
-    if(_keep == NULL) {
-        return 0;
-    }
+    rde_arr TYPE(u8) _keep_arr = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_keep_arr, _n);
+    u8* _keep = (u8*)_keep_arr.memory;   // (sized once: it stays put)
     // Simplified until it fits in _most nodes (the tolerance let out each time).
     u32 _kept = 0;
     for(u32 _tries = 0; _tries < 40u; _tries++, _tol *= 1.4) {
@@ -537,7 +651,7 @@ u32 fude_zoom_shape_fit_path(const fude_zoom_v2* _p, u32 _n, f64 _tol, u32 _most
     if(_m > 0 && (_out[_m - 1u].x != _p[_n - 1u].x || _out[_m - 1u].y != _p[_n - 1u].y)) {
         _out[_m - 1u] = _p[_n - 1u];   // (cut short: its end kept all the same)
     }
-    free(_keep);
+    rde_arr_free(&_keep_arr);
     return _m;
 }
 
@@ -578,8 +692,15 @@ RDE_INTERNAL b8 fude_zoom_shape_polygon(const fude_zoom_v2* _c, u32 _k, fude_zoo
                 }
             }
             f64 _rot = atan2(_c[(_long + 1u) % 4u].y - _c[_long].y, _c[(_long + 1u) % 4u].x - _c[_long].x);
-            // Nearly level (or upright) is level: hands are a few degrees off.
             const f64 _q = FUDE_ZOOM_SHAPE_PI * 0.5;
+            // (turned half round it is the same rectangle: its long side's way within a quarter turn of level — drawn
+            // from any corner, either way round, the same rectangle)
+            if(_rot > _q) {
+                _rot -= FUDE_ZOOM_SHAPE_PI;
+            } else if(_rot <= -_q) {
+                _rot += FUDE_ZOOM_SHAPE_PI;
+            }
+            // Nearly level (or upright) is level: hands are a few degrees off.
             const f64 _snap = round(_rot / _q) * _q;
             if(fabs(_rot - _snap) < 0.12) {
                 _rot = _snap;

@@ -49,6 +49,10 @@ RDE_INTERNAL u32 fude_side_licence_count(const fude_ui* _ui) {
 
 // --- helpers ----------------------------------------------------------------------
 
+// Typed views of its arrays (side.h).
+RDE_INTERNAL fude_side_row*      fude_side_rows(const fude_side* _side)      { return (fude_side_row*)_side->_rows.memory; }
+RDE_INTERNAL fude_side_note_ref* fude_side_note_refs(const fude_side* _side) { return (fude_side_note_ref*)_side->_note_refs.memory; }
+
 rde_ui_label* fude_side_label(fude_ui* _ui, rde_ui_node* _parent, const c8* _text, f32 _px) {
     rde_ui_label* _label = rde_ui_label_create(NULL);
     rde_ui_label_set_font(_label, _ui->font);
@@ -416,10 +420,10 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_ui_size(rde_ui_node* _node, const
 // --- licences ------------------------------------------------------------------------------
 
 RDE_INTERNAL void fude_side_licence_free(fude_side* _side) {
-    free(_side->_licence_text);
-    free(_side->_licence_starts);
-    _side->_licence_text   = NULL;
-    _side->_licence_starts = NULL;
+    if(rde_arr_is_inited(&_side->_licence_text)) {   // made together (fude_side_licence_load)
+        rde_arr_free(&_side->_licence_text);
+        rde_arr_free(&_side->_licence_starts);
+    }
     _side->_licence_count  = 0;
     _side->_licence_first  = -1;
 }
@@ -431,8 +435,10 @@ RDE_INTERNAL void fude_side_licence_load(fude_ui* _ui, u32 _doc) {
     fude_side_licence_free(_side);
     _side->licences_doc = _doc;
 
-    // The files, one after the other.
-    usize _size = 0;
+    // The files, one after the other (as bytes: a file read has no NUL at its end).
+    rde_arr* _all = &_side->_licence_text;
+    *_all                  = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
+    _side->_licence_starts = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     const fude_app_licence* _licence = &_ui->app->info->licences[_doc];
     for(u32 _f = 0; _f < 3 && _doc < fude_side_licence_count(_ui) && _licence->files[_f] != NULL; _f++) {
         u32 _n = 0;
@@ -440,23 +446,25 @@ RDE_INTERNAL void fude_side_licence_load(fude_ui* _ui, u32 _doc) {
         if(_data == NULL) {
             continue;
         }
-        _side->_licence_text = (c8*)realloc(_side->_licence_text, _size + _n + 3);
-        memcpy(_side->_licence_text + _size, _data, _n);
-        _size += _n;
-        _side->_licence_text[_size++] = '\n';
-        _side->_licence_text[_size++] = '\n';
+        if(_n > 0u) {
+            memcpy(rde_arr_add_n(_all, _n), _data, _n);
+        }
+        memcpy(rde_arr_add_n(_all, 2u), "\n\n", 2u);
         fude_file_free(_data);
     }
-    if(_side->_licence_text == NULL) {
-        const c8* _missing = fude_text(FUDE_TEXT_LICENCE_MISSING);
-        _size = strlen(_missing);
-        _side->_licence_text = (c8*)malloc(_size + 1);
-        memcpy(_side->_licence_text, _missing, _size);
+    if(rde_arr_length(_all) == 0u) {   // none read
+        const c8*   _missing = fude_text(FUDE_TEXT_LICENCE_MISSING);
+        const usize _n       = strlen(_missing);
+        if(_n > 0u) {
+            memcpy(rde_arr_add_n(_all, _n), _missing, _n);
+        }
     }
-    _side->_licence_text[_size] = 0;
+    const usize _size = rde_arr_length(_all);
+    *(c8*)rde_arr_add_n(_all, 1u) = 0;   // after it (not counted)
+    c8* _text = (c8*)_all->memory;       // not grown again
     for(usize _i = 0; _i < _size; _i++) {
-        if(_side->_licence_text[_i] == '\t' || _side->_licence_text[_i] == '\r' || _side->_licence_text[_i] == '\f') {
-            _side->_licence_text[_i] = ' ';
+        if(_text[_i] == '\t' || _text[_i] == '\r' || _text[_i] == '\f') {
+            _text[_i] = ' ';
         }
     }
 
@@ -470,28 +478,23 @@ RDE_INTERNAL void fude_side_licence_load(fude_ui* _ui, u32 _doc) {
 
     // The lines: at a newline, or at the last space before _cols characters (at
     // _cols when there is none). Characters are counted, not bytes.
-    u32 _capacity = 1024;
-    _side->_licence_starts = (u32*)malloc(sizeof(u32) * _capacity);
     usize _at = 0;
     while(_at < _size) {
-        if(_side->_licence_count + 2 >= _capacity) {
-            _capacity *= 2;
-            _side->_licence_starts = (u32*)realloc(_side->_licence_starts, sizeof(u32) * _capacity);
-        }
-        _side->_licence_starts[_side->_licence_count++] = (u32)_at;
+        *(u32*)rde_arr_add_n(&_side->_licence_starts, 1u) = (u32)_at;
+        _side->_licence_count++;
         usize _i = _at, _space = 0;
         u32   _chars = 0;
-        while(_i < _size && _side->_licence_text[_i] != '\n' && _chars < _cols) {
-            if(_side->_licence_text[_i] == ' ') {
+        while(_i < _size && _text[_i] != '\n' && _chars < _cols) {
+            if(_text[_i] == ' ') {
                 _space = _i;
             }
             _i++;
-            while(_i < _size && ((u8)_side->_licence_text[_i] & 0xC0u) == 0x80u) {
+            while(_i < _size && ((u8)_text[_i] & 0xC0u) == 0x80u) {
                 _i++;   // the rest of a UTF-8 character
             }
             _chars++;
         }
-        if(_i < _size && _side->_licence_text[_i] == '\n') {
+        if(_i < _size && _text[_i] == '\n') {
             _at = _i + 1;
         } else if(_i < _size && _space > _at) {
             _at = _space + 1;
@@ -499,7 +502,7 @@ RDE_INTERNAL void fude_side_licence_load(fude_ui* _ui, u32 _doc) {
             _at = _i;
         }
     }
-    _side->_licence_starts[_side->_licence_count] = (u32)_size;
+    *(u32*)rde_arr_add_n(&_side->_licence_starts, 1u) = (u32)_size;
 
     const f32 _content = fmaxf(1.0f, (f32)_side->_licence_count * _side->_licence_line_h + 8.0f);
     rde_ui_scroll_area_set_content_size(_side->licences_text, (rde_vec_2F){ _side->_licence_width, _content });
@@ -512,9 +515,11 @@ RDE_INTERNAL void fude_side_licence_load(fude_ui* _ui, u32 _doc) {
 // The lines on screen get the labels: placed only when the first one changed.
 RDE_INTERNAL void fude_side_licence_scroll(fude_ui* _ui) {
     fude_side* _side = &_ui->side;
-    if(_side->_licence_text == NULL) {
+    if(!rde_arr_is_inited(&_side->_licence_text)) {
         return;
     }
+    const c8*  _text   = (const c8*)_side->_licence_text.memory;
+    const u32* _starts = (const u32*)_side->_licence_starts.memory;
     const rde_vec_2F _scroll  = rde_ui_scroll_area_get_scroll(_side->licences_text);
     const i32        _first   = (i32)fmaxf(0.0f, floorf(_scroll.y / _side->_licence_line_h) - 2.0f);
     if(_first == _side->_licence_first) {
@@ -530,12 +535,12 @@ RDE_INTERNAL void fude_side_licence_scroll(fude_ui* _ui) {
             rde_ui_node_set_active(_label, false);
             continue;
         }
-        u32 _from = _side->_licence_starts[_n], _to = _side->_licence_starts[_n + 1];
-        while(_to > _from && (_side->_licence_text[_to - 1] == '\n' || _side->_licence_text[_to - 1] == ' ')) {
+        u32 _from = _starts[_n], _to = _starts[_n + 1];
+        while(_to > _from && (_text[_to - 1] == '\n' || _text[_to - 1] == ' ')) {
             _to--;
         }
         const u32 _len = _to - _from < sizeof(_line) - 1 ? _to - _from : (u32)sizeof(_line) - 1;
-        memcpy(_line, _side->_licence_text + _from, _len);
+        memcpy(_line, _text + _from, _len);
         _line[_len] = 0;
         rde_ui_label_set_text(_side->licences_lines[_k], _line);
         rde_ui_node_set_active(_label, true);
@@ -881,7 +886,8 @@ RDE_INTERNAL void fude_side_drop_target(fude_ui* _ui) {
         _r         = (i32)_side->_row_count - 1;
         _after_all = true;
     }
-    const fude_side_row* _row = &_side->_rows[_r];
+    const fude_side_row* _rows = fude_side_rows(_side);
+    const fude_side_row* _row  = &_rows[_r];
 
     b8  _into  = false;
     u32 _depth = 0;
@@ -896,21 +902,21 @@ RDE_INTERNAL void fude_side_drop_target(fude_ui* _ui) {
         _depth              = _row->depth;
     } else {
         _line = (u32)_r + 1u;
-        if(_line < _side->_row_count && _side->_rows[_line].depth > _row->depth) {
+        if(_line < _side->_row_count && _rows[_line].depth > _row->depth) {
             // After an open folder: first inside it.
             _side->drop_parent = _row->id;
-            _side->drop_before = _side->_rows[_line].id;
-            _depth             = _side->_rows[_line].depth;
+            _side->drop_before = _rows[_line].id;
+            _depth             = _rows[_line].depth;
         } else {
             // After the row, in its folder: before its next sibling, or at the end.
             _side->drop_parent = _row->parent;
             _side->drop_before = 0;
             for(u32 _k = _line; _k < _side->_row_count; _k++) {
-                if(_side->_rows[_k].depth < _row->depth) {
+                if(_rows[_k].depth < _row->depth) {
                     break;
                 }
-                if(_side->_rows[_k].parent == _row->parent) {
-                    _side->drop_before = _side->_rows[_k].id;
+                if(_rows[_k].parent == _row->parent) {
+                    _side->drop_before = _rows[_k].id;
                     break;
                 }
             }
@@ -1019,15 +1025,21 @@ RDE_INTERNAL void fude_side_build_notes(fude_ui* _ui) {
     const u32         _count = (u32)rde_arr_length(&_notes->notes);
 
     rde_ui_scroll_area_clear_contents(_side->notes_list);
-    free(_side->_note_refs);
-    free(_side->_rows);
-    _side->_note_refs      = (fude_side_note_ref*)calloc(_count > 0 ? _count : 1u, sizeof(fude_side_note_ref));
-    _side->_rows           = (fude_side_row*)calloc(_count > 0 ? _count : 1u, sizeof(fude_side_row));
+    if(!rde_arr_is_inited(&_side->_rows)) {   // made together, the first time
+        _side->_rows      = rde_arr_new(sizeof(fude_side_row), rde_memory_allocator_get_default_std());
+        _side->_note_refs = rde_arr_new(sizeof(fude_side_note_ref), rde_memory_allocator_get_default_std());
+    }
+    // A row each note at most, all zero; not grown again until the list is built
+    // again (the refs are its nodes' user data).
+    rde_arr_clear(&_side->_rows);
+    rde_arr_clear(&_side->_note_refs);
+    rde_arr_resize(&_side->_rows, _count);
+    rde_arr_resize(&_side->_note_refs, _count);
     _side->_row_count      = 0;
     _side->_notes_revision = _notes->revision;
     _side->_notes_open     = _notes->open;
     _side->_notes_built    = true;
-    fude_side_collect_rows(_notes, 0, 0, _side->_rows, &_side->_row_count);
+    fude_side_collect_rows(_notes, 0, 0, fude_side_rows(_side), &_side->_row_count);
 
     const f32 _width   = _side->_list_width;
     const f32 _content = fmaxf(1.0f, (f32)_side->_row_count * (FUDE_SIDE_NOTE_H + FUDE_SIDE_GAP));
@@ -1036,14 +1048,14 @@ RDE_INTERNAL void fude_side_build_notes(fude_ui* _ui) {
     const fude_theme* _t = fude_theme_active();
 
     for(u32 _r = 0; _r < _side->_row_count; _r++) {
-        const fude_side_row* _row = &_side->_rows[_r];
+        const fude_side_row* _row = &fude_side_rows(_side)[_r];
         const fude_note*     _n   = fude_notes_find(_notes, _row->id);
         const b8             _folder = _row->kind == FUDE_NOTE_FOLDER;
         const f32            _indent = (f32)_row->depth * FUDE_SIDE_INDENT;
         const f32            _y      = _content - (f32)_r * (FUDE_SIDE_NOTE_H + FUDE_SIDE_GAP) - FUDE_SIDE_NOTE_H * 0.5f;
 
-        _side->_note_refs[_r] = (fude_side_note_ref){ _ui, _row->id };
-        fude_side_note_ref* _ref = &_side->_note_refs[_r];
+        fude_side_note_ref* _ref = &fude_side_note_refs(_side)[_r];
+        *_ref                    = (fude_side_note_ref){ _ui, _row->id };
 
         // The handle: three bars; a drag from it moves the row.
         rde_ui_image* _handle = rde_ui_image_create(NULL);
@@ -1421,10 +1433,11 @@ void fude_side_relayout(fude_ui* _ui) {
 
 void fude_side_forget(fude_ui* _ui) {
     fude_side* _side = &_ui->side;
-    free(_side->_note_refs);
-    free(_side->_rows);
-    _side->_note_refs = NULL;
-    _side->_rows      = NULL;
+    if(rde_arr_is_inited(&_side->_rows)) {
+        rde_arr_free(&_side->_rows);
+        rde_arr_free(&_side->_note_refs);
+    }
+    _side->_row_count = 0;
     fude_side_licence_free(_side);
 }
 

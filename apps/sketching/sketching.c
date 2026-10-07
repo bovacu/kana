@@ -78,10 +78,12 @@ RDE_INTERNAL void sketching_first_launch(fude_app* _app) {
 RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
     .page_kind       = &FUDE_ZOOM_PAGE_KIND,
     .tools           = FUDE_ZOOM_TOOLS,
-    .tool_count      = 8u,
+    .tool_count      = FUDE_EXTENSION_TOOLS,   // (Topic, then the topic's own: page.c's topics)
     .brush_on_screen = false,   // the bar's Page/Screen: on the page, a width on the canvas itself (what instruments want)
     .selection_row   = &FUDE_ZOOM_SELECTION_ROW,
     .selection_faces = fude_zoom_page_selection_faces,
+    .context_row     = &FUDE_ZOOM_CONTEXT_ROW,
+    .context_faces   = fude_zoom_page_context_faces,
     .sections        = &FUDE_ZOOM_PAGE_MEASUREMENTS,
     .section_count   = 1u,
     .settings_gather = fude_zoom_page_settings_gather,
@@ -141,6 +143,12 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --fillet=MM@N             at frame N, two lines meeting in a corner lassoed, then that corner rounded MM mm (0: left lassoed)
 //   --library=F@N             at frame N, the diagram library's panel open on family F (0 flowchart ... 6 planning)
 //   --symbol=ID,DX,DY,TEXT@N  at frame N, the symbol ID (symbol.c's ids) put DX, DY from the middle with TEXT ("|" a new line)
+//   --value=ID,TEXT,UNIT,WAY@N  at frame N, the first symbol ID lassoed alone and given TEXT in its UNIT (Value's card)
+//   --slider=I,PERCENT@N  at frame N, Play's slider I set PERCENT of the way along
+//   --make-part@N         at frame N, what the last demo drew lassoed and made a part (Make part)
+//   --align=ID,DX,DY@N    at frame N, the first symbol ID lassoed alone and dragged DX, DY points, held (aligned)
+//   --body=ALL,MATERIAL,FIXED,APPLY@N  at frame N, Make body's card on the lasso (ALL 1: everything lassoed first),
+//                         material MATERIAL (0 wood…7 foam), FIXED 1 the ground, APPLY 1 applied
 //   --kanban=P@N              at frame N, a Kanban board of preset P (0 Kanban, 1 Scrum, 2 retrospective, 3 week)
 //   --kanban-card=P[+][!]@N   at frame N, Insert's Kanban card up with template P in its rows (+: a row more; !: then Insert)
 //   --map@N                   at frame N, the map's panel up
@@ -295,9 +303,34 @@ RDE_INTERNAL c8  sketching_size[96] = { 0 };     // --size-card=W;H;A;X;Y[~][!]@
 RDE_INTERNAL u32 sketching_size_at = 0;
 RDE_INTERNAL c8  sketching_repeat[128] = { 0 };  // --repeat=MODE;...[!]@N: the Repeat card up for what the lasso holds at frame N
 RDE_INTERNAL u32 sketching_repeat_at = 0;
+RDE_INTERNAL c8  sketching_points[6][64];             // --point=MODE:A:B:PRESS@N: a point typed for the Curve tool at frame N (up to six)
+RDE_INTERNAL u32 sketching_point_at[6];
+RDE_INTERNAL u32 sketching_point_count = 0;
+RDE_INTERNAL u32 sketching_lines[2];
+RDE_INTERNAL u32 sketching_combine[2];
+RDE_INTERNAL u32 sketching_circuit[2];                 // --circuit=DEMO@N: a demo circuit (page.c's look_circuit)
+RDE_INTERNAL u32 sketching_circuit_run = 0;
+RDE_INTERNAL u32 sketching_mech[2];                    // --mech=DEMO@N: a demo mechanism (page.c's look_mech)
+RDE_INTERNAL u32 sketching_mech_run = 0;
+RDE_INTERNAL c8  sketching_value[96];                  // --value=ID,TEXT,UNIT,WAY@N: the first symbol ID given a value (Value's card)
+RDE_INTERNAL u32 sketching_value_frame = 0;
+RDE_INTERNAL u32 sketching_slider[2];                  // --slider=I,PERCENT@N: Play's slider I set PERCENT along
+RDE_INTERNAL f64 sketching_slider_t = 0.0;
+RDE_INTERNAL u32 sketching_body[5];                    // --body=ALL,MATERIAL,FIXED,APPLY@N: drawings made bodies
+RDE_INTERNAL u32 sketching_make_part = 0;              // --make-part@N: the last demo made a part
+RDE_INTERNAL c8  sketching_align[48];                  // --align=ID,DX,DY@N: a symbol dragged, held
+RDE_INTERNAL u32 sketching_align_frame = 0;
+RDE_INTERNAL f32 sketching_context[3] = { 0 };    // --context=X,Y@N: the page's menu opened at X,Y (screen) at frame N
+RDE_INTERNAL u32 sketching_context_delete = 0;    // --context-delete@N: its Delete pressed at frame N
+RDE_INTERNAL u32 sketching_circuit2[2];                // --circuit2=DEMO@N: a second demo circuit (after a part is made)
+RDE_INTERNAL u32 sketching_plan[2][2];                 // --plan=STEP@N (twice at most): a floor plan's demo (page.c's look_plan)
+RDE_INTERNAL u32 sketching_plan_count = 0;               // --mech-run@N: run from frame N            // --circuit-run@N: simulated from frame N
+RDE_INTERNAL u32 sketching_shapes_choices[4][2];       // --shapes-choice=I@N: the Shapes panel's choice I pressed at frame N (up to four)
+RDE_INTERNAL u32 sketching_shapes_choice_count = 0;                 // --combine=OP@N: shapes made and combined (page.c's look_combine)                   // --lines=STEP@N: lines made, extended, trimmed, chamfered (page.c's look_lines)
 RDE_INTERNAL u32 sketching_shape_tools[4][2];          // --shape-tool=TYPE@N: the Shapes tool's TYPE (shape.h) in hand at frame N (up to four)
 RDE_INTERNAL u32 sketching_shape_tool_count = 0;
 RDE_INTERNAL u32 sketching_measure_tool[2] = { 0, 0 }; // --measure-tool=N@F: the measure in hand at frame F (1 the tape, 2 the dimension)
+RDE_INTERNAL u32 sketching_topic[2] = { 0, 0 };        // --topic=N@F: the canvas's topic N (page.h's FUDE_ZOOM_TOPIC_) at frame F
 RDE_INTERNAL u32 sketching_line_style[2] = { 0, 0 };   // --line-style=N@F: the Shapes' line style N (shape.h) at frame F
 RDE_INTERNAL b8  sketching_kanban_card_extra = false, sketching_kanban_card_insert = false;
 RDE_INTERNAL u32 sketching_tidy_at = 0;           // --tidy=N: at frame N, every sticky note lassoed and let go (lined up in a Kanban column)
@@ -655,11 +688,13 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
         } else if(fude_look_is(_argv[_i], "--demo-shapes")) {
             sketching_demo_shapes = true;
         } else if(fude_look_is(_argv[_i], "--shapes-panel")) {
-            sketching_panel = 0;
+            sketching_panel = 1;   // (Topic the first: General's Shapes, Insert, Smoothing...)
         } else if(fude_look_is(_argv[_i], "--smoothing-panel")) {
-            sketching_panel = 2;
+            sketching_panel = 3;
         } else if((_v = fude_look_value(_argv[_i], "--tool-panel")) != NULL) {
-            sketching_panel = atoi(_v);   // any app tool's choices open (5: Instruments)
+            sketching_panel = atoi(_v);   // any app tool's choices open (0: Topic; in General 6: Instruments)
+        } else if((_v = fude_look_value(_argv[_i], "--topic")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_topic[0], &sketching_topic[1]);
         } else if(fude_look_is(_argv[_i], "--demo-smooth")) {
             sketching_demo_smooth = true;
         } else if((_v = fude_look_value(_argv[_i], "--text")) != NULL && sketching_text_count < 4u) {
@@ -739,6 +774,60 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sscanf(_v, "%u@%u", &sketching_line_style[0], &sketching_line_style[1]);
         } else if((_v = fude_look_value(_argv[_i], "--measure-tool")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_measure_tool[0], &sketching_measure_tool[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--shapes-choice")) != NULL && sketching_shapes_choice_count < 4u) {
+            if(sscanf(_v, "%u@%u", &sketching_shapes_choices[sketching_shapes_choice_count][0], &sketching_shapes_choices[sketching_shapes_choice_count][1]) == 2) {
+                sketching_shapes_choice_count++;
+            }
+        } else if((_v = fude_look_value(_argv[_i], "--plan")) != NULL && sketching_plan_count < 2u) {
+            if(sscanf(_v, "%u@%u", &sketching_plan[sketching_plan_count][0], &sketching_plan[sketching_plan_count][1]) == 2) {
+                sketching_plan_count++;
+            }
+        } else if((_v = fude_look_value(_argv[_i], "--mech")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_mech[0], &sketching_mech[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--value")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            if(_at != NULL) {
+                snprintf(sketching_value, sizeof(sketching_value), "%.*s", (int)(_at - _v), _v);
+                sketching_value_frame = (u32)atoi(_at + 1);
+            }
+        } else if((_v = fude_look_value(_argv[_i], "--context")) != NULL) {
+            u32 _frame = 0;
+            if(sscanf(_v, "%f,%f@%u", &sketching_context[0], &sketching_context[1], &_frame) == 3) {
+                sketching_context[2] = (f32)_frame;
+            }
+        } else if(strncmp(_argv[_i], "--context-delete@", 17) == 0) {
+            sketching_context_delete = (u32)atoi(_argv[_i] + 17);
+        } else if((_v = fude_look_value(_argv[_i], "--align")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            if(_at != NULL) {
+                snprintf(sketching_align, sizeof(sketching_align), "%.*s", (int)(_at - _v), _v);
+                sketching_align_frame = (u32)atoi(_at + 1);
+            }
+        } else if(strncmp(_argv[_i], "--make-part@", 12) == 0) {
+            sketching_make_part = (u32)atoi(_argv[_i] + 12);
+        } else if((_v = fude_look_value(_argv[_i], "--circuit2")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_circuit2[0], &sketching_circuit2[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--body")) != NULL) {
+            sscanf(_v, "%u,%u,%u,%u@%u", &sketching_body[0], &sketching_body[1], &sketching_body[2], &sketching_body[3], &sketching_body[4]);
+        } else if((_v = fude_look_value(_argv[_i], "--slider")) != NULL) {
+            u32 _pc = 0;
+            if(sscanf(_v, "%u,%u@%u", &sketching_slider[0], &_pc, &sketching_slider[1]) == 3) {
+                sketching_slider_t = (f64)_pc / 100.0;
+            }
+        } else if(strncmp(_argv[_i], "--mech-run@", 11) == 0) {
+            sketching_mech_run = (u32)atoi(_argv[_i] + 11);
+        } else if((_v = fude_look_value(_argv[_i], "--circuit")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_circuit[0], &sketching_circuit[1]);
+        } else if(strncmp(_argv[_i], "--circuit-run@", 14) == 0) {
+            sketching_circuit_run = (u32)atoi(_argv[_i] + 14);
+        } else if((_v = fude_look_value(_argv[_i], "--combine")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_combine[0], &sketching_combine[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--lines")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_lines[0], &sketching_lines[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--point")) != NULL && sketching_point_count < 6u) {
+            const c8* _at = strrchr(_v, '@');
+            snprintf(sketching_points[sketching_point_count], sizeof(sketching_points[0]), "%.*s", (int)(_at != NULL ? (usize)(_at - _v) : strlen(_v)), _v);
+            sketching_point_at[sketching_point_count++] = _at != NULL ? (u32)atoi(_at + 1) : 20u;
         } else if((_v = fude_look_value(_argv[_i], "--shape-tool")) != NULL) {
             u32* _st = sketching_shape_tools[sketching_shape_tool_count < 4u ? sketching_shape_tool_count : 3u];
             if(sscanf(_v, "%u@%u", &_st[0], &_st[1]) == 2) {
@@ -997,6 +1086,7 @@ void on_event(rde_window* _window, rde_event* _event) {
 RDE_INTERNAL void sketching_update(f32 _dt) {
     fude_look_frame(&app);
     fude_ui_follow_language(&ui);
+    fude_zoom_page_topic_follow(&zoom, &ui);   // (a topic chosen: the bar's tools for it)
 #if defined(RDE_PLATFORM_IOS)
     static b8  _pencil_taps  = false;
     static u32 _pencil_tries = 0;
@@ -1333,6 +1423,81 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     }
     if(sketching_repeat_at > 0u && sketching_frames == sketching_repeat_at) {
         fude_zoom_page_look_repeat(&zoom, sketching_repeat);
+    }
+    for(u32 _ci = 0; _ci < sketching_shapes_choice_count; _ci++) {
+        if(sketching_frames == sketching_shapes_choices[_ci][1]) {
+            fude_zoom_page_look_shapes_choice(&zoom, sketching_shapes_choices[_ci][0]);
+        }
+    }
+    for(u32 _pl = 0; _pl < sketching_plan_count; _pl++) {
+        if(sketching_frames == sketching_plan[_pl][1]) {
+            fude_zoom_page_look_plan(&zoom, sketching_plan[_pl][0]);
+        }
+    }
+    if(sketching_mech[1] > 0u && sketching_frames == sketching_mech[1]) {
+        fude_zoom_page_look_mech(&zoom, sketching_mech[0]);
+    }
+    if(sketching_mech_run > 0u && sketching_frames == sketching_mech_run) {
+        fude_zoom_page_look_mech_run(&zoom);
+    }
+    if(sketching_circuit[1] > 0u && sketching_frames == sketching_circuit[1]) {
+        fude_zoom_page_look_circuit(&zoom, sketching_circuit[0]);
+    }
+    if(sketching_circuit_run > 0u && sketching_frames == sketching_circuit_run) {
+        fude_zoom_page_look_circuit_run(&zoom);
+    }
+    if(sketching_value_frame > 0u && sketching_frames == sketching_value_frame) {
+        c8 _id[48] = { 0 }, _typed[24] = { 0 };
+        u32 _unit = 0, _way = 0;
+        const c8* _c1 = strchr(sketching_value, ',');
+        const c8* _c2 = _c1 != NULL ? strchr(_c1 + 1, ',') : NULL;
+        if(_c2 != NULL) {
+            snprintf(_id, sizeof(_id), "%.*s", (int)(_c1 - sketching_value), sketching_value);
+            snprintf(_typed, sizeof(_typed), "%.*s", (int)(_c2 - _c1 - 1), _c1 + 1);
+            sscanf(_c2 + 1, "%u,%u", &_unit, &_way);
+            fude_zoom_page_look_value(&zoom, _id, _typed, _unit, _way);
+        }
+    }
+    if(sketching_align_frame > 0u && sketching_frames == sketching_align_frame) {
+        c8 _id[40] = { 0 };
+        f64 _dx = 0.0, _dy = 0.0;
+        const c8* _c1 = strchr(sketching_align, ',');
+        if(_c1 != NULL && sscanf(_c1 + 1, "%lf,%lf", &_dx, &_dy) == 2) {
+            snprintf(_id, sizeof(_id), "%.*s", (int)(_c1 - sketching_align), sketching_align);
+            fude_zoom_page_look_align(&zoom, _id, _dx, _dy);
+        }
+    }
+    if(sketching_context[2] > 0.0f && sketching_frames == (u32)sketching_context[2]) {
+        fude_zoom_page_look_context(&zoom, (rde_vec_2F){ sketching_context[0], sketching_context[1] }, false);
+    }
+    if(sketching_context_delete > 0u && sketching_frames == sketching_context_delete) {
+        fude_zoom_page_look_context(&zoom, (rde_vec_2F){ 0.0f, 0.0f }, true);
+    }
+    if(sketching_make_part > 0u && sketching_frames == sketching_make_part) {
+        fude_zoom_page_look_make_part(&zoom);
+    }
+    if(sketching_circuit2[1] > 0u && sketching_frames == sketching_circuit2[1]) {
+        fude_zoom_page_look_circuit(&zoom, sketching_circuit2[0]);
+    }
+    if(sketching_body[4] > 0u && sketching_frames == sketching_body[4]) {
+        fude_zoom_page_look_body(&zoom, sketching_body[0] != 0u, sketching_body[1], sketching_body[2] != 0u, sketching_body[3] != 0u);
+    }
+    if(sketching_slider[1] > 0u && sketching_frames == sketching_slider[1]) {
+        fude_zoom_page_look_slider(&zoom, sketching_slider[0], sketching_slider_t);
+    }
+    if(sketching_combine[1] > 0u && sketching_frames == sketching_combine[1]) {
+        fude_zoom_page_look_combine(&zoom, sketching_combine[0]);
+    }
+    if(sketching_lines[1] > 0u && sketching_frames == sketching_lines[1]) {
+        fude_zoom_page_look_lines(&zoom, sketching_lines[0]);
+    }
+    for(u32 _pi = 0; _pi < sketching_point_count; _pi++) {
+        if(sketching_frames == sketching_point_at[_pi]) {
+            fude_zoom_page_look_point(&zoom, sketching_points[_pi]);
+        }
+    }
+    if(sketching_topic[1] > 0u && sketching_frames == sketching_topic[1]) {
+        zoom.topic = (u8)sketching_topic[0];
     }
     if(sketching_line_style[1] > 0u && sketching_frames == sketching_line_style[1]) {
         zoom.line_style = (u8)sketching_line_style[0];

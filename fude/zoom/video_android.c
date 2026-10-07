@@ -16,7 +16,7 @@
 
 struct fude_zoom_video {
     u32        width, height;
-    u8*        yuv;
+    rde_arr    yuv;        // TYPE(u8): a frame as I420
     jbyteArray frame;   // (global)
 };
 
@@ -41,12 +41,13 @@ fude_zoom_video* fude_zoom_video_open(const c8* _path, u32 _width, u32 _height, 
     jbyteArray  _local  = (*_env)->NewByteArray(_env, _size);
     _v->width  = _width;
     _v->height = _height;
-    _v->yuv    = (u8*)malloc((usize)_size);
+    _v->yuv    = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_v->yuv, (usize)_size);
     _v->frame  = _local != NULL ? (jbyteArray)(*_env)->NewGlobalRef(_env, _local) : NULL;
     if(_local != NULL) {
         (*_env)->DeleteLocalRef(_env, _local);
     }
-    if(_v->yuv == NULL || _v->frame == NULL) {
+    if(_v->frame == NULL) {
         fude_zoom_video_close(_v, false);
         return NULL;
     }
@@ -59,8 +60,8 @@ b8 fude_zoom_video_add(fude_zoom_video* _v, const u8* _rgba, u32 _stride) {
     if(_v == NULL || _rgba == NULL || _env == NULL || _add == NULL) {
         return false;
     }
-    fude_zoom_video_i420(_rgba, _v->width, _v->height, _stride, _v->yuv);
-    (*_env)->SetByteArrayRegion(_env, _v->frame, 0, (jsize)((usize)_v->width * _v->height * 3u / 2u), (const jbyte*)_v->yuv);
+    fude_zoom_video_i420(_rgba, _v->width, _v->height, _stride, (u8*)_v->yuv.memory);
+    (*_env)->SetByteArrayRegion(_env, _v->frame, 0, (jsize)((usize)_v->width * _v->height * 3u / 2u), (const jbyte*)_v->yuv.memory);
     const jboolean _ok = (*_env)->CallStaticBooleanMethod(_env, fude_android_class(FUDE_JAVA_VIDEO), _add, _v->frame);
     return !fude_android_threw(_env, "FudeVideo.add") && _ok;
 }
@@ -79,7 +80,9 @@ b8 fude_zoom_video_close(fude_zoom_video* _v, b8 _keep) {
     if(_env != NULL && _v->frame != NULL) {
         (*_env)->DeleteGlobalRef(_env, _v->frame);
     }
-    free(_v->yuv);
+    if(rde_arr_is_inited(&_v->yuv)) {
+        rde_arr_free(&_v->yuv);
+    }
     free(_v);
     return _ok && _keep;
 }

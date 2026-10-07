@@ -54,10 +54,14 @@ typedef struct {
 // selection's middle).
 typedef struct {
     fude_zoom_object look;
-    u8*              bytes;
-    u32              size;
+    rde_arr TYPE(u8) bytes;
     fude_zoom_sim    on_screen;
 } fude_zoom_clip;
+
+// A clip's bytes, how many; its bytes made a copy of _size from _data (its room just that).
+static inline const u8* fude_zoom_clip_data(const fude_zoom_clip* _c) { return _c->bytes.memory; }
+static inline u32       fude_zoom_clip_size(const fude_zoom_clip* _c) { return _c->bytes.count; }
+void                    fude_zoom_clip_put(fude_zoom_clip* _c, const u8* _data, u32 _size);
 
 typedef struct {
     rde_arr TYPE(fude_zoom_pick)  picks;
@@ -68,6 +72,7 @@ typedef struct {
     fude_zoom_sim                 drag;       // screen → screen, since the pen took hold
     f64                           turn;       // a turn's angle so far (radians, counter-clockwise; resting a moment at each 15°)
     fude_zoom_box                 box;        // the selection's box on screen, as of the last update
+    fude_zoom_v2                  half;       // the screen's half size (a guide's box: the part of it on the screen; zero: all of it)
     rde_arr TYPE(fude_zoom_place) before;     // each pick's place when the drag began
     rde_arr TYPE(u8)              lifted;     // per object: drawn by the selection while dragged
     rde_arr TYPE(fude_zoom_clip)  clip;
@@ -92,6 +97,9 @@ b8   fude_zoom_select_box(const fude_zoom_selection* _sel, fude_zoom_box* _out);
 // The pen on the lasso tool: on a handle or inside the box, a drag; anywhere
 // else a new loop (what was selected let go). _r: the last draw's frames.
 void fude_zoom_select_down(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_renderer* _r, rde_vec_2F _screen);
+// What of the selection is under _screen: a corner (0..3), the turning knob (4), inside its box (5); -1: none (or
+// nothing held).
+i32  fude_zoom_select_handle_at(const fude_zoom_selection* _sel, rde_vec_2F _screen);
 void fude_zoom_select_moved(fude_zoom_selection* _sel, rde_vec_2F _screen);
 // Being turned: by how much so far (degrees, counter-clockwise), and where to
 // say so (screen: over the knob). False: not being turned.

@@ -1,0 +1,24 @@
+# Library symbols drawn from SVG art (fude/zoom/symbolart.h): a symbol id a line; its file the id, spaces as underscores, .svg
+pulley
+crate
+weight
+wheel
+drive motor
+fixed pivot
+single bed
+double bed
+queen bed
+sofa
+armchair
+dining table
+desk
+round table
+chair
+toilet
+bathtub
+shower
+washbasin
+kitchen sink
+hob
+fridge
+wardrobe

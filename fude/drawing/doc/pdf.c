@@ -24,12 +24,16 @@
 struct fude_pdf {
     CGPDFDocumentRef doc;
     u32              count;
-    rde_vec_2F*      sizes;   // each page's, turned as the PDF says, in points
-    u8*              turns;   // ...and the learner's quarter turns over that
+    rde_arr TYPE(rde_vec_2F) sizes;   // each page's, turned as the PDF says, in points
+    rde_arr TYPE(u8)         turns;   // ...and the learner's quarter turns over that
     c8               path[RDE_MAX_PATH];
     void*            kit;     // its text's document (pdf_kit.m), opened the first time it is asked
     b8               kit_tried;
 };
+
+// Typed views of its arrays.
+RDE_INTERNAL rde_vec_2F* fude_pdf_sizes(const fude_pdf* _pdf) { return (rde_vec_2F*)_pdf->sizes.memory; }
+RDE_INTERNAL u8*         fude_pdf_turns(const fude_pdf* _pdf) { return (u8*)_pdf->turns.memory; }
 
 RDE_INTERNAL void fude_pdf_box(const fude_pdf* _pdf, u32 _page, b8 _to_pdf, rde_vec_2F* _from, rde_vec_2F* _size);
 
@@ -141,19 +145,21 @@ fude_pdf* fude_pdf_open(const c8* _path) {
     snprintf(_pdf->path, sizeof(_pdf->path), "%s", _path);
     _pdf->doc      = _doc;
     _pdf->count    = (u32)_count;
-    _pdf->sizes    = (rde_vec_2F*)calloc(_count, sizeof(rde_vec_2F));
-    _pdf->turns    = (u8*)calloc(_count, sizeof(u8));
+    _pdf->sizes    = rde_arr_new(sizeof(rde_vec_2F), rde_memory_allocator_get_default_std());
+    _pdf->turns    = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_pdf->sizes, _count);
+    rde_arr_resize(&_pdf->turns, _count);
     for(u32 _i = 0; _i < _pdf->count; _i++) {
         CGPDFPageRef _page = CGPDFDocumentGetPage(_doc, (size_t)_i + 1u);
         if(_page == NULL) {
-            _pdf->sizes[_i] = (rde_vec_2F){ 595.0f, 842.0f };   // A4: a page that cannot be read still has a place
+            fude_pdf_sizes(_pdf)[_i] = (rde_vec_2F){ 595.0f, 842.0f };   // A4: a page that cannot be read still has a place
             continue;
         }
         const CGRect _box  = CGPDFPageGetBoxRect(_page, kCGPDFCropBox);
         const i32    _turn = fude_pdf_turn(_page);
         const f32    _w    = (f32)fmax(1.0, _box.size.width);
         const f32    _h    = (f32)fmax(1.0, _box.size.height);
-        _pdf->sizes[_i]    = _turn == 90 || _turn == 270 ? (rde_vec_2F){ _h, _w } : (rde_vec_2F){ _w, _h };
+        fude_pdf_sizes(_pdf)[_i] = _turn == 90 || _turn == 270 ? (rde_vec_2F){ _h, _w } : (rde_vec_2F){ _w, _h };
     }
     return _pdf;
 }
@@ -166,8 +172,8 @@ void fude_pdf_close(fude_pdf* _pdf) {
     if(_pdf->kit != NULL) {
         fude_pdf_kit_close(_pdf->kit);
     }
-    free(_pdf->turns);
-    free(_pdf->sizes);
+    rde_arr_free(&_pdf->turns);
+    rde_arr_free(&_pdf->sizes);
     free(_pdf);
 }
 
@@ -179,21 +185,21 @@ rde_vec_2F fude_pdf_page_size(const fude_pdf* _pdf, u32 _page) {
     if(_pdf == NULL || _page >= _pdf->count) {
         return (rde_vec_2F){ 595.0f, 842.0f };
     }
-    const rde_vec_2F _s = _pdf->sizes[_page];
-    return (_pdf->turns[_page] & 1u) != 0u ? (rde_vec_2F){ _s.y, _s.x } : _s;
+    const rde_vec_2F _s = fude_pdf_sizes(_pdf)[_page];
+    return (fude_pdf_turns(_pdf)[_page] & 1u) != 0u ? (rde_vec_2F){ _s.y, _s.x } : _s;
 }
 
 void fude_pdf_set_turn(fude_pdf* _pdf, u32 _page, u8 _quarters) {
     if(_pdf != NULL && _page < _pdf->count) {
-        _pdf->turns[_page] = (u8)(_quarters & 3u);
+        fude_pdf_turns(_pdf)[_page] = (u8)(_quarters & 3u);
     }
 }
 
 // The learner's turn of page _page over the page as the PDF reads (Y up from
 // its bottom-left, _s its size): to the page as turned.
 RDE_INTERNAL CGAffineTransform fude_pdf_turned(const fude_pdf* _pdf, u32 _page) {
-    const CGFloat _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
-    switch(_pdf->turns[_page] & 3u) {
+    const CGFloat _w = fude_pdf_sizes(_pdf)[_page].x, _h = fude_pdf_sizes(_pdf)[_page].y;
+    switch(fude_pdf_turns(_pdf)[_page] & 3u) {
         case 1:  return CGAffineTransformMake(0.0, -1.0, 1.0, 0.0, 0.0, _w);
         case 2:  return CGAffineTransformMake(-1.0, 0.0, 0.0, -1.0, _w, _h);
         case 3:  return CGAffineTransformMake(0.0, 1.0, -1.0, 0.0, _h, 0.0);
@@ -204,8 +210,8 @@ RDE_INTERNAL CGAffineTransform fude_pdf_turned(const fude_pdf* _pdf, u32 _page) 
 // A point of the page as turned (from its top-left) on the page as the PDF reads
 // it, and back.
 RDE_INTERNAL rde_vec_2F fude_pdf_unturn(const fude_pdf* _pdf, u32 _page, rde_vec_2F _p) {
-    const f32 _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
-    switch(_pdf->turns[_page] & 3u) {
+    const f32 _w = fude_pdf_sizes(_pdf)[_page].x, _h = fude_pdf_sizes(_pdf)[_page].y;
+    switch(fude_pdf_turns(_pdf)[_page] & 3u) {
         case 1:  return (rde_vec_2F){ _p.y, _h - _p.x };
         case 2:  return (rde_vec_2F){ _w - _p.x, _h - _p.y };
         case 3:  return (rde_vec_2F){ _w - _p.y, _p.x };
@@ -214,8 +220,8 @@ RDE_INTERNAL rde_vec_2F fude_pdf_unturn(const fude_pdf* _pdf, u32 _page, rde_vec
 }
 
 RDE_INTERNAL rde_vec_2F fude_pdf_return(const fude_pdf* _pdf, u32 _page, rde_vec_2F _p) {
-    const f32 _w = _pdf->sizes[_page].x, _h = _pdf->sizes[_page].y;
-    switch(_pdf->turns[_page] & 3u) {
+    const f32 _w = fude_pdf_sizes(_pdf)[_page].x, _h = fude_pdf_sizes(_pdf)[_page].y;
+    switch(fude_pdf_turns(_pdf)[_page] & 3u) {
         case 1:  return (rde_vec_2F){ _h - _p.y, _p.x };
         case 2:  return (rde_vec_2F){ _w - _p.x, _h - _p.y };
         case 3:  return (rde_vec_2F){ _p.y, _w - _p.x };
@@ -706,9 +712,8 @@ b8 fude_pdf_from_images(const c8* const* _images, u32 _count, const c8* _out) {
 
 #if defined(__APPLE__)
 
-b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
-    *_out  = NULL;
-    *_size = 0u;
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, rde_arr* _out) {
+    rde_arr_clear(_out);
     CFURLRef _from = fude_pdf_url(_path);
     CGImageSourceRef _source = _from != NULL ? CGImageSourceCreateWithURL(_from, NULL) : NULL;
     if(_from != NULL) {
@@ -740,11 +745,9 @@ b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
             CGImageDestinationAddImage(_dest, _image, _write);
             if(CGImageDestinationFinalize(_dest)) {
                 const CFIndex _n = CFDataGetLength(_jpeg);
-                *_out = (u8*)malloc((size_t)_n);
-                if(*_out != NULL) {
-                    memcpy(*_out, CFDataGetBytePtr(_jpeg), (size_t)_n);
-                    *_size = (u32)_n;
-                    _ok    = true;
+                if(_n > 0) {
+                    memcpy(rde_arr_add_n(_out, (usize)_n), CFDataGetBytePtr(_jpeg), (size_t)_n);
+                    _ok = true;
                 }
             }
             CFRelease(_dest);
@@ -762,10 +765,9 @@ b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
 
 #elif !defined(RDE_PLATFORM_ANDROID)   // Android: pdf_android.c
 
-b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
+b8 fude_picture_bytes(const c8* _path, u32 _max_px, rde_arr* _out) {
     RDE_UNUSED(_max_px);
-    *_out  = NULL;
-    *_size = 0u;
+    rde_arr_clear(_out);
     FILE* _f = fopen(_path, "rb");
     if(_f == NULL) {
         return false;
@@ -777,16 +779,12 @@ b8 fude_picture_bytes(const c8* _path, u32 _max_px, u8** _out, u32* _size) {
         fclose(_f);
         return false;
     }
-    *_out = (u8*)malloc((size_t)_n);
-    const b8 _ok = *_out != NULL && fread(*_out, 1, (size_t)_n, _f) == (size_t)_n;
+    const b8 _ok = fread(rde_arr_add_n(_out, (usize)_n), 1, (size_t)_n, _f) == (size_t)_n;
     fclose(_f);
     if(!_ok) {
-        free(*_out);
-        *_out = NULL;
-        return false;
+        rde_arr_clear(_out);
     }
-    *_size = (u32)_n;
-    return true;
+    return _ok;
 }
 
 #endif

@@ -32,7 +32,7 @@ typedef struct fude_zoom_pdfview_job {
     f32        zoom;        // screen points to a page point, as drawn for (a sharp piece's)
     b8         dark;
     rde_color  paper, print;
-    u8*        pixels;
+    rde_arr TYPE(u8) pixels;   // w * h * 4
     b8         ok;
     b8         done;        // the worker is through (under the mutex)
     b8         orphaned;    // the main thread let it go (under the mutex)
@@ -40,13 +40,15 @@ typedef struct fude_zoom_pdfview_job {
 
 RDE_INTERNAL rde_mutex fude_zoom_pdfview_mutex = NULL;
 
+RDE_INTERNAL fude_pdf_match* fude_zoom_pdfview_matches(const fude_zoom_pdfview* _v) { return (fude_pdf_match*)_v->matches.memory; }
+
 // --- the worker -----------------------------------------------------------------------------
 
 RDE_INTERNAL void fude_zoom_pdfview_job_free(fude_zoom_pdfview_job* _job) {
     if(_job->close_pdf) {
         fude_pdf_close(_job->pdf);
     }
-    free(_job->pixels);
+    rde_arr_free(&_job->pixels);
     free(_job);
 }
 
@@ -54,7 +56,7 @@ RDE_INTERNAL void fude_zoom_pdfview_job_free(fude_zoom_pdfview_job* _job) {
 // colour — by how light each pixel is, a little of its own colour kept (doc.c's).
 RDE_INTERNAL void fude_zoom_pdfview_darken(fude_zoom_pdfview_job* _job) {
     const usize     _n     = (usize)_job->w * (usize)_job->h;
-    u8*             _p     = _job->pixels;
+    u8*             _p     = _job->pixels.memory;
     const rde_color _paper = _job->paper;
     const rde_color _print = _job->print;
     for(usize _i = 0; _i < _n; _i++, _p += 4) {
@@ -72,24 +74,22 @@ RDE_INTERNAL void fude_zoom_pdfview_darken(fude_zoom_pdfview_job* _job) {
 // Rows turned over: a memory texture's first row is its bottom (pdf.h's, the top).
 RDE_INTERNAL void fude_zoom_pdfview_flip(fude_zoom_pdfview_job* _job) {
     const usize _row = (usize)_job->w * 4u;
-    u8*         _tmp = (u8*)malloc(_row);
-    if(_tmp == NULL) {
-        return;
-    }
+    rde_arr     _tmp = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_tmp, _row);
     for(u32 _y = 0; _y < _job->h / 2u; _y++) {
-        u8* _a = _job->pixels + (usize)_y * _row;
-        u8* _b = _job->pixels + (usize)(_job->h - 1u - _y) * _row;
-        memcpy(_tmp, _a, _row);
+        u8* _a = _job->pixels.memory + (usize)_y * _row;
+        u8* _b = _job->pixels.memory + (usize)(_job->h - 1u - _y) * _row;
+        memcpy(_tmp.memory, _a, _row);
         memcpy(_a, _b, _row);
-        memcpy(_b, _tmp, _row);
+        memcpy(_b, _tmp.memory, _row);
     }
-    free(_tmp);
+    rde_arr_free(&_tmp);
 }
 
 RDE_INTERNAL any fude_zoom_pdfview_work(rde_thread* _thread, any _data) {
     RDE_UNUSED(_thread);
     fude_zoom_pdfview_job* _job = (fude_zoom_pdfview_job*)_data;
-    _job->ok = fude_pdf_render(_job->pdf, _job->page, _job->from, _job->size, _job->w, _job->h, _job->pixels);
+    _job->ok = fude_pdf_render(_job->pdf, _job->page, _job->from, _job->size, _job->w, _job->h, _job->pixels.memory);
     if(_job->ok) {
         fude_zoom_pdfview_flip(_job);
         if(_job->dark) {
@@ -117,8 +117,8 @@ RDE_INTERNAL void fude_zoom_pdfview_tile_free(fude_doc_tile* _tile) {
 
 RDE_INTERNAL void fude_zoom_pdfview_drop_tiles(fude_zoom_pdfview* _v) {
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        fude_zoom_pdfview_tile_free(&_v->pages[_i].whole);
-        fude_zoom_pdfview_tile_free(&_v->pages[_i].sharp);
+        fude_zoom_pdfview_tile_free(&fude_zoom_pdfview_pages(_v)[_i].whole);
+        fude_zoom_pdfview_tile_free(&fude_zoom_pdfview_pages(_v)[_i].sharp);
     }
 }
 
@@ -159,8 +159,12 @@ void fude_zoom_pdfview_close(fude_zoom_pdfview* _v) {
     if(_v->pdf != NULL) {
         fude_pdf_close(_v->pdf);
     }
-    free(_v->pages);
-    free(_v->matches);
+    if(rde_arr_is_inited(&_v->pages)) {
+        rde_arr_free(&_v->pages);
+    }
+    if(rde_arr_is_inited(&_v->matches)) {
+        rde_arr_free(&_v->matches);
+    }
     memset(_v, 0, sizeof(*_v));
 }
 
@@ -181,13 +185,14 @@ b8 fude_zoom_pdfview_open(fude_zoom_pdfview* _v, const c8* _path) {
     }
     _v->pdf        = _pdf;
     _v->page_count = _n;
-    _v->pages      = (fude_zoom_pdfview_page*)calloc(_n, sizeof(fude_zoom_pdfview_page));
+    _v->pages      = rde_arr_new(sizeof(fude_zoom_pdfview_page), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_v->pages, _n);
     snprintf(_v->path, sizeof(_v->path), "%s", _path);
     // One under the other, as big as they are, their middles on x 0, the first's top on y 0.
     f64 _top = 0.0;
     _v->bounds = fude_zoom_box_empty();
     for(u32 _i = 0; _i < _n; _i++) {
-        fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         _p->points = fude_pdf_page_size(_pdf, _i);
         const f64 _w = fmax((f64)_p->points.x, 1.0) * FUDE_ZOOM_PDFVIEW_MM_PER_POINT;
         const f64 _h = fmax((f64)_p->points.y, 1.0) * FUDE_ZOOM_PDFVIEW_MM_PER_POINT;
@@ -211,13 +216,13 @@ RDE_INTERNAL f64 fude_zoom_pdfview_k(const fude_zoom_pdfview_page* _p) {
 }
 
 fude_zoom_v2 fude_zoom_pdfview_to_canvas(const fude_zoom_pdfview* _v, u32 _page, rde_vec_2F _points) {
-    const fude_zoom_pdfview_page* _p = &_v->pages[_page < _v->page_count ? _page : 0u];
+    const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_page < _v->page_count ? _page : 0u];
     const f64 _k = fude_zoom_pdfview_k(_p);
     return (fude_zoom_v2){ _p->box.min_x + (f64)_points.x * _k, _p->box.max_y - (f64)_points.y * _k };
 }
 
 rde_vec_2F fude_zoom_pdfview_to_page(const fude_zoom_pdfview* _v, u32 _page, fude_zoom_v2 _at) {
-    const fude_zoom_pdfview_page* _p = &_v->pages[_page < _v->page_count ? _page : 0u];
+    const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_page < _v->page_count ? _page : 0u];
     const f64 _k = fude_zoom_pdfview_k(_p);
     return (rde_vec_2F){ (f32)((_at.x - _p->box.min_x) / _k), (f32)((_p->box.max_y - _at.y) / _k) };
 }
@@ -226,7 +231,7 @@ u32 fude_zoom_pdfview_page_at(const fude_zoom_pdfview* _v, fude_zoom_v2 _at) {
     u32 _best = 0;
     f64 _far  = 1e300;
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        const fude_zoom_box* _b = &_v->pages[_i].box;
+        const fude_zoom_box* _b = &fude_zoom_pdfview_pages(_v)[_i].box;
         const f64 _dx = _at.x < _b->min_x ? _b->min_x - _at.x : (_at.x > _b->max_x ? _at.x - _b->max_x : 0.0);
         const f64 _dy = _at.y < _b->min_y ? _b->min_y - _at.y : (_at.y > _b->max_y ? _at.y - _b->max_y : 0.0);
         const f64 _d  = _dx * _dx + _dy * _dy;
@@ -270,11 +275,11 @@ RDE_INTERNAL void fude_zoom_pdfview_take(fude_zoom_pdfview* _v) {
     }
     _v->job = NULL;
     if(_job->ok && _job->page < _v->page_count) {
-        fude_zoom_pdfview_page* _p    = &_v->pages[_job->page];
+        fude_zoom_pdfview_page* _p    = &fude_zoom_pdfview_pages(_v)[_job->page];
         fude_doc_tile*      _tile = _job->kind == FUDE_ZOOM_PDFVIEW_JOB_SHARP ? &_p->sharp : &_p->whole;
         fude_zoom_pdfview_tile_free(_tile);
         _tile->texture = rde_memory_texture_create(_job->w, _job->h, 4u, NULL);
-        memcpy(rde_memory_texture_get_pixels(_tile->texture), _job->pixels, (usize)_job->w * (usize)_job->h * 4u);
+        memcpy(rde_memory_texture_get_pixels(_tile->texture), _job->pixels.memory, (usize)_job->w * (usize)_job->h * 4u);
         rde_texture_parameters _params = RDE_DEFAULT_TEXTURE_PARAMETERS;
         _params.wrap_s                 = RDE_TEXTURE_PARAMETER_TYPE_WRAP_CLAMP_TO_EDGE;
         _params.wrap_t                 = RDE_TEXTURE_PARAMETER_TYPE_WRAP_CLAMP_TO_EDGE;
@@ -304,11 +309,10 @@ RDE_INTERNAL void fude_zoom_pdfview_start(fude_zoom_pdfview* _v, u32 _page, u8 _
     _job->dark   = _v->dark;
     _job->paper  = _v->paper;
     _job->print  = _v->print;
-    _job->pixels = (u8*)malloc((usize)_w * (usize)_h * 4u);
-    if(_job->pixels == NULL) {
-        free(_job);
-        return;
-    }
+    // (its room at once, for the worker to fill: not grown, not cleared twice)
+    const usize _bytes = (usize)_w * (usize)_h * 4u;
+    _job->pixels = rde_arr_new_with_capacity(sizeof(u8), _bytes + 1u, rde_memory_allocator_get_default_std());
+    rde_arr_add_n(&_job->pixels, _bytes);
     _v->job = _job;
     rde_thread_run_detached(fude_zoom_pdfview_work, _job, NULL);
 }
@@ -325,7 +329,7 @@ RDE_INTERNAL void fude_zoom_pdfview_next(fude_zoom_pdfview* _v, fude_zoom_sim _h
     i32 _best = -1;
     f64 _far  = 1e300;
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         if(_p->whole.texture == NULL && fude_zoom_pdfview_meets(_p->box, _view)) {
             const f64 _d = fabs((_p->box.min_y + _p->box.max_y) * 0.5 - _mid.y);
             if(_d < _far) {
@@ -335,14 +339,14 @@ RDE_INTERNAL void fude_zoom_pdfview_next(fude_zoom_pdfview* _v, fude_zoom_sim _h
         }
     }
     if(_best >= 0) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_best];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_best];
         fude_zoom_pdfview_start(_v, (u32)_best, FUDE_ZOOM_PDFVIEW_JOB_WHOLE, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_ZOOM_PDFVIEW_WHOLE_PX, fude_zoom_pdfview_whole_h(_p), 0.0f);
         return;
     }
     // Sharp: where the screen has more pixels for a page than its whole picture.
     const f64 _scale = fude_zoom_sim_scale(_home);   // screen points to a canvas unit
     for(u32 _i = 0; _resting && _i < _v->page_count; _i++) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         if(!fude_zoom_pdfview_meets(_p->box, _view)) {
             continue;
         }
@@ -380,7 +384,7 @@ RDE_INTERNAL void fude_zoom_pdfview_next(fude_zoom_pdfview* _v, fude_zoom_sim _h
     // Ahead: a screen round.
     const fude_zoom_box _round = fude_zoom_pdfview_view(_home, _half, 1.0);
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         if(_p->whole.texture == NULL && fude_zoom_pdfview_meets(_p->box, _round)) {
             fude_zoom_pdfview_start(_v, _i, FUDE_ZOOM_PDFVIEW_JOB_WHOLE, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_ZOOM_PDFVIEW_WHOLE_PX, fude_zoom_pdfview_whole_h(_p), 0.0f);
             return;
@@ -395,7 +399,7 @@ RDE_INTERNAL void fude_zoom_pdfview_let_go(fude_zoom_pdfview* _v, fude_zoom_sim 
     const f64           _mid  = (_view.min_y + _view.max_y) * 0.5;
     u32 _kept = 0;
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         if(!fude_zoom_pdfview_meets(_p->box, _view)) {
             fude_zoom_pdfview_tile_free(&_p->sharp);
         }
@@ -405,7 +409,7 @@ RDE_INTERNAL void fude_zoom_pdfview_let_go(fude_zoom_pdfview* _v, fude_zoom_sim 
         i32 _farthest = -1;
         f64 _far      = -1.0;
         for(u32 _i = 0; _i < _v->page_count; _i++) {
-            const fude_zoom_pdfview_page* _p = &_v->pages[_i];
+            const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
             const f64 _d = fabs((_p->box.min_y + _p->box.max_y) * 0.5 - _mid);
             if(_p->whole.texture != NULL && _d > _far) {
                 _far      = _d;
@@ -415,7 +419,7 @@ RDE_INTERNAL void fude_zoom_pdfview_let_go(fude_zoom_pdfview* _v, fude_zoom_sim 
         if(_farthest < 0) {
             break;
         }
-        fude_zoom_pdfview_tile_free(&_v->pages[_farthest].whole);
+        fude_zoom_pdfview_tile_free(&fude_zoom_pdfview_pages(_v)[_farthest].whole);
         _kept--;
     }
 }
@@ -449,7 +453,7 @@ void fude_zoom_pdfview_update(fude_zoom_pdfview* _v, fude_zoom_sim _home, fude_z
     // A search's matches as they come.
     if(_v->searching && !_v->search_done && _v->pdf != NULL) {
         b8 _done = false;
-        _v->match_count = fude_pdf_find_matches(_v->pdf, _v->matches, FUDE_PDF_MATCHES, &_done);
+        _v->match_count = fude_pdf_find_matches(_v->pdf, fude_zoom_pdfview_matches(_v), FUDE_PDF_MATCHES, &_done);
         _v->search_done = _done;
     }
 }
@@ -502,7 +506,7 @@ void fude_zoom_pdfview_render(const fude_zoom_pdfview* _v, fude_zoom_sim _home, 
     const fude_zoom_box _view = fude_zoom_pdfview_view(_home, _half, 0.02);
     const f64           _s    = fude_zoom_sim_scale(_home);
     for(u32 _i = 0; _i < _v->page_count; _i++) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_i];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_i];
         if(!fude_zoom_pdfview_meets(_p->box, _view)) {
             continue;
         }
@@ -515,7 +519,7 @@ void fude_zoom_pdfview_render(const fude_zoom_pdfview* _v, fude_zoom_sim _home, 
     }
     // A search's matches, marked; the one gone to more strongly, outlined.
     for(u32 _m = 0; _v->searching && _m < _v->match_count; _m++) {
-        const fude_pdf_match* _match = &_v->matches[_m];
+        const fude_pdf_match* _match = &fude_zoom_pdfview_matches(_v)[_m];
         if(_match->page >= _v->page_count) {
             continue;
         }
@@ -545,8 +549,9 @@ void fude_zoom_pdfview_search(fude_zoom_pdfview* _v, const c8* _query) {
     if(_v->pdf == NULL || _query == NULL || _query[0] == 0 || !fude_pdf_text_available()) {
         return;
     }
-    if(_v->matches == NULL) {
-        _v->matches = (fude_pdf_match*)calloc(FUDE_PDF_MATCHES, sizeof(fude_pdf_match));
+    if(!rde_arr_is_inited(&_v->matches)) {
+        _v->matches = rde_arr_new(sizeof(fude_pdf_match), rde_memory_allocator_get_default_std());
+        rde_arr_resize(&_v->matches, FUDE_PDF_MATCHES);
     }
     _v->searching   = true;
     _v->search_done = false;
@@ -570,10 +575,10 @@ void fude_zoom_pdfview_search_stop(fude_zoom_pdfview* _v) {
 }
 
 b8 fude_zoom_pdfview_match_box(fude_zoom_pdfview* _v, u32 _i, fude_zoom_box* _box) {
-    if(!_v->searching || _i >= _v->match_count || _v->matches[_i].page >= _v->page_count) {
+    if(!_v->searching || _i >= _v->match_count || fude_zoom_pdfview_matches(_v)[_i].page >= _v->page_count) {
         return false;
     }
-    const fude_pdf_match* _m = &_v->matches[_i];
+    const fude_pdf_match* _m = &fude_zoom_pdfview_matches(_v)[_i];
     const fude_zoom_v2 _a = fude_zoom_pdfview_to_canvas(_v, _m->page, _m->from);
     const fude_zoom_v2 _b = fude_zoom_pdfview_to_canvas(_v, _m->page, (rde_vec_2F){ _m->from.x + _m->size.x, _m->from.y + _m->size.y });
     *_box        = (fude_zoom_box){ fmin(_a.x, _b.x), fmin(_a.y, _b.y), fmax(_a.x, _b.x), fmax(_a.y, _b.y) };
@@ -648,8 +653,9 @@ b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* 
     rde_arr _rings = rde_arr_new(sizeof(u32), _heap);
     rde_arr _tris  = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     rde_arr _tpts  = rde_arr_new(sizeof(rde_vec_2F), _heap);
+    rde_arr _text  = rde_arr_new(sizeof(c8), _heap);
     for(u32 _page = 0; _page < _v->page_count; _page++) {
-        const fude_zoom_pdfview_page* _p = &_v->pages[_page];
+        const fude_zoom_pdfview_page* _p = &fude_zoom_pdfview_pages(_v)[_page];
         const f64 _k = fude_zoom_pdfview_k(_p);   // canvas units to a page point
         fude_pdf_write_page(_w, _v->pdf, _page);
         for(u32 _pass = 0; _pass < 2u; _pass++) {   // the markers' first, under the rest
@@ -700,24 +706,21 @@ b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* 
                         const rde_vec_2F _two[6] = { _q[0], _q[1], _q[2], _q[0], _q[2], _q[3] };
                         fude_pdf_write_fill(_w, _two, 2u, _o->fill);
                     }
-                    c8* _text = (c8*)malloc((usize)_len + 1u);
-                    if(_text == NULL) {
-                        continue;
-                    }
-                    memcpy(_text, _words, _len);
-                    _text[_len] = 0;
+                    rde_arr_resize(&_text, (usize)_len + 1u);
+                    c8* _tx = (c8*)_text.memory;
+                    memcpy(_tx, _words, _len);
+                    _tx[_len] = 0;
                     const f32 _px = (f32)(_size * _kp), _wide = (f32)fmax((_tw - 2.0 * _pad) * _kp, 1.0);
                     u32 _from[32], _to[32];
-                    const u32 _lines = fude_draw_text_wrap_spans(_font, _font_px, _text, _px, _wide, _from, _to, 32u);
+                    const u32 _lines = fude_draw_text_wrap_spans(_font, _font_px, _tx, _px, _wide, _from, _to, 32u);
                     for(u32 _l = 0; _l < _lines; _l++) {
                         c8 _row[512];
                         const usize _n = (usize)(_to[_l] - _from[_l]) < sizeof(_row) - 1u ? (usize)(_to[_l] - _from[_l]) : sizeof(_row) - 1u;
-                        memcpy(_row, _text + _from[_l], _n);
+                        memcpy(_row, _tx + _from[_l], _n);
                         _row[_n] = 0;
                         const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _pad, -_pad - _size * 0.95 - (f64)_l * _size * 1.3 });
                         fude_pdf_write_text(_w, _row, fude_zoom_pdfview_to_page(_v, _page, _at), _px, _color);
                     }
-                    free(_text);
                     continue;
                 }
                 if(_o->kind == FUDE_ZOOM_KIND_SHAPE) {
@@ -814,5 +817,6 @@ b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* 
     rde_arr_free(&_rings);
     rde_arr_free(&_tris);
     rde_arr_free(&_tpts);
+    rde_arr_free(&_text);
     return fude_pdf_write_end(_w);
 }

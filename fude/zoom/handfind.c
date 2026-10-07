@@ -80,12 +80,21 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
     if(_n > 1u) {
         qsort(_st, _n, sizeof(fude_zoom_hand_stroke), fude_zoom_hand_by_frame);
     }
-    u32* _at    = _n > 0u ? (u32*)malloc((usize)_total * sizeof(u32)) : NULL;   // an object's place in _st (or none)
-    u32* _up    = _n > 0u ? (u32*)malloc((usize)_n * sizeof(u32)) : NULL;
-    f64* _hs    = _n > 0u ? (f64*)malloc((usize)_n * sizeof(f64)) : NULL;
-    b8*  _write = _n > 0u ? (b8*)malloc((usize)_n * sizeof(b8)) : NULL;
+    rde_arr TYPE(u32) _at_arr    = rde_arr_new(sizeof(u32), _heap);   // an object's place in _st (or none)
+    rde_arr TYPE(u32) _up_arr    = rde_arr_new(sizeof(u32), _heap);
+    rde_arr TYPE(f64) _hs_arr    = rde_arr_new(sizeof(f64), _heap);
+    rde_arr TYPE(b8)  _write_arr = rde_arr_new(sizeof(b8), _heap);
+    rde_arr_resize(&_at_arr, _n > 0u ? _total : 0u);
+    rde_arr_resize(&_up_arr, _n);
+    rde_arr_resize(&_hs_arr, _n);
+    rde_arr_resize(&_write_arr, _n);
+    u32* _at    = (u32*)_at_arr.memory;   // (sized once: they stay put)
+    u32* _up    = (u32*)_up_arr.memory;
+    f64* _hs    = (f64*)_hs_arr.memory;
+    b8*  _write = (b8*)_write_arr.memory;
     rde_arr _found = rde_arr_new(sizeof(u32), _heap);
-    if(_at != NULL) {
+    rde_arr TYPE(u32) _pairs_arr = rde_arr_new(sizeof(u32), _heap);   // a frame's (group, place) pairs
+    if(_n > 0u) {
         for(u32 _i = 0; _i < _total; _i++) {
             _at[_i] = FUDE_ZOOM_NONE;
         }
@@ -94,7 +103,7 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
             _up[_i] = _i;
         }
     }
-    for(u32 _from = 0; _from < _n && _at != NULL;) {
+    for(u32 _from = 0; _from < _n;) {
         u32 _to = _from;
         while(_to < _n && _st[_to].frame == _st[_from].frame) {
             _to++;
@@ -138,8 +147,9 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
         }
         // Each group a line: its strokes in the order drawn (the pairs sorted by group, then by place: _st's order), its box and key.
         u32 _m = 0;
-        u32* _pairs = _h > 0.0 ? (u32*)malloc((usize)(_to - _from) * 2u * sizeof(u32)) : NULL;
-        for(u32 _i = _from; _i < _to && _pairs != NULL; _i++) {
+        rde_arr_resize(&_pairs_arr, _h > 0.0 ? (_to - _from) * 2u : 0u);
+        u32* _pairs = (u32*)_pairs_arr.memory;
+        for(u32 _i = _from; _i < _to && _h > 0.0; _i++) {
             if(_write[_i]) {
                 _pairs[2u * _m]      = fude_zoom_hand_root(_up, _i);
                 _pairs[2u * _m + 1u] = _i;
@@ -178,14 +188,14 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
             _g = _e;
         }
         rde_arr_free(&_ids);
-        free(_pairs);
         _from = _to;
     }
+    rde_arr_free(&_pairs_arr);
     rde_arr_free(&_found);
     rde_arr_free(&_all);
-    free(_at);
-    free(_up);
-    free(_hs);
-    free(_write);
+    rde_arr_free(&_at_arr);
+    rde_arr_free(&_up_arr);
+    rde_arr_free(&_hs_arr);
+    rde_arr_free(&_write_arr);
     return (u32)rde_arr_length(_lines);
 }

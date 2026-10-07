@@ -61,6 +61,22 @@
 //   ANGLE    radius from sweep              an angle's size: an arc round its translation
 //                                           (the corner) from angle `from` on by `sweep`,
 //                                           "45°" on it
+//   WALL     x y thickness                  a building's wall: from its translation to x y, as
+//                                           thick as said, its ends half its thickness past the
+//                                           points (so two meeting at a point close their corner)
+//   WIRE     k, x y × k, id pin id pin      a circuit's wire (circuit.h): through its k points,
+//                                           its ends' parts and pins (0 -1: none) after them
+//   CONSTRAINT kind id_a id_b               two lines kept so (connect.h): parallel, square
+//                                           to each other, the same length — nothing drawn
+//                                           (a point where it was made, between them)
+//   PROPS    kind id_hi id_lo values…       properties of a drawn thing (props.h: a body's —
+//                                           its material, fixed or not, its mass…), naming it by
+//                                           its id's halves — nothing drawn (a point by it)
+//   GUIDE    x y reach                      a construction line: through its translation
+//                                           the way x y goes, reach each way (well past its
+//                                           sheet: across the screen wherever it is drawn
+//                                           on) — never printed or cut, what lines snap to
+//                                           (their crossings with it, along it)
 //
 // A DIMENSION may keep, after its three numbers, what its ends are on (it
 // follows them: connect.h) — 0, then each end's thing's id and its point.
@@ -84,8 +100,29 @@ typedef enum {
     FUDE_ZOOM_SHAPE_SYMBOL,
     FUDE_ZOOM_SHAPE_SHEET,
     FUDE_ZOOM_SHAPE_RADIAL,
-    FUDE_ZOOM_SHAPE_ANGLE
+    FUDE_ZOOM_SHAPE_ANGLE,
+    FUDE_ZOOM_SHAPE_GUIDE,
+    FUDE_ZOOM_SHAPE_CONSTRAINT,
+    FUDE_ZOOM_SHAPE_WIRE,
+    FUDE_ZOOM_SHAPE_WALL,
+    FUDE_ZOOM_SHAPE_PROPS
 } FUDE_ZOOM_SHAPE_;
+
+// Is a shape of type _type an attribute of other things (a CONSTRAINT, PROPS): nothing drawn, never lassoed, rubbed
+// out, snapped to or exported; it follows what it names.
+static inline b8 fude_zoom_shape_is_attribute(u8 _type) {
+    return _type == FUDE_ZOOM_SHAPE_CONSTRAINT || _type == FUDE_ZOOM_SHAPE_PROPS;
+}
+
+// A CONSTRAINT's kind (its first number; connect.h).
+typedef enum {
+    FUDE_ZOOM_CONSTRAINT_PARALLEL = 1,
+    FUDE_ZOOM_CONSTRAINT_SQUARE,       // perpendicular
+    FUDE_ZOOM_CONSTRAINT_EQUAL,        // the same length
+    FUDE_ZOOM_CONSTRAINT_KINDS
+} FUDE_ZOOM_CONSTRAINT_;
+
+#define FUDE_ZOOM_GUIDE_REACH 1000.0   // a guide's reach each way when it has none of its own (its own units)
 
 #define FUDE_ZOOM_DIMENSION_REFS 8u   // a dimension's numbers with what its ends are on: x y offset 0 from from_key to to_key
 
@@ -150,6 +187,12 @@ b8   fude_zoom_shape_fit_arc(const fude_zoom_v2* _p, u32 _n, f64 _tolerance, fud
 b8   fude_zoom_shape_fillet(fude_zoom_v2 _a0, fude_zoom_v2 _a1, fude_zoom_v2 _b0, fude_zoom_v2 _b1, f64 _radius,
                             fude_zoom_v2* _a_keep, fude_zoom_v2* _a_end, fude_zoom_v2* _b_keep, fude_zoom_v2* _b_end,
                             fude_zoom_v2* _centre, f64* _from, f64* _sweep);
+
+// A CHAMFER: the same corner cut straight _back along each line from where they meet (0: the lines carried on or cut
+// back to meet there, its corner sharp): each line's end at the corner's side moved there (its far end kept). False:
+// parallel, or a line too short for it.
+b8   fude_zoom_shape_chamfer(fude_zoom_v2 _a0, fude_zoom_v2 _a1, fude_zoom_v2 _b0, fude_zoom_v2 _b1, f64 _back,
+                             fude_zoom_v2* _a_keep, fude_zoom_v2* _a_end, fude_zoom_v2* _b_keep, fude_zoom_v2* _b_end);
 
 // What a board is made of: what the cut list says, and the wood it is drawn in
 // (kept in its fourth number, over its grain: fude_zoom_board_look).
@@ -223,6 +266,24 @@ typedef enum {
     FUDE_ZOOM_LINE_DASH_DOT,
     FUDE_ZOOM_LINE_STYLES
 } FUDE_ZOOM_LINE_;
+
+// A shape's q keeps its line's style in its low bits and, above them, how a closed one is HATCHED: lines across its
+// inside, 12 of its line's widths apart (a section on a drawing: they print as its lines do, at any scale).
+typedef enum {
+    FUDE_ZOOM_HATCH_NONE = 0,
+    FUDE_ZOOM_HATCH_DIAGONAL,   // at 45°
+    FUDE_ZOOM_HATCH_CROSS,      // at 45° and 135°
+    FUDE_ZOOM_HATCH_KINDS
+} FUDE_ZOOM_HATCH_;
+#define FUDE_ZOOM_HATCH_SHIFT 4u
+#define FUDE_ZOOM_HATCH_APART 12.0   // its lines this many of its line's widths apart
+static inline u8 fude_zoom_line_style_of(i8 _q) { return (u8)((u8)_q & 0x07u); }
+static inline u8 fude_zoom_hatch_of(i8 _q)      { return (u8)(((u8)_q >> FUDE_ZOOM_HATCH_SHIFT) & 0x03u); }
+static inline i8 fude_zoom_q_of(u8 _style, u8 _hatch) { return (i8)((_style & 0x07u) | ((_hatch & 0x03u) << FUDE_ZOOM_HATCH_SHIFT)); }
+
+// A hatch's lines: lines at _angle (radians), _apart apart, across the inside of the closed polygon _p (_n points; its
+// inside as even-odd says: a hole is left out), only what falls in _view — into _out (fude_zoom_v2 pairs). How many.
+u32  fude_zoom_hatch_lines(const fude_zoom_v2* _p, u32 _n, f64 _angle, f64 _apart, fude_zoom_box _view, rde_arr* _out);
 
 // A line's dashes in style _style: the polyline _p (_n points; _closed: back to its first) cut into its pieces, _w its
 // width (the pattern grows with it: a dash 7 widths long, its gap 3.5; a centre line's 12, 3, a dot, 3), counted

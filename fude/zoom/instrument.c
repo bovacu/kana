@@ -1414,8 +1414,10 @@ RDE_INTERNAL void fude_zoom_instruments_find_crosses(fude_zoom_instruments* _ins
         return;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    fude_zoom_v2* _mine  = _heap->malloc(_heap->allocator, sizeof(fude_zoom_v2) * (FUDE_ZOOM_INSTRUMENT_CURVE_POINTS + 2u));
-    fude_zoom_v2* _other = _heap->malloc(_heap->allocator, sizeof(fude_zoom_v2) * (FUDE_ZOOM_INSTRUMENT_CURVE_POINTS + 2u));
+    rde_arr TYPE(fude_zoom_v2) _mine_arr  = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr TYPE(fude_zoom_v2) _other_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    fude_zoom_v2* _mine  = (fude_zoom_v2*)rde_arr_add_n(&_mine_arr, FUDE_ZOOM_INSTRUMENT_CURVE_POINTS + 2u);   // (sized once: they stay put)
+    fude_zoom_v2* _other = (fude_zoom_v2*)rde_arr_add_n(&_other_arr, FUDE_ZOOM_INSTRUMENT_CURVE_POINTS + 2u);
     const u32 _nm = fude_zoom_instrument_edge_line(_ins, (u32)_ins->ruled, _ins->ruled_edge, _mine, FUDE_ZOOM_INSTRUMENT_CURVE_POINTS + 2u);
     for(u32 _k = 0; _k < FUDE_ZOOM_INSTRUMENT_MOST; _k++) {
         if(!_ins->tools[_k].shown) {
@@ -1455,8 +1457,8 @@ RDE_INTERNAL void fude_zoom_instruments_find_crosses(fude_zoom_instruments* _ins
             }
         }
     }
-    _heap->free(_heap->allocator, _mine);
-    _heap->free(_heap->allocator, _other);
+    rde_arr_free(&_mine_arr);
+    rde_arr_free(&_other_arr);
 }
 
 b8 fude_zoom_instruments_ruled_turn(fude_zoom_instruments* _ins, fude_zoom_v2* _corner, fude_zoom_v2* _out_before) {

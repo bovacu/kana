@@ -47,17 +47,17 @@ typedef struct {
 } fude_zoom_visible;
 
 typedef struct {
-    u32  object;
-    u32  count;
-    f32* xy;         // the points as x, y pairs, frame units from the translation
-    f32* radius;
-    u32  used;       // the draw it was last used in
-    f32* tris;       // a fill's inside as triangles (fill.h): x, y each corner, the same units (NULL: not yet)
-    u32  tri_count;
-    u32* rings;      // a fill's points' rings (fill.h; NULL: all the outline's)
-    f32* edges;      // a cut fill's edge as it shows (fill.h's edges_rings): x, y each point, the same units (NULL: not yet)
-    u32* edge_lines; // each of those points' line
-    u32  edge_count;
+    u32               object;
+    u32               count;
+    rde_arr TYPE(f32) xy;         // the points as x, y pairs, frame units from the translation
+    rde_arr TYPE(f32) radius;
+    u32               used;       // the draw it was last used in
+    rde_arr TYPE(f32) tris;       // a fill's inside as triangles (fill.h): x, y each corner, the same units (not inited: not yet)
+    u32               tri_count;
+    rde_arr TYPE(u32) rings;      // a fill's points' rings (fill.h; not inited: all the outline's)
+    rde_arr TYPE(f32) edges;      // a cut fill's edge as it shows (fill.h's edges_rings): x, y each point, the same units (not inited: not yet)
+    rde_arr TYPE(u32) edge_lines; // each of those points' line
+    u32               edge_count;
 } fude_zoom_decoded;
 
 // A picture on the GPU, made from its payload's bytes (copies share it).
@@ -88,6 +88,17 @@ typedef struct {
     // Per object, set: not drawn by the canvas (the selection draws it, lifted
     // while dragged: select.h). NULL: everything drawn.
     const rde_arr* lifted;
+    b8             no_guides;   // guides not drawn (presenting; a picture of the page)
+    // Graphs playing (plot.h): per object, set: drawn as _plot_play says (its time, its sliders); NULL: none.
+    const rde_arr*                    plot_mask;
+    const struct fude_zoom_plot_play* plot_play;
+    u32                               drawing;   // the object being drawn (render_symbol's)
+    // The rulers stuck to the screen's edges at the last draw (fude_zoom_render_sheets_stuck): each band as drawn, its
+    // sheet, and which it is (1: the top one, along the sheet's X; 0: the left one, up its Y).
+    fude_zoom_box  stuck[4];
+    u32            stuck_sheet[4];
+    u8             stuck_top[4];
+    u32            stuck_count;
     // Dimensions' numbers (shape.h): the font they are written in (NULL: not
     // written), how many millimetres a unit of the canvas's home frame is, and
     // how lengths are written (units.h).
@@ -113,6 +124,9 @@ void fude_zoom_render_dimension(const fude_zoom_renderer* _r, fude_zoom_v2 _a, f
 void fude_zoom_render_text_in(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, rde_color _color);
 // ...each line from the box's left (_left) instead.
 void fude_zoom_render_text_at(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, b8 _left, rde_color _color);
+
+// A guide's colour (shape.h' GUIDE): a cyan that shows on the page's colour.
+rde_color fude_zoom_guide_color(void);
 
 void fude_zoom_render_init(fude_zoom_renderer* _r);
 void fude_zoom_render_destroy(fude_zoom_renderer* _r);

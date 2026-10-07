@@ -43,6 +43,9 @@ fude_zoom_box fude_zoom_map_contents(const fude_zoom_scene* _s) {
                 continue;   // (made for a camera that passed through: nothing in it)
             }
         }
+        if(_o->kind == FUDE_ZOOM_KIND_SHAPE && (_o->channels == FUDE_ZOOM_SHAPE_GUIDE || fude_zoom_shape_is_attribute(_o->channels))) {
+            continue;   // (a guide reaches far past what it helps draw)
+        }
         _all = fude_zoom_box_union(_all, _o->box);
     }
     return _all;

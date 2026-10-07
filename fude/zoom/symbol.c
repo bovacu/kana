@@ -2,6 +2,9 @@
 
 #include "zoom/symbol.h"
 #include "zoom/scene.h"
+#include "zoom/circuit.h"
+#include "zoom/mech.h"
+#include "zoom/plan.h"
 
 #include <math.h>
 #include <string.h>
@@ -898,6 +901,216 @@ RDE_INTERNAL void fzs_topic(fude_zoom_sym* _s) {
     }
 }
 
+
+// Electronics (circuit.h): each part drawn there, by its id.
+RDE_INTERNAL void fzs_part_0(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("resistor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_1(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("potentiometer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_2(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("capacitor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_3(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("electrolytic"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_4(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("inductor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_5(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("diode"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_6(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LED"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_7(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("zener"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_8(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("NPN"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_9(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("PNP"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_10(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("N-MOSFET"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_11(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("P-MOSFET"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_12(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("DC source"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_13(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("battery"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_14(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("AC source"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_15(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("clock"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_16(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("current source"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_17(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ground"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_18(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("supply rail"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_19(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("SPST switch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_20(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("push button"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_21(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("lamp"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_22(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("motor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_23(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("buzzer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_24(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("fuse"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_25(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("op-amp"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_26(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("voltmeter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_27(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ammeter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_28(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("7-segment"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_29(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("breadboard"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_30(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("AND gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_31(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("OR gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_32(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("NOT gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_33(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("NAND gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_34(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("NOR gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_35(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("XOR gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_36(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("XNOR gate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_37(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("buffer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_38(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("D flip-flop"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_39(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("T flip-flop"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_40(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("logic input"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_41(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("logic probe"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_42(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("NE555"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_43(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LM358"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_44(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ATmega328P"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_45(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC595"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_46(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("L293D"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_47(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ULN2003"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_48(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC00"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_49(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC08"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_50(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC32"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_51(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC86"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_52(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC04"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_53(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("MAX7219"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_54(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("PCF8574"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_55(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("7805"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_56(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("AMS1117"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_57(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("DS3231"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_58(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("MPU6050"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_59(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("nRF24L01"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_60(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("HC-05"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_61(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("HC-SR04"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_62(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("DHT11"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_63(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("servo"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_64(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("TP4056"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_65(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("WS2812B"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_66(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("L298N"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_67(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("relay module"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_68(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("I2C LCD"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_69(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("OLED"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_70(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("Arduino Uno"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_71(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("Arduino Nano"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_72(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("Raspberry Pi Pico"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_73(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("Raspberry Pi GPIO"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_74(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ESP32"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_75(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("ESP8266"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+
+
+// Mechanisms (mech.h): each part drawn there, by its id.
+RDE_INTERNAL void fzs_mech_0(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("link"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_1(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("plate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_2(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 10T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_3(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 15T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_4(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 20T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_5(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 30T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_6(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 40T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_7(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("gear 60T"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_8(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("fixed pivot"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_9(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("drive motor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_10(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("spring"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_11(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("weight"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_12(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("wheel"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_13(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("wall"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_14(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("pulley"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_15(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("rope"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_16(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("crate"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_17(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("rail"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_18(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("slider"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_19(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("rack"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_20(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("pin"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_7402(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC02"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_7474(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC74"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74138(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC138"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74157(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC157"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74161(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC161"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74173(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC173"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74245(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC245"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74283(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC283"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_74189(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC189"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_custom(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("custom part"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+
+
+// Building plans (plan.h): each part drawn there, by its id.
+RDE_INTERNAL void fzs_plan_0(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("door 70"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_1(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("door 80"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_2(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("door 90"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_3(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("double door"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_4(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("sliding door"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_5(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("window 60"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_6(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("window 100"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_7(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("window 120"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_8(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("window 150"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_9(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("window 200"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_10(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("opening 90"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_11(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("single bed"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_12(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("double bed"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_13(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("queen bed"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_14(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("sofa"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_15(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("armchair"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_16(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("dining table"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_17(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("round table"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_18(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("chair"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_19(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("desk"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_20(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("wardrobe"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_21(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("kitchen counter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_22(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("kitchen sink"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_23(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("hob"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_24(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("fridge"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_25(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("washing machine"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_26(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("toilet"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_27(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("bathtub"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_28(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("shower"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_29(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("washbasin"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_30(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("stairs"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_31(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("socket"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_32(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("double socket"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_33(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("light switch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_34(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("two-way switch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_35(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("dimmer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_36(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("bell push"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_37(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("ceiling light"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_38(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("wall light"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_39(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("tube light"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_40(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("consumer unit"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_41(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("junction box"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_42(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("TV point"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_43(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("data point"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_44(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("smoke detector"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_45(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("thermostat"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_46(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("ceiling fan"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_plan_47(fude_zoom_sym* _s) { fude_zoom_plan_draw(fude_zoom_plan_find("meter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+
+// Maths (plot.h): a graph's and axes' box (their axes and curves drawn from their text: render.c, export.c), a number
+// line's line.
+RDE_INTERNAL void fzs_graph(fude_zoom_sym* _s) {
+    fude_zoom_sym_rect(_s, -1, -1, 1, 1, FUDE_ZOOM_SYMBOL_FILLED);
+}
+RDE_INTERNAL void fzs_number_line(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.92, 0.0, 0.92, 0.0, 0u);
+}
+// Sewing: a grainline (an arrow each end), the fold (a bracket, its arrows to the fold), a notch, a button, a buttonhole,
+// a dart, a pattern piece's label.
+RDE_INTERNAL void fzs_grainline(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.95, 0.0, 0.95, 0.0, 0u);
+    fude_zoom_sym_head(_s, 0.95 * _s->hw, 0.0, 1.0, 0.0, 0.08 * _s->hw);
+    fude_zoom_sym_head(_s, -0.95 * _s->hw, 0.0, -1.0, 0.0, 0.08 * _s->hw);
+}
+RDE_INTERNAL void fzs_fold(fude_zoom_sym* _s) {
+    const f64 _b[8] = { -0.9, -1.0, -0.9, 0.6, 0.9, 0.6, 0.9, -1.0 };
+    fude_zoom_sym_poly(_s, _b, 4u, 0u);
+    fude_zoom_sym_head(_s, -0.9 * _s->hw, -_s->hh, 0.0, -1.0, 0.25 * _s->hh);
+    fude_zoom_sym_head(_s, 0.9 * _s->hw, -_s->hh, 0.0, -1.0, 0.25 * _s->hh);
+}
+RDE_INTERNAL void fzs_notch(fude_zoom_sym* _s) {
+    const f64 _t[6] = { -0.8, 1.0, 0.8, 1.0, 0.0, -1.0 };
+    fude_zoom_sym_poly(_s, _t, 3u, FUDE_ZOOM_SYMBOL_CLOSED | FUDE_ZOOM_SYMBOL_SOLID);
+}
+RDE_INTERNAL void fzs_button(fude_zoom_sym* _s) {
+    fude_zoom_sym_ellipse(_s, 0.0, 0.0, _s->hw * 0.95, _s->hh * 0.95, FUDE_ZOOM_SYMBOL_FILLED);
+    for(u32 _i = 0; _i < 4u; _i++) {
+        const f64 _x = (_i % 2u == 0u ? -0.3 : 0.3) * _s->hw, _y = (_i < 2u ? -0.3 : 0.3) * _s->hh;
+        fude_zoom_sym_ellipse(_s, _x, _y, _s->hw * 0.1, _s->hh * 0.1, 0u);
+    }
+}
+RDE_INTERNAL void fzs_buttonhole(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.9, 0.0, 0.9, 0.0, 0u);
+    fude_zoom_sym_line(_s, -0.9, -0.9, -0.9, 0.9, 0u);
+    fude_zoom_sym_line(_s, 0.9, -0.9, 0.9, 0.9, 0u);
+}
+RDE_INTERNAL void fzs_dart(fude_zoom_sym* _s) {
+    const f64 _v[6] = { -1.0, 1.0, 0.0, -1.0, 1.0, 1.0 };
+    fude_zoom_sym_poly(_s, _v, 3u, FUDE_ZOOM_SYMBOL_DASHED);
+    fude_zoom_sym_line(_s, 0.0, 1.0, 0.0, -1.0, FUDE_ZOOM_SYMBOL_DASHED);   // (its fold)
+}
+RDE_INTERNAL void fzs_pattern_label(fude_zoom_sym* _s) {
+    fude_zoom_sym_rect(_s, -1, -1, 1, 1, FUDE_ZOOM_SYMBOL_DASHED);
+}
+
 #define FZS(_id, _name, _fam, _w, _h, _place, _boxes, _hull, _fn) \
     { { _id, FUDE_ZOOM_SYMBOL_FAMILY_##_fam, _w, _h, FUDE_ZOOM_SYMBOL_TEXT_##_place, _boxes, _hull }, _fn }   // (_name: page.c's, in the same order)
 
@@ -1048,6 +1261,179 @@ RDE_INTERNAL const fude_zoom_sym_entry FUDE_ZOOM_SYMBOLS[] = {
     FZS("brace",            ZOOM_SYM_BRACE,          FLOW, 40, 120,  LEFT, 1, true,  fzs_brace),
     FZS("DFD data store",   ZOOM_SYM_DFD_STORE,      DATA, 150, 50,  INSIDE, 1, true,  fzs_dfd_store),
     FZS("area",             ZOOM_SYM_AREA,           PLANNING, 600, 400, CORNER, 1, false, fzs_area),   // (made by Insert's Area, not the library's)
+    // Electronics, logic, chips and modules, boards (circuit.h).
+    FZS("resistor",            ZOOM_SYM_E_RESISTOR,    ELECTRONICS, 60, 20, BELOW, 1, false, fzs_part_0),
+    FZS("potentiometer",       ZOOM_SYM_E_POT,         ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_1),
+    FZS("capacitor",           ZOOM_SYM_E_CAP,         ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_2),
+    FZS("electrolytic",        ZOOM_SYM_E_ECAP,        ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_3),
+    FZS("inductor",            ZOOM_SYM_E_IND,         ELECTRONICS, 60, 20, BELOW, 1, false, fzs_part_4),
+    FZS("diode",               ZOOM_SYM_E_DIODE,       ELECTRONICS, 60, 30, BELOW, 1, false, fzs_part_5),
+    FZS("LED",                 ZOOM_SYM_E_LED,         ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_6),
+    FZS("zener",               ZOOM_SYM_E_ZENER,       ELECTRONICS, 60, 30, BELOW, 1, false, fzs_part_7),
+    FZS("NPN",                 ZOOM_SYM_E_NPN,         ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_8),
+    FZS("PNP",                 ZOOM_SYM_E_PNP,         ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_9),
+    FZS("N-MOSFET",            ZOOM_SYM_E_NMOS,        ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_10),
+    FZS("P-MOSFET",            ZOOM_SYM_E_PMOS,        ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_11),
+    FZS("DC source",           ZOOM_SYM_E_VSRC,        ELECTRONICS, 40, 60, BELOW, 1, false, fzs_part_12),
+    FZS("battery",             ZOOM_SYM_E_BATT,        ELECTRONICS, 40, 60, BELOW, 1, false, fzs_part_13),
+    FZS("AC source",           ZOOM_SYM_E_AC,          ELECTRONICS, 40, 60, BELOW, 1, false, fzs_part_14),
+    FZS("clock",               ZOOM_SYM_E_CLOCK,       ELECTRONICS, 40, 60, BELOW, 1, false, fzs_part_15),
+    FZS("current source",      ZOOM_SYM_E_ISRC,        ELECTRONICS, 40, 60, BELOW, 1, false, fzs_part_16),
+    FZS("ground",              ZOOM_SYM_E_GND,         ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_17),
+    FZS("supply rail",         ZOOM_SYM_E_RAIL,        ELECTRONICS, 60, 20, INSIDE, 1, false, fzs_part_18),
+    FZS("SPST switch",         ZOOM_SYM_E_SWITCH,      ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_19),
+    FZS("push button",         ZOOM_SYM_E_BUTTON,      ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_20),
+    FZS("lamp",                ZOOM_SYM_E_LAMP,        ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_21),
+    FZS("motor",               ZOOM_SYM_E_MOTOR,       ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_22),
+    FZS("buzzer",              ZOOM_SYM_E_BUZZER,      ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_23),
+    FZS("fuse",                ZOOM_SYM_E_FUSE,        ELECTRONICS, 60, 20, BELOW, 1, false, fzs_part_24),
+    FZS("op-amp",              ZOOM_SYM_E_OPAMP,       ELECTRONICS, 80, 80, BELOW, 1, false, fzs_part_25),
+    FZS("voltmeter",           ZOOM_SYM_E_VOLT,        ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_26),
+    FZS("ammeter",             ZOOM_SYM_E_AMP,         ELECTRONICS, 40, 40, BELOW, 1, false, fzs_part_27),
+    FZS("7-segment",           ZOOM_SYM_E_7SEG,        ELECTRONICS, 60, 120, BELOW, 1, false, fzs_part_28),
+    FZS("breadboard",          ZOOM_SYM_E_BREADBOARD,  ELECTRONICS, 330, 185, BELOW, 1, true, fzs_part_29),
+    FZS("AND gate",            ZOOM_SYM_L_AND,         LOGIC, 80, 60, BELOW, 1, false, fzs_part_30),
+    FZS("OR gate",             ZOOM_SYM_L_OR,          LOGIC, 80, 60, BELOW, 1, false, fzs_part_31),
+    FZS("NOT gate",            ZOOM_SYM_L_NOT,         LOGIC, 80, 60, BELOW, 1, false, fzs_part_32),
+    FZS("NAND gate",           ZOOM_SYM_L_NAND,        LOGIC, 80, 60, BELOW, 1, false, fzs_part_33),
+    FZS("NOR gate",            ZOOM_SYM_L_NOR,         LOGIC, 80, 60, BELOW, 1, false, fzs_part_34),
+    FZS("XOR gate",            ZOOM_SYM_L_XOR,         LOGIC, 80, 60, BELOW, 1, false, fzs_part_35),
+    FZS("XNOR gate",           ZOOM_SYM_L_XNOR,        LOGIC, 80, 60, BELOW, 1, false, fzs_part_36),
+    FZS("buffer",              ZOOM_SYM_L_BUF,         LOGIC, 80, 60, BELOW, 1, false, fzs_part_37),
+    FZS("D flip-flop",         ZOOM_SYM_L_DFF,         LOGIC, 80, 80, BELOW, 1, false, fzs_part_38),
+    FZS("T flip-flop",         ZOOM_SYM_L_TFF,         LOGIC, 80, 80, BELOW, 1, false, fzs_part_39),
+    FZS("logic input",         ZOOM_SYM_L_IN,          LOGIC, 60, 40, BELOW, 1, false, fzs_part_40),
+    FZS("logic probe",         ZOOM_SYM_L_OUT,         LOGIC, 40, 40, BELOW, 1, false, fzs_part_41),
+    FZS("NE555",               ZOOM_SYM_C_555,         CHIPS, 200, 100, INSIDE, 1, true, fzs_part_42),
+    FZS("LM358",               ZOOM_SYM_C_LM358,       CHIPS, 200, 100, INSIDE, 1, true, fzs_part_43),
+    FZS("ATmega328P",          ZOOM_SYM_C_328P,        CHIPS, 220, 300, INSIDE, 1, true, fzs_part_44),
+    FZS("74HC595",             ZOOM_SYM_C_595,         CHIPS, 200, 180, INSIDE, 1, true, fzs_part_45),
+    FZS("L293D",               ZOOM_SYM_C_293,         CHIPS, 200, 180, INSIDE, 1, true, fzs_part_46),
+    FZS("ULN2003",             ZOOM_SYM_C_2003,        CHIPS, 200, 180, INSIDE, 1, true, fzs_part_47),
+    FZS("74HC00",              ZOOM_SYM_C_7400,        CHIPS, 200, 160, INSIDE, 1, true, fzs_part_48),
+    FZS("74HC08",              ZOOM_SYM_C_7408,        CHIPS, 200, 160, INSIDE, 1, true, fzs_part_49),
+    FZS("74HC32",              ZOOM_SYM_C_7432,        CHIPS, 200, 160, INSIDE, 1, true, fzs_part_50),
+    FZS("74HC86",              ZOOM_SYM_C_7486,        CHIPS, 200, 160, INSIDE, 1, true, fzs_part_51),
+    FZS("74HC04",              ZOOM_SYM_C_7404,        CHIPS, 200, 160, INSIDE, 1, true, fzs_part_52),
+    FZS("MAX7219",             ZOOM_SYM_C_7219,        CHIPS, 220, 260, INSIDE, 1, true, fzs_part_53),
+    FZS("PCF8574",             ZOOM_SYM_C_8574,        CHIPS, 200, 180, INSIDE, 1, true, fzs_part_54),
+    FZS("7805",                ZOOM_SYM_C_7805,        CHIPS, 80, 40, INSIDE, 1, true, fzs_part_55),
+    FZS("AMS1117",             ZOOM_SYM_C_1117,        CHIPS, 100, 40, INSIDE, 1, true, fzs_part_56),
+    FZS("DS3231",              ZOOM_SYM_M_DS3231,      CHIPS, 200, 140, INSIDE, 1, true, fzs_part_57),
+    FZS("MPU6050",             ZOOM_SYM_M_MPU,         CHIPS, 200, 180, INSIDE, 1, true, fzs_part_58),
+    FZS("nRF24L01",            ZOOM_SYM_M_NRF,         CHIPS, 200, 180, INSIDE, 1, true, fzs_part_59),
+    FZS("HC-05",               ZOOM_SYM_M_HC05,        CHIPS, 200, 140, INSIDE, 1, true, fzs_part_60),
+    FZS("HC-SR04",             ZOOM_SYM_M_SR04,        CHIPS, 200, 100, INSIDE, 1, true, fzs_part_61),
+    FZS("DHT11",               ZOOM_SYM_M_DHT,         CHIPS, 120, 80, INSIDE, 1, true, fzs_part_62),
+    FZS("servo",               ZOOM_SYM_M_SERVO,       CHIPS, 120, 80, INSIDE, 1, true, fzs_part_63),
+    FZS("TP4056",              ZOOM_SYM_M_TP4056,      CHIPS, 200, 140, INSIDE, 1, true, fzs_part_64),
+    FZS("WS2812B",             ZOOM_SYM_M_WS2812,      CHIPS, 120, 100, INSIDE, 1, true, fzs_part_65),
+    FZS("L298N",               ZOOM_SYM_M_L298N,       CHIPS, 200, 280, INSIDE, 1, true, fzs_part_66),
+    FZS("relay module",        ZOOM_SYM_M_RELAY,       CHIPS, 200, 140, INSIDE, 1, true, fzs_part_67),
+    FZS("I2C LCD",             ZOOM_SYM_M_LCD,         CHIPS, 200, 100, INSIDE, 1, true, fzs_part_68),
+    FZS("OLED",                ZOOM_SYM_M_OLED,        CHIPS, 200, 100, INSIDE, 1, true, fzs_part_69),
+    FZS("Arduino Uno",         ZOOM_SYM_B_UNO,         BOARDS, 200, 340, INSIDE, 1, true, fzs_part_70),
+    FZS("Arduino Nano",        ZOOM_SYM_B_NANO,        BOARDS, 180, 320, INSIDE, 1, true, fzs_part_71),
+    FZS("Raspberry Pi Pico",   ZOOM_SYM_B_PICO,        BOARDS, 200, 420, INSIDE, 1, true, fzs_part_72),
+    FZS("Raspberry Pi GPIO",   ZOOM_SYM_B_PI,          BOARDS, 220, 420, INSIDE, 1, true, fzs_part_73),
+    FZS("ESP32",               ZOOM_SYM_B_ESP32,       BOARDS, 200, 320, INSIDE, 1, true, fzs_part_74),
+    FZS("ESP8266",             ZOOM_SYM_B_8266,        BOARDS, 200, 320, INSIDE, 1, true, fzs_part_75),
+    // Mechanisms (mech.h).
+    FZS("link",                ZOOM_SYM_M_LINK,        MECHANISMS, 120, 24, BELOW, 1, false, fzs_mech_0),
+    FZS("plate",               ZOOM_SYM_M_PLATE,       MECHANISMS, 100, 90, BELOW, 1, false, fzs_mech_1),
+    FZS("gear 10T",            ZOOM_SYM_M_GEAR10,      MECHANISMS, 60, 60, BELOW, 1, false, fzs_mech_2),
+    FZS("gear 15T",            ZOOM_SYM_M_GEAR15,      MECHANISMS, 85, 85, BELOW, 1, false, fzs_mech_3),
+    FZS("gear 20T",            ZOOM_SYM_M_GEAR20,      MECHANISMS, 110, 110, BELOW, 1, false, fzs_mech_4),
+    FZS("gear 30T",            ZOOM_SYM_M_GEAR30,      MECHANISMS, 160, 160, BELOW, 1, false, fzs_mech_5),
+    FZS("gear 40T",            ZOOM_SYM_M_GEAR40,      MECHANISMS, 210, 210, BELOW, 1, false, fzs_mech_6),
+    FZS("gear 60T",            ZOOM_SYM_M_GEAR60,      MECHANISMS, 310, 310, BELOW, 1, false, fzs_mech_7),
+    FZS("fixed pivot",         ZOOM_SYM_M_PIVOT,       MECHANISMS, 40, 40, BELOW, 1, false, fzs_mech_8),
+    FZS("drive motor",         ZOOM_SYM_M_MOTOR,       MECHANISMS, 60, 60, BELOW, 1, false, fzs_mech_9),
+    FZS("spring",              ZOOM_SYM_M_SPRING,      MECHANISMS, 100, 24, BELOW, 1, false, fzs_mech_10),
+    FZS("weight",              ZOOM_SYM_M_WEIGHT,      MECHANISMS, 40, 40, BELOW, 1, false, fzs_mech_11),
+    FZS("wheel",               ZOOM_SYM_M_WHEEL,       MECHANISMS, 80, 80, BELOW, 1, false, fzs_mech_12),
+    FZS("wall",                ZOOM_SYM_M_WALL,        MECHANISMS, 240, 20, BELOW, 1, false, fzs_mech_13),
+    // Floor plans and house wiring (plan.h): a true-size one's w, h its centimetres (page.c puts it in so).
+    FZS("door 70",             ZOOM_SYM_P_DOOR70,      FLOORPLAN, 70, 80, BELOW, 1, false, fzs_plan_0),
+    FZS("door 80",             ZOOM_SYM_P_DOOR80,      FLOORPLAN, 80, 90, BELOW, 1, false, fzs_plan_1),
+    FZS("door 90",             ZOOM_SYM_P_DOOR90,      FLOORPLAN, 90, 100, BELOW, 1, false, fzs_plan_2),
+    FZS("double door",         ZOOM_SYM_P_DOOR2,       FLOORPLAN, 140, 80, BELOW, 1, false, fzs_plan_3),
+    FZS("sliding door",        ZOOM_SYM_P_SLIDING,     FLOORPLAN, 160, 10, BELOW, 1, false, fzs_plan_4),
+    FZS("window 60",           ZOOM_SYM_P_WIN60,       FLOORPLAN, 60, 10, BELOW, 1, false, fzs_plan_5),
+    FZS("window 100",          ZOOM_SYM_P_WIN100,      FLOORPLAN, 100, 10, BELOW, 1, false, fzs_plan_6),
+    FZS("window 120",          ZOOM_SYM_P_WIN120,      FLOORPLAN, 120, 10, BELOW, 1, false, fzs_plan_7),
+    FZS("window 150",          ZOOM_SYM_P_WIN150,      FLOORPLAN, 150, 10, BELOW, 1, false, fzs_plan_8),
+    FZS("window 200",          ZOOM_SYM_P_WIN200,      FLOORPLAN, 200, 10, BELOW, 1, false, fzs_plan_9),
+    FZS("opening 90",          ZOOM_SYM_P_OPENING,     FLOORPLAN, 90, 10, BELOW, 1, false, fzs_plan_10),
+    FZS("single bed",          ZOOM_SYM_P_BED1,        FLOORPLAN, 90, 190, BELOW, 1, false, fzs_plan_11),
+    FZS("double bed",          ZOOM_SYM_P_BED2,        FLOORPLAN, 140, 190, BELOW, 1, false, fzs_plan_12),
+    FZS("queen bed",           ZOOM_SYM_P_BED3,        FLOORPLAN, 160, 200, BELOW, 1, false, fzs_plan_13),
+    FZS("sofa",                ZOOM_SYM_P_SOFA,        FLOORPLAN, 200, 90, BELOW, 1, false, fzs_plan_14),
+    FZS("armchair",            ZOOM_SYM_P_ARMCHAIR,    FLOORPLAN, 80, 80, BELOW, 1, false, fzs_plan_15),
+    FZS("dining table",        ZOOM_SYM_P_TABLE,       FLOORPLAN, 160, 90, BELOW, 1, false, fzs_plan_16),
+    FZS("round table",         ZOOM_SYM_P_RTABLE,      FLOORPLAN, 100, 100, BELOW, 1, false, fzs_plan_17),
+    FZS("chair",               ZOOM_SYM_P_CHAIR,       FLOORPLAN, 45, 50, BELOW, 1, false, fzs_plan_18),
+    FZS("desk",                ZOOM_SYM_P_DESK,        FLOORPLAN, 140, 70, BELOW, 1, false, fzs_plan_19),
+    FZS("wardrobe",            ZOOM_SYM_P_WARDROBE,    FLOORPLAN, 120, 60, BELOW, 1, false, fzs_plan_20),
+    FZS("kitchen counter",     ZOOM_SYM_P_COUNTER,     FLOORPLAN, 240, 60, BELOW, 1, false, fzs_plan_21),
+    FZS("kitchen sink",        ZOOM_SYM_P_SINK,        FLOORPLAN, 80, 50, BELOW, 1, false, fzs_plan_22),
+    FZS("hob",                 ZOOM_SYM_P_HOB,         FLOORPLAN, 60, 60, BELOW, 1, false, fzs_plan_23),
+    FZS("fridge",              ZOOM_SYM_P_FRIDGE,      FLOORPLAN, 60, 65, BELOW, 1, false, fzs_plan_24),
+    FZS("washing machine",     ZOOM_SYM_P_WASHER,      FLOORPLAN, 60, 60, BELOW, 1, false, fzs_plan_25),
+    FZS("toilet",              ZOOM_SYM_P_TOILET,      FLOORPLAN, 40, 65, BELOW, 1, false, fzs_plan_26),
+    FZS("bathtub",             ZOOM_SYM_P_BATH,        FLOORPLAN, 170, 75, BELOW, 1, false, fzs_plan_27),
+    FZS("shower",              ZOOM_SYM_P_SHOWER,      FLOORPLAN, 90, 90, BELOW, 1, false, fzs_plan_28),
+    FZS("washbasin",           ZOOM_SYM_P_BASIN,       FLOORPLAN, 60, 45, BELOW, 1, false, fzs_plan_29),
+    FZS("stairs",              ZOOM_SYM_P_STAIRS,      FLOORPLAN, 100, 280, BELOW, 1, false, fzs_plan_30),
+    FZS("socket",              ZOOM_SYM_W_SOCKET,      WIRING, 40, 30, BELOW, 1, false, fzs_plan_31),
+    FZS("double socket",       ZOOM_SYM_W_SOCKET2,     WIRING, 50, 30, BELOW, 1, false, fzs_plan_32),
+    FZS("light switch",        ZOOM_SYM_W_SWITCH,      WIRING, 36, 36, BELOW, 1, false, fzs_plan_33),
+    FZS("two-way switch",      ZOOM_SYM_W_SWITCH2,     WIRING, 36, 36, BELOW, 1, false, fzs_plan_34),
+    FZS("dimmer",              ZOOM_SYM_W_DIMMER,      WIRING, 36, 36, BELOW, 1, false, fzs_plan_35),
+    FZS("bell push",           ZOOM_SYM_W_BELL,        WIRING, 30, 30, BELOW, 1, false, fzs_plan_36),
+    FZS("ceiling light",       ZOOM_SYM_W_LIGHT,       WIRING, 40, 40, BELOW, 1, false, fzs_plan_37),
+    FZS("wall light",          ZOOM_SYM_W_WLIGHT,      WIRING, 40, 40, BELOW, 1, false, fzs_plan_38),
+    FZS("tube light",          ZOOM_SYM_W_TUBE,        WIRING, 80, 20, BELOW, 1, false, fzs_plan_39),
+    FZS("consumer unit",       ZOOM_SYM_W_BOARD,       WIRING, 60, 30, BELOW, 1, false, fzs_plan_40),
+    FZS("junction box",        ZOOM_SYM_W_JUNCTION,    WIRING, 24, 24, BELOW, 1, false, fzs_plan_41),
+    FZS("TV point",            ZOOM_SYM_W_TV,          WIRING, 36, 30, BELOW, 1, false, fzs_plan_42),
+    FZS("data point",          ZOOM_SYM_W_DATA,        WIRING, 36, 30, BELOW, 1, false, fzs_plan_43),
+    FZS("smoke detector",      ZOOM_SYM_W_SMOKE,       WIRING, 36, 36, BELOW, 1, false, fzs_plan_44),
+    FZS("thermostat",          ZOOM_SYM_W_THERMO,      WIRING, 36, 36, BELOW, 1, false, fzs_plan_45),
+    FZS("ceiling fan",         ZOOM_SYM_W_FAN,         WIRING, 50, 50, BELOW, 1, false, fzs_plan_46),
+    FZS("meter",               ZOOM_SYM_W_METER,       WIRING, 44, 30, BELOW, 1, false, fzs_plan_47),
+    // Maths (plot.h) and sewing.
+    FZS("graph",               ZOOM_SYM_X_GRAPH,       MATHS, 320, 220, CORNER, 1, true, fzs_graph),
+    FZS("axes",                ZOOM_SYM_X_AXES,        MATHS, 240, 240, CORNER, 1, true, fzs_graph),
+    FZS("number line",         ZOOM_SYM_X_LINE,        MATHS, 320, 50, BELOW, 1, true, fzs_number_line),
+    FZS("grainline",           ZOOM_SYM_S_GRAIN,       SEWING, 160, 20, BELOW, 1, true, fzs_grainline),
+    FZS("place on fold",       ZOOM_SYM_S_FOLD,        SEWING, 160, 40, BELOW, 1, true, fzs_fold),
+    FZS("notch",               ZOOM_SYM_S_NOTCH,       SEWING, 16, 20, BELOW, 1, true, fzs_notch),
+    FZS("button",              ZOOM_SYM_S_BUTTON,      SEWING, 30, 30, BELOW, 1, false, fzs_button),
+    FZS("buttonhole",          ZOOM_SYM_S_HOLE,        SEWING, 50, 12, BELOW, 1, true, fzs_buttonhole),
+    FZS("dart",                ZOOM_SYM_S_DART,        SEWING, 40, 100, BELOW, 1, true, fzs_dart),
+    FZS("pattern label",       ZOOM_SYM_S_LABEL,       SEWING, 180, 90, INSIDE, 1, true, fzs_pattern_label),
+    // (0.1.49: what hangs, and what it hangs from)
+    FZS("pulley",              ZOOM_SYM_M_PULLEY,      MECHANISMS, 80, 80, BELOW, 1, false, fzs_mech_14),
+    FZS("rope",                ZOOM_SYM_M_ROPE,        MECHANISMS, 200, 12, BELOW, 1, false, fzs_mech_15),
+    FZS("crate",               ZOOM_SYM_M_CRATE,       MECHANISMS, 60, 50, BELOW, 1, false, fzs_mech_16),
+    // (0.1.50: what slides)
+    FZS("rail",                ZOOM_SYM_M_RAIL,        MECHANISMS, 300, 16, BELOW, 1, false, fzs_mech_17),
+    FZS("slider",              ZOOM_SYM_M_SLIDER,      MECHANISMS, 60, 36, BELOW, 1, false, fzs_mech_18),
+    FZS("rack",                ZOOM_SYM_M_RACK,        MECHANISMS, 300, 30, BELOW, 1, false, fzs_mech_19),
+    // (0.1.51: what joins drawn bodies)
+    FZS("pin",                 ZOOM_SYM_M_PIN,         MECHANISMS, 16, 16, BELOW, 1, false, fzs_mech_20),
+    // (0.1.51: the simulation's chips (sim/chips.c), and a person's own parts)
+    FZS("74HC02",              ZOOM_SYM_C_7402,      CHIPS, 200, 160, INSIDE, 1, true, fzs_chip_7402),
+    FZS("74HC74",              ZOOM_SYM_C_7474,      CHIPS, 200, 160, INSIDE, 1, true, fzs_chip_7474),
+    FZS("74HC138",             ZOOM_SYM_C_74138,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74138),
+    FZS("74HC157",             ZOOM_SYM_C_74157,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74157),
+    FZS("74HC161",             ZOOM_SYM_C_74161,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74161),
+    FZS("74HC173",             ZOOM_SYM_C_74173,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74173),
+    FZS("74HC245",             ZOOM_SYM_C_74245,     CHIPS, 200, 220, INSIDE, 1, true, fzs_chip_74245),
+    FZS("74HC283",             ZOOM_SYM_C_74283,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74283),
+    FZS("74HC189",             ZOOM_SYM_C_74189,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74189),
+    FZS("custom part",         ZOOM_SYM_L_CUSTOM,      LOGIC, 120, 120, INSIDE, 1, true, fzs_custom),
 };
 
 #define FUDE_ZOOM_SYMBOL_N ((u32)(sizeof(FUDE_ZOOM_SYMBOLS) / sizeof(FUDE_ZOOM_SYMBOLS[0])))
@@ -1069,11 +1455,26 @@ const fude_zoom_symbol_info* fude_zoom_symbol_info_of(u32 _kind) {
     return _kind < FUDE_ZOOM_SYMBOL_N ? &FUDE_ZOOM_SYMBOLS[_kind].info : NULL;
 }
 
+RDE_INTERNAL fude_zoom_symbol_art_fn fzs_art = NULL;
+
+void fude_zoom_symbol_set_art(fude_zoom_symbol_art_fn _fn) {
+    fzs_art = _fn;
+}
+
 u32 fude_zoom_symbol_parts(u32 _kind, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts) {
     rde_arr_clear(_points);
     rde_arr_clear(_parts);
     if(_kind >= FUDE_ZOOM_SYMBOL_N) {
         return 0;
+    }
+    if(fzs_art != NULL) {
+        // (its art, where the app has it)
+        const u32 _n = fzs_art(_kind, fabs(_hw), fabs(_hh), _segments < 16u ? 16u : (_segments > 256u ? 256u : _segments), _points, _parts);
+        if(_n > 0u) {
+            return _n;
+        }
+        rde_arr_clear(_points);
+        rde_arr_clear(_parts);
     }
     fude_zoom_sym _s = { _points, _parts, fabs(_hw), fabs(_hh), _segments < 16u ? 16u : (_segments > 256u ? 256u : _segments), 0u };
     FUDE_ZOOM_SYMBOLS[_kind].draw(&_s);
