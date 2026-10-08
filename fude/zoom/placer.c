@@ -4,6 +4,7 @@
 #include "zoom/circuit.h"
 #include "zoom/symbol.h"
 #include "zoom/shape.h"
+#include "zoom/display.h"
 #include "drawing/base/theme.h"
 #include <math.h>
 #include <string.h>
@@ -24,9 +25,11 @@ u32 fude_zoom_placer_part(fude_zoom_placer* _p, const c8* _id, f64 _x, f64 _y, f
     if(_info == NULL) {
         return FUDE_ZOOM_NONE;
     }
+    // (its size as it comes: a sized display's as big as its text says)
+    f64 _cw = (f64)_info->w, _ch = (f64)_info->h;
+    fude_zoom_display_room(fude_zoom_part_of_text(_kind, _text), &_cw, &_ch);
     f64 _n[FUDE_ZOOM_SHAPE_NUMBERS + 200];
-    const u32 _count = fude_zoom_symbol_numbers(_n, _kind, (_w > 0.0 ? _w : (f64)_info->w) * 0.5 * _p->u, (_h > 0.0 ? _h : (f64)_info->h) * 0.5 * _p->u,
-                                                12.0 * _p->u, _text);
+    const u32 _count = fude_zoom_symbol_numbers(_n, _kind, (_w > 0.0 ? _w : _cw) * 0.5 * _p->u, (_h > 0.0 ? _h : _ch) * 0.5 * _p->u, 12.0 * _p->u, _text);
     const f64 _turned = _turn * FZPL_DEG + atan2(_p->to_frame.b, _p->to_frame.a);
     const u32 _made = fude_zoom_scene_add_shape_fill(_p->s, _p->frame, (fude_zoom_place){ fude_zoom_placer_at(_p, _x, _y), _turned, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, _n,
                                                      _count, _p->ink, (f32)_p->u, FUDE_ZOOM_FLAG_FILLED | FUDE_ZOOM_FLAG_FILL_OWN, FUDE_THEME_PAGE_FILL, 0);

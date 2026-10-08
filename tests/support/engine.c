@@ -44,6 +44,7 @@ FUDE_STUB void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u
 FUDE_STUB void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
 FUDE_STUB void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)t; (void)p; (void)s; (void)r; (void)c; }
 FUDE_STUB u8* rde_image_decode(const u8* b, usize n, u32* w, u32* h, rde_memory_allocator* a) { (void)b; (void)n; (void)a; if(w) *w = 0; if(h) *h = 0; return NULL; }
+FUDE_STUB void rde_rendering_2d_draw_triangle(const rde_vec_2F a, const rde_vec_2F b, const rde_vec_2F c, const rde_color k, rde_shader* sh) { (void)a; (void)b; (void)c; (void)k; (void)sh; }
 FUDE_STUB void rde_rendering_2d_draw_line_1(rde_vec_2F a, rde_vec_2F b, rde_color c, f32 t) { (void)a; (void)b; (void)c; (void)t; }
 FUDE_STUB void rde_rendering_2d_draw_polygon(const rde_vec_2F* p, u32 n, const rde_color c, rde_shader* sh) { (void)p; (void)n; (void)c; (void)sh; }
 FUDE_STUB void rde_rendering_2d_draw_circle_with_border(const rde_vec_2F p, f32 r, u32 s, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)p; (void)r; (void)s; (void)f; (void)t; (void)b; (void)sh; }

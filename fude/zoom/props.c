@@ -98,6 +98,27 @@ u32 fude_zoom_props_add_light(fude_zoom_scene* _s, u32 _target, rde_color _color
     return fzp_add(_s, _target, _n, FZP_LIGHT_NUMBERS);
 }
 
+#define FZP_LIMITS_NUMBERS 8u   // limits': kind, the id's two halves, four limits, the real part's index + 1 (0: its own)
+
+b8 fude_zoom_props_limits(const fude_zoom_scene* _s, u32 _props, f64* _most, i32* _preset) {
+    f64 _n[FUDE_ZOOM_PROPS_NUMBERS];
+    if(fzp_numbers(_s, _props, _n) < FZP_LIMITS_NUMBERS || (u8)_n[0] != FUDE_ZOOM_PROPS_LIMITS) {
+        return false;
+    }
+    for(u32 _k = 0; _k < 4u; _k++) {
+        _most[_k] = isfinite(_n[3u + _k]) && _n[3u + _k] > 0.0 ? _n[3u + _k] : 0.0;
+    }
+    *_preset = isfinite(_n[7]) && _n[7] >= 1.0 ? (i32)_n[7] - 1 : -1;
+    return true;
+}
+
+u32 fude_zoom_props_add_limits(fude_zoom_scene* _s, u32 _target, const f64* _most, i32 _preset) {
+    f64 _n[FZP_LIMITS_NUMBERS] = { (f64)FUDE_ZOOM_PROPS_LIMITS, 0.0, 0.0, fmax(_most[0], 0.0), fmax(_most[1], 0.0), fmax(_most[2], 0.0), fmax(_most[3], 0.0),
+                                   _preset >= 0 ? (f64)_preset + 1.0 : 0.0 };
+    fude_zoom_id_put(&_n[1], fude_zoom_scene_object(_s, _target)->id);
+    return fzp_add(_s, _target, _n, FZP_LIMITS_NUMBERS);
+}
+
 u32 fude_zoom_props_remap(fude_zoom_scene* _s, u32 _props, const fude_zoom_id* _old, const fude_zoom_id* _new, u32 _n) {
     f64 _num[FUDE_ZOOM_PROPS_NUMBERS];
     const u32 _count = fzp_numbers(_s, _props, _num);

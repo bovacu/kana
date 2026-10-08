@@ -1012,6 +1012,13 @@ RDE_INTERNAL void fzs_chip_74173(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_z
 RDE_INTERNAL void fzs_chip_74245(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC245"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_chip_74283(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC283"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_chip_74189(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("74HC189"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_panel(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("7-segment panel"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_matrix(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LED matrix"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_bar(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LED bar graph"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_3914(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LM3914"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_chip_4511(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("CD4511"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_meter(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("panel meter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_lcd(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("character LCD"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_custom(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("custom part"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 
 
@@ -1325,7 +1332,7 @@ RDE_INTERNAL const fude_zoom_sym_entry FUDE_ZOOM_SYMBOLS[] = {
     FZS("HC-05",               ZOOM_SYM_M_HC05,        CHIPS, 200, 140, INSIDE, 1, true, fzs_part_60),
     FZS("HC-SR04",             ZOOM_SYM_M_SR04,        CHIPS, 200, 100, INSIDE, 1, true, fzs_part_61),
     FZS("DHT11",               ZOOM_SYM_M_DHT,         CHIPS, 120, 80, INSIDE, 1, true, fzs_part_62),
-    FZS("servo",               ZOOM_SYM_M_SERVO,       CHIPS, 120, 80, INSIDE, 1, true, fzs_part_63),
+    FZS("servo",               ZOOM_SYM_M_SERVO,       CHIPS, 120, 80, BELOW, 1, true, fzs_part_63),   // (its name under it: its horn turns over its middle)
     FZS("TP4056",              ZOOM_SYM_M_TP4056,      CHIPS, 200, 140, INSIDE, 1, true, fzs_part_64),
     FZS("WS2812B",             ZOOM_SYM_M_WS2812,      CHIPS, 120, 100, INSIDE, 1, true, fzs_part_65),
     FZS("L298N",               ZOOM_SYM_M_L298N,       CHIPS, 200, 280, INSIDE, 1, true, fzs_part_66),
@@ -1434,6 +1441,14 @@ RDE_INTERNAL const fude_zoom_sym_entry FUDE_ZOOM_SYMBOLS[] = {
     FZS("74HC283",             ZOOM_SYM_C_74283,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74283),
     FZS("74HC189",             ZOOM_SYM_C_74189,     CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_74189),
     FZS("custom part",         ZOOM_SYM_L_CUSTOM,      LOGIC, 120, 120, INSIDE, 1, true, fzs_custom),
+    // Displays (display.h): the sized ones as their kind comes — 4 digits, 8 × 8, 16 × 2.
+    FZS("7-segment panel",     ZOOM_SYM_E_SEGPANEL,    ELECTRONICS, 300, 180, BELOW, 1, true, fzs_disp_panel),
+    FZS("LED matrix",          ZOOM_SYM_E_MATRIX,      ELECTRONICS, 200, 200, BELOW, 1, true, fzs_disp_matrix),
+    FZS("LED bar graph",       ZOOM_SYM_E_BARGRAPH,    ELECTRONICS, 140, 220, BELOW, 1, true, fzs_disp_bar),
+    FZS("LM3914",              ZOOM_SYM_C_3914,        CHIPS, 200, 200, INSIDE, 1, true, fzs_chip_3914),
+    FZS("CD4511",              ZOOM_SYM_C_4511,        CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_4511),
+    FZS("panel meter",         ZOOM_SYM_E_METER,       ELECTRONICS, 160, 80, BELOW, 1, true, fzs_disp_meter),
+    FZS("character LCD",       ZOOM_SYM_M_CHARLCD,     CHIPS, 340, 130, BELOW, 1, true, fzs_disp_lcd),
 };
 
 #define FUDE_ZOOM_SYMBOL_N ((u32)(sizeof(FUDE_ZOOM_SYMBOLS) / sizeof(FUDE_ZOOM_SYMBOLS[0])))

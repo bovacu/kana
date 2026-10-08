@@ -25,14 +25,14 @@ RDE_INTERNAL u32 fsb_distinct(const fude_sim_v2* _in, u32 _n, rde_arr* _out) {
 }
 
 RDE_INTERNAL const fude_sim_material FSB_MATERIALS[] = {
-    { "wood",      "Wood",      600.0,  0.50, 0.30 },
-    { "steel",     "Steel",     7850.0, 0.40, 0.20 },
-    { "aluminium", "Aluminium", 2700.0, 0.40, 0.20 },
-    { "rubber",    "Rubber",    1100.0, 0.90, 0.80 },
-    { "plastic",   "Plastic",   950.0,  0.30, 0.40 },
-    { "glass",     "Glass",     2500.0, 0.20, 0.10 },
-    { "ice",       "Ice",       917.0,  0.03, 0.05 },
-    { "foam",      "Foam",      50.0,   0.60, 0.30 },
+    { "wood",      "Wood",      600.0,  0.50, 0.30, 40.0 },
+    { "steel",     "Steel",     7850.0, 0.40, 0.20, 400.0 },
+    { "aluminium", "Aluminium", 2700.0, 0.40, 0.20, 200.0 },
+    { "rubber",    "Rubber",    1100.0, 0.90, 0.80, 15.0 },
+    { "plastic",   "Plastic",   950.0,  0.30, 0.40, 40.0 },
+    { "glass",     "Glass",     2500.0, 0.20, 0.10, 30.0 },
+    { "ice",       "Ice",       917.0,  0.03, 0.05, 1.0 },
+    { "foam",      "Foam",      50.0,   0.60, 0.30, 0.3 },
 };
 
 u32 fude_sim_material_count(void) {

@@ -326,6 +326,8 @@ RDE_INTERNAL u32 sketching_circuit_run = 0;
 RDE_INTERNAL u32 sketching_mech[2];                    // --mech=DEMO@N: a demo mechanism (page.c's look_mech)
 RDE_INTERNAL u32 sketching_mech_run = 0;
 RDE_INTERNAL c8  sketching_value[96];                  // --value=ID,TEXT,UNIT,WAY@N: the first symbol ID given a value (Value's card)
+RDE_INTERNAL c8  sketching_limits[96];                 // --limits=ID,PRESET,FIELD,TYPED,UNIT,FINISH@N: the first symbol ID's Limits card
+RDE_INTERNAL u32 sketching_limits_frame = 0;
 RDE_INTERNAL u32 sketching_value_frame = 0;
 RDE_INTERNAL u32 sketching_slider[2];                  // --slider=I,PERCENT@N: Play's slider I set PERCENT along
 RDE_INTERNAL f64 sketching_slider_t = 0.0;
@@ -815,6 +817,12 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             }
         } else if((_v = fude_look_value(_argv[_i], "--mech")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_mech[0], &sketching_mech[1]);
+        } else if((_v = fude_look_value(_argv[_i], "--limits")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            if(_at != NULL) {
+                snprintf(sketching_limits, sizeof(sketching_limits), "%.*s", (int)(_at - _v), _v);
+                sketching_limits_frame = (u32)atoi(_at + 1);
+            }
         } else if((_v = fude_look_value(_argv[_i], "--value")) != NULL) {
             const c8* _at = strrchr(_v, '@');
             if(_at != NULL) {
@@ -1493,6 +1501,16 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     }
     if(sketching_circuit_run > 0u && sketching_frames == sketching_circuit_run) {
         fude_zoom_page_look_circuit_run(&zoom);
+    }
+    if(sketching_limits_frame > 0u && sketching_frames == sketching_limits_frame) {
+        c8 _id[48] = { 0 }, _typed[24] = { 0 };
+        i32 _preset = -1;
+        u32 _field = 0, _unit = 0, _finish = 0;
+        const c8* _c1 = strchr(sketching_limits, ',');
+        if(_c1 != NULL && sscanf(_c1 + 1, "%d,%u,%23[^,],%u,%u", &_preset, &_field, _typed, &_unit, &_finish) >= 2) {
+            snprintf(_id, sizeof(_id), "%.*s", (int)(_c1 - sketching_limits), sketching_limits);
+            fude_zoom_page_look_limits(&zoom, _id, _preset, _field, strcmp(_typed, "-") == 0 ? "" : _typed, _unit, _finish);
+        }
     }
     if(sketching_value_frame > 0u && sketching_frames == sketching_value_frame) {
         c8 _id[48] = { 0 }, _typed[24] = { 0 };

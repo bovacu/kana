@@ -12,6 +12,7 @@
 #include <string.h>
 
 #define FZM_PI 3.14159265358979323846
+#define FZM_MOTOR_TORQUE 10.0   // a drive motor held still, unless its text says: how hard it turns (N·m — a strong geared one's)
 
 // (Gears: a module of 5 points as they come — their pitch circle 5 × teeth across —, so any two mesh.)
 RDE_INTERNAL const fude_zoom_mech_part FZM_PARTS[] = {
@@ -510,6 +511,7 @@ RDE_INTERNAL void fzm_drawn(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, 
     _b.fixed    = _bp->fixed || !_closed;
     _b.friction = _bp->friction >= 0.0 ? _bp->friction : _mat->friction;
     _b.bounce   = _bp->bounce >= 0.0 ? _bp->bounce : _mat->bounce;
+    _b.strength = _mat->strength;
     _b.piece    = (u32)rde_arr_length(&_p->piece_counts);
     rde_arr _pp = rde_arr_new(sizeof(fude_sim_v2), _heap), _pc = rde_arr_new(sizeof(u32), _heap);
     fude_sim_v2 _centre = { (_x0 + _x1) * 0.5, (_y0 + _y1) * 0.5 };
@@ -756,9 +758,9 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         }
         const fude_zoom_mech_part* _part = fude_zoom_mech_of(_s, _i);
         if(_part == NULL) {
-            // (a circuit's motor: its shaft, what is pinned on it turned as the circuit drives it)
+            // (a circuit's motor or servo: its shaft, what is pinned on it turned as the circuit drives it)
             const fude_zoom_part* _ep = fude_zoom_part_of(_s, _i);
-            _part = _ep != NULL && _ep->model == FUDE_ZOOM_MODEL_MOTOR ? fude_zoom_mech_find("motor shaft") : NULL;
+            _part = _ep != NULL && (_ep->model == FUDE_ZOOM_MODEL_MOTOR || _ep->model == FUDE_ZOOM_MODEL_SERVO) ? fude_zoom_mech_find("motor shaft") : NULL;
         }
         if(_part == NULL) {
             continue;
@@ -785,7 +787,9 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         f64 _v = 0.0;
         const b8 _has = fude_zoom_circuit_value(_text, 0u, &_v);
         if(_part->kind == FUDE_ZOOM_MECH_MOTOR) {
-            _b.value = (_has ? _v : 30.0) / 60.0;   // (rpm: turns a second)
+            f64 _nm = 0.0;
+            _b.value  = (_has ? _v : 30.0) / 60.0;   // (rpm: turns a second)
+            _b.torque = fude_zoom_circuit_value(_text, 1u, &_nm) && _nm > 0.0 ? _nm : FZM_MOTOR_TORQUE;
             if(strstr(_text, "-") != NULL || strstr(_text, "cw") != NULL || strstr(_text, "CW") != NULL) {
                 _b.value = -_b.value;   // (clockwise)
             }
@@ -867,15 +871,16 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
                     if(hypot(_q.x - _at.x, _q.y - _at.y) > _tol) {
                         continue;
                     }
-                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0, FUDE_ZOOM_NONE };
+                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0, 0.0, FUDE_ZOOM_NONE };
                     const u32 _fixed = _b[_i].fixed ? _i : (_b[_j].fixed ? _j : FUDE_ZOOM_NONE);
                     if(_fixed != FUDE_ZOOM_NONE) {
                         _hg.a = _fixed == _i ? _j : _i;
                         _hg.b = FUDE_ZOOM_NONE;
                         _hg.at = fzm_hole(&_b[_fixed], _fixed == _i ? _h : _g);   // (on the ground where the pivot is)
                         if(_b[_fixed].part->kind == FUDE_ZOOM_MECH_MOTOR) {
-                            _hg.motor = true;
-                            _hg.speed = 2.0 * FZM_PI * _b[_fixed].value;
+                            _hg.motor  = true;
+                            _hg.speed  = 2.0 * FZM_PI * _b[_fixed].value;
+                            _hg.torque = _b[_fixed].torque;
                         } else if(_b[_fixed].part->kind == FUDE_ZOOM_MECH_SHAFT) {
                             _hg.shaft = _fixed;
                         }
@@ -896,7 +901,7 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             _held = _held || _h[_k].a == _i || _h[_k].b == _i;
         }
         if(!_held) {
-            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_axle);
         }
     }
@@ -921,11 +926,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             }
         }
         for(u32 _k = 1; _k < _m; _k++) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
         if(_m > 0u && (_ground || _m == 1u)) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0, 0.0, FUDE_ZOOM_NONE };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
     }

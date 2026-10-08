@@ -9,6 +9,18 @@
 #define FZW_SUB_STEPS 8u      // (RDE's 4 by itself: twice, for gear trains light and heavy)
 #define FZW_SPIN_UP   0.25    // seconds a motor takes to come up to its speed
 #define FZW_STIFF     1.0e4f  // a pin's, a slide's stiffness (Hz: as stiff as RDE lets it be — a machine's pins do not give)
+#define FZW_PLASTIC   40.0    // the library's parts' material's strength (MPa: plastic, as a toy's or a printed one's)
+#define FZW_GROUND    400.0   // the ground's (steel)
+#define FZW_THICK     10.0    // a part's thickness (mm: sim/body.h's plate)
+#define FZW_ROPE      2000.0  // a rope's strength (N: a 6 mm rope)
+#define FZW_PIN_LEAST 3.0     // a pin's width (mm): six tenths of its thinner part's half width, so much at least…
+#define FZW_PIN_MOST  12.0    // …and at most
+#define FZW_SETTLE    0.1     // seconds parts take to settle as it starts (drawn a little off): no load counted
+#define FZW_OVER      4u      // steps past its strength in a row before it breaks (a 60th of a second)…
+#define FZW_SNAP      3.0     // …or at once this far past it
+#define FZW_APART     1.5     // a pin's parts this far apart (mm) for…
+#define FZW_APART_FOR 0.3     // …this long (s): they cannot fit
+#define FZW_HELD_FOR  0.5     // a motor held still this long (s) while it drives: jammed
 
 void fude_zoom_mech_world_init(fude_zoom_mech_world* _w) {
     memset(_w, 0, sizeof(*_w));
@@ -20,6 +32,8 @@ void fude_zoom_mech_world_init(fude_zoom_mech_world* _w) {
     _w->ropes_were = rde_arr_new(sizeof(f64), _heap);
     _w->motors     = rde_arr_new(sizeof(fude_zoom_mech_motor), _heap);
     _w->shafts     = rde_arr_new(sizeof(fude_zoom_mech_shaft), _heap);
+    _w->joints     = rde_arr_new(sizeof(fude_zoom_mech_joint), _heap);
+    _w->events     = rde_arr_new(sizeof(fude_zoom_mech_event), _heap);
     _w->k          = 1.0;
 }
 
@@ -35,6 +49,8 @@ void fude_zoom_mech_world_stop(fude_zoom_mech_world* _w) {
     rde_arr_clear(&_w->ropes_were);
     rde_arr_clear(&_w->motors);
     rde_arr_clear(&_w->shafts);
+    rde_arr_clear(&_w->joints);
+    rde_arr_clear(&_w->events);
     _w->time = 0.0;
     _w->left = 0.0;
 }
@@ -48,6 +64,18 @@ void fude_zoom_mech_world_destroy(fude_zoom_mech_world* _w) {
     rde_arr_free(&_w->ropes_were);
     rde_arr_free(&_w->motors);
     rde_arr_free(&_w->shafts);
+    rde_arr_free(&_w->joints);
+    rde_arr_free(&_w->events);
+}
+
+b8 fude_zoom_mech_world_broken(const fude_zoom_mech_world* _w, u8 _kind, u32 _item) {
+    const fude_zoom_mech_joint* _j = (const fude_zoom_mech_joint*)_w->joints.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->joints); _i++) {
+        if(_j[_i].kind == _kind && _j[_i].item == _item) {
+            return _j[_i].joint == NULL;
+        }
+    }
+    return false;
 }
 
 b8 fude_zoom_mech_world_on(const fude_zoom_mech_world* _w) {
@@ -61,7 +89,33 @@ typedef struct {
     rde_physics_2d_joint* hinge;
     f64                   sign;
     rde_physics_2d_joint* slide;
+    u32                   hinge_at, slide_at;   // (their places in the world's joints)
 } fzw_held;
+
+// A body's material's strength (MPa: the ground's, steel's; the library's parts', plastic's).
+RDE_INTERNAL f64 fzw_strength(const fude_zoom_mech_world* _w, u32 _i) {
+    if(_i == FUDE_ZOOM_NONE || _i >= (u32)rde_arr_length(&_w->plan.bodies)) {
+        return FZW_GROUND;
+    }
+    const f64 _s = ((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_i].strength;
+    return _s > 0.0 ? _s : FZW_PLASTIC;
+}
+
+// A joint noted (its place in joints).
+RDE_INTERNAL u32 fzw_note(fude_zoom_mech_world* _w, rde_physics_2d_joint* _j, u8 _kind, u32 _item, u32 _a, u32 _b, fude_zoom_v2 _at, f64 _strength) {
+    fude_zoom_mech_joint _r;
+    memset(&_r, 0, sizeof(_r));
+    _r.joint    = _j;
+    _r.kind     = _kind;
+    _r.item     = _item;
+    _r.a        = _a;
+    _r.b        = _b;
+    _r.at       = _at;
+    _r.strength = _strength;
+    _r.on[0]    = _r.on[1] = FUDE_ZOOM_NONE;
+    rde_arr_add(&_w->joints, (any)&_r);
+    return (u32)rde_arr_length(&_w->joints) - 1u;
+}
 
 RDE_INTERNAL rde_vec_2F fzw_local(const fude_zoom_mech_world* _w, u32 _i, fude_zoom_v2 _p) {
     const fude_zoom_mech_body* _b = &((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_i];
@@ -240,10 +294,20 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             _j = rde_physics_2d_joint_create_hinge(_w->world, _a, fzw_local(_w, _h[_i].a, _h[_i].at), _bb, fzw_local(_w, _h[_i].b, _h[_i].at));
         }
         rde_physics_2d_joint_set_stiffness(_j, FZW_STIFF, 2.0f);
+        // (its pin's strength: its weaker part's material in shear — ⅗ of its strength — over a pin six tenths of its
+        // thinner part's half width across, 3 to 12 mm)
+        const f64 _ha  = _b[_h[_i].a].hh, _hb = _h[_i].b != FUDE_ZOOM_NONE ? _b[_h[_i].b].hh : _ha;
+        const f64 _d   = fmin(fmax(0.6 * fmin(_ha, _hb), FZW_PIN_LEAST), FZW_PIN_MOST);
+        const u32 _pin = fzw_note(_w, _j, FUDE_ZOOM_MECH_JOINT_PIN, _i, _h[_i].a, _h[_i].b, _h[_i].at,
+                                  0.6 * fmin(fzw_strength(_w, _h[_i].a), fzw_strength(_w, _h[_i].b)) * 0.25 * 3.14159265358979 * _d * _d);
+        fude_zoom_mech_joint* _pr = &((fude_zoom_mech_joint*)_w->joints.memory)[_pin];
+        _pr->la = fzw_local(_w, _h[_i].a, _h[_i].at);
+        _pr->lb = _h[_i].b == FUDE_ZOOM_NONE ? (rde_vec_2F){ (f32)(_h[_i].at.x * _k), (f32)(_h[_i].at.y * _k) } : fzw_local(_w, _h[_i].b, _h[_i].at);
         if(_j != NULL && _h[_i].motor) {
             // (the ground's way round: its part turned as the motor says; from rest, brought up to it as it runs)
-            rde_physics_2d_joint_enable_motor(_j, 0.0f, 1e9f);
-            const fude_zoom_mech_motor _mo = { _j, -_h[_i].speed };
+            const f64 _nm = 1e-3 / _k;   // (a world torque in N·m: this squared)
+            rde_physics_2d_joint_enable_motor(_j, 0.0f, (f32)fmin((_h[_i].torque > 0.0 ? _h[_i].torque : 10.0) / (_nm * _nm), 1e9));
+            const fude_zoom_mech_motor _mo = { _j, -_h[_i].speed, _pin, 0.0, 0.0, 0.0, 0.0, false };
             rde_arr_add(&_w->motors, (any)&_mo);
         }
         if(_j != NULL && _h[_i].shaft != FUDE_ZOOM_NONE && _h[_i].b == FUDE_ZOOM_NONE) {
@@ -256,8 +320,9 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         for(u32 _e = 0; _e < 2u && _j != NULL; _e++) {
             const u32 _g = _ends[_e];
             if(_g != FUDE_ZOOM_NONE && (_held[_g].hinge == NULL || _h[_i].b == FUDE_ZOOM_NONE)) {
-                _held[_g].hinge = _j;
-                _held[_g].sign  = _e == 0u ? 1.0 : -1.0;
+                _held[_g].hinge    = _j;
+                _held[_g].sign     = _e == 0u ? 1.0 : -1.0;
+                _held[_g].hinge_at = _pin;
             }
         }
     }
@@ -274,7 +339,9 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
                                                                      (rde_vec_2F){ (f32)_sl[_i].axis.x, (f32)_sl[_i].axis.y },
                                                                      (f32)((_sl[_i].lower - _b[_sl[_i].body].shift) * _k), (f32)((_sl[_i].upper - _b[_sl[_i].body].shift) * _k));   // (from where it starts)
         rde_physics_2d_joint_set_stiffness(_held[_sl[_i].body].slide, FZW_STIFF, 2.0f);
-        RDE_UNUSED(_c);
+        // (its strength: its material over the part's size and thickness, half of it bearing)
+        _held[_sl[_i].body].slide_at = fzw_note(_w, _held[_sl[_i].body].slide, FUDE_ZOOM_MECH_JOINT_SLIDE, _i, _sl[_i].body, FUDE_ZOOM_NONE, _c,
+                                                0.5 * fzw_strength(_w, _sl[_i].body) * fmax(_w->plan.unit, 2.0) * FZW_THICK);
     }
     // Springs: Box2D's, their stiffness its frequency (a stiffness of 1: about 2 Hz), a little damped.
     const fude_zoom_mech_spring* _sp = (const fude_zoom_mech_spring*)_w->plan.springs.memory;
@@ -286,7 +353,12 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         }
         const rde_vec_2F _la = _sp[_i].a != FUDE_ZOOM_NONE ? fzw_local(_w, _sp[_i].a, _sp[_i].pa) : (rde_vec_2F){ (f32)(_sp[_i].pa.x * _k), (f32)(_sp[_i].pa.y * _k) };
         const rde_vec_2F _lb = _sp[_i].b != FUDE_ZOOM_NONE ? fzw_local(_w, _sp[_i].b, _sp[_i].pb) : (rde_vec_2F){ (f32)(_sp[_i].pb.x * _k), (f32)(_sp[_i].pb.y * _k) };
-        rde_physics_2d_joint_create_spring(_w->world, _a, _la, _c, _lb, (f32)(_sp[_i].length * _k), (f32)(2.0 * sqrt(fmax(_sp[_i].stiffness, 0.01))), 0.08f);
+        rde_physics_2d_joint* _js = rde_physics_2d_joint_create_spring(_w->world, _a, _la, _c, _lb, (f32)(_sp[_i].length * _k),
+                                                                       (f32)(2.0 * sqrt(fmax(_sp[_i].stiffness, 0.01))), 0.08f);
+        // (it gives stretched half again past its length: 2½ times as long as drawn)
+        const fude_zoom_v2 _mid = { (_sp[_i].pa.x + _sp[_i].pb.x) * 0.5, (_sp[_i].pa.y + _sp[_i].pb.y) * 0.5 };
+        const u32 _sat = fzw_note(_w, _js, FUDE_ZOOM_MECH_JOINT_SPRING, _i, _sp[_i].a, _sp[_i].b, _mid, 1.5 * _sp[_i].length);
+        ((fude_zoom_mech_joint*)_w->joints.memory)[_sat].rest = _sp[_i].length;
     }
     // Ropes: RDE's rope (never longer than drawn); two over one pulley, RDE's pulley (one side a fixed end: a rope as
     // long as what is left of it).
@@ -300,20 +372,25 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             if((_r[_i].a == FUDE_ZOOM_NONE && _r[_i].b == FUDE_ZOOM_NONE) || FZW_BODY(_r[_i].a) == NULL || FZW_BODY(_r[_i].b) == NULL) {
                 continue;
             }
-            rde_physics_2d_joint_create_rope(_w->world, FZW_BODY(_r[_i].a), FZW_END(_r[_i].a, _r[_i].pa), FZW_BODY(_r[_i].b), FZW_END(_r[_i].b, _r[_i].pb), (f32)(_r[_i].length * _k));
+            fzw_note(_w, rde_physics_2d_joint_create_rope(_w->world, FZW_BODY(_r[_i].a), FZW_END(_r[_i].a, _r[_i].pa), FZW_BODY(_r[_i].b), FZW_END(_r[_i].b, _r[_i].pb),
+                                                         (f32)(_r[_i].length * _k)),
+                     FUDE_ZOOM_MECH_JOINT_ROPE, _i, _r[_i].a, _r[_i].b, (fude_zoom_v2){ (_r[_i].pa.x + _r[_i].pb.x) * 0.5, (_r[_i].pa.y + _r[_i].pb.y) * 0.5 }, FZW_ROPE);
         } else if(_i < _r[_i].pair) {
             const fude_zoom_mech_rope* _q = &_r[_r[_i].pair];
             const rde_vec_2F _ga = { (f32)(_r[_i].pb.x * _k), (f32)(_r[_i].pb.y * _k) }, _gb = { (f32)(_q->pb.x * _k), (f32)(_q->pb.y * _k) };
             if(_r[_i].a != FUDE_ZOOM_NONE && _q->a != FUDE_ZOOM_NONE && _pb[_r[_i].a] != NULL && _pb[_q->a] != NULL) {
-                rde_physics_2d_joint_create_pulley(_w->world, _pb[_r[_i].a], fzw_local(_w, _r[_i].a, _r[_i].pa), _ga, _pb[_q->a], fzw_local(_w, _q->a, _q->pa), _gb, 1.0f);
+                fzw_note(_w, rde_physics_2d_joint_create_pulley(_w->world, _pb[_r[_i].a], fzw_local(_w, _r[_i].a, _r[_i].pa), _ga, _pb[_q->a], fzw_local(_w, _q->a, _q->pa),
+                                                                 _gb, 1.0f),
+                         FUDE_ZOOM_MECH_JOINT_ROPE, _i, _r[_i].a, _q->a, _r[_i].pb, FZW_ROPE);
             } else {
                 // (one side tied off: the other a rope from its rim, as long as the rope less that side)
                 const fude_zoom_mech_rope* _free = _r[_i].a != FUDE_ZOOM_NONE ? &_r[_i] : _q;
                 const fude_zoom_mech_rope* _tied = _free == &_r[_i] ? _q : &_r[_i];
                 if(_free->a != FUDE_ZOOM_NONE && _pb[_free->a] != NULL) {
                     const f64 _left = _r[_i].length + _q->length - hypot(_tied->pa.x - _tied->pb.x, _tied->pa.y - _tied->pb.y);
-                    rde_physics_2d_joint_create_rope(_w->world, _pb[_free->a], fzw_local(_w, _free->a, _free->pa), _w->ground,
-                                                     (rde_vec_2F){ (f32)(_free->pb.x * _k), (f32)(_free->pb.y * _k) }, (f32)(_left * _k));
+                    fzw_note(_w, rde_physics_2d_joint_create_rope(_w->world, _pb[_free->a], fzw_local(_w, _free->a, _free->pa), _w->ground,
+                                                                 (rde_vec_2F){ (f32)(_free->pb.x * _k), (f32)(_free->pb.y * _k) }, (f32)(_left * _k)),
+                             FUDE_ZOOM_MECH_JOINT_ROPE, _i, _free->a, FUDE_ZOOM_NONE, _free->pb, FZW_ROPE);
                 }
             }
         }
@@ -331,6 +408,17 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         }
         const f64 _ratio = _m[_i].rack ? _held[_m[_i].a].sign * _m[_i].ratio / _k : _held[_m[_i].a].sign * _held[_m[_i].b].sign / _m[_i].ratio;
         rde_physics_2d_joint* _gear = rde_physics_2d_joint_create_gear(_w->world, _ja, _jb, (f32)_ratio);
+        // (its teeth's strength, as Lewis has a gear's: its material, its face — the part's thickness —, its module — its
+        // pitch circle's width a tooth —, a tooth's form, 0.3; on the pins or slide it rests on)
+        const fude_zoom_mech_body* _ga = &_b[_m[_i].a];
+        const f64 _rp  = fude_zoom_mech_pitch(_ga->part, fmin(_ga->hw, _ga->hh));
+        const f64 _mod = _ga->part != NULL && _ga->part->teeth > 0u ? 2.0 * _rp / (f64)_ga->part->teeth : fmax(_w->plan.unit, 1.0);
+        const u32 _gat = fzw_note(_w, _gear, FUDE_ZOOM_MECH_JOINT_GEAR, _i, _m[_i].a, _m[_i].b, _ga->at,
+                                  fmin(fzw_strength(_w, _m[_i].a), fzw_strength(_w, _m[_i].b)) * FZW_THICK * _mod * 0.3);
+        fude_zoom_mech_joint* _gr = &((fude_zoom_mech_joint*)_w->joints.memory)[_gat];
+        _gr->on[0] = _held[_m[_i].a].hinge_at;
+        _gr->on[1] = _m[_i].rack ? _held[_m[_i].b].slide_at : _held[_m[_i].b].hinge_at;
+        _gr->rest  = _rp;   // (its pitch circle's radius: its torque to its teeth's force)
         if(_m[_i].rack && _gear != NULL) {
             // (a rack: held only while the gear is over its teeth — its slide's travel, world units —, meshing again on a tooth)
             const f64 _from = _b[_m[_i].b].shift;   // (its travel counted from where it starts)
@@ -384,17 +472,129 @@ RDE_INTERNAL void fzw_publish(fude_zoom_mech_world* _w) {
 }
 
 // One step (motors coming up to speed as they start).
+// Joint _i broken: what rests on it first (a mesh on its gear's pin), then it — let go; what drove it (a motor, a circuit's
+// shaft) driving nothing.
+RDE_INTERNAL void fzw_break(fude_zoom_mech_world* _w, u32 _i) {
+    fude_zoom_mech_joint* _j = (fude_zoom_mech_joint*)_w->joints.memory;
+    const u32 _n = (u32)rde_arr_length(&_w->joints);
+    for(u32 _k = 0; _k < _n; _k++) {
+        if(_k != _i && _j[_k].joint != NULL && (_j[_k].on[0] == _i || _j[_k].on[1] == _i)) {
+            fzw_break(_w, _k);
+        }
+    }
+    rde_physics_2d_joint* _gone = _j[_i].joint;
+    if(_gone == NULL) {
+        return;
+    }
+    rde_physics_2d_joint_destroy(_w->world, _gone);
+    _j[_i].joint = NULL;
+    _j[_i].load  = 0.0;
+    fude_zoom_mech_motor* _mo = (fude_zoom_mech_motor*)_w->motors.memory;
+    for(u32 _k = 0; _k < (u32)rde_arr_length(&_w->motors); _k++) {
+        _mo[_k].joint = _mo[_k].joint == _gone ? NULL : _mo[_k].joint;
+    }
+    fude_zoom_mech_shaft* _sh = (fude_zoom_mech_shaft*)_w->shafts.memory;
+    for(u32 _k = 0; _k < (u32)rde_arr_length(&_w->shafts); _k++) {
+        _sh[_k].joint = _sh[_k].joint == _gone ? NULL : _sh[_k].joint;
+    }
+}
+
+// Each joint against its strength, a step on: what pulls it (a world force in newtons: its masses kilograms, its lengths
+// k a millimetre; a mesh's: its torque over its pitch circle's radius; a spring's: its stretch past its length) — past
+// its strength, broken; a pin's parts apart, for how long; each motor held still while it drives, for how long. What
+// happened: an event.
+RDE_INTERNAL void fzw_strain(fude_zoom_mech_world* _w) {
+    const f64 _to_n = 1e-3 / _w->k;
+    fude_zoom_mech_joint* _j = (fude_zoom_mech_joint*)_w->joints.memory;
+    const u32 _n = (u32)rde_arr_length(&_w->joints);
+    for(u32 _i = 0; _i < _n; _i++) {
+        fude_zoom_mech_joint* _r = &_j[_i];
+        if(_r->joint == NULL) {
+            continue;
+        }
+        switch(_r->kind) {
+        case FUDE_ZOOM_MECH_JOINT_GEAR:
+            _r->force = fabs((f64)rde_physics_2d_joint_get_torque(_r->joint)) * _to_n * _to_n / fmax(_r->rest * 1e-3, 1e-9);
+            break;
+        case FUDE_ZOOM_MECH_JOINT_SPRING:
+            _r->force = fmax((f64)rde_physics_2d_joint_get_coordinate(_r->joint) / _w->k - _r->rest, 0.0);
+            break;
+        default:
+            _r->force = (f64)rde_physics_2d_joint_get_force(_r->joint) * _to_n;
+            break;
+        }
+        _r->load = _r->strength > 0.0 ? _r->force / _r->strength : 0.0;
+        _r->over = _r->load > 1.0 && _w->time >= FZW_SETTLE ? _r->over + 1u : 0u;
+        if(_r->over >= FZW_OVER || (_r->over > 0u && _r->load > FZW_SNAP)) {
+            const fude_zoom_mech_event _e = { FUDE_ZOOM_MECH_BROKE, _i, _r->force, _r->strength };
+            rde_arr_add(&_w->events, (any)&_e);
+            fzw_break(_w, _i);
+            _j = (fude_zoom_mech_joint*)_w->joints.memory;
+            continue;
+        }
+        if(_r->kind == FUDE_ZOOM_MECH_JOINT_PIN) {
+            const f64 _sep = (f64)rde_physics_2d_joint_get_separation(_r->joint) / _w->k;
+            if(_sep > FZW_APART) {
+                if(_r->apart >= 0.0) {
+                    _r->apart += FZW_STEP;
+                    if(_r->apart >= FZW_APART_FOR) {
+                        const fude_zoom_mech_event _e = { FUDE_ZOOM_MECH_MISFIT, _i, _sep, FZW_APART };
+                        rde_arr_add(&_w->events, (any)&_e);
+                        _r->apart = -1.0;   // (said: until they fit again)
+                    }
+                }
+            } else if(_sep < 0.5 * FZW_APART) {
+                _r->apart = 0.0;
+            }
+        }
+    }
+    // Motors: how far each has turned (its angle's steps added up: RDE's angle within a half turn either way), and each
+    // half second, once up to speed, how far on it got against how far it drives — a tenth of it: jammed (rocking against
+    // what holds it back is not turning).
+    fude_zoom_mech_motor* _mo = (fude_zoom_mech_motor*)_w->motors.memory;
+    for(u32 _k = 0; _k < (u32)rde_arr_length(&_w->motors); _k++) {
+        if(_mo[_k].joint == NULL) {
+            continue;
+        }
+        const f64 _now = (f64)rde_physics_2d_joint_get_coordinate(_mo[_k].joint);
+        f64 _d = _now - _mo[_k].was;
+        _d -= 2.0 * 3.14159265358979323846 * floor((_d + 3.14159265358979323846) / (2.0 * 3.14159265358979323846));
+        _mo[_k].was     = _now;
+        _mo[_k].turned += _d;
+        if(_w->time < FZW_SPIN_UP || !(fabs(_mo[_k].speed) > 0.2)) {
+            _mo[_k].from = _mo[_k].turned;
+            continue;
+        }
+        _mo[_k].held += FZW_STEP;
+        if(_mo[_k].held >= FZW_HELD_FOR) {
+            const f64 _got = fabs(_mo[_k].turned - _mo[_k].from), _want = fabs(_mo[_k].speed) * _mo[_k].held;
+            if(_got < 0.1 * _want && !_mo[_k].jammed) {
+                const fude_zoom_mech_event _e = { FUDE_ZOOM_MECH_JAMMED, _mo[_k].pin, _got / _mo[_k].held, fabs(_mo[_k].speed) };
+                rde_arr_add(&_w->events, (any)&_e);
+                _mo[_k].jammed = true;
+            } else if(_got > 0.5 * _want) {
+                _mo[_k].jammed = false;   // (turning again)
+            }
+            _mo[_k].from = _mo[_k].turned;
+            _mo[_k].held = 0.0;
+        }
+    }
+}
+
 RDE_INTERNAL void fzw_tick(fude_zoom_mech_world* _w) {
     if(_w->time < FZW_SPIN_UP + FZW_STEP) {
         // (motors coming up to speed: smoothly, from rest)
         const f64 _u = fmin(fmax((_w->time + FZW_STEP) / FZW_SPIN_UP, 0.0), 1.0), _ramp = _u * _u * (3.0 - 2.0 * _u);
         const fude_zoom_mech_motor* _mo = (const fude_zoom_mech_motor*)_w->motors.memory;
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->motors); _i++) {
-            rde_physics_2d_joint_set_motor_speed(_mo[_i].joint, (f32)(_mo[_i].speed * _ramp));
+            if(_mo[_i].joint != NULL) {
+                rde_physics_2d_joint_set_motor_speed(_mo[_i].joint, (f32)(_mo[_i].speed * _ramp));
+            }
         }
     }
     rde_physics_2d_world_step(_w->world, (f32)FZW_STEP);   // (hinges, motors, slides, springs, ropes, pulleys, gears: RDE's)
     _w->time += FZW_STEP;
+    fzw_strain(_w);
 }
 
 void fude_zoom_mech_world_step(fude_zoom_mech_world* _w, f64 _dt) {
@@ -436,11 +636,23 @@ f64 fude_zoom_mech_world_shaft_spin(const fude_zoom_mech_world* _w, u32 _shaft) 
     return _pb[_sh->body] != NULL ? (f64)rde_physics_2d_body_get_angular_velocity(_pb[_sh->body]) : 0.0;
 }
 
+f64 fude_zoom_mech_world_shaft_angle(const fude_zoom_mech_world* _w, u32 _shaft) {
+    if(_w->world == NULL || _shaft >= (u32)rde_arr_length(&_w->shafts)) {
+        return 0.0;
+    }
+    const fude_zoom_mech_shaft* _sh = &((const fude_zoom_mech_shaft*)_w->shafts.memory)[_shaft];
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    return _pb[_sh->body] != NULL ? (f64)rde_physics_2d_body_get_angle(_pb[_sh->body]) : 0.0;
+}
+
 void fude_zoom_mech_world_shaft_drive(fude_zoom_mech_world* _w, u32 _shaft, f64 _spin, f64 _torque) {
     if(_w->world == NULL || _shaft >= (u32)rde_arr_length(&_w->shafts)) {
         return;
     }
     rde_physics_2d_joint* _j = ((fude_zoom_mech_shaft*)_w->shafts.memory)[_shaft].joint;
+    if(_j == NULL) {
+        return;   // (its pin broken: it drives nothing)
+    }
     if(!(_torque > 0.0)) {
         rde_physics_2d_joint_disable_motor(_j);
         return;

@@ -30,6 +30,7 @@ typedef struct {
     f64       density;     // kg/m³
     f64       friction;    // 0..1
     f64       bounce;      // 0..1 (restitution)
+    f64       strength;    // MPa: what a square millimetre of it holds pulled before it gives (its tensile strength; shear ⅗ of it)
 } fude_sim_material;
 
 u32                      fude_sim_material_count(void);

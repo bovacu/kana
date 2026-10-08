@@ -581,7 +581,7 @@ RDE_INTERNAL f64 fzl_volts(const fude_zoom_circuit* _c, const fude_zoom_circuit_
         return 0.0;
     }
     const u32 _node = _p->node[_pin];
-    return _node != FUDE_ZOOM_NONE && _node < _c->nodes && _node < FUDE_ZOOM_CIRCUIT_MAX_NODES ? _c->v[_node] : 0.0;
+    return fude_zoom_circuit_volts(_c, _node);
 }
 
 b8 fude_zoom_logic_step(fude_zoom_logic* _l, const fude_zoom_circuit* _c, f64 _t) {
@@ -615,7 +615,7 @@ b8 fude_zoom_logic_step(fude_zoom_logic* _l, const fude_zoom_circuit* _c, f64 _t
         const fude_zoom_circuit_part* _q = &_p[_br[_b].part];
         const f64 _vg = fzl_volts(_c, _q, _br[_b].ground);
         const f64 _vs = _br[_b].supply != FUDE_ZOOM_NONE ? fzl_volts(_c, _q, _br[_b].supply) : _vg + FUDE_ZOOM_LOGIC_V;
-        const f64 _v  = _c->v[_br[_b].node] - _vg;
+        const f64 _v  = fude_zoom_circuit_volts(_c, _br[_b].node) - _vg;
         const u8  _r  = _vs - _vg < 1.0 ? FUDE_SIM_X : (_v > 0.5 * (_vs - _vg) ? FUDE_SIM_1 : FUDE_SIM_0);   // (unpowered: unknown)
         if(_r != _br[_b].read) {
             _br[_b].read = _r;

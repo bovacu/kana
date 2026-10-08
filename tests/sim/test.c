@@ -3,6 +3,7 @@
 // adders made of gates, flip-flops counting a clock, tri-states on a bus.
 #include "sim/sim.h"
 #include "sim/body.h"
+#include "sim/sparse.h"
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -1420,16 +1421,19 @@ static void test_chips(void) {
     // Every chip reads, and its pins are as many as its package's.
     {
         fude_sim_lib lib; fude_sim_lib_init(&lib);
-        CHECK(fude_sim_chips_add(&lib) == 0u && fude_sim_chip_count() == 14u);
-        const c8* const ids[14] = { "74HC00", "74HC02", "74HC04", "74HC08", "74HC32", "74HC86", "74HC74", "74HC138", "74HC157", "74HC161", "74HC173", "74HC245", "74HC283", "74HC189" };
-        const u32 pins[14] = { 14, 14, 14, 14, 14, 14, 14, 16, 16, 16, 16, 20, 16, 16 };
-        for(u32 i = 0; i < 14u; i++) {
+        CHECK(fude_sim_chips_add(&lib) == 0u && fude_sim_chip_count() == 15u);
+        const c8* const ids[15] = { "74HC00", "74HC02", "74HC04", "74HC08", "74HC32", "74HC86", "74HC74", "74HC138", "74HC157", "74HC161", "74HC173", "74HC245", "74HC283", "74HC189",
+                                    "CD4511" };
+        const u32 pins[15] = { 14, 14, 14, 14, 14, 14, 14, 16, 16, 16, 16, 20, 16, 16, 16 };
+        for(u32 i = 0; i < 15u; i++) {
             const fude_sim_def* d = fude_sim_lib_find(&lib, ids[i]);
             CHECK(d != NULL && rde_arr_length(&d->ports) == pins[i]);
-            // (VCC its last pin, GND the last of its first half: as in the package)
+            // (its supply its last pin, its ground the last of its first half: as in the package — a CD40's VDD, VSS)
             if(d != NULL) {
                 const fude_sim_port* p = (const fude_sim_port*)d->ports.memory;
-                CHECK(strcmp(p[pins[i] - 1u].name, "VCC") == 0 && strcmp(p[pins[i] / 2u - 1u].name, "GND") == 0 && p[pins[i] - 1u].domain == FUDE_SIM_ELECTRIC);
+                const b8 cmos = i == 14u;
+                CHECK(strcmp(p[pins[i] - 1u].name, cmos ? "VDD" : "VCC") == 0 && strcmp(p[pins[i] / 2u - 1u].name, cmos ? "VSS" : "GND") == 0 &&
+                      p[pins[i] - 1u].domain == FUDE_SIM_ELECTRIC);
             }
         }
         fude_sim_lib_destroy(&lib);
@@ -1495,6 +1499,41 @@ static void test_chips(void) {
             right += ok;
         }
         CHECK(right == 1024u);
+        world_free(&w, top);
+    }
+    // The BCD to 7-segment decoder: every BCD (6 and 9 without tails, 10–15 blank), lamp test, blanking, its latch.
+    {
+        fude_sim_def* top = chip_bench(&w, "CD4511");
+        static const u8 want[16] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7C, 0x07, 0x7F, 0x67, 0, 0, 0, 0, 0, 0 };
+        static const c8* const seg[7] = { "a", "b", "c", "d", "e", "f", "g" };
+        put(&w, "~LT", 1u); put(&w, "~BI", 1u); put(&w, "LE", 0u);
+        u32 right = 0;
+        for(u32 v = 0; v < 16u; v++) {
+            put(&w, "A", v & 1u); put(&w, "B", (v >> 1) & 1u); put(&w, "C", (v >> 2) & 1u); put(&w, "D", (v >> 3) & 1u);
+            u8 got = 0;
+            for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
+            if(got != want[v]) printf("  CD4511 %u: %02X, not %02X\n", v, got, want[v]);
+            right += got == want[v];
+        }
+        CHECK(right == 16u);
+        put(&w, "A", 1u); put(&w, "B", 0u); put(&w, "C", 1u); put(&w, "D", 0u);   // (5)
+        put(&w, "LE", 1u);
+        put(&w, "B", 1u); put(&w, "C", 0u);   // (3, latched out)
+        u8 got = 0;
+        for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
+        CHECK(got == want[5]);
+        put(&w, "LE", 0u);
+        got = 0;
+        for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
+        CHECK(got == want[3]);
+        put(&w, "~LT", 0u); put(&w, "~BI", 0u);
+        got = 0;
+        for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
+        CHECK(got == 0x7F);
+        put(&w, "~LT", 1u);
+        got = 0;
+        for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
+        CHECK(got == 0);
         world_free(&w, top);
     }
     // The adder: 512 sums.
@@ -1855,7 +1894,157 @@ static void test_keep(void) {
     world_free(&w, top);
 }
 
+// --- the sparse system (sparse.h) -----------------------------------------------------------------------
+
+// A dense solve with row swaps (the reference): false when singular.
+static b8 dense_solve(f64* a, f64* b, f64* x, u32 n) {
+    for(u32 k = 0; k < n; k++) {
+        u32 best = k;
+        for(u32 i = k + 1u; i < n; i++) if(fabs(a[i * n + k]) > fabs(a[best * n + k])) best = i;
+        if(!(fabs(a[best * n + k]) > 1e-300)) return false;
+        for(u32 j = 0; j < n; j++) { const f64 t = a[k * n + j]; a[k * n + j] = a[best * n + j]; a[best * n + j] = t; }
+        { const f64 t = b[k]; b[k] = b[best]; b[best] = t; }
+        for(u32 i = k + 1u; i < n; i++) {
+            const f64 f = a[i * n + k] / a[k * n + k];
+            for(u32 j = k; j < n; j++) a[i * n + j] -= f * a[k * n + j];
+            b[i] -= f * b[k];
+        }
+    }
+    for(u32 k = n; k-- > 0u;) {
+        f64 s = b[k];
+        for(u32 j = k + 1u; j < n; j++) s -= a[k * n + j] * x[j];
+        x[k] = s / a[k * n + k];
+    }
+    return true;
+}
+
+static u32 lcg_state = 12345u;
+static u32 lcg(void) { lcg_state = lcg_state * 1664525u + 1013904223u; return lcg_state >> 8; }
+static f64 lcg_unit(void) { return (f64)(lcg() % 1000000u) / 1000000.0; }
+
+// A circuit-like system: n nodes, each joined to a few others by conductances (a ladder, random links), sources to
+// ground; _skew: some entries one way only as large (a transistor's gain), not symmetric in value.
+static void sparse_random(u32 n, u32 links, f64 skew, u32 seed) {
+    lcg_state = seed;
+    rde_arr pairs = rde_arr_new(sizeof(u64), rde_memory_allocator_get_default_std());
+    rde_arr g_arr = scratch(sizeof(f64), n * n);   // the same matrix, dense
+    f64* g = (f64*)g_arr.memory;
+    for(u32 k = 0; k < n + links; k++) {
+        const u32 i = k < n ? k : lcg() % n, j = k < n ? (k + 1u) % n : lcg() % n;
+        if(i == j) continue;
+        const f64 c = 0.001 + lcg_unit() * 10.0;
+        g[i * n + i] += c; g[j * n + j] += c; g[i * n + j] -= c; g[j * n + i] -= c;
+        if(skew > 0.0 && lcg() % 4u == 0u) g[i * n + j] += skew * c;   // (one way only)
+        const u64 p = ((u64)i << 32) | j;
+        rde_arr_add(&pairs, (any)&p);
+    }
+    for(u32 i = 0; i < n; i++) g[i * n + i] += 0.01 + lcg_unit();   // (to ground)
+    fude_sim_sparse s;
+    fude_sim_sparse_init(&s);
+    fude_sim_sparse_shape(&s, n, (const u64*)pairs.memory, (u32)rde_arr_length(&pairs));
+    // Twice over, as a circuit does: the values written into their places, factored, solved.
+    for(u32 round = 0; round < 2u; round++) {
+        fude_sim_sparse_clear(&s);
+        b8 placed = true;
+        for(u32 i = 0; i < n; i++) {
+            for(u32 j = 0; j < n; j++) {
+                if(g[i * n + j] == 0.0) continue;
+                const u32 e = fude_sim_sparse_find(&s, i, j);
+                placed = placed && e != FUDE_SIM_SPARSE_NONE;
+                if(e != FUDE_SIM_SPARSE_NONE) ((f64*)s.val.memory)[e] += g[i * n + j];
+            }
+        }
+        CHECK(placed);
+        rde_arr b_arr = scratch(sizeof(f64), n), x_arr = scratch(sizeof(f64), n), y_arr = scratch(sizeof(f64), n), d_arr = scratch(sizeof(f64), n * n);
+        f64* b = (f64*)b_arr.memory; f64* x = (f64*)x_arr.memory; f64* y = (f64*)y_arr.memory; f64* d = (f64*)d_arr.memory;
+        for(u32 i = 0; i < n; i++) b[i] = lcg_unit() * 10.0 - 5.0;
+        fude_sim_sparse_dense(&s, d);
+        CHECK(memcmp(d, g, (usize)n * n * sizeof(f64)) == 0);   // (its entries, where they were put)
+        CHECK(fude_sim_sparse_factor(&s));
+        fude_sim_sparse_solve(&s, b, x);
+        CHECK(dense_solve(d, b, y, n));   // (b changed by the dense solve: x was found first)
+        f64 worst = 0.0, big = 0.0;
+        for(u32 i = 0; i < n; i++) { worst = fmax(worst, fabs(x[i] - y[i])); big = fmax(big, fabs(y[i])); }
+        if(!(worst <= 1e-9 * fmax(big, 1.0))) printf("  sparse n %u: off by %g (of %g)\n", n, worst, big);
+        CHECK(worst <= 1e-9 * fmax(big, 1.0));
+        rde_arr_free(&b_arr); rde_arr_free(&x_arr); rde_arr_free(&y_arr); rde_arr_free(&d_arr);
+        for(u32 i = 0; i < n * n; i++) if(g[i] != 0.0) g[i] *= 1.0 + 0.1 * lcg_unit();   // (the next round's values)
+    }
+    fude_sim_sparse_free(&s);
+    rde_arr_free(&pairs);
+    rde_arr_free(&g_arr);
+}
+
+static void test_sparse(void) {
+    printf("sparse systems\n");
+    // Against a dense solve: sizes from one up, symmetric and skewed values.
+    const u32 sizes[] = { 1, 2, 3, 5, 8, 13, 40, 100, 300 };
+    for(u32 k = 0; k < sizeof(sizes) / sizeof(sizes[0]); k++) {
+        sparse_random(sizes[k], sizes[k] / 2u, 0.0, 7u + k);
+        sparse_random(sizes[k], sizes[k], 0.8, 99u + k);
+    }
+    // A ladder (a long chain of resistors): ordered, it fills in nothing — its places stay 3 a row.
+    {
+        const u32 n = 2000;
+        rde_arr pairs = rde_arr_new(sizeof(u64), rde_memory_allocator_get_default_std());
+        for(u32 i = 0; i + 1u < n; i++) { const u64 p = ((u64)(i + 1u) << 32) | i; rde_arr_add(&pairs, (any)&p); }
+        fude_sim_sparse s;
+        fude_sim_sparse_init(&s);
+        fude_sim_sparse_shape(&s, n, (const u64*)pairs.memory, (u32)rde_arr_length(&pairs));
+        CHECK(fude_sim_sparse_places(&s) == 3u * n - 2u);
+        // A star (one node every other is joined to: a supply rail): the rail last, nothing fills in either.
+        rde_arr_clear(&pairs);
+        for(u32 i = 1; i < n; i++) { const u64 p = (u64)i; rde_arr_add(&pairs, (any)&p); }   // (i, 0)
+        fude_sim_sparse_shape(&s, n, (const u64*)pairs.memory, (u32)rde_arr_length(&pairs));
+        CHECK(fude_sim_sparse_places(&s) == 3u * n - 2u);
+        CHECK(((const u32*)s.rank.memory)[0] >= n - 2u);   // (the rail among the last two: the last leaf ties with it)
+        // A grid (100 × 100): far fewer places than dense (10⁸).
+        const u32 side = 100;
+        rde_arr_clear(&pairs);
+        for(u32 r = 0; r < side; r++) for(u32 c = 0; c < side; c++) {
+            const u32 i = r * side + c;
+            if(c + 1u < side) { const u64 p = ((u64)i << 32) | (i + 1u); rde_arr_add(&pairs, (any)&p); }
+            if(r + 1u < side) { const u64 p = ((u64)i << 32) | (i + side); rde_arr_add(&pairs, (any)&p); }
+        }
+        fude_sim_sparse_shape(&s, side * side, (const u64*)pairs.memory, (u32)rde_arr_length(&pairs));
+        printf("  grid %ux%u: %u places\n", side, side, fude_sim_sparse_places(&s));
+        CHECK(fude_sim_sparse_places(&s) < 600000u);
+        // A place the shape has not: none.
+        CHECK(fude_sim_sparse_find(&s, 0, side * side - 1u) == FUDE_SIM_SPARSE_NONE);
+        CHECK(fude_sim_sparse_find(&s, 0, 1) != FUDE_SIM_SPARSE_NONE && fude_sim_sparse_find(&s, 1, 0) != FUDE_SIM_SPARSE_NONE);
+        CHECK(fude_sim_sparse_find(&s, side * side, 0) == FUDE_SIM_SPARSE_NONE);
+        fude_sim_sparse_free(&s);
+        rde_arr_free(&pairs);
+    }
+    // Singular (a node joined to nothing, nothing on its diagonal): said so; a pivot needing a row swap too.
+    {
+        fude_sim_sparse s;
+        fude_sim_sparse_init(&s);
+        const u64 p = ((u64)0 << 32) | 1u;
+        fude_sim_sparse_shape(&s, 3, &p, 1);
+        f64* v = (f64*)s.val.memory;
+        v[fude_sim_sparse_find(&s, 0, 0)] = 1.0; v[fude_sim_sparse_find(&s, 1, 1)] = 1.0;
+        CHECK(!fude_sim_sparse_factor(&s));
+        fude_sim_sparse_add_diagonal(&s, 1.0);
+        CHECK(fude_sim_sparse_factor(&s));
+        fude_sim_sparse_clear(&s);
+        v[fude_sim_sparse_find(&s, 0, 1)] = 1.0; v[fude_sim_sparse_find(&s, 1, 0)] = 1.0; v[fude_sim_sparse_find(&s, 2, 2)] = 1.0;
+        CHECK(!fude_sim_sparse_factor(&s));   // ([0 1; 1 0]: fine with rows swapped, not without)
+        fude_sim_sparse_free(&s);
+    }
+    // Empty.
+    {
+        fude_sim_sparse s;
+        fude_sim_sparse_init(&s);
+        fude_sim_sparse_shape(&s, 0, NULL, 0);
+        CHECK(fude_sim_sparse_factor(&s));
+        CHECK(fude_sim_sparse_places(&s) == 0u);
+        fude_sim_sparse_free(&s);
+    }
+}
+
 int main(void) {
+    test_sparse();
     test_gates();
     test_mux();
     test_adder();

@@ -25,6 +25,11 @@
 // rated volts, held still, it turns as hard as FUDE_ZOOM_COUPLING_STALL times
 // the mechanism's unit of mass hung from its unit of length.
 //
+// A SERVO of the circuit with a part of the mechanism on its middle turns it
+// to the angle its pulses say, as fast as it can and with no more than its
+// stall torque — held back, it strains and draws its stall current; with no
+// pulses or no supply it lets it be. Its horn is where that part is.
+//
 // A PUSH BUTTON of the circuit is pressed while a part of the mechanism that
 // moves is over its middle (a rack at the end of its travel, a cam, an arm
 // going by): a limit switch, a counter's sensor.
@@ -44,23 +49,29 @@ typedef struct {
 } fude_zoom_coupled_motor;
 
 typedef struct {
+    u32 part;                 // the circuit's servo
+    u32 shaft;                // the world's shaft
+    f64 offset;               // its horn's angle less what is on its shaft's, as they began (radians)
+} fude_zoom_coupled_servo;
+
+typedef struct {
     u32          part;        // the circuit's push button
     fude_zoom_v2 at;          // its middle (home units)
 } fude_zoom_coupled_button;
 
 typedef struct {
     rde_arr TYPE(fude_zoom_coupled_motor)  motors;
+    rde_arr TYPE(fude_zoom_coupled_servo)  servos;
     rde_arr TYPE(fude_zoom_coupled_button) buttons;
     f64     left;             // time not stepped yet (less than a step)
-    f64     owed;             // the circuit's time not stepped yet (less than its step)
 } fude_zoom_coupling;
 
 void fude_zoom_coupling_init(fude_zoom_coupling* _k);
 void fude_zoom_coupling_destroy(fude_zoom_coupling* _k);
 // Nothing coupled (the circuit's motors and buttons as they are by themselves).
 void fude_zoom_coupling_clear(fude_zoom_coupling* _k, fude_zoom_circuit* _c);
-// What of circuit _c world _w works with (_s: where its buttons are): its motors with something on their shafts, its push
-// buttons. How many.
+// What of circuit _c world _w works with (_s: where its buttons are): its motors and servos with something on their
+// shafts, its push buttons. How many.
 u32  fude_zoom_coupling_build(fude_zoom_coupling* _k, fude_zoom_circuit* _c, const fude_zoom_mech_world* _w, const fude_zoom_scene* _s);
 // _dt seconds on, both together (a tenth of a second at most). False: the circuit was not solved.
 b8   fude_zoom_coupling_step(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude_zoom_mech_world* _w, f64 _dt);

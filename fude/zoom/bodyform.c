@@ -18,6 +18,10 @@ RDE_INTERNAL const FUDE_TEXT_ FUDE_ZOOM_BODYF_NAMES[FUDE_ZOOM_BODY_MATERIALS] = 
     FUDE_TEXT_ZOOM_MAT_PLASTIC, FUDE_TEXT_ZOOM_MAT_GLASS, FUDE_TEXT_ZOOM_MAT_ICE, FUDE_TEXT_ZOOM_MAT_FOAM,
 };
 
+const c8* fude_zoom_body_material_name(u32 _material) {
+    return _material < FUDE_ZOOM_BODY_MATERIALS ? fude_text(FUDE_ZOOM_BODYF_NAMES[_material]) : NULL;
+}
+
 RDE_INTERNAL void fude_zoom_bodyf_show(fude_zoom_body_form* _form) {
     for(u32 _i = 0; _i < FUDE_ZOOM_BODY_MATERIALS; _i++) {
         fude_kit_button_chip(_form->materials[_i], _i == _form->material);

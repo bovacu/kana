@@ -1282,11 +1282,11 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
     const b8            _filled = (_o->flags & FUDE_ZOOM_FLAG_FILLED) && _as == NULL;
     const rde_color     _fill   = (_o->flags & FUDE_ZOOM_FLAG_FILL_OWN) ? fude_theme_resolve(_o->fill) : _color;
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    // Its geometry, made once for its kind, size and detail (a custom part: drawn as its definition's pins are), into the
-    // screen.
+    // Its geometry, made once for its kind, size and detail (a custom part: drawn as its definition's pins are; a sized
+    // display, as big as its text says), into the screen.
     const fude_zoom_part* _custom = fude_zoom_part_of_numbers(_n, _count);
     const fude_zoom_symbol_geo* _geo = fude_zoom_render_symbol_geo(_r, _kind, _n[1], _n[2], fude_zoom_shape_segments(fmax(_n[1], _n[2]) * 2.0 * _k),
-                                                                   fude_zoom_part_custom(_custom) && _custom->pin_count > 0u ? _custom : NULL);
+                                                                   fude_zoom_part_made(_custom) ? _custom : NULL);
     const u32 _np = _geo->parts_n;
     rde_arr_clear(&_r->shape);
     const fude_zoom_v2* _local = (const fude_zoom_v2*)_geo->points.memory;
@@ -1405,10 +1405,11 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
         rde_arr_free(&_pl);
     }
     // A circuit's part with named pins (a chip, a module, a board): their names by them, inside it.
-    const fude_zoom_part* _part = fude_zoom_part_of_kind(_kind);
-    const f32 _inset = fude_zoom_part_inset(_part);
+    const fude_zoom_part* _part = _custom;
+    f32 _inset = 0.0f, _inset_v = 0.8f;
+    fude_zoom_part_insets(_part, &_inset, &_inset_v);
     if(_as == NULL && _inset > 0.0f && _r->font != NULL && _info->h > 0.0f) {
-        const f64 _pitch = _n[2] * _k / ((f64)_info->h * 0.5) * 20.0;   // (pins 20 points apart as it came)
+        const f64 _pitch = _n[2] * _k / (fude_zoom_part_room_h(_part, (f64)_info->h) * 0.5) * 20.0;   // (pins 20 points apart as it came)
         const f32 _px = (f32)fmin(_pitch * 0.55, 13.0);
         if(_px >= 6.0f) {
             const rde_color _soft = fude_theme_active()->text_soft;
@@ -1417,7 +1418,12 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
                 if(_q.name == NULL || _q.name[0] == 0) {
                     continue;
                 }
-                const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _q.name, _px);
+                f32 _w = fude_draw_text_width(_r->font, _r->font_px, _q.name, _px), _qpx = _px;
+                if((_q.side == FUDE_ZOOM_PIN_UP || _q.side == FUDE_ZOOM_PIN_DOWN) && _w > 0.9f * (f32)_pitch) {
+                    // (side by side along a top or a bottom: each as narrow as the pins are apart — an LCD's VSS VDD V0)
+                    _qpx *= 0.9f * (f32)_pitch / _w;
+                    _w    = 0.9f * (f32)_pitch;
+                }
                 fude_zoom_v2 _at;
                 f32 _x;
                 if(_q.side == FUDE_ZOOM_PIN_LEFT || _q.side == FUDE_ZOOM_PIN_RIGHT) {
@@ -1427,10 +1433,10 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
                     const fude_zoom_v2 _in = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, (f64)_q.v * _n[2] });
                     _x = _in.x >= _at.x ? (f32)_at.x + 3.0f : (f32)_at.x - 3.0f - _w;
                 } else {
-                    _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (f64)_q.u * _n[1], (f64)(_q.side == FUDE_ZOOM_PIN_UP ? 1.0f - 0.2f : -1.0f + 0.2f) * _n[2] });
+                    _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (f64)_q.u * _n[1], (f64)(_q.side == FUDE_ZOOM_PIN_UP ? _inset_v : -_inset_v) * _n[2] });
                     _x = (f32)_at.x - _w * 0.5f;
                 }
-                rde_rendering_2d_draw_text_2(_r->font, _q.name, (rde_vec_3F){ _x, (f32)_at.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _soft);
+                rde_rendering_2d_draw_text_2(_r->font, _q.name, (rde_vec_3F){ _x, (f32)_at.y - _qpx * 0.36f, 0.0f }, (rde_vec_2F){ _qpx / _r->font_px, _qpx / _r->font_px }, 0.0f, _soft);
             }
         }
     }

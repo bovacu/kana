@@ -762,6 +762,307 @@ static void motor_rig_free(motor_rig* m) {
 
 // A motor comes up to the speed its volts make (its back-EMF balancing them: nothing loads it), turning the way its
 // volts say; drawing much as it starts, little once at speed; switched off, nothing; on, up to speed.
+// A SERVO (coupling.h) with a link on its shaft, its signal a pulse source's at 50 Hz: the link turned to where the
+// pulses say (its horn at 90° as it began, the link along it then: 1 ms 45° — the link 45° clockwise —, 2 ms 135°), as
+// fast as it turns (60° in 0.1 s at 4.8 V); held still by a fixed pivot, it strains and draws its stall current.
+static void test_servo(void) {
+    for(u32 k = 0; k < 3u; k++) {
+        const c8* const pulse[3] = { "50Hz 5V 1ms", "50Hz 5V 2ms", "50Hz 5V 1.5ms" };
+        const double turn[3] = { -PI / 4.0, PI / 4.0, 0.0 };
+        fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_placer pl = fude_zoom_placer_make(&sc, sc.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, &born);
+        const u32 sv = fude_zoom_placer_part(&pl, "servo", 0, 0, 0, 0, 0, "SG90 servo");
+        const u32 arm = fude_zoom_placer_part(&pl, "link", 63, 0, 0, 150, 24, "");
+        const u32 rail = fude_zoom_placer_part(&pl, "supply rail", -300, 200, 0, 0, 0, "5V");
+        const u32 gnd = fude_zoom_placer_part(&pl, "ground", -300, -200, 0, 0, 0, "");
+        const u32 clk = fude_zoom_placer_part(&pl, "clock", -500, 0, 0, 0, 0, pulse[k]);
+        fude_zoom_placer_wire(&pl, rail, 0, sv, 1, false);
+        fude_zoom_placer_wire(&pl, sv, 0, gnd, 0, false);
+        fude_zoom_placer_wire(&pl, clk, 0, sv, 2, false);
+        fude_zoom_placer_wire(&pl, clk, 1, gnd, 0, false);
+        played x;
+        play_begin(&x, &sc);
+        CHECK(x.coupled >= 1u && fude_zoom_mech_world_shaft(&x.w, sv) != FUDE_ZOOM_NONE);
+        const u32 b = body_of(&x.w.plan, arm);
+        const fude_zoom_sim m0 = fude_zoom_mech_world_move(&x.w, b);
+        const double a0 = atan2(m0.b, m0.a);
+        play_frames(&x, 6u);   // (its first pulses: on its way, not there — 45° takes 75 ms)
+        const fude_zoom_sim m1 = fude_zoom_mech_world_move(&x.w, b);
+        if(k < 2u) CHECK(fabs(atan2(m1.b, m1.a) - a0) > 0.05 && fabs(atan2(m1.b, m1.a) - a0) < fabs(turn[k]) - 0.05);
+        play_frames(&x, 60u);
+        const fude_zoom_sim m = fude_zoom_mech_world_move(&x.w, b);
+        char what[96];
+        snprintf(what, sizeof what, "servo, %s: the link's turn off (rad)", pulse[k]);
+        WITHIN(what, fabs(atan2(m.b, m.a) - a0 - turn[k]), 0.03);
+        const fude_zoom_circuit_part* sp = part_of_object(&x, sv);
+        snprintf(what, sizeof what, "servo, %s: its horn's angle off (deg)", pulse[k]);
+        WITHIN(what, fabs(sp->shown - (90.0 + turn[k] * 180.0 / PI)), 2.0);
+        snprintf(what, sizeof what, "servo, %s: at rest, what it draws (A)", pulse[k]);
+        WITHIN(what, fabs(sp->pin_i[1]), 0.05);
+        CHECK(x.ok);
+        play_end(&x);
+        rde_arr_free(&born);
+        fude_zoom_scene_destroy(&sc);
+    }
+    // The servo tester (examples.h): its 555's pulses as long as R1 (5.6k and the pot's 10k) makes them — 1.37 ms, 78° —;
+    // the pot tapped a quarter on (15k: 1.81 ms, 118°), the arm turned with it.
+    {
+        fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_example_build(&sc, sc.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, FUDE_ZOOM_EXAMPLE_SERVO_TESTER, NULL, &born);
+        played x;
+        play_begin(&x, &sc);
+        CHECK(x.coupled >= 1u);
+        play_frames(&x, 60u);
+        u32 sv = FUDE_ZOOM_NONE, pot = FUDE_ZOOM_NONE;
+        const fude_zoom_circuit_part* cp = (const fude_zoom_circuit_part*)x.c.parts.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&x.c.parts); i++) {
+            if(cp[i].part->model == FUDE_ZOOM_MODEL_SERVO) sv = i;
+            if(cp[i].part->model == FUDE_ZOOM_MODEL_POT) pot = i;
+        }
+        CHECK(sv != FUDE_ZOOM_NONE && pot != FUDE_ZOOM_NONE);
+        if(sv != FUDE_ZOOM_NONE && pot != FUDE_ZOOM_NONE) {
+            WITHIN("servo tester, the pot halfway: its angle off 78° (deg)", fabs(cp[sv].shown - 78.4), 5.0);
+            c8 say[32];
+            CHECK(fude_zoom_circuit_tap(&x.c, pot, -1, say, sizeof say));
+            play_frames(&x, 60u);
+            cp = (const fude_zoom_circuit_part*)x.c.parts.memory;
+            WITHIN("servo tester, the pot at 75%: its angle off 118° (deg)", fabs(cp[sv].shown - 118.0), 5.0);
+            CHECK(!cp[sv].burnt && x.ok);
+        }
+        play_end(&x);
+        rde_arr_free(&born);
+        fude_zoom_scene_destroy(&sc);
+    }
+    // Held still: the link's other end on a fixed pivot.
+    {
+        fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_placer pl = fude_zoom_placer_make(&sc, sc.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, &born);
+        const u32 sv = fude_zoom_placer_part(&pl, "servo", 0, 0, 0, 0, 0, "SG90 servo");
+        const u32 arm = fude_zoom_placer_part(&pl, "link", 63, 0, 0, 150, 24, "");
+        fude_zoom_placer_part(&pl, "fixed pivot", 126, -10, 0, 0, 0, "");
+        const u32 rail = fude_zoom_placer_part(&pl, "supply rail", -300, 200, 0, 0, 0, "5V");
+        const u32 gnd = fude_zoom_placer_part(&pl, "ground", -300, -200, 0, 0, 0, "");
+        const u32 clk = fude_zoom_placer_part(&pl, "clock", -500, 0, 0, 0, 0, "50Hz 5V 1ms");
+        fude_zoom_placer_wire(&pl, rail, 0, sv, 1, false);
+        fude_zoom_placer_wire(&pl, sv, 0, gnd, 0, false);
+        fude_zoom_placer_wire(&pl, clk, 0, sv, 2, false);
+        fude_zoom_placer_wire(&pl, clk, 1, gnd, 0, false);
+        played x;
+        play_begin(&x, &sc);
+        play_frames(&x, 60u);
+        WITHIN("servo held still: its link's turn (rad/s)", fabs(spin_over(&x, body_of(&x.w.plan, arm), 30u)), 0.02);
+        const fude_zoom_circuit_part* sp = part_of_object(&x, sv);
+        WITHIN("servo held still: what it draws off its stall's (A)", fabs(fabs(sp->pin_i[1]) - 0.66), 0.05);
+        play_end(&x);
+        rde_arr_free(&born);
+        fude_zoom_scene_destroy(&sc);
+    }
+}
+
+// STRENGTH (mechrun.h): each joint against what it takes — a pin's shear (its parts' material over a pin six tenths of
+// their half width across: about 980 N in plastic for a 24-wide link), a rope's 2 kN. A link from a pivot holding a
+// weight: 1 kg for good; 5 tonnes, its pin shears — said, and the link and weight fall. A rope pendulum of 300 kg snaps.
+// A drive motor (10 N·m) turning an arm pinned to the ground besides: jammed — said once —, nothing broken.
+typedef struct { fude_zoom_scene s; rde_arr born; fude_zoom_placer pl; fude_zoom_mech_plan p; fude_zoom_mech_world w; } strength_rig;
+
+static void strength_begin(strength_rig* r) {
+    fude_zoom_scene_init(&r->s, 7);
+    r->born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    r->pl = fude_zoom_placer_make(&r->s, r->s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, &r->born);
+}
+
+static void strength_run(strength_rig* r, u32 frames) {
+    fude_zoom_mech_plan_init(&r->p);
+    fude_zoom_mech_world_init(&r->w);
+    CHECK(fude_zoom_mech_plan_build(&r->p, &r->s, NULL) > 0u && fude_zoom_mech_world_start(&r->w, &r->p));
+    for(u32 f = 0; f < frames; f++) fude_zoom_mech_world_step(&r->w, 1.0 / 60.0);
+}
+
+static u32 strength_events(const strength_rig* r, u8 kind) {
+    u32 n = 0;
+    const fude_zoom_mech_event* ev = (const fude_zoom_mech_event*)r->w.events.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&r->w.events); i++) n += ev[i].kind == kind ? 1u : 0u;
+    return n;
+}
+
+static void strength_end(strength_rig* r) {
+    fude_zoom_mech_world_destroy(&r->w);
+    fude_zoom_mech_plan_destroy(&r->p);
+    rde_arr_free(&r->born);
+    fude_zoom_scene_destroy(&r->s);
+}
+
+static void test_strength(void) {
+    for(u32 heavy = 0; heavy < 2u; heavy++) {
+        strength_rig r;
+        strength_begin(&r);
+        fude_zoom_placer_part(&r.pl, "fixed pivot", 0, 140, 0, 0, 0, "");   // (its hole 10 over its middle: at 150)
+        const u32 link = fude_zoom_placer_part(&r.pl, "link", 0, 150 - 48, -90, 120, 24, "");
+        const u32 wt = fude_zoom_placer_part(&r.pl, "weight", 0, 150 - 96, 0, 0, 0, heavy ? "5000 kg" : "1 kg");
+        strength_run(&r, 120u);
+        const fude_zoom_mech_joint* j = (const fude_zoom_mech_joint*)r.w.joints.memory;
+        u32 pins = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&r.w.joints); i++) {
+            if(j[i].kind != FUDE_ZOOM_MECH_JOINT_PIN) continue;
+            pins++;
+            WITHIN("a pin's strength off 980 N (plastic, 7.2 mm)", fabs(j[i].strength - 977.2) / 977.2, 0.01);
+        }
+        CHECK(pins == 2u);
+        const fude_zoom_v2 at = fude_zoom_mech_world_point(&r.w, body_of(&r.w.plan, wt), (fude_zoom_v2){ 0, 150 - 96 });
+        if(heavy) {
+            CHECK(strength_events(&r, FUDE_ZOOM_MECH_BROKE) >= 1u);
+            CHECK(at.y < 150 - 96 - 200);   // (fallen)
+        } else {
+            CHECK(rde_arr_length(&r.w.events) == 0u);
+            CHECK(fabs(at.y - (150 - 96)) < 5.0);   // (hanging where it was)
+            for(u32 i = 0; i < (u32)rde_arr_length(&r.w.joints); i++) CHECK(j[i].joint != NULL && j[i].load < 0.05);
+        }
+        RDE_UNUSED(link);
+        strength_end(&r);
+    }
+    // A rope pendulum: 300 kg on a 2 kN rope, snapped.
+    {
+        strength_rig r;
+        strength_begin(&r);
+        fude_zoom_placer_part(&r.pl, "fixed pivot", 0, 100, 0, 0, 0, "");   // (its hole at 110: the rope from it down to the weight)
+        fude_zoom_placer_part(&r.pl, "rope", 0, 55, -90, 110.0 / 0.95, 12, "");
+        const u32 wt = fude_zoom_placer_part(&r.pl, "weight", 0, 0, 0, 0, 0, "300 kg");
+        strength_run(&r, 120u);
+        CHECK(strength_events(&r, FUDE_ZOOM_MECH_BROKE) == 1u);
+        const fude_zoom_mech_event* ev = (const fude_zoom_mech_event*)r.w.events.memory;
+        CHECK(rde_arr_length(&r.w.events) >= 1u && ((const fude_zoom_mech_joint*)r.w.joints.memory)[ev[0].joint].kind == FUDE_ZOOM_MECH_JOINT_ROPE && ev[0].strength == 2000.0);
+        CHECK(fude_zoom_mech_world_point(&r.w, body_of(&r.w.plan, wt), (fude_zoom_v2){ 0, 0 }).y < -200.0);
+        strength_end(&r);
+    }
+    // A drive motor's arm pinned to the ground at its other end: jammed, said once; nothing broken (79 N on the pin).
+    {
+        strength_rig r;
+        strength_begin(&r);
+        fude_zoom_placer_part(&r.pl, "drive motor", 0, 0, 0, 0, 0, "30 rpm");
+        fude_zoom_placer_part(&r.pl, "link", 63, 0, 0, 150, 24, "");
+        fude_zoom_placer_part(&r.pl, "fixed pivot", 126, -10, 0, 0, 0, "");
+        strength_run(&r, 120u);
+        CHECK(strength_events(&r, FUDE_ZOOM_MECH_JAMMED) == 1u);
+        CHECK(strength_events(&r, FUDE_ZOOM_MECH_BROKE) == 0u);
+        strength_end(&r);
+    }
+}
+
+// The mechanisms' examples made to show what their parts take: materials (the ice block furthest down its ramp, steel
+// and wood after it, rubber where it was; the rubber ball bouncing highest), too heavy (only the 500 kg pin sheared, only
+// the 300 kg rope snapped), a motor strong enough (the 2 N·m one jammed, the 30 N·m one round and round), servo angles
+// (45°, 90°, 135°; the one on 12 V burnt).
+static void test_examples_go_wrong_mech(void) {
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_example_build(&s, s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, FUDE_ZOOM_EXAMPLE_MATERIALS, NULL, &born);
+        fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+        fude_zoom_mech_world w; fude_zoom_mech_world_init(&w);
+        CHECK(fude_zoom_mech_plan_build(&p, &s, NULL) > 0u && fude_zoom_mech_world_start(&w, &p));
+        // (the moving drawn bodies in the order drawn: the four blocks, then the three balls)
+        u32 moving[7], nm = 0;
+        const fude_zoom_mech_body* b = (const fude_zoom_mech_body*)w.plan.bodies.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&w.plan.bodies) && nm < 7u; i++) if(!b[i].fixed) moving[nm++] = i;
+        CHECK(nm == 7u);
+        f64 top[3] = { -1e9, -1e9, -1e9 };
+        for(u32 f = 0; f < 240u && nm == 7u; f++) {
+            fude_zoom_mech_world_step(&w, 1.0 / 60.0);
+            for(u32 k = 0; k < 3u; k++) {
+                const fude_zoom_v2 at = fude_zoom_mech_world_point(&w, moving[4u + k], b[moving[4u + k]].at);
+                if(f > 40u) top[k] = fmax(top[k], at.y);   // (after the first bounce: how high it comes back up)
+            }
+        }
+        if(nm == 7u) {
+            f64 went[4];
+            for(u32 k = 0; k < 4u; k++) {
+                const fude_zoom_v2 at = fude_zoom_mech_world_point(&w, moving[k], b[moving[k]].at);
+                went[k] = hypot(at.x - b[moving[k]].at.x, at.y - b[moving[k]].at.y);
+            }
+            printf("  materials: ice %.0f, wood %.0f, rubber %.0f, steel %.0f mm down; balls back up to %.0f, %.0f, %.0f\n", went[0], went[1], went[2], went[3], top[0], top[1], top[2]);
+            CHECK(went[0] > went[3] && went[3] > went[2] && went[1] > went[2] && went[2] < 10.0 && went[0] > 300.0);
+            CHECK(top[0] > top[1] + 30.0 && top[0] > top[2] + 30.0);
+        }
+        CHECK(rde_arr_length(&w.events) == 0u);
+        fude_zoom_mech_world_destroy(&w); fude_zoom_mech_plan_destroy(&p);
+        rde_arr_free(&born); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_example_build(&s, s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, FUDE_ZOOM_EXAMPLE_TOO_HEAVY, NULL, &born);
+        fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+        fude_zoom_mech_world w; fude_zoom_mech_world_init(&w);
+        CHECK(fude_zoom_mech_plan_build(&p, &s, NULL) > 0u && fude_zoom_mech_world_start(&w, &p));
+        for(u32 f = 0; f < 120u; f++) fude_zoom_mech_world_step(&w, 1.0 / 60.0);
+        const fude_zoom_mech_joint* j = (const fude_zoom_mech_joint*)w.joints.memory;
+        const fude_zoom_mech_event* ev = (const fude_zoom_mech_event*)w.events.memory;
+        u32 pins = 0, ropes = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&w.events); i++) {
+            CHECK(ev[i].kind == FUDE_ZOOM_MECH_BROKE);
+            const fude_zoom_mech_joint* r = &j[ev[i].joint];
+            pins  += r->kind == FUDE_ZOOM_MECH_JOINT_PIN && fabs(r->at.x - (-420.0 + 320.0)) < 30.0 ? 1u : 0u;   // (the third link's: 500 kg)
+            ropes += r->kind == FUDE_ZOOM_MECH_JOINT_ROPE && r->at.x > 200.0 ? 1u : 0u;                          // (the second rope's: 300 kg)
+        }
+        printf("  too heavy: %u broken (a pin %u, a rope %u)\n", (u32)rde_arr_length(&w.events), pins, ropes);
+        CHECK(rde_arr_length(&w.events) == 3u && pins == 2u && ropes == 1u);   // (both the 500 kg link's pins: each past its 980 N)
+        fude_zoom_mech_world_destroy(&w); fude_zoom_mech_plan_destroy(&p);
+        rde_arr_free(&born); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_example_build(&s, s.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, FUDE_ZOOM_EXAMPLE_MOTOR_TORQUE, NULL, &born);
+        fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+        fude_zoom_mech_world w; fude_zoom_mech_world_init(&w);
+        CHECK(fude_zoom_mech_plan_build(&p, &s, NULL) > 0u && fude_zoom_mech_world_start(&w, &p));
+        const fude_zoom_mech_motor* mo = (const fude_zoom_mech_motor*)w.motors.memory;
+        CHECK(rde_arr_length(&w.motors) == 2u);
+        f64 turn0 = 0.0, turn1 = 0.0;
+        for(u32 f = 0; f < 300u && rde_arr_length(&w.motors) == 2u; f++) {
+            fude_zoom_mech_world_step(&w, 1.0 / 60.0);
+            turn0 = fabs(mo[0].turned);
+            turn1 = fabs(mo[1].turned);
+        }
+        u32 jams = 0;
+        const fude_zoom_mech_event* ev = (const fude_zoom_mech_event*)w.events.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&w.events); i++) jams += ev[i].kind == FUDE_ZOOM_MECH_JAMMED && ev[i].joint == mo[0].pin ? 1u : 0u;
+        printf("  motor strong enough: weak %.2f turns (jammed %u), strong %.2f turns in 5 s\n", turn0 / (2.0 * PI), jams, turn1 / (2.0 * PI));
+        CHECK(jams == 1u && turn0 < 0.5 * 2.0 * PI && turn1 > 1.5 * 2.0 * PI && rde_arr_length(&w.events) == 1u);
+        fude_zoom_mech_world_destroy(&w); fude_zoom_mech_plan_destroy(&p);
+        rde_arr_free(&born); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
+        rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        fude_zoom_example_build(&sc, sc.root, fude_zoom_sim_identity(), (rde_color){ 1, 1, 1, 255 }, FUDE_ZOOM_EXAMPLE_SERVO_ANGLES, NULL, &born);
+        played x;
+        play_begin(&x, &sc);
+        CHECK(x.coupled == 4u);
+        play_frames(&x, 90u);
+        const fude_zoom_circuit_part* cp = (const fude_zoom_circuit_part*)x.c.parts.memory;
+        f64 angles[4];
+        u32 ns = 0, burnt = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&x.c.parts); i++) {
+            if(cp[i].part->model != FUDE_ZOOM_MODEL_SERVO) continue;
+            if(ns < 4u) angles[ns] = cp[i].shown;
+            burnt += cp[i].burnt ? 1u : 0u;
+            ns++;
+        }
+        CHECK(ns == 4u && burnt == 1u);
+        if(ns == 4u) {
+            printf("  servo angles: %.1f, %.1f, %.1f (and %.1f, burnt)\n", angles[0], angles[1], angles[2], angles[3]);
+            CHECK(fabs(angles[0] - 45.0) < 2.5 && fabs(angles[1] - 90.0) < 2.5 && fabs(angles[2] - 135.0) < 2.5 && cp != NULL);
+        }
+        play_end(&x);
+        rde_arr_free(&born);
+        fude_zoom_scene_destroy(&sc);
+    }
+}
+
 static void test_motor_drives(void) {
     const double volts[3] = { 3.0, 6.0, 9.0 };
     for(u32 i = 0; i < 3u; i++) {
@@ -1019,6 +1320,7 @@ static void test_examples(void) {
         rde_arr_resize(&moved_arr, nb);
         u8* went = (u8*)moved_arr.memory;   // (each body: it moved, at some time)
         b8 finite = true, lit = false, ran = true;
+        u32 happened = 0;   // (its mechanism's events: none — nothing broken, jammed, nor drawn not to fit)
         for(int f = 0; f < 360; f++) {
             const clock_t t0 = clock();
             if(coupled) {
@@ -1028,6 +1330,12 @@ static void test_examples(void) {
                 if(circuit) ran = ran && fude_zoom_circuit_run(&c, 1.0 / 60.0, 400u);
             }
             spent += (double)(clock() - t0) / CLOCKS_PER_SEC;
+            if(rde_arr_length(&w.events) > 0u) {
+                const fude_zoom_mech_event* ev = (const fude_zoom_mech_event*)w.events.memory;
+                for(u32 i = 0; i < (u32)rde_arr_length(&w.events); i++) printf("  example %u: event %u on joint %u: %g of %g\n", e, ev[i].kind, ev[i].joint, ev[i].force, ev[i].strength);
+                happened += (u32)rde_arr_length(&w.events);
+                rde_arr_clear(&w.events);
+            }
             for(u32 i = 0; i < nb; i++) {
                 const fude_zoom_sim m = fude_zoom_mech_world_move(&w, i);
                 finite = finite && isfinite(m.a) && isfinite(m.b) && isfinite(m.tx) && isfinite(m.ty);
@@ -1050,6 +1358,8 @@ static void test_examples(void) {
         }
         rde_arr_free(&moved_arr);
         char what[96];
+        const b8 wrong = fude_zoom_example_goes_wrong(e);   // (made to break, jam, burn: their own test below)
+        CHECK(wrong || happened == 0u);
         snprintf(what, sizeof(what), "example %u: finite", e);
         if(!finite) printf("FAIL %s\n", what), fails++;
         snprintf(what, sizeof(what), "example %u: teeth off gaps (tooth)", e);
@@ -1057,12 +1367,14 @@ static void test_examples(void) {
         snprintf(what, sizeof(what), "example %u: furthest a body went (points)", e);
         WITHIN(what, far, 2000.0);
         snprintf(what, sizeof(what), "example %u: bodies not moving of", e);
-        WITHIN(what, (double)(moving - moved), (double)moving * 0.25);   // (a few may rest where they are: a weight on a wall)
+        if(!wrong) WITHIN(what, (double)(moving - moved), (double)moving * 0.25);   // (a few may rest where they are: a weight on a wall)
         if(circuit) {
-            CHECK(ran && (lit || e == FUDE_ZOOM_EXAMPLE_FORWARD_BACK));   // (its motor and rack what it shows)
+            const b8 shows = lit || e == FUDE_ZOOM_EXAMPLE_FORWARD_BACK || e == FUDE_ZOOM_EXAMPLE_SERVO_TESTER || e == FUDE_ZOOM_EXAMPLE_SERVO_ANGLES;   // (its motor, its servos what it shows)
+            if(!(ran && shows)) printf("  example %u: ran %d, an LED lit %d\n", e, (int)ran, (int)lit);
+            CHECK(ran && shows);
         }
         // (those where the two work on each other: coupled)
-        CHECK(coupled == ((e >= FUDE_ZOOM_EXAMPLE_MOTOR_GEARS && e <= FUDE_ZOOM_EXAMPLE_SHUTTLE) || e == FUDE_ZOOM_EXAMPLE_EVERYTHING));
+        CHECK(coupled == ((e >= FUDE_ZOOM_EXAMPLE_MOTOR_GEARS && e <= FUDE_ZOOM_EXAMPLE_SERVO_ANGLES) || e == FUDE_ZOOM_EXAMPLE_EVERYTHING));
         if(e == FUDE_ZOOM_EXAMPLE_EVERYTHING) {
             printf("  everything at once: %u bodies, %u meshes, %u circuit parts, %u wires: %.2f ms a frame (60 a second)\n", nb, (u32)rde_arr_length(&p.meshes),
                    (u32)rde_arr_length(&c.parts), (u32)rde_arr_length(&c.wires), spent / 360.0 * 1000.0);
@@ -1088,6 +1400,9 @@ int main(void) {
     test_mixed_and_pinned();
     test_zoomed();
     test_motor_drives();
+    test_servo();
+    test_strength();
+    test_examples_go_wrong_mech();
     test_dynamo();
     test_dynamo_holds();
     test_shuttle();

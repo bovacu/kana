@@ -48,6 +48,9 @@ typedef struct fude_zoom_body_form {
     rde_vec_2F          laid_out;
 } fude_zoom_body_form;
 
+// Material _material's name (sim/body.h's order) in the person's language; NULL: none such.
+const c8* fude_zoom_body_material_name(u32 _material);
+
 void fude_zoom_body_build(fude_zoom_body_form* _form, rde_ui_node* _root, rde_window* _window, rde_font* _font);
 void fude_zoom_body_forget(fude_zoom_body_form* _form);
 // Up for a drawing of area _area_mm2 (0: not known), as it is now (_was_body: a body already), _done on Apply.

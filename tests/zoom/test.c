@@ -31,7 +31,7 @@
 #include "zoom/calc.h"
 #include "zoom/plot.h"
 #include "zoom/symbol.h"
-#include "zoom/symbol.h"
+#include "zoom/display.h"
 #include "zoom/select.h"
 #include "zoom/render.h"
 #include "zoom/cut.h"
@@ -39,6 +39,8 @@
 #include "zoom/nest.h"
 #include "zoom/logic.h"
 #include "zoom/custom.h"
+#include "zoom/limits.h"
+#include "zoom/props.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -3149,7 +3151,7 @@ static const fude_zoom_circuit_part* circuit_part(const fude_zoom_circuit* c, u3
 
 static f64 circuit_volts(const fude_zoom_circuit* c, u32 object, u32 pin) {
     const fude_zoom_circuit_part* p = circuit_part(c, object);
-    return p != NULL && p->node[pin] != FUDE_ZOOM_NONE ? (p->node[pin] == 0u ? 0.0 : c->v[p->node[pin]]) : -999.0;
+    return p != NULL && p->node[pin] != FUDE_ZOOM_NONE ? fude_zoom_circuit_volts(c, p->node[pin]) : -999.0;
 }
 
 static void test_circuits(void) {
@@ -5438,11 +5440,959 @@ static void test_led_colours(void) {
         fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
         CHECK(fude_zoom_circuit_run(&c, 0.02, 200u));
         const fude_zoom_circuit_part* p = cpart(&c, led);
-        const f64 v = c.v[p->node[0]] - c.v[p->node[1]], want = (5.0 - vf[i]) / 330.0;
+        const f64 v = fude_zoom_circuit_volts(&c, p->node[0]) - fude_zoom_circuit_volts(&c, p->node[1]), want = (5.0 - vf[i]) / 330.0;
         right += fabs(v - vf[i]) < 0.1 && fabs(p->pin_i[0] - want) < 0.1 * want && p->shown > 0.4 ? 1u : 0u;
         fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
     }
     CHECK(right == 8u);
+}
+
+// Kirchhoff at every node: the currents the parts' pins push into it add up to nothing (the largest left, amperes).
+static f64 kirchhoff_worst(const fude_zoom_circuit* c) {
+    rde_arr sum_arr = rde_arr_new(sizeof(f64), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&sum_arr, c->nodes);
+    f64* sum = (f64*)sum_arr.memory;
+    const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c->parts.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) {
+        for(u32 k = 0; k < p[i].part->pin_count && k < 64u; k++) {
+            if(p[i].node[k] != FUDE_ZOOM_NONE && p[i].node[k] < c->nodes) sum[p[i].node[k]] += p[i].pin_i[k];
+        }
+    }
+    f64 worst = 0.0;
+    for(u32 n = 1; n < c->nodes; n++) worst = fmax(worst, fabs(sum[n]));
+    rde_arr_free(&sum_arr);
+    return worst;
+}
+
+// Circuits past what a dense system could take (and the old 512 nodes): a divider of 2000 resistors — each node's
+// voltage exactly where it should be —, a 30 × 30 grid of them, a battery lighting an LED with no ground of its own on a
+// canvas whose ground is elsewhere (its minus held at 0 V). Solved sparse, quickly, Kirchhoff kept at every node.
+static void test_big_circuits(void) {
+    printf("big circuits\n");
+    {
+        const u32 n = 2000;
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr ids = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        const u32 rail = part_put(&s, "supply rail", -100, 0, 30, 10, "10V");
+        for(u32 i = 0; i < n; i++) {
+            const u32 r = part_put(&s, "resistor", 100.0 * (f64)i, 0, 30, 10, "100");   // (in a row: each wire short and clear)
+            rde_arr_add(&ids, (any)&r);
+        }
+        const u32 g = part_put(&s, "ground", 100.0 * (f64)n + 50.0, -60, 20, 20, "");
+        const u32* id = (const u32*)ids.memory;
+        wire_put(&s, rail, 0, id[0], 0);
+        for(u32 i = 0; i + 1u < n; i++) wire_put(&s, id[i], 1, id[i + 1u], 0);
+        wire_put(&s, id[n - 1u], 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        printf("  divider: %u nodes, %u blocks\n", c.nodes, c.blocks);
+        CHECK(c.nodes >= n);
+        const clock_t t0 = clock();
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 100u));
+        const f64 ms = 1000.0 * (f64)(clock() - t0) / CLOCKS_PER_SEC;
+        printf("  divider: 10 steps in %.1f ms\n", ms);
+        CHECK(ms < 2000.0);
+        f64 worst = 0.0;
+        for(u32 i = 0; i < n; i++) {
+            const f64 want = 10.0 * (f64)(n - i - 1u) / (f64)n;   // (each resistor's far end)
+            worst = fmax(worst, fabs(fude_zoom_circuit_volts(&c, cpart(&c, id[i])->node[1]) - want));
+        }
+        printf("  divider: furthest from its voltage %.2e V, Kirchhoff off by %.2e A at worst\n", worst, kirchhoff_worst(&c));
+        CHECK(worst < 1e-3);
+        CHECK(kirchhoff_worst(&c) < 1e-9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+        rde_arr_free(&ids);
+    }
+    {
+        const u32 side = 30;
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        rde_arr across = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std()), down = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        // Each crossing joined to the next one right and the next one down by a resistor (its pin 0 at the crossing).
+        for(u32 r = 0; r < side; r++) for(u32 k = 0; k < side; k++) {
+            const u32 a = part_put(&s, "resistor", 200.0 * k + 50.0, -200.0 * r, 30, 10, "100");
+            const u32 b = part_put(&s, "resistor", 200.0 * k, -200.0 * r - 50.0, 30, 10, "100");
+            rde_arr_add(&across, (any)&a); rde_arr_add(&down, (any)&b);
+        }
+        const u32* ac = (const u32*)across.memory; const u32* dn = (const u32*)down.memory;
+        for(u32 r = 0; r < side; r++) for(u32 k = 0; k < side; k++) {
+            const u32 i = r * side + k;
+            wire_put(&s, ac[i], 0, dn[i], 0);
+            if(k + 1u < side) wire_put(&s, ac[i], 1, ac[i + 1u], 0);
+            if(r + 1u < side) wire_put(&s, dn[i], 1, dn[i + side], 0);
+        }
+        const u32 rail = part_put(&s, "supply rail", -200, 200, 30, 10, "5V");
+        const u32 g = part_put(&s, "ground", 200.0 * side + 200.0, -200.0 * side - 200.0, 20, 20, "");
+        wire_put(&s, rail, 0, ac[0], 0);
+        wire_put(&s, ac[side * side - 1u], 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        printf("  grid: %u nodes, %u blocks\n", c.nodes, c.blocks);
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 100u));
+        // Between its supply and ground, and falling from the corner it is fed at to the one it leaves by.
+        const f64 v0 = fude_zoom_circuit_volts(&c, cpart(&c, ac[0])->node[0]);
+        const f64 v1 = fude_zoom_circuit_volts(&c, cpart(&c, ac[side * side - 1u])->node[1]);
+        const f64 vm = fude_zoom_circuit_volts(&c, cpart(&c, ac[(side / 2u) * side + side / 2u])->node[0]);
+        printf("  grid: %.3f V, %.3f V in the middle, %.3f V; Kirchhoff off by %.2e A at worst\n", v0, vm, v1, kirchhoff_worst(&c));
+        CHECK(v0 > vm && vm > v1 && v0 <= 5.0 && v1 >= 0.0);
+        CHECK(kirchhoff_worst(&c) < 1e-9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+        rde_arr_free(&across); rde_arr_free(&down);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", 0, 0, 20, 30, "9V");
+        const u32 r = part_put(&s, "resistor", 100, 50, 30, 10, "470");
+        const u32 led = part_put(&s, "LED", 200, 0, 30, 20, "red");
+        wire_put(&s, bat, 0, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, bat, 1);
+        const u32 rail = part_put(&s, "supply rail", 0, 400, 30, 10, "5V");   // (elsewhere: a grounded circuit)
+        const u32 r2 = part_put(&s, "resistor", 100, 400, 30, 10, "1k");
+        const u32 g = part_put(&s, "ground", 200, 350, 20, 20, "");
+        wire_put(&s, rail, 0, r2, 0); wire_put(&s, r2, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(c.blocks == 2u);
+        CHECK(fude_zoom_circuit_run(&c, 0.05, 100u));
+        const fude_zoom_circuit_part* b = cpart(&c, bat);
+        CHECK(fabs(fude_zoom_circuit_volts(&c, b->node[1])) < 1e-6);   // (its minus: 0 V)
+        CHECK(cpart(&c, led)->shown > 0.3);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// The events a circuit had (and cleared): how many of kind _kind on part object _object (FUDE_ZOOM_NONE: any).
+static u32 events_of(fude_zoom_circuit* c, u8 kind, u32 object) {
+    u32 n = 0;
+    const fude_zoom_circuit_event* e = (const fude_zoom_circuit_event*)c->events.memory;
+    const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c->parts.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->events); i++) {
+        n += e[i].kind == kind && (object == FUDE_ZOOM_NONE || p[e[i].part].object == object) ? 1u : 0u;
+    }
+    return n;
+}
+
+// A circuit stepped _seconds in 10 ms runs (each run as Play's frames: its steps at most 400).
+static b8 run_for(fude_zoom_circuit* c, f64 seconds) {
+    b8 ok = true;
+    for(f64 t = 0.0; t < seconds - 1e-9 && ok; t += 0.01) ok = fude_zoom_circuit_run(c, 0.01, 400u);
+    return ok;
+}
+
+// The examples made to show what goes wrong do just that, and nothing else: the LED with no resistor burnt (its current),
+// the one behind 470 Ω lit; the ¼ W resistor burnt after a moment, the 1 W one not; the lamps lit until a switch shorts
+// them — behind the fuse it blows (nothing said: it took the short), with none the battery says so and the switch burns;
+// the backwards electrolytic and the 6.3 V one popped (the wrong way round, past its volts), the 16 V one well; the BC547
+// burnt, the TIP120's lamp lit. And the LC rings: twice its supply and back at 1.6 Hz, still swinging seconds later.
+static u32 cindex(const fude_zoom_circuit* c, u32 object) {
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) if(((const fude_zoom_circuit_part*)c->parts.memory)[i].object == object) return i;
+    return FUDE_ZOOM_NONE;
+}
+
+static void test_examples_go_wrong(void) {
+    printf("examples that go wrong\n");
+    fude_zoom_scene s; fude_zoom_circuit c;
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_LED_RESISTOR);
+        CHECK(run_for(&c, 0.5));
+        CHECK(cpart(&c, example_part(&s, "LED", "red"))->shown > 0.5 && !cpart(&c, example_part(&s, "LED", "red"))->burnt);
+        CHECK(cpart(&c, example_part(&s, "LED", "green"))->burnt);
+        CHECK(rde_arr_length(&c.events) == 1u && ((const fude_zoom_circuit_event*)c.events.memory)[0].limit == FUDE_ZOOM_LIMIT_CURRENT);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_RESISTOR_WATTS);
+        u32 r[2];
+        CHECK(example_parts(&s, "resistor", NULL, r, 2u) == 2u);
+        CHECK(run_for(&c, 0.2));
+        CHECK(!cpart(&c, r[0])->burnt && cpart(&c, r[0])->stress > 2.0 && cpart(&c, r[0])->heat > 0.0);   // (heating: not yet)
+        CHECK(run_for(&c, 2.0));
+        CHECK(cpart(&c, r[0])->burnt && !cpart(&c, r[1])->burnt && fabs(cpart(&c, r[1])->stress - 0.52) < 0.02);
+        CHECK(rde_arr_length(&c.events) == 1u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_SHORT_FUSE);
+        u32 sw[2], lamp[2];
+        CHECK(example_parts(&s, "SPST switch", NULL, sw, 2u) == 2u && example_parts(&s, "lamp", NULL, lamp, 2u) == 2u);
+        CHECK(run_for(&c, 0.5));
+        CHECK(cpart(&c, lamp[0])->shown > 0.5 && cpart(&c, lamp[1])->shown > 0.5 && rde_arr_length(&c.events) == 0u);
+        c8 say[32];
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[0]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.5));
+        CHECK(cpart(&c, example_part(&s, "fuse", NULL))->state[0] > 0.5 && cpart(&c, lamp[0])->shown < 0.01 && rde_arr_length(&c.events) == 0u);
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[1]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.5));
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_OVER, example_part(&s, "battery", NULL)) == 0u);   // (the fused one's battery: never)
+        u32 bats[2];
+        CHECK(example_parts(&s, "battery", NULL, bats, 2u) == 2u);
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_OVER, bats[1]) == 1u && cpart(&c, sw[1])->burnt);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_CAP_POLARITY);
+        u32 caps[3];
+        CHECK(example_parts(&s, "electrolytic", NULL, caps, 3u) == 3u);
+        CHECK(run_for(&c, 1.0));
+        CHECK(!cpart(&c, caps[0])->burnt && cpart(&c, caps[1])->burnt && cpart(&c, caps[2])->burnt);
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_BURNT, caps[1]) == 1u && events_of(&c, FUDE_ZOOM_CIRCUIT_BURNT, caps[2]) == 1u && rde_arr_length(&c.events) == 2u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_TRANSISTOR_SIZE);
+        u32 lamp[2];
+        CHECK(example_parts(&s, "lamp", NULL, lamp, 2u) == 2u);
+        CHECK(run_for(&c, 1.0));
+        CHECK(cpart(&c, example_part(&s, "NPN", "BC547"))->burnt && !cpart(&c, example_part(&s, "NPN", "TIP120"))->burnt);
+        CHECK(cpart(&c, lamp[1])->shown > 0.5 && cpart(&c, lamp[0])->shown < 0.05);
+        CHECK(rde_arr_length(&c.events) == 1u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_RINGING);
+        const u32 vm = example_part(&s, "voltmeter", NULL);
+        f64 top = -1e9, bottom = 1e9, late = -1e9;
+        for(f64 t = 0.0; t < 6.0; t += 0.01) {
+            CHECK(fude_zoom_circuit_run(&c, 0.01, 400u));
+            const f64 v = cpart(&c, vm)->shown;
+            if(t < 0.5) top = fmax(top, v);
+            if(t > 0.45 && t < 0.8) bottom = fmin(bottom, v);
+            if(t > 5.0) late = fmax(late, v);
+        }
+        printf("  ringing: up to %.2f V, back to %.2f V, still up to %.2f V after 5 s\n", top, bottom, late);
+        CHECK(top > 9.0 && bottom < 1.0 && late > 8.0);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+    }
+}
+
+// A SERVO on its own (circuit.h): a pulse source's pulses timed exactly (the steps land on its edges) — 1 ms 45°,
+// 1.5 ms 90°, 2 ms 135°, 0.5 ms 0°, 2.5 ms 180° —; turning at its speed (60° in 0.1 s at 4.8 V: 45° in 75 ms at 5 V,
+// a little faster); drawing more turning than at rest; on 3 V, still; on 12 V, past its 7 V: burnt.
+static void test_servo_alone(void) {
+    printf("servo\n");
+    const c8* const pulse[5] = { "50Hz 5V 1ms", "50Hz 5V 1.5ms", "50Hz 5V 2ms", "50Hz 5V 0.5ms", "50Hz 5V 2.5ms" };
+    const f64 want[5] = { 45.0, 90.0, 135.0, 0.0, 180.0 };
+    for(u32 k = 0; k < 7u; k++) {
+        const c8* supply = k == 5u ? "3V" : (k == 6u ? "12V" : "5V");
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 sv = part_put(&s, "servo", 0, 0, 60, 40, "SG90 servo");
+        const u32 rail = part_put(&s, "supply rail", -300, 200, 30, 10, supply);
+        const u32 g = part_put(&s, "ground", -300, -200, 20, 20, "");
+        const u32 clk = part_put(&s, "clock", -500, 0, 20, 30, pulse[k < 5u ? k : 0u]);
+        wire_put(&s, rail, 0, sv, 1); wire_put(&s, sv, 0, g, 0); wire_put(&s, clk, 0, sv, 2); wire_put(&s, clk, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        const fude_zoom_circuit_part* p = cpart(&c, sv);
+        CHECK(p != NULL && p->part->model == FUDE_ZOOM_MODEL_SERVO);
+        if(k == 0u) {
+            // On its way: after its first pulse (ending at 1 ms), 45° to go at 625°/s.
+            CHECK(run_for(&c, 0.04));
+            CHECK(p->shown < 89.0 && p->shown > 60.0);
+            CHECK(fabs(p->pin_i[1]) > 0.1);   // (turning: more than at rest)
+        }
+        CHECK(run_for(&c, k == 6u ? 1.0 : 0.5));
+        if(k < 5u) {
+            if(fabs(p->shown - want[k]) > 0.1) printf("  servo %s: %.3f degrees\n", pulse[k], p->shown);
+            CHECK(fabs(p->shown - want[k]) < 0.1);
+            CHECK(fabs(fabs(p->pin_i[1]) - 0.01) < 1e-3);   // (there: at rest, 10 mA)
+        } else if(k == 5u) {
+            CHECK(fabs(p->shown - 90.0) < 1e-9 && fabs(p->pin_i[1]) < 1e-3);   // (3 V: too little to work)
+        } else {
+            CHECK(p->burnt);   // (12 V: past its 7 V)
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// DISPLAYS (display.h). A one-pin part (a rail of _volts; NULL: a ground) beside pin _pa of _a, _dx, _dy from it, a wire
+// straight between them.
+static u32 tie(fude_zoom_scene* s, u32 a, u32 pa, f64 dx, f64 dy, const c8* volts) {
+    fude_zoom_v2 at, tp;
+    CHECK(fude_zoom_part_pin_at(s, a, pa, &at));
+    const u32 t = volts == NULL ? part_put(s, "ground", at.x + dx, at.y + dy - 20.0, 20, 20, "") : part_put(s, "supply rail", at.x + dx, at.y + dy + 10.0, 30, 10, volts);
+    CHECK(fude_zoom_part_pin_at(s, t, 0, &tp));
+    const fude_zoom_v2 r[2] = { at, tp };
+    fude_zoom_wire_add(s, s->root, r, 2u, a, (i32)pa, t, 0, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+    return t;
+}
+
+// A resistor of _ohms out to the left of a pin on its part's left (its near end _dx from it), its far end tied (tie).
+static void resist(fude_zoom_scene* s, u32 a, u32 pa, f64 dx, const c8* ohms, const c8* volts) {
+    fude_zoom_v2 at, rp;
+    CHECK(fude_zoom_part_pin_at(s, a, pa, &at));
+    const u32 r = part_put(s, "resistor", at.x - dx - 20.0, at.y, 20, 7, ohms);
+    CHECK(fude_zoom_part_pin_at(s, r, 1, &rp));
+    const fude_zoom_v2 w[2] = { at, rp };
+    fude_zoom_wire_add(s, s->root, w, 2u, a, (i32)pa, r, 1, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+    tie(s, r, 0, -30.0, 0.0, volts);
+}
+
+// A wire from pin _pa of _a through the points given to pin _pb of _b (laid by hand: over no other pin).
+static u32 wire_by(fude_zoom_scene* s, u32 a, u32 pa, u32 b, u32 pb, const fude_zoom_v2* via, u32 n) {
+    fude_zoom_v2 r[FUDE_ZOOM_WIRE_POINTS];
+    CHECK(fude_zoom_part_pin_at(s, a, pa, &r[0]) && fude_zoom_part_pin_at(s, b, pb, &r[n + 1u]));
+    for(u32 i = 0; i < n; i++) r[1u + i] = via[i];
+    return fude_zoom_wire_add(s, s->root, r, n + 2u, a, (i32)pa, b, (i32)pb, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+}
+
+static const f32* glow_of(fude_zoom_circuit* c, u32 object) { return (const f32*)fude_zoom_circuit_store(c, cpart(c, object)); }
+
+// The n-th part of model _model in circuit _c (FUDE_ZOOM_NONE: none).
+static u32 nth_of(const fude_zoom_circuit* c, u8 model, u32 n) {
+    const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c->parts.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&c->parts); i++) {
+        if(p[i].part->model == model && n-- == 0u) return i;
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+// The display examples (examples.h), played: the digit counting 0–9 then blank; the matrix's rows their numbers; the bar
+// six high; the panel meters' readings; the LCD on and an H written by its button.
+static void test_display_examples(void) {
+    printf("display examples\n");
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_DIGIT_COUNTER);
+        const u32 d = nth_of(&c, FUDE_ZOOM_MODEL_SEG_PANEL, 0);
+        CHECK(d != FUDE_ZOOM_NONE);
+        static const u8 digits[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7C, 0x07, 0x7F, 0x67 };
+        c8 seen[64] = { 0 };
+        u32 n = 0;
+        u8 last = 0xFF;
+        for(u32 k = 0; k < 90u && n + 1u < sizeof seen; k++) {   // (9 s: 18 counts)
+            CHECK(run_for(&c, 0.1));
+            const f32* g = (const f32*)fude_zoom_circuit_store(&c, &((fude_zoom_circuit_part*)c.parts.memory)[d]);
+            u8 m = 0;
+            for(u32 i = 0; g != NULL && i < 7u; i++) m |= (u8)(g[i] > 0.5f ? 1u << i : 0u);
+            if(m == last) continue;
+            last = m;
+            c8 ch = '?';
+            for(u32 v = 0; v < 10u; v++) if(digits[v] == m) ch = (c8)('0' + v);
+            if(m == 0) ch = '_';
+            seen[n++] = ch;
+        }
+        printf("  counter on a digit: %s\n", seen);
+        CHECK(strstr(seen, "0123456789_01") != NULL);   // (0 to 9, six counts blank, on again: 18 counts in 9 s)
+        example_close(&s, &c);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_MATRIX_SCAN);
+        const u32 m = nth_of(&c, FUDE_ZOOM_MODEL_LED_MATRIX, 0);
+        CHECK(run_for(&c, 0.15));
+        const f32* g = (const f32*)fude_zoom_circuit_store(&c, &((fude_zoom_circuit_part*)c.parts.memory)[m]);
+        f64 on_least = 1.0, off_most = 0.0;
+        for(u32 r = 0; g != NULL && r < 8u; r++) {
+            for(u32 col = 0; col < 3u; col++) {
+                const f64 b = g[r * 3u + col];
+                if((r >> col) & 1u) on_least = fmin(on_least, b); else off_most = fmax(off_most, b);
+            }
+        }
+        printf("  matrix scanned: its rows' numbers lit at %.3f at least, the rest %.4f at most\n", on_least, off_most);
+        CHECK(on_least > 0.04 && off_most < 0.01);
+        example_close(&s, &c);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_BAR_METER);
+        const u32 b = nth_of(&c, FUDE_ZOOM_MODEL_BAR_GRAPH, 0);
+        CHECK(run_for(&c, 0.2));
+        const f32* g = (const f32*)fude_zoom_circuit_store(&c, &((fude_zoom_circuit_part*)c.parts.memory)[b]);
+        u32 lit = 0;
+        for(u32 i = 0; g != NULL && i < 10u; i++) { lit += g[i] > 0.5f; CHECK(i < 6u ? g[i] > 0.5f : g[i] < 0.02f); }
+        printf("  bar graph meter: %u lit\n", lit);
+        example_close(&s, &c);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_PANEL_METERS);
+        CHECK(run_for(&c, 0.05));
+        const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c.parts.memory;
+        const f64 v = p[nth_of(&c, FUDE_ZOOM_MODEL_PANEL_METER, 0)].shown, a = p[nth_of(&c, FUDE_ZOOM_MODEL_PANEL_METER, 1)].shown;
+        printf("  panel meters: %.3f V, %.3f mA\n", v, a * 1e3);
+        CHECK(fabs(v - 4.5) < 0.05 && fabs(a - 9.0 / 1010.5) < 1e-5);
+        example_close(&s, &c);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_LCD_BY_HAND);
+        const u32 l = nth_of(&c, FUDE_ZOOM_MODEL_CHAR_LCD, 0), e = nth_of(&c, FUDE_ZOOM_MODEL_BUTTON, 0);
+        fude_zoom_circuit_part* p = (fude_zoom_circuit_part*)c.parts.memory;
+        CHECK(run_for(&c, 0.05));
+        const fude_zoom_lcd* lc = (const fude_zoom_lcd*)fude_zoom_circuit_store(&c, &p[l]);
+        CHECK(lc != NULL && lc->powered && !(lc->control & FUDE_ZOOM_LCD_D));
+        // E pressed and let go: 00001111 sent (the display on, its cursor blinking).
+        p[e].switch_on = 1u; CHECK(run_for(&c, 0.02));
+        p[e].switch_on = 0u; CHECK(run_for(&c, 0.02));
+        CHECK(lc != NULL && (lc->control & FUDE_ZOOM_LCD_D) && (lc->control & FUDE_ZOOM_LCD_B));
+        // RS on, 01001000, E: an H.
+        const u8 h = 0x48;
+        u32 in = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.parts); i++) {
+            if(p[i].part->model != FUDE_ZOOM_MODEL_LOGIC_IN) continue;
+            // (the logic inputs in order: RS, RW, D0 … D7)
+            p[i].switch_on = in == 0u ? 1u : (in == 1u ? 0u : (h >> (in - 2u)) & 1u);
+            in++;
+        }
+        CHECK(in == 10u);
+        CHECK(run_for(&c, 0.02));
+        p[e].switch_on = 1u; CHECK(run_for(&c, 0.02));
+        p[e].switch_on = 0u; CHECK(run_for(&c, 0.02));
+        CHECK(lc != NULL && fude_zoom_lcd_shown(lc, 16, 2, 0, 0, NULL) == 'H');
+        printf("  LCD by hand: on, an H at the top left\n");
+        example_close(&s, &c);
+    }
+}
+
+static void test_display_sizes(void) {
+    printf("display sizes\n");
+    const u32 panel = fude_zoom_symbol_find("7-segment panel"), matrix = fude_zoom_symbol_find("LED matrix"), lcd = fude_zoom_symbol_find("character LCD");
+    CHECK(panel != FUDE_ZOOM_NONE && matrix != FUDE_ZOOM_NONE && lcd != FUDE_ZOOM_NONE);
+    // A panel: its digits as its text says (none: 4; past 8: 8), its commons anodes when it says "CA"; its segments' pins
+    // down its left, a common under each digit, 20 apart.
+    const struct { const c8* text; u32 digits; } pt[5] = { { "4 digits", 4 }, { "", 4 }, { "1", 1 }, { "12 digits", 8 }, { "2 digits CA green", 2 } };
+    for(u32 k = 0; k < 5u; k++) {
+        const fude_zoom_part* p = fude_zoom_part_of_text(panel, pt[k].text);
+        CHECK(p != NULL && p->model == FUDE_ZOOM_MODEL_SEG_PANEL && fude_zoom_display_made(p));
+        CHECK(fude_zoom_display_cols(p) == pt[k].digits && p->pin_count == 8u + pt[k].digits && fude_zoom_display_lights(p) == 8u * pt[k].digits);
+        f64 w, h;
+        CHECK(fude_zoom_display_room(p, &w, &h) && fabs(w - (60.0 * pt[k].digits + 60.0)) < 1e-9 && fabs(h - 180.0) < 1e-9);
+        CHECK(strcmp(p->pins[0].name, "a") == 0 && strcmp(p->pins[7].name, "dp") == 0 && strcmp(p->pins[8].name, "D1") == 0);
+        for(u32 i = 0; i < p->pin_count; i++) {
+            const f64 x = (f64)p->pins[i].u * w * 0.5, y = (f64)p->pins[i].v * h * 0.5;
+            CHECK(fabs(remainder(x - (f64)p->pins[0].u * w * 0.5, 20.0)) < 1e-4 && fabs(remainder(y - (f64)p->pins[0].v * h * 0.5, 20.0)) < 1e-4);
+        }
+        u32 an, ca;
+        CHECK(fude_zoom_display_led(p, 2u, &an, &ca));   // (digit 1's segment c)
+        CHECK(k == 4u ? (an == 8u && ca == 2u) : (an == 2u && ca == 8u));
+        CHECK(!fude_zoom_display_led(p, 8u * pt[k].digits, &an, &ca));
+        CHECK(fude_zoom_part_of_text(panel, pt[k].text) == p);   // (made once, kept)
+    }
+    // A matrix: columns × rows ("5x7": 5 across, 7 down; up to 32 each), its rows' pins down its left, its columns' along
+    // its bottom; its rows anodes, cathodes when it says "CC".
+    const struct { const c8* text; u32 cols, rows; } mt[5] = { { "8x8", 8, 8 }, { "5x7", 5, 7 }, { "16 × 8", 16, 8 }, { "40x40", 32, 32 }, { "red", 8, 8 } };
+    for(u32 k = 0; k < 5u; k++) {
+        const fude_zoom_part* p = fude_zoom_part_of_text(matrix, mt[k].text);
+        CHECK(fude_zoom_display_cols(p) == mt[k].cols && fude_zoom_display_rows(p) == mt[k].rows && p->pin_count == mt[k].cols + mt[k].rows);
+        CHECK(fude_zoom_display_lights(p) == mt[k].cols * mt[k].rows && p->pin_count <= 64u);
+        f64 w, h;
+        CHECK(fude_zoom_display_room(p, &w, &h) && fabs(w - (20.0 * mt[k].cols + 40.0)) < 1e-9 && fabs(h - (20.0 * mt[k].rows + 40.0)) < 1e-9);
+        CHECK(p->pins[0].side == FUDE_ZOOM_PIN_LEFT && p->pins[mt[k].rows].side == FUDE_ZOOM_PIN_DOWN && strcmp(p->pins[mt[k].rows].name, "C1") == 0);
+    }
+    u32 an, ca;
+    CHECK(fude_zoom_display_led(fude_zoom_part_of_text(matrix, "5x7"), 7u, &an, &ca) && an == 1u && ca == 7u + 2u);       // (row 2, column 3)
+    CHECK(fude_zoom_display_led(fude_zoom_part_of_text(matrix, "5x7 CC"), 7u, &an, &ca) && an == 7u + 2u && ca == 1u);
+    // An LCD: columns × rows (8 to 40; 1, 2 or 4 rows; 80 characters at most), its 16 pins along its top.
+    const struct { const c8* text; u32 cols, rows; } lt[6] = { { "16x2", 16, 2 }, { "20x4", 20, 4 }, { "40x4", 20, 4 }, { "8x1", 8, 1 }, { "50x2", 40, 2 }, { "", 16, 2 } };
+    for(u32 k = 0; k < 6u; k++) {
+        const fude_zoom_part* p = fude_zoom_part_of_text(lcd, lt[k].text);
+        CHECK(fude_zoom_display_cols(p) == lt[k].cols && fude_zoom_display_rows(p) == lt[k].rows && p->pin_count == 16u);
+        CHECK(strcmp(p->pins[0].name, "VSS") == 0 && strcmp(p->pins[5].name, "E") == 0 && strcmp(p->pins[15].name, "K") == 0 && p->pins[3].side == FUDE_ZOOM_PIN_UP);
+    }
+    // As the catalogue has them: the size each comes at its room.
+    f64 w, h;
+    CHECK(fude_zoom_display_room(fude_zoom_part_find("LED matrix"), &w, &h) && fabs(w - (f64)fude_zoom_symbol_info_of(matrix)->w) < 1e-9 &&
+          fabs(h - (f64)fude_zoom_symbol_info_of(matrix)->h) < 1e-9);
+    CHECK(fude_zoom_display_room(fude_zoom_part_find("7-segment panel"), &w, &h) && fabs(w - (f64)fude_zoom_symbol_info_of(panel)->w) < 1e-9);
+    CHECK(fude_zoom_display_room(fude_zoom_part_find("character LCD"), &w, &h) && fabs(w - (f64)fude_zoom_symbol_info_of(lcd)->w) < 1e-9 &&
+          fabs(h - (f64)fude_zoom_symbol_info_of(lcd)->h) < 1e-9);
+    // Its grid on the canvas, a 16 × 16 drawn as it comes: 10 (its pins 20 apart).
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 m = part_put(&s, "LED matrix", 0, 0, 180, 180, "16x16");
+    CHECK(fabs(fude_zoom_part_unit(&s, m) - 10.0) < 1e-9 && fude_zoom_part_of(&s, m)->pin_count == 32u);
+    fude_zoom_scene_destroy(&s);
+}
+
+static void test_display_leds(void) {
+    printf("display LEDs\n");
+    // A 4-digit panel (common cathodes): segments b and c from 5 V through 330 Ω each, digit 2's common grounded — a 1 on
+    // it, nothing on the others.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 p = part_put(&s, "7-segment panel", 0, 0, 150, 90, "4 digits");
+        resist(&s, p, 1, 30.0, "330", "5V");
+        resist(&s, p, 2, 30.0, "330", "5V");
+        tie(&s, p, 9, 0.0, -30.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.15));
+        const f32* g = glow_of(&c, p);
+        CHECK(g != NULL);
+        if(g != NULL) {
+            for(u32 k = 0; k < 32u; k++) {
+                const b8 on = k == 9u || k == 10u;
+                if(on ? !(g[k] > 0.85f && g[k] < 1.1f) : !(g[k] < 0.02f)) printf("  panel light %u: %.3f\n", k, (f64)g[k]);
+                CHECK(on ? (g[k] > 0.85f && g[k] < 1.1f) : g[k] < 0.02f);
+            }
+        }
+        CHECK(!cpart(&c, p)->burnt && cpart(&c, p)->measure[FUDE_ZOOM_LIMIT_CURRENT] > 0.008 && cpart(&c, p)->measure[FUDE_ZOOM_LIMIT_CURRENT] < 0.011);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // Common anodes ("CA"): digit 1's common on 5 V, segment a to ground through 330 Ω.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 p = part_put(&s, "7-segment panel", 0, 0, 90, 90, "2 digits CA");
+        resist(&s, p, 0, 30.0, "330", NULL);
+        tie(&s, p, 8, 0.0, -30.0, "5V");
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.15));
+        const f32* g = glow_of(&c, p);
+        CHECK(g != NULL && g[0] > 0.85f && g[1] < 0.02f && g[8] < 0.02f);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // Multiplexed: digit 1's common a 100 Hz clock (lit while it is low), digit 2's grounded, segment a through 330 Ω
+    // for both — digit 1 seen steady, dimmer (lit half the time, sharing the resistor then), digit 2 brighter.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 p = part_put(&s, "7-segment panel", 0, 0, 90, 90, "2 digits");
+        resist(&s, p, 0, 30.0, "330", "5V");
+        fude_zoom_v2 d1;
+        CHECK(fude_zoom_part_pin_at(&s, p, 8, &d1));
+        const u32 clk = part_put(&s, "clock", d1.x, d1.y - 60.0, 20, 30, "100Hz 5V");
+        wire_put(&s, p, 8, clk, 0);
+        tie(&s, clk, 1, 0.0, -30.0, NULL);
+        tie(&s, p, 9, 0.0, -30.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.3));
+        const f32* g = glow_of(&c, p);
+        const f64 a1 = g[0], a2 = g[8];
+        CHECK(run_for(&c, 0.0025));
+        g = glow_of(&c, p);
+        printf("  multiplexed: digit 1 %.2f then %.2f, digit 2 %.2f then %.2f\n", a1, (f64)g[0], a2, (f64)g[8]);
+        CHECK(a1 > 0.15 && a1 < 0.45 && a2 > 0.55 && a2 < 0.95);
+        CHECK(fabs((f64)g[0] - a1) < 0.15 && fabs((f64)g[8] - a2) < 0.15);   // (steady: the eye holds it)
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // Its limits LED by LED: segment a through 82 Ω with all four commons grounded — 40 mA shared, 10 mA each: well; with
+    // one common, all 40 mA in one LED: burnt.
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 p = part_put(&s, "7-segment panel", 0, 0, 150, 90, "4 digits");
+        resist(&s, p, 0, 30.0, "82", "5V");
+        for(u32 d = 0; d < (k == 0u ? 4u : 1u); d++) tie(&s, p, 8u + d, 0.0, -30.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.5));
+        CHECK(k == 0u ? !cpart(&c, p)->burnt : cpart(&c, p)->burnt);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // A 3 × 2 matrix: row 1 through 330 Ω from 5 V, column 2 grounded — that dot alone; its rows cathodes ("CC"): row 1
+    // grounded, column 3 on 1.8 V (a red LED's at 10 mA) — that one.
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 m = part_put(&s, "LED matrix", 0, 0, 50, 40, k == 0u ? "3x2" : "3x2 CC");
+        if(k == 0u) {
+            resist(&s, m, 0, 30.0, "330", "5V");
+            tie(&s, m, 3, 0.0, -30.0, NULL);
+        } else {
+            tie(&s, m, 0, -30.0, 0.0, NULL);
+            tie(&s, m, 4, 0.0, -30.0, "1.8V");
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.15));
+        const f32* g = glow_of(&c, m);
+        const u32 lit = k == 0u ? 1u : 2u;
+        for(u32 i = 0; g != NULL && i < 6u; i++) CHECK(i == lit ? (g[i] > 0.85f && g[i] < 1.1f) : g[i] < 0.02f);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// A CD4511 (sim/chips.c): every BCD in on logic inputs, its segments on probes — 0–9 as it draws them (6 and 9 without
+// tails), 10–15 blank; LT low all lit, BI low none; LE high holds what it had.
+static void test_cd4511(void) {
+    printf("CD4511\n");
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 ic = part_put(&s, "CD4511", 0, 0, 100, 90, "CD4511");
+    const fude_zoom_part* pt = fude_zoom_part_of(&s, ic);
+    CHECK(pt != NULL && pt->pin_count == 16u && strcmp(pt->pins[6].name, "A") == 0 && strcmp(pt->pins[12].name, "a") == 0);
+    u32 in[7], out[7];   // (B C ~LT ~BI LE D A; e d c b a g f)
+    for(u32 k = 0; k < 7u; k++) {
+        fude_zoom_v2 at;
+        CHECK(fude_zoom_part_pin_at(&s, ic, k, &at));
+        in[k] = part_put(&s, "logic input", at.x - 60.0, at.y, 30, 10, "0");
+        wire_put(&s, in[k], 0, ic, k);
+        CHECK(fude_zoom_part_pin_at(&s, ic, 8u + k, &at));
+        out[k] = part_put(&s, "logic probe", at.x + 50.0, at.y, 20, 10, "");
+        wire_put(&s, ic, 8u + k, out[k], 0);
+    }
+    tie(&s, ic, 7, -30.0, 0.0, NULL);
+    tie(&s, ic, 15, 30.0, 0.0, "5V");
+    fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+    static const u8 want[16] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7C, 0x07, 0x7F, 0x67, 0, 0, 0, 0, 0, 0 };   // (a bit 0 … g bit 6)
+    static const u32 seg_probe[7] = { 4, 3, 2, 1, 0, 6, 5 };   // (a … g: their probes)
+    set_in(&c, in[2], 1); set_in(&c, in[3], 1);   // (LT, BI high: neither)
+    for(u32 v = 0; v < 16u; v++) {
+        set_in(&c, in[6], v & 1u); set_in(&c, in[0], (v >> 1) & 1u); set_in(&c, in[1], (v >> 2) & 1u); set_in(&c, in[5], (v >> 3) & 1u);
+        CHECK(step(&c) && step(&c));
+        u8 got = 0;
+        for(u32 g = 0; g < 7u; g++) got |= (u8)(probe(&c, out[seg_probe[g]]) << g);
+        if(got != want[v]) printf("  CD4511 %u: segments %02X, not %02X\n", v, got, want[v]);
+        CHECK(got == want[v]);
+    }
+    // 5 in, LE high (held), 3 in: still 5; LE low: 3.
+    set_in(&c, in[6], 1); set_in(&c, in[0], 0); set_in(&c, in[1], 1); set_in(&c, in[5], 0);
+    CHECK(step(&c) && step(&c));
+    set_in(&c, in[4], 1);
+    CHECK(step(&c));
+    set_in(&c, in[6], 1); set_in(&c, in[0], 1); set_in(&c, in[1], 0);
+    CHECK(step(&c) && step(&c));
+    u8 got = 0;
+    for(u32 g = 0; g < 7u; g++) got |= (u8)(probe(&c, out[seg_probe[g]]) << g);
+    CHECK(got == want[5]);
+    set_in(&c, in[4], 0);
+    CHECK(step(&c) && step(&c));
+    got = 0;
+    for(u32 g = 0; g < 7u; g++) got |= (u8)(probe(&c, out[seg_probe[g]]) << g);
+    CHECK(got == want[3]);
+    // LT low: all lit (BI low too); LT high, BI low: none.
+    set_in(&c, in[2], 0); set_in(&c, in[3], 0);
+    CHECK(step(&c) && step(&c));
+    got = 0;
+    for(u32 g = 0; g < 7u; g++) got |= (u8)(probe(&c, out[seg_probe[g]]) << g);
+    CHECK(got == 0x7F);
+    set_in(&c, in[2], 1);
+    CHECK(step(&c) && step(&c));
+    got = 0;
+    for(u32 g = 0; g < 7u; g++) got |= (u8)(probe(&c, out[seg_probe[g]]) << g);
+    CHECK(got == 0);
+    fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+}
+
+// An LM3914 driving a bar graph: 5 V; its reference (1.25 V) on RHI, RLO grounded — steps of 125 mV; R1 1.2 kΩ (its
+// LEDs' current ten times what REF OUT gives: 11.7 mA); SIG 0.6 V — four lit as a bar (MODE on V+), the fourth alone as
+// a dot (MODE left open); SIG 2 V: all ten; 0.1 V: none.
+static void test_lm3914(void) {
+    printf("LM3914\n");
+    const f64 sig[4] = { 0.6, 0.6, 2.0, 0.1 };
+    const u32 lit_n[4] = { 4, 1, 10, 0 };
+    for(u32 k = 0; k < 4u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bar = part_put(&s, "LED bar graph", 0, 0, 70, 110, "red");
+        const u32 lm  = part_put(&s, "LM3914", 500, -400, 100, 100, "LM3914");
+        for(u32 i = 0; i < 10u; i++) tie(&s, bar, i, -30.0, 0.0, "5V");   // (its anodes)
+        tie(&s, lm, 1, -30.0, 0.0, NULL);    // V−
+        tie(&s, lm, 2, -30.0, 0.0, "5V");    // V+
+        tie(&s, lm, 3, -30.0, 0.0, NULL);    // RLO
+        c8 v[16]; snprintf(v, sizeof v, "%gV", sig[k]);
+        tie(&s, lm, 4, -30.0, 0.0, v);       // SIG
+        const fude_zoom_v2 tie_r[2] = { { 380, -420 }, { 380, -440 } };
+        wire_by(&s, lm, 5, lm, 6, tie_r, 2u);   // (RHI on REF OUT)
+        const u32 r1 = part_put(&s, "resistor", 330, -440, 20, 7, "1.2k");
+        wire_put(&s, lm, 6, r1, 1);
+        const u32 g1 = part_put(&s, "ground", 310, -490, 20, 20, "");
+        wire_put(&s, r1, 0, g1, 0);
+        tie(&s, lm, 7, -30.0, 0.0, NULL);    // REF ADJ
+        if(k != 1u) tie(&s, lm, 8, -30.0, 0.0, "5V");   // MODE: a bar
+        // Its cathodes to its outputs: LED1 on the chip's left, LED2–LED10 round to its right, each its own way.
+        for(u32 i = 0; i < 10u; i++) {
+            const f64 y = 90.0 - 20.0 * (f64)i;
+            if(i == 0u) {
+                const fude_zoom_v2 via[2] = { { 150, y }, { 150, -320 } };
+                wire_by(&s, bar, 10, lm, 0, via, 2u);
+            } else {
+                const f64 x = 160.0 + 12.0 * (f64)i, low = -700.0 - 12.0 * (f64)i, out = 700.0 + 12.0 * (f64)i, at = -300.0 - 20.0 * (f64)i;
+                const fude_zoom_v2 via[4] = { { x, y }, { x, low }, { out, low }, { out, at } };
+                wire_by(&s, bar, 10u + i, lm, 18u - i, via, 4u);
+            }
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.2));
+        const f32* g = glow_of(&c, bar);
+        u32 n = 0, top = 0;
+        for(u32 i = 0; g != NULL && i < 10u; i++) {
+            if(g[i] > 0.5f) { n++; top = i + 1u; }
+            CHECK(g[i] > 0.5f || g[i] < 0.02f);
+        }
+        printf("  SIG %.1f V%s: %u lit, the highest %u (%.2f bright), its LEDs' current %.1f mA\n", sig[k], k == 1u ? " (a dot)" : "", n, top, g != NULL ? (f64)g[top > 0u ? top - 1u : 0u] : 0.0,
+               cpart(&c, lm)->state[1] * 1e3);
+        CHECK(n == lit_n[k] && (n == 0u || top == (k == 2u ? 10u : 4u)));
+        CHECK(fabs(cpart(&c, lm)->state[1] - 0.01167) < 0.0008);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// Panel meters: a 20 V one on 9 V shows 9.00; a 200 mA one in a row with 100 Ω on 5 V, 49.5 (its shunt 1 Ω); a 2 V one on
+// 9 V, a 1 alone. What it shows of a reading, its 3½ digits.
+static void test_panel_meter(void) {
+    printf("panel meter\n");
+    const fude_zoom_meter m20 = fude_zoom_display_meter("20V"), m200m = fude_zoom_display_meter("200mA"), m2 = fude_zoom_display_meter("2V");
+    CHECK(fabs(m20.full - 20.0) < 1e-12 && !m20.amps && m20.decimals == 2u && fabs(m20.times - 1.0) < 1e-12);
+    CHECK(fabs(m200m.full - 0.2) < 1e-12 && m200m.amps && m200m.decimals == 1u && fabs(m200m.times - 1000.0) < 1e-12);
+    CHECK(m2.decimals == 3u && fude_zoom_display_meter("200V").decimals == 1u && fude_zoom_display_meter("200mV").decimals == 1u);
+    const struct { const fude_zoom_meter* m; f64 v; const c8* digits; i32 point; b8 minus; } t[7] = {
+        { &m20, 9.0, " 900", 1, false }, { &m20, -0.5, " 050", 1, true }, { &m20, 0.0, " 000", 1, false }, { &m20, 19.994, "1999", 1, false },
+        { &m20, 19.996, "1   ", -1, false }, { &m200m, 0.0495, " 495", 2, false }, { &m2, 1.2345, "1235", 0, false },
+    };
+    for(u32 k = 0; k < 7u; k++) {
+        fude_zoom_meter_shown sh;
+        fude_zoom_display_meter_show(t[k].m, t[k].v, &sh);
+        c8 d[5] = { sh.digit[0], sh.digit[1], sh.digit[2], sh.digit[3], 0 };
+        i32 pt = -1;
+        for(u32 i = 0; i < 4u; i++) if(sh.point[i]) pt = (i32)i;
+        if(strcmp(d, t[k].digits) != 0 || pt != t[k].point || sh.minus != t[k].minus) printf("  meter %g: \"%s\" point %d minus %d\n", t[k].v, d, pt, sh.minus);
+        CHECK(strcmp(d, t[k].digits) == 0 && pt == t[k].point && sh.minus == t[k].minus);
+    }
+    for(u32 k = 0; k < 3u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", -200, 0, 20, 30, k == 1u ? "5V" : "9V");
+        const u32 me  = part_put(&s, "panel meter", 0, 0, 80, 40, k == 0u ? "20V" : (k == 1u ? "200mA" : "2V"));
+        if(k == 1u) {
+            const u32 r = part_put(&s, "resistor", 0, -150, 30, 10, "100");
+            wire_put(&s, bat, 0, me, 0); wire_put(&s, me, 1, r, 1); wire_put(&s, r, 0, bat, 1);
+        } else {
+            wire_put(&s, bat, 0, me, 0); wire_put(&s, me, 1, bat, 1);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.05));
+        const fude_zoom_circuit_part* p = cpart(&c, me);
+        const f64 want = k == 1u ? 5.0 / 101.5 : 9.0;   // (the battery's own 0.5 Ω, the shunt's 1 Ω, 100 Ω)
+        if(fabs(p->shown - want) > 1e-3 * want) printf("  panel meter %u reads %g, not %g\n", k, p->shown, want);
+        CHECK(fabs(p->shown - want) < 1e-3 * want && !p->burnt);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// A character LCD (an HD44780): its controller alone — 8 bits, then 4 — and on its pins, written by logic inputs.
+static void lcd_send(fude_zoom_lcd* l, b8 rs, u8 b) { fude_zoom_lcd_strobe(l, rs, b); }
+static void lcd_send4(fude_zoom_lcd* l, b8 rs, u8 b) { fude_zoom_lcd_strobe(l, rs, (u8)(b & 0xF0u)); fude_zoom_lcd_strobe(l, rs, (u8)(b << 4)); }
+static void test_lcd(void) {
+    printf("character LCD\n");
+    fude_zoom_lcd l;
+    fude_zoom_lcd_power_on(&l);
+    CHECK((l.function & FUDE_ZOOM_LCD_DL) && !(l.control & FUDE_ZOOM_LCD_D) && fude_zoom_lcd_shown(&l, 16, 2, 0, 0, NULL) == ' ' && l.fresh);
+    lcd_send(&l, 0, 0x38);
+    CHECK(!l.fresh);   // (told something: its dark blocks gone)
+    lcd_send(&l, 0, 0x0E); lcd_send(&l, 0, 0x01); lcd_send(&l, 0, 0x06);
+    lcd_send(&l, 1, 'H'); lcd_send(&l, 1, 'i');
+    lcd_send(&l, 0, 0xC0); lcd_send(&l, 1, '!');
+    b8 cur = false;
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 0, 0, NULL) == 'H' && fude_zoom_lcd_shown(&l, 16, 2, 1, 0, NULL) == 'i' && fude_zoom_lcd_shown(&l, 16, 2, 0, 1, NULL) == '!');
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 1, 1, &cur) == ' ' && cur && (l.control & FUDE_ZOOM_LCD_C));
+    // Shifted left a character (the display, not the cursor): 'i' at the left; back right: as it was.
+    lcd_send(&l, 0, 0x18);
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 0, 0, NULL) == 'i');
+    lcd_send(&l, 0, 0x1C);
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 0, 0, NULL) == 'H');
+    // Counting down (entry mode, I/D 0): written leftward from column 5.
+    lcd_send(&l, 0, 0x04); lcd_send(&l, 0, 0x85); lcd_send(&l, 1, 'a'); lcd_send(&l, 1, 'b');
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 5, 0, NULL) == 'a' && fude_zoom_lcd_shown(&l, 16, 2, 4, 0, NULL) == 'b');
+    // Its own character 0: a box written to CGRAM, shown where 0 is written.
+    lcd_send(&l, 0, 0x06); lcd_send(&l, 0, 0x40);
+    const u8 box[8] = { 0x1F, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1F, 0x00 };
+    for(u32 r = 0; r < 8u; r++) lcd_send(&l, 1, box[r]);
+    lcd_send(&l, 0, 0x8F); lcd_send(&l, 1, 0x00);
+    u8 rows[8];
+    fude_zoom_lcd_glyph(&l, fude_zoom_lcd_shown(&l, 16, 2, 15, 0, NULL), rows);
+    CHECK(memcmp(rows, box, 8) == 0);
+    // Its ROM: 'A', '¥' for the backslash, '°'.
+    fude_zoom_lcd_glyph(&l, 'A', rows);
+    CHECK(rows[0] == 0x0E && rows[1] == 0x11 && rows[3] == 0x11 && rows[4] == 0x1F && rows[6] == 0x11 && rows[7] == 0);
+    fude_zoom_lcd_glyph(&l, '\\', rows);
+    CHECK(rows[0] == 0x11 && rows[1] == 0x0A && rows[2] == 0x1F && rows[4] == 0x1F);
+    fude_zoom_lcd_glyph(&l, 0xDF, rows);
+    CHECK(rows[0] == 0x1C && rows[3] == 0);
+    // One line on two rows: the second blank; a 20 × 4 on two lines: its third row on from its first (0x14).
+    lcd_send(&l, 0, 0x30);
+    CHECK(fude_zoom_lcd_shown(&l, 16, 2, 0, 1, NULL) == ' ');
+    lcd_send(&l, 0, 0x38); lcd_send(&l, 0, 0x01); lcd_send(&l, 0, 0x94); lcd_send(&l, 1, 'X');
+    CHECK(fude_zoom_lcd_shown(&l, 20, 4, 0, 2, NULL) == 'X' && fude_zoom_lcd_shown(&l, 20, 4, 0, 0, NULL) == ' ');
+    // 4 bits: as a microcontroller starts one — 3, 3, 3, 2 on D7–D4 (8 bits till then), then each byte in two halves.
+    fude_zoom_lcd_power_on(&l);
+    lcd_send(&l, 0, 0x30); lcd_send(&l, 0, 0x30); lcd_send(&l, 0, 0x30); lcd_send(&l, 0, 0x20);
+    CHECK(!(l.function & FUDE_ZOOM_LCD_DL));
+    lcd_send4(&l, 0, 0x28); lcd_send4(&l, 0, 0x0C); lcd_send4(&l, 0, 0x01); lcd_send4(&l, 1, 'O'); lcd_send4(&l, 1, 'K');
+    CHECK((l.function & FUDE_ZOOM_LCD_N) && (l.control & FUDE_ZOOM_LCD_D) && fude_zoom_lcd_shown(&l, 16, 2, 0, 0, NULL) == 'O' && fude_zoom_lcd_shown(&l, 16, 2, 1, 0, NULL) == 'K');
+    // On its pins: VSS, RW, K grounded; VDD, A on 5 V; RS, E, D0–D7 logic inputs — 0x38, 0x0C, 0x01, "Hi" written with E.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 d = part_put(&s, "character LCD", 0, 0, 170, 65, "16x2");
+        tie(&s, d, 0, 0.0, 30.0 + 40.0, NULL);   // (a ground over it: its pin its top)
+        tie(&s, d, 1, 0.0, 30.0, "5V");
+        tie(&s, d, 4, 0.0, 30.0 + 40.0, NULL);
+        tie(&s, d, 14, 0.0, 30.0, "5V");
+        tie(&s, d, 15, 0.0, 30.0 + 40.0, NULL);
+        u32 in[16] = { 0 };
+        const u32 pins[10] = { 3, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+        for(u32 k = 0; k < 10u; k++) {
+            fude_zoom_v2 at;
+            CHECK(fude_zoom_part_pin_at(&s, d, pins[k], &at));
+            in[pins[k]] = part_put(&s, "logic input", at.x - 30.0, at.y + 30.0, 30, 10, "0");
+            const fude_zoom_v2 r[2] = { at, { at.x, at.y + 30.0 } };
+            fude_zoom_wire_add(&s, s.root, r, 2u, d, (i32)pins[k], in[pins[k]], 0, (rde_color){ 1, 1, 1, 255 }, 0.1f);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.01));
+        const u8 bytes[5] = { 0x38, 0x0C, 0x01, 'H', 'i' };
+        for(u32 k = 0; k < 5u; k++) {
+            set_in(&c, in[3], k >= 3u ? 1u : 0u);
+            for(u32 b = 0; b < 8u; b++) set_in(&c, in[6u + b], (bytes[k] >> b) & 1u);
+            CHECK(step(&c));
+            set_in(&c, in[5], 1);
+            CHECK(step(&c));
+            set_in(&c, in[5], 0);
+            CHECK(step(&c));
+        }
+        const fude_zoom_lcd* lc = (const fude_zoom_lcd*)fude_zoom_circuit_store(&c, cpart(&c, d));
+        CHECK(lc != NULL && lc->powered && (lc->control & FUDE_ZOOM_LCD_D));
+        CHECK(lc != NULL && fude_zoom_lcd_shown(lc, 16, 2, 0, 0, NULL) == 'H' && fude_zoom_lcd_shown(lc, 16, 2, 1, 0, NULL) == 'i');
+        CHECK(cpart(&c, d)->state[0] > 0.99 && cpart(&c, d)->shown > 1.0);   // (full contrast, V0 left open; its backlight on)
+        CHECK(!cpart(&c, d)->burnt);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// LIMITS (limits.h): what each part takes at most, measured as it steps, and what goes past them burns.
+static void test_limits(void) {
+    printf("limits\n");
+    // An LED straight on a 9 V battery: far past its 30 mA — burnt within a few hundredths of a second, dark from then
+    // on, said once (the battery not: past its current only the moment it took).
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", 0, 0, 20, 30, "9V");
+        const u32 led = part_put(&s, "LED", 200, 0, 30, 20, "red");
+        wire_put(&s, bat, 0, led, 0); wire_put(&s, led, 1, bat, 1);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(cpart(&c, led)->limits.most[FUDE_ZOOM_LIMIT_CURRENT] > 0.02 && cpart(&c, led)->limits.most[FUDE_ZOOM_LIMIT_CURRENT] < 0.05);
+        CHECK(run_for(&c, 0.05));
+        CHECK(cpart(&c, led)->burnt);
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_BURNT, led) == 1u);
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_OVER, bat) == 0u);
+        const fude_zoom_circuit_event* e = (const fude_zoom_circuit_event*)c.events.memory;
+        for(u32 i = 0; i < (u32)rde_arr_length(&c.events); i++) {
+            if(e[i].kind == FUDE_ZOOM_CIRCUIT_BURNT) CHECK(e[i].limit == FUDE_ZOOM_LIMIT_CURRENT && e[i].measure > 0.1 && fabs(e[i].most - 0.03) < 1e-9);
+        }
+        rde_arr_clear(&c.events);
+        CHECK(run_for(&c, 0.2));
+        CHECK(cpart(&c, led)->shown < 0.01);   // (burnt: open)
+        CHECK(rde_arr_length(&c.events) == 0u);   // (said once: the battery within its current again, the LED gone)
+        // Burnt it stays as the canvas changes (a rebuild); the circuit started again, a new one.
+        fude_zoom_circuit_build(&c, &s);
+        CHECK(cpart(&c, led)->burnt);
+        fude_zoom_circuit_reset(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(!cpart(&c, led)->burnt && cpart(&c, led)->heat == 0.0);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // A wire straight across a battery: a dead short, said at once — 18 A (its 0.5 Ω), 1 A at most.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 bat = part_put(&s, "battery", 0, 0, 20, 30, "9V");
+        wire_put(&s, bat, 0, bat, 1);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.01));
+        CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_OVER, bat) == 1u);
+        CHECK(rde_arr_length(&c.events) >= 1u && fabs(((const fude_zoom_circuit_event*)c.events.memory)[0].measure - 18.0) < 1e-9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // The same LED behind 330 Ω on 5 V (13 mA): for good — never warmer than it was.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 100, 30, 10, "5V");
+        const u32 r = part_put(&s, "resistor", 100, 50, 30, 10, "330");
+        const u32 led = part_put(&s, "LED", 200, 50, 30, 20, "green");
+        const u32 g = part_put(&s, "ground", 300, 0, 20, 20, "");
+        wire_put(&s, rail, 0, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 3.0));
+        CHECK(!cpart(&c, led)->burnt && cpart(&c, led)->heat == 0.0 && cpart(&c, led)->stress < 0.6 && cpart(&c, led)->shown > 0.4);
+        CHECK(!cpart(&c, r)->burnt && cpart(&c, r)->stress < 0.5);   // (its 0.25 W: 0.03 W in it)
+        CHECK(fabs(cpart(&c, r)->measure[FUDE_ZOOM_LIMIT_POWER] - cpart(&c, r)->measure[FUDE_ZOOM_LIMIT_CURRENT] * cpart(&c, r)->measure[FUDE_ZOOM_LIMIT_CURRENT] * 330.0) < 1e-6);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // 10 Ω across 5 V: 2.5 W in a 0.25 W resistor — burnt in a fraction of a second; given 5 W on its card, never.
+    for(u32 rated = 0; rated < 2u; rated++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 100, 30, 10, "5V");
+        const u32 r = part_put(&s, "resistor", 100, 50, 30, 10, "10");
+        const u32 g = part_put(&s, "ground", 200, 0, 20, 20, "");
+        wire_put(&s, rail, 0, r, 0); wire_put(&s, r, 1, g, 0);
+        if(rated) {
+            const f64 most[4] = { 5.0, 0.0, 0.0, 0.0 };
+            fude_zoom_props_add_limits(&s, r, most, 5);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(fabs(cpart(&c, r)->limits.most[FUDE_ZOOM_LIMIT_POWER] - (rated ? 5.0 : 0.25)) < 1e-12);
+        CHECK(run_for(&c, rated ? 5.0 : 0.1));
+        CHECK(cpart(&c, r)->burnt == !rated);
+        CHECK(fabs(cpart(&c, r)->measure[FUDE_ZOOM_LIMIT_POWER] - (rated ? 2.5 : 0.0)) < 0.01);   // (burnt: nothing in it)
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // An electrolytic the wrong way round across 5 V: past its 1 V backwards — burnt; the right way round, not.
+    for(u32 right = 0; right < 2u; right++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 100, 30, 10, "5V");
+        const u32 cap = part_put(&s, "electrolytic", 100, 50, 30, 10, "100uF");
+        const u32 g = part_put(&s, "ground", 200, 0, 20, 20, "");
+        wire_put(&s, rail, 0, cap, right ? 0u : 1u); wire_put(&s, cap, right ? 1u : 0u, g, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 1.0));
+        CHECK(cpart(&c, cap)->burnt == !right);
+        if(!right) CHECK(events_of(&c, FUDE_ZOOM_CIRCUIT_BURNT, cap) == 1u && ((const fude_zoom_circuit_event*)c.events.memory)[0].limit == FUDE_ZOOM_LIMIT_REVERSE);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // Real parts by their text: a 1N4007 its 1 A and 1000 V, a BC547 its 100 mA, the series 74HC its chips'; a typical
+    // part's when it names none; those whose limits follow from their values.
+    {
+        const fude_zoom_part* d = fude_zoom_part_find("diode");
+        const fude_zoom_part* q = fude_zoom_part_find("NPN");
+        fude_zoom_limits l = fude_zoom_limits_typical(d, "D1 1N4007", NULL);
+        CHECK(l.most[FUDE_ZOOM_LIMIT_CURRENT] == 1.0 && l.most[FUDE_ZOOM_LIMIT_REVERSE] == 1000.0);
+        l = fude_zoom_limits_typical(d, "1n4148", NULL);
+        CHECK(l.most[FUDE_ZOOM_LIMIT_CURRENT] == 0.3);
+        l = fude_zoom_limits_typical(q, "BC547B", NULL);
+        CHECK(l.most[FUDE_ZOOM_LIMIT_CURRENT] == 0.1 && l.most[FUDE_ZOOM_LIMIT_VOLTAGE] == 45.0);
+        l = fude_zoom_limits_typical(q, "Q1", NULL);
+        CHECK(l.most[FUDE_ZOOM_LIMIT_CURRENT] == 0.6);   // (its kind's own: the 2N2222 it is drawn as)
+        CHECK(fude_zoom_limits_named(q, "X2N2222") < 0);   // (inside a word: not it)
+        const f64 lamp[2] = { 12.0, 5.0 };
+        l = fude_zoom_limits_typical(fude_zoom_part_find("lamp"), "12V 5W", lamp);
+        CHECK(l.most[FUDE_ZOOM_LIMIT_POWER] == 7.5);
+        CHECK(fude_zoom_limits_kinds(fude_zoom_part_find("ground")) == 0u && fude_zoom_limits_kinds(fude_zoom_part_find("N-MOSFET")) == 15u);
+        CHECK(fude_zoom_limits_gate(fude_zoom_part_find("N-MOSFET")) && !fude_zoom_limits_gate(q));
+        // Measured: an NPN's collector current and C–E voltage; a chip's supply and its worst output.
+        f64 m[FUDE_ZOOM_LIMIT_COUNT];
+        const f64 v3[3] = { 0.7, 5.0, 0.0 }, i3[3] = { 0.001, 0.1, -0.101 };
+        fude_zoom_limits_measure(q, v3, i3, 3u, m);
+        CHECK(fabs(m[FUDE_ZOOM_LIMIT_CURRENT] - 0.1) < 1e-12 && fabs(m[FUDE_ZOOM_LIMIT_VOLTAGE] - 5.0) < 1e-12 && fabs(m[FUDE_ZOOM_LIMIT_POWER] - 0.5007) < 1e-9);
+        const fude_zoom_part* chip = fude_zoom_part_find("L293D");
+        f64 v16[16], i16[16];
+        for(u32 k = 0; k < 16u; k++) { v16[k] = 0.0; i16[k] = 0.0; }
+        v16[7] = 12.0; v16[15] = 5.0; i16[2] = -0.4; i16[13] = 0.7; i16[7] = 1.1;   // (VCC2, VCC1; 1Y, 4Y; the supply's own)
+        fude_zoom_limits_measure(chip, v16, i16, 16u, m);
+        CHECK(fabs(m[FUDE_ZOOM_LIMIT_VOLTAGE] - 12.0) < 1e-12 && fabs(m[FUDE_ZOOM_LIMIT_CURRENT] - 0.7) < 1e-12);
+        // Heat: twice its limit, burnt in a third of its kind's time; just under it, never; cooling below it.
+        fude_zoom_limits lim = { { 0.0, 0.03, 0.0, 5.0 } };
+        const fude_zoom_part* led = fude_zoom_part_find("LED");
+        f64 stress, heat = 0.0, t = 0.0;
+        u8 worst;
+        const f64 twice[4] = { 0.0, 0.06, 2.0, 0.0 };
+        while(!fude_zoom_limits_step(led, &lim, twice, 0.001, &stress, &worst, &heat) && t < 1.0) t += 0.001;
+        CHECK(fabs(t - fude_zoom_limits_tau(led) / 3.0) < 0.002 && worst == FUDE_ZOOM_LIMIT_CURRENT && fabs(stress - 2.0) < 1e-12);
+        heat = 0.5;
+        const f64 under[4] = { 0.0, 0.029, 2.0, 4.9 };
+        for(u32 k = 0; k < 1000u; k++) CHECK(!fude_zoom_limits_step(led, &lim, under, 0.001, &stress, &worst, &heat));
+        CHECK(heat < 0.5 && heat > 0.0);
+        // A source: past its current, never burnt.
+        const fude_zoom_limits sl = { { 0.0, 1.0, 0.0, 0.0 } };
+        const f64 shorted[4] = { 0.0, 18.0, 0.0, 0.0 };
+        heat = 0.0;
+        for(u32 k = 0; k < 1000u; k++) CHECK(!fude_zoom_limits_step(fude_zoom_part_find("battery"), &sl, shorted, 0.01, &stress, &worst, &heat));
+        CHECK(stress == 18.0 && fabs(heat - 10.0) < 1e-9);   // (its heat: the seconds it has been past it)
+        const f64 within[4] = { 0.0, 0.5, 0.0, 0.0 };
+        CHECK(!fude_zoom_limits_step(fude_zoom_part_find("battery"), &sl, within, 0.01, &stress, &worst, &heat) && heat == 0.0);
+    }
+    // Every example (electronics, and those with a mechanism) within its parts' limits: nothing burnt, no source past
+    // its current, three seconds on.
+    for(u32 e = 0; e < FUDE_ZOOM_EXAMPLE_COUNT; e++) {
+        if(fude_zoom_example_group(e) != FUDE_ZOOM_EXAMPLES_ELECTRONICS || fude_zoom_example_goes_wrong(e)) continue;   // (those: below)
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, e);
+        run_for(&c, 3.0);
+        const u32 n = (u32)rde_arr_length(&c.events);
+        if(n != 0u) {
+            const fude_zoom_circuit_event* ev = (const fude_zoom_circuit_event*)c.events.memory;
+            const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)c.parts.memory;
+            for(u32 i = 0; i < n; i++) printf("  example %u: %s %s: %g of %g (limit %u)\n", e, p[ev[i].part].part->id, ev[i].kind == FUDE_ZOOM_CIRCUIT_BURNT ? "burnt" : "past", ev[i].measure, ev[i].most, ev[i].limit);
+        }
+        CHECK(n == 0u);
+        example_close(&s, &c);
+    }
 }
 
 // Every electronics example works as it says: the torch lit; every gate's truth for A 1, B 0; the flasher on and off;
@@ -5690,6 +6640,17 @@ int main(void) {
     test_play_tags();
     test_probe_light();
     test_led_colours();
+    test_big_circuits();
+    test_limits();
+    test_servo_alone();
+    test_display_sizes();
+    test_display_leds();
+    test_cd4511();
+    test_lm3914();
+    test_panel_meter();
+    test_lcd();
+    test_display_examples();
+    test_examples_go_wrong();
     test_logic_draw();
     test_custom();
     test_examples_electronics();

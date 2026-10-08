@@ -92,6 +92,8 @@ typedef struct {
     // was drawn), its mass (kg), friction, bounce; an open line (fixed ground: thin pieces along it).
     u32                        piece, pieces;
     f64                        mass, friction, bounce;
+    f64                        strength;  // its material's (MPa, sim/body.h; 0: the library's parts', plastic)
+    f64                        torque;    // a drive motor's held still (N·m: its text's second number, "30 rpm 5Nm"; 10 unless it says)
 } fude_zoom_mech_body;
 
 typedef struct {
@@ -99,6 +101,7 @@ typedef struct {
     fude_zoom_v2 at;         // where (home units)
     b8           motor;      // turned by a motor
     f64          speed;      // ...this fast (radians a second)
+    f64          torque;     // ...as hard at most (N·m)
     u32          shaft;      // on a circuit's motor's shaft: that body (FUDE_ZOOM_NONE: none)
 } fude_zoom_mech_hinge;
 

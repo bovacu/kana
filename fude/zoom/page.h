@@ -25,6 +25,7 @@
 #include "zoom/coupling.h"
 #include "zoom/plot.h"
 #include "zoom/valueform.h"
+#include "zoom/limitsform.h"
 #include "zoom/bodyform.h"
 #include "zoom/plan.h"
 #include "zoom/repeatform.h"
@@ -37,6 +38,7 @@
 #include "zoom/video.h"
 #include "zoom/handfind.h"
 #include "zoom/symbol.h"
+#include "zoom/display.h"
 
 // ===========================================================================
 // The deep-zoom page: Sketching's, in place of the ink page (extension.h's
@@ -275,6 +277,8 @@ typedef struct fude_zoom_page {
     fude_zoom_choice_form choice_form;  // a choice asked (Combine's: join, cut out, overlap)
     fude_zoom_value_form  value_form;   // a part's value asked (Value: a resistor's, a source's, a motor's…)
     fude_zoom_body_form   body_form;    // a drawing made a body (Make body: its material, moving or fixed)
+    fude_zoom_limits_form limits_form;  // a part's limits asked (Limits: what it takes at most — limits.h)
+    u32                   limits_object; // (the part the card is for)
     u32                   value_object; // ...for this one
     u8                    point_mode;   // ...the way the last was typed (FUDE_ZOOM_POINT_)
     fude_zoom_repeat_form repeat_form;  // the lasso's Repeat: copies in a row, round a point, mirrored
@@ -482,6 +486,8 @@ typedef struct fude_zoom_page {
     fude_zoom_circuit  circuit;
     b8                 circuit_failed;  // said that it could not be solved (once, until it can)
     u32                circuit_held;    // a push button held down (its part in the circuit; FUDE_ZOOM_NONE: none)
+    f64                circuit_held_at; // ...from when (the circuit's time)
+    b8                 circuit_letting; // ...let go too soon: up once it has been down long enough to be seen
     b8                 wire_tool;       // the pen draws wires
     b8                 wiring;          // ...one being drawn, from:
     u32                wire_from;       // a part (FUDE_ZOOM_NONE: a point)
@@ -494,6 +500,7 @@ typedef struct fude_zoom_page {
     fude_zoom_coupling    coupling;         // ...and the circuit with it (its motors' shafts, its buttons pressed by its parts)
     b8                    play_coupled;
     rde_arr TYPE(u8)      mech_lifted;
+    rde_arr TYPE(u8)      circuit_labelled;   // (scratch: each node's voltage written once on the canvas while Play draws)
     // Aligned as it moves (Electronics, Mechanisms): the points of what the lasso holds that line up (a part's pins, a
     // mechanism part's holes and middle) and the others' on the screen, as the drag began (screen); what it lines up
     // with now (a level line's y, a plumb line's x; NAN: none).
@@ -513,6 +520,9 @@ typedef struct fude_zoom_page {
     rde_arr TYPE(u8)      play_scope;       // a byte an object: played (one made again for it: too)
     f64                   play_clock;       // the screen's time it last stepped at
     f64                   play_time;        // seconds played
+    f64                   play_sim_span, play_real_span;   // (the circuit's seconds against the clock's, this half second)
+    f64                   play_speed;       // the circuit's seconds a second (1: in time; less: slow motion — too fast to keep up)
+    b8                    play_slow_told;   // (said, until it keeps up again)
     u32                   play_seen;        // the canvas's revision the circuit was last built at (edited since: built again)
     fude_zoom_plot_play   plot_play;        // graphs: their time, the sliders' holds
     fude_zoom_plot_var    play_vars[4];     // the sliders (the played graphs' variables)
@@ -807,6 +817,9 @@ void fude_zoom_page_look_examples(fude_zoom_page* _page, u32 _which);
 void fude_zoom_page_look_body(fude_zoom_page* _page, b8 _all, u32 _material, b8 _fixed, b8 _apply);
 // The first symbol _id lassoed alone and given a value (Value's card: _typed in its unit _unit, way _way).
 void fude_zoom_page_look_value(fude_zoom_page* _page, const c8* _id, const c8* _typed, u32 _unit, u32 _way);
+// The first symbol _id lassoed alone: Limits, real part _preset chosen (-1: none), field _field typed _typed (empty:
+// none) in unit _unit (1: thousandths), then _finish: 0 the card left up, 1 Apply, 2 Typical and Apply.
+void fude_zoom_page_look_limits(fude_zoom_page* _page, const c8* _id, i32 _preset, u32 _field, const c8* _typed, u32 _unit, u32 _finish);
 // Play's slider _slider set _t (0–1) of the way along.
 void fude_zoom_page_look_slider(fude_zoom_page* _page, u32 _slider, f64 _t);
 // The Shapes panel's choice _index pressed.
