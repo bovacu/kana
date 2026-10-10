@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/nav.h"
+#include "zoom/shape.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -142,8 +143,9 @@ b8 fude_zoom_fly_step(fude_zoom_flight* _f, fude_zoom_scene* _s, fude_zoom_v2 _h
 
 fude_zoom_camera fude_zoom_nav_framing(fude_zoom_v2 _half, u32 _frame, fude_zoom_box _box, f64 _fill) {
     const f64 _w = _box.max_x - _box.min_x, _h = _box.max_y - _box.min_y;
-    // (A box with nothing in it, a point: framed as one 1/1000 of the frame's unit across — never a zoom without end.)
-    const f64 _big = fmax(fmax(_w, _h), 1e-3);
+    // (A box with nothing in it, a point: framed as one 1/1000 of the frame's unit across — never a zoom
+    // without end. A line: as a thousandth of its length across. A box however small: as it is.)
+    const f64 _big = fmax(_w, _h) > 0.0 ? fmax(_w, _h) : 1e-3;
     const f64 _z = fmin(2.0 * _half.x * _fill / fmax(_w, _big * 1e-3), 2.0 * _half.y * _fill / fmax(_h, _big * 1e-3));
     return (fude_zoom_camera){ _frame, { (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 }, _z };
 }
@@ -163,35 +165,81 @@ typedef struct {
     u32                    filled;
     fude_zoom_nav_mark     rings[FUDE_ZOOM_NAV_RINGS];
     u32                    ring_count;
+    u32                    as_frame;   // a frame in it looked at: the deepest frame holding its drawing (FUDE_ZOOM_NONE: none)
+    fude_zoom_box          as_box;     // ...and that drawing there: what a tap shows
 } fude_zoom_nav_search;
 
-// Something drawn in frame _frame, or deeper (alive, not a bookmark or a layer's record, not
-// hidden)? A frame whose drawing was all rubbed out is still "used" (its undo keeps it), and
-// nothing would be seen at the end of an arrow to it.
-RDE_INTERNAL b8 fude_zoom_nav_frame_shows(const fude_zoom_scene* _s, u32 _frame, u32 _depth) {
-    if(_frame == FUDE_ZOOM_NONE || _depth > 16u) {
-        return false;
-    }
+// Is _o something drawn, to be seen (not a frame: what is in it is)? Not a bookmark, not a layer's
+// record, not what a hidden layer hides; nor a guide (it reaches far past what it helps draw) or a
+// part's words (they go with it).
+RDE_INTERNAL b8 fude_zoom_nav_seen(const fude_zoom_scene* _s, const fude_zoom_object* _o) {
+    return (_o->flags & FUDE_ZOOM_FLAG_ALIVE) && _o->kind != FUDE_ZOOM_KIND_MARK && _o->kind != FUDE_ZOOM_KIND_LAYER && _o->kind != FUDE_ZOOM_KIND_FRAME &&
+           !fude_zoom_scene_hides(_s, _o) &&
+           !(_o->kind == FUDE_ZOOM_KIND_SHAPE && (_o->channels == FUDE_ZOOM_SHAPE_GUIDE || fude_zoom_shape_is_attribute(_o->channels)));
+}
+
+// What is drawn in frame _frame and deeper, its units, but its object _skip. A frame in it
+// counts for what is drawn in it, not its own box: that is the view it was made for, often far
+// wider (an arrow to it showed a speck in the middle of nothing). Past the depth's end, its box.
+RDE_INTERNAL fude_zoom_box fude_zoom_nav_drawn_in(const fude_zoom_scene* _s, u32 _frame, u32 _skip, u32 _depth) {
+    fude_zoom_box _all = fude_zoom_box_empty();
     const fude_zoom_frame* _f = fude_zoom_scene_frame(_s, _frame);
     if(_f->removed) {
-        return false;
+        return _all;
     }
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_f->order); _i++) {
-        const fude_zoom_object* _o = fude_zoom_scene_object(_s, ((const u32*)_f->order.memory)[_i]);
-        if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER) {
+        const u32               _k = ((const u32*)_f->order.memory)[_i];
+        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _k);
+        if(_k == _skip) {
             continue;
         }
-        if(_o->kind == FUDE_ZOOM_KIND_FRAME) {
-            if(fude_zoom_nav_frame_shows(_s, _o->child, _depth + 1u)) {
-                return true;
+        if(_o->kind == FUDE_ZOOM_KIND_FRAME && (_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
+            if(_depth >= FUDE_ZOOM_NAV_DRAWN_DEPTH) {
+                _all = fude_zoom_scene_frame_used(_s, _o->child) ? fude_zoom_box_union(_all, _o->box) : _all;
+                continue;
+            }
+            const fude_zoom_box _in = fude_zoom_nav_drawn_in(_s, _o->child, FUDE_ZOOM_NONE, _depth + 1u);
+            if(!fude_zoom_box_is_empty(_in)) {
+                _all = fude_zoom_box_union(_all, fude_zoom_sim_box(fude_zoom_sim_from_xform(fude_zoom_scene_frame(_s, _o->child)->xf), _in));
             }
             continue;
         }
-        if(!fude_zoom_scene_hides(_s, _o)) {
-            return true;
+        if(fude_zoom_nav_seen(_s, _o)) {
+            _all = fude_zoom_box_union(_all, _o->box);
         }
     }
-    return false;
+    return _all;
+}
+
+fude_zoom_box fude_zoom_nav_drawn(const fude_zoom_scene* _s, u32 _frame, u32 _skip) {
+    return _frame == FUDE_ZOOM_NONE ? fude_zoom_box_empty() : fude_zoom_nav_drawn_in(_s, _frame, _skip, 0u);
+}
+
+// The deepest frame that holds all that is drawn in frame *_f (its box *_box, its units): down into
+// the one frame in it with anything drawn, while nothing else is — then *_f and *_box are that
+// frame's. Seen from there it is exact, however far out *_f is.
+RDE_INTERNAL void fude_zoom_nav_deepest(const fude_zoom_scene* _s, u32* _f, fude_zoom_box* _box) {
+    for(u32 _depth = 0; _depth < FUDE_ZOOM_NAV_DRAWN_DEPTH; _depth++) {
+        const fude_zoom_frame* _fr   = fude_zoom_scene_frame(_s, *_f);
+        u32                    _only = FUDE_ZOOM_NONE;
+        b8                     _more = false;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_fr->order) && !_more; _i++) {
+            const fude_zoom_object* _o = fude_zoom_scene_object(_s, ((const u32*)_fr->order.memory)[_i]);
+            if(_o->kind == FUDE_ZOOM_KIND_FRAME && (_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
+                if(!fude_zoom_box_is_empty(fude_zoom_nav_drawn(_s, _o->child, FUDE_ZOOM_NONE))) {
+                    _more = _only != FUDE_ZOOM_NONE;
+                    _only = _o->child;
+                }
+            } else {
+                _more = fude_zoom_nav_seen(_s, _o);
+            }
+        }
+        if(_more || _only == FUDE_ZOOM_NONE) {
+            return;
+        }
+        *_f   = _only;
+        *_box = fude_zoom_nav_drawn(_s, _only, FUDE_ZOOM_NONE);
+    }
 }
 
 RDE_INTERNAL b8 fude_zoom_nav_visit(any _user, u32 _value, fude_zoom_box _box, fude_zoom_box _leaf, f64 _d2) {
@@ -203,8 +251,9 @@ RDE_INTERNAL b8 fude_zoom_nav_visit(any _user, u32 _value, fude_zoom_box _box, f
     // Only what is drawn: not a bookmark, not a layer's record (nothing to see, nowhere: its box is a
     // point at the origin — an arrow to it flew there zoomed in without end), not what a hidden layer
     // hides, not a frame let go of.
+    // (A frame in it comes with what is drawn in it for its box: fude_zoom_nav_marks.)
     if(_value == _q->skip || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER ||
-       fude_zoom_scene_hides(_q->s, _o) || (_o->kind == FUDE_ZOOM_KIND_FRAME && !fude_zoom_nav_frame_shows(_q->s, _o->child, 0u))) {
+       (_o->kind != FUDE_ZOOM_KIND_FRAME && fude_zoom_scene_hides(_q->s, _o))) {
         return true;
     }
     // What a tap shows: it and its neighbours (its leaf), unless they spread far wider.
@@ -214,11 +263,13 @@ RDE_INTERNAL b8 fude_zoom_nav_visit(any _user, u32 _value, fude_zoom_box _box, f
     }
     const f64     _wide = fmax(_leaf.max_x - _leaf.min_x, _leaf.max_y - _leaf.min_y);
     fude_zoom_box _show = _wide <= _size * 16.0 ? _leaf : _box;
+    const u32     _in   = _q->as_frame != FUDE_ZOOM_NONE ? _q->as_frame : _q->frame;
+    _show               = _q->as_frame != FUDE_ZOOM_NONE ? _q->as_box : _show;
     const fude_zoom_v2 _c = fude_zoom_sim_apply(_q->to_screen, (fude_zoom_v2){ (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 });
     if(fude_zoom_box_overlaps(_box, _q->view)) {
         // On screen: a ring when it is too small to see (else it is drawn and seen).
         if(_size * _q->z < FUDE_ZOOM_NAV_RING && _q->ring_count < FUDE_ZOOM_NAV_RINGS) {
-            _q->rings[_q->ring_count++] = (fude_zoom_nav_mark){ { (f32)_c.x, (f32)_c.y }, 0.0f, true, _q->frame, _show };
+            _q->rings[_q->ring_count++] = (fude_zoom_nav_mark){ { (f32)_c.x, (f32)_c.y }, 0.0f, true, _in, _show };
         }
         return true;
     }
@@ -228,7 +279,7 @@ RDE_INTERNAL b8 fude_zoom_nav_visit(any _user, u32 _value, fude_zoom_box _box, f
     if(_d < _q->best_d[_sector]) {
         _q->filled        += _q->best_d[_sector] >= 1e300 ? 1u : 0u;
         _q->best_d[_sector] = _d;
-        _q->best[_sector]   = (fude_zoom_nav_mark){ { 0.0f, 0.0f }, (f32)_angle, false, _q->frame, _show };
+        _q->best[_sector]   = (fude_zoom_nav_mark){ { 0.0f, 0.0f }, (f32)_angle, false, _in, _show };
     }
     return _q->filled < 8u || _q->ring_count < FUDE_ZOOM_NAV_RINGS;
 }
@@ -254,24 +305,34 @@ u32 fude_zoom_nav_marks(const fude_zoom_scene* _s, fude_zoom_v2 _half, f32 _inse
         _q.to_screen = fude_zoom_sim_compose(_cam_to_screen, fude_zoom_scene_sim(_s, _frame, _from));
         _q.view      = fude_zoom_sim_box(fude_zoom_sim_inverse(_q.to_screen), (fude_zoom_box){ -_half.x, -_half.y, _half.x, _half.y });
         _q.z         = fude_zoom_sim_scale(_q.to_screen);
+        _q.as_frame  = FUDE_ZOOM_NONE;
         for(u32 _i = 0; _i < 8u; _i++) {
             _q.best_d[_i] = 1e300;
         }
         const fude_zoom_v2 _mid = fude_zoom_sim_apply(fude_zoom_sim_inverse(_q.to_screen), (fude_zoom_v2){ 0.0, 0.0 });
         fude_zoom_index_nearest(&fude_zoom_scene_frame(_s, _frame)->index, _mid, fude_zoom_nav_visit, &_q, 4096u);
-        // The frames in it are not in its index: each looked at too (what is drawn deeper).
+        // The frames in it are not in its index: each looked at too, as what is drawn in it.
         const fude_zoom_frame* _fr = fude_zoom_scene_frame(_s, _frame);
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_fr->kids); _i++) {
             const u32               _k = ((const u32*)_fr->kids.memory)[_i];
             const fude_zoom_object* _o = fude_zoom_scene_object(_s, _k);
-            if(_k == _skip || !fude_zoom_scene_frame_used(_s, _o->child)) {
+            if(_k == _skip || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || !fude_zoom_scene_frame_used(_s, _o->child)) {
                 continue;
             }
-            const f64 _dx = _mid.x < _o->box.min_x ? _o->box.min_x - _mid.x : (_mid.x > _o->box.max_x ? _mid.x - _o->box.max_x : 0.0);
-            const f64 _dy = _mid.y < _o->box.min_y ? _o->box.min_y - _mid.y : (_mid.y > _o->box.max_y ? _mid.y - _o->box.max_y : 0.0);
+            fude_zoom_box _b = fude_zoom_nav_drawn(_s, _o->child, FUDE_ZOOM_NONE);
+            if(fude_zoom_box_is_empty(_b)) {
+                continue;   // (all of it rubbed out, or hidden: nothing to see at the end of an arrow)
+            }
+            _q.as_frame = _o->child;
+            _q.as_box   = _b;
+            fude_zoom_nav_deepest(_s, &_q.as_frame, &_q.as_box);
+            _b = fude_zoom_sim_box(fude_zoom_sim_from_xform(fude_zoom_scene_frame(_s, _o->child)->xf), _b);
+            const f64 _dx = _mid.x < _b.min_x ? _b.min_x - _mid.x : (_mid.x > _b.max_x ? _mid.x - _b.max_x : 0.0);
+            const f64 _dy = _mid.y < _b.min_y ? _b.min_y - _mid.y : (_mid.y > _b.max_y ? _mid.y - _b.max_y : 0.0);
             const u32 _seen = _q.seen;
-            fude_zoom_nav_visit(&_q, _k, _o->box, _o->box, _dx * _dx + _dy * _dy);
-            _q.seen = _seen;
+            fude_zoom_nav_visit(&_q, _k, _b, _b, _dx * _dx + _dy * _dy);
+            _q.seen     = _seen;
+            _q.as_frame = FUDE_ZOOM_NONE;
         }
         for(u32 _i = 0; _i < 8u; _i++) {
             if(_q.best_d[_i] < _best_d[_i]) {
@@ -339,6 +400,59 @@ f64 fude_zoom_nav_depth_of(const fude_zoom_scene* _s, fude_zoom_camera _c) {
 
 f64 fude_zoom_nav_depth(const fude_zoom_scene* _s) {
     return fude_zoom_nav_depth_of(_s, _s->camera);
+}
+
+// --- levels ----------------------------------------------------------------------------------
+
+// The view of all that is drawn in frame _f (its box _box, its units), from the deepest frame holding it.
+RDE_INTERNAL fude_zoom_camera fude_zoom_nav_view_all(const fude_zoom_scene* _s, fude_zoom_v2 _half, u32 _f, fude_zoom_box _box) {
+    fude_zoom_nav_deepest(_s, &_f, &_box);
+    return fude_zoom_nav_framing(_half, _f, _box, 0.8);
+}
+
+u32 fude_zoom_nav_levels(const fude_zoom_scene* _s, fude_zoom_v2 _half, fude_zoom_camera* _out, u32 _max) {
+    if(_max == 0) {
+        return 0;
+    }
+    const fude_zoom_camera* _cam  = &_s->camera;
+    const f64               _here = fude_zoom_nav_depth(_s);
+    u32           _n     = 0;
+    fude_zoom_v2  _at    = _cam->at;
+    u32           _f     = _cam->frame;
+    fude_zoom_box _box   = fude_zoom_nav_drawn(_s, _f, FUDE_ZOOM_NONE);   // all drawn at this level, its units
+    fude_zoom_box _shown = fude_zoom_box_empty();                         // the last level's, in these units
+    for(;;) {
+        const fude_zoom_frame* _fr = fude_zoom_scene_frame(_s, _f);
+        if(!fude_zoom_box_is_empty(_box)) {
+            const f64 _size = fmax(_box.max_x - _box.min_x, _box.max_y - _box.min_y);
+            const f64 _was  = fude_zoom_box_is_empty(_shown) ? 0.0 : fmax(_shown.max_x - _shown.min_x, _shown.max_y - _shown.min_y);
+            if(fude_zoom_box_is_empty(_shown) || _size > _was * FUDE_ZOOM_NAV_LEVEL_GROWS) {
+                const fude_zoom_camera _view = fude_zoom_nav_view_all(_s, _half, _f, _box);
+                const fude_zoom_v2     _mid  = fude_zoom_sim_apply(fude_zoom_scene_sim(_s, _f, _cam->frame), _view.at);
+                const b8 _same = fabs(fude_zoom_nav_depth_of(_s, _view) - _here) < 0.15 &&
+                                 hypot(_mid.x - _cam->at.x, _mid.y - _cam->at.y) * _cam->z < 0.1 * fmin(_half.x, _half.y);
+                if(!_same) {
+                    _out[_n < _max ? _n++ : _max - 1u] = _view;   // (more than fit: the outermost in the last)
+                }
+                _shown = _box;
+            }
+        }
+        if(_fr->parent == FUDE_ZOOM_NONE) {
+            break;
+        }
+        // Up a level: this one's drawing in its parent's units, and the parent's own beside it.
+        const fude_zoom_sim _up = fude_zoom_sim_from_xform(_fr->xf);
+        _at    = fude_zoom_sim_apply(_up, _at);
+        _box   = fude_zoom_box_is_empty(_box) ? _box : fude_zoom_sim_box(_up, _box);
+        _shown = fude_zoom_box_is_empty(_shown) ? _shown : fude_zoom_sim_box(_up, _shown);
+        _box   = fude_zoom_box_union(_box, fude_zoom_nav_drawn(_s, _fr->parent, _fr->object));
+        _f     = _fr->parent;
+    }
+    // None: the whole of it is what is on screen (there it is anyway), or nothing is drawn (the top at its zoom 1).
+    if(_n == 0) {
+        _out[_n++] = fude_zoom_box_is_empty(_box) ? (fude_zoom_camera){ _f, _at, 1.0 } : fude_zoom_nav_view_all(_s, _half, _f, _box);
+    }
+    return _n;
 }
 
 void fude_zoom_nav_say(f64 _log10, c8* _out, usize _size) {

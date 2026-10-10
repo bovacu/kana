@@ -39,6 +39,20 @@ RDE_INTERNAL const fude_zoom_mech_part FZM_PARTS[] = {
     { "pin",         FUDE_ZOOM_MECH_PIN,    0, 1, { { 0.0f, 0.0f } }, "" },
     { "drawn body",  FUDE_ZOOM_MECH_DRAWN,  0, 0, { { 0.0f, 0.0f } }, "" },   // (no symbol: a drawing's, props.h)
     { "motor shaft", FUDE_ZOOM_MECH_SHAFT,  0, 1, { { 0.0f, 0.0f } }, "" },   // (no symbol of its own: a circuit's motor's)
+    { "tracer",      FUDE_ZOOM_MECH_TRACER, 0, 0, { { 0.0f, 0.0f } }, "" },   // (no hole: on whatever is under it)
+    { "hand crank",  FUDE_ZOOM_MECH_CRANK,  0, 2, { { 0.0f, 0.0f }, { 0.7f, 0.0f } }, "" },   // (its axle, its handle)
+    { "plunger",     FUDE_ZOOM_MECH_PLUNGER, 0, 1, { { (f32)FUDE_ZOOM_SOLENOID_TIP, 0.0f } }, "" },   // (no symbol of its own: a solenoid's)
+    // (0.1.74) A belt's and a chain's ends' middles as a link's holes (however long); a cam's hole off its middle; a
+    // follower's at its rod's back end; a pawl's at its pivot.
+    { "belt",        FUDE_ZOOM_MECH_BELT,     0, 2, { { -0.8f, 0.0f }, { 0.8f, 0.0f } }, "" },
+    { "chain",       FUDE_ZOOM_MECH_BELT,     0, 2, { { -0.8f, 0.0f }, { 0.8f, 0.0f } }, "" },
+    { "sprocket",    FUDE_ZOOM_MECH_SPROCKET, 0, 1, { { 0.0f, 0.0f } }, "" },
+    { "cam",         FUDE_ZOOM_MECH_CAM,      0, 1, { { (f32)(-FUDE_ZOOM_MECH_CAM_ECCENTRIC * 0.95), 0.0f } }, "" },
+    { "follower",    FUDE_ZOOM_MECH_FOLLOWER, 0, 1, { { -0.85f, 0.0f } }, "" },
+    { "ratchet",     FUDE_ZOOM_MECH_RATCHET,  0, 1, { { 0.0f, 0.0f } }, "" },
+    { "pawl",        FUDE_ZOOM_MECH_PAWL,     0, 1, { { -0.7f, 0.0f } }, "" },
+    { "damper",      FUDE_ZOOM_MECH_DAMPER,   0, 2, { { -0.9f, 0.0f }, { 0.9f, 0.0f } }, "1" },
+    { "worm",        FUDE_ZOOM_MECH_WORM,     0, 0, { { 0.0f, 0.0f } }, "60 rpm" },
 };
 #define FZM_N ((u32)(sizeof(FZM_PARTS) / sizeof(FZM_PARTS[0])))
 
@@ -324,6 +338,133 @@ u32 fude_zoom_mech_draw(const fude_zoom_mech_part* _part, f64 _hw, f64 _hh, u32 
         fzm_circle(&_d, 0.0, 0.0, _m * 0.9, F);
         fzm_circle(&_d, 0.0, 0.0, _m * 0.3, S);
         break;
+    case FUDE_ZOOM_MECH_CRANK:
+        // (a disc, its axle in its middle, its handle — a knob — toward its rim, an arm between)
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.95, F);
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.16, 0u);
+        fzm_line(&_d, _m * 0.16, 0.0, _m * 0.56, 0.0);
+        fzm_circle(&_d, _w * 0.7, 0.0, _m * 0.14, 0u);
+        fzm_circle(&_d, _w * 0.7, 0.0, _m * 0.05, S);
+        break;
+    case FUDE_ZOOM_MECH_TRACER:
+        // (a pen's nib on a ring, its point at its middle)
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.85, 0u);
+        fzm_line(&_d, -_m * 0.85, 0.0, -_m * 0.35, 0.0);
+        fzm_line(&_d, _m * 0.35, 0.0, _m * 0.85, 0.0);
+        fzm_line(&_d, 0.0, -_m * 0.85, 0.0, -_m * 0.35);
+        fzm_line(&_d, 0.0, _m * 0.35, 0.0, _m * 0.85);
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.18, S);
+        break;
+    case FUDE_ZOOM_MECH_BELT: {
+        // (a loop round its two ends' middles — its holes —, as round as it is high: a chain's dashed, its links)
+        const fude_zoom_v2 _c[2] = { { -_w + _h, 0.0 }, { _w - _h, 0.0 } };
+        fzm_round_hull(&_d, _c, 2u, _h * 0.9, strcmp(_part->id, "chain") == 0 ? FUDE_ZOOM_SYMBOL_DASHED : 0u);
+        for(u32 _i = 0; _i < 2u; _i++) {
+            fzm_circle(&_d, _c[_i].x, 0.0, _h * 0.12, S);
+        }
+        break;
+    }
+    case FUDE_ZOOM_MECH_SPROCKET: {
+        // (sixteen round teeth, its hole, a spoke: its turn seen)
+        const f64 _ro = _m * 0.97, _ri = _m * 0.8;
+        fzm_begin(&_d);
+        for(u32 _k = 0; _k < 16u; _k++) {
+            const f64 _a = 2.0 * FZM_PI * (f64)_k / 16.0, _p = 2.0 * FZM_PI / 16.0;
+            const f64 _at[4] = { -0.3, -0.12, 0.12, 0.3 }, _r[4] = { _ri, _ro, _ro, _ri };
+            for(u32 _j = 0; _j < 4u; _j++) {
+                fzm_pt(&_d, cos(_a + _at[_j] * _p) * _r[_j], sin(_a + _at[_j] * _p) * _r[_j]);
+            }
+        }
+        fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.6, 0u);
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.12, 0u);
+        fzm_line(&_d, _m * 0.12, 0.0, _m * 0.6, 0.0);
+        break;
+    }
+    case FUDE_ZOOM_MECH_CAM: {
+        // (a disc, its hole off its middle, a line from it across: its turn seen)
+        const f64 _r = _m * 0.95, _hx = (f64)_part->holes[0][0] * _w;
+        fzm_circle(&_d, 0.0, 0.0, _r, F);
+        fzm_circle(&_d, _hx, 0.0, _m * 0.12, 0u);
+        fzm_line(&_d, _hx + _m * 0.12, 0.0, _r * 0.8, 0.0);
+        break;
+    }
+    case FUDE_ZOOM_MECH_FOLLOWER: {
+        // (its rod and its roller — what moves as it plays: render.h's moved —, the hole at its back end; its guide over it,
+        // fixed, hatched)
+        const u8 M = FUDE_ZOOM_SYMBOL_MOVES;
+        fzm_begin(&_d);
+        fzm_pt(&_d, -0.95 * _w, -0.3 * _h); fzm_pt(&_d, 0.62 * _w, -0.3 * _h); fzm_pt(&_d, 0.62 * _w, 0.3 * _h); fzm_pt(&_d, -0.95 * _w, 0.3 * _h);
+        fzm_end(&_d, (u8)(FUDE_ZOOM_SYMBOL_CLOSED | F | M));
+        fzm_circle(&_d, 0.75 * _w, 0.0, 0.6 * _h, (u8)(F | M));
+        fzm_circle(&_d, 0.75 * _w, 0.0, 0.12 * _h, (u8)(S | M));
+        fzm_circle(&_d, -0.85 * _w, 0.0, 0.18 * _h, M);
+        for(u32 _k = 0; _k < 2u; _k++) {
+            const f64 _sg = _k == 0u ? 1.0 : -1.0;
+            fzm_begin(&_d);
+            fzm_pt(&_d, -0.2 * _w, _sg * 0.38 * _h); fzm_pt(&_d, 0.2 * _w, _sg * 0.38 * _h); fzm_pt(&_d, 0.2 * _w, _sg * 0.95 * _h); fzm_pt(&_d, -0.2 * _w, _sg * 0.95 * _h);
+            fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+            fzm_line(&_d, -0.12 * _w, _sg * 0.95 * _h, -0.2 * _w, _sg * 0.6 * _h);
+            fzm_line(&_d, 0.08 * _w, _sg * 0.95 * _h, -0.08 * _w, _sg * 0.45 * _h);
+        }
+        break;
+    }
+    case FUDE_ZOOM_MECH_RATCHET: {
+        // (sawteeth: each from its tip down its back to the next one's root — free counter-clockwise, caught clockwise —,
+        // its hole, a spoke)
+        f64 _tip, _root;
+        fude_zoom_mech_body _rb;
+        memset(&_rb, 0, sizeof(_rb));
+        _rb.part = _part;
+        _rb.hw   = _w;
+        _rb.hh   = _h;
+        fude_zoom_mech_ratchet_radii(&_rb, &_tip, &_root);
+        fzm_begin(&_d);
+        for(u32 _k = 0; _k < FUDE_ZOOM_MECH_RATCHET_TEETH; _k++) {
+            const f64 _a = 2.0 * FZM_PI * (f64)_k / (f64)FUDE_ZOOM_MECH_RATCHET_TEETH;
+            fzm_pt(&_d, cos(_a) * _tip, sin(_a) * _tip);
+            fzm_pt(&_d, cos(_a + 2.0 * FZM_PI / (f64)FUDE_ZOOM_MECH_RATCHET_TEETH) * _root, sin(_a + 2.0 * FZM_PI / (f64)FUDE_ZOOM_MECH_RATCHET_TEETH) * _root);
+        }
+        fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+        fzm_circle(&_d, 0.0, 0.0, _m * 0.12, 0u);
+        fzm_line(&_d, _m * 0.12, 0.0, _root * 0.8, 0.0);
+        break;
+    }
+    case FUDE_ZOOM_MECH_PAWL:
+        // (a lever to a point, its pivot's hole at its back)
+        fzm_begin(&_d);
+        fzm_pt(&_d, -0.95 * _w, -0.6 * _h); fzm_pt(&_d, 0.55 * _w, -0.6 * _h); fzm_pt(&_d, 0.97 * _w, 0.0); fzm_pt(&_d, 0.55 * _w, 0.6 * _h); fzm_pt(&_d, -0.95 * _w, 0.6 * _h);
+        fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+        fzm_circle(&_d, -0.7 * _w, 0.0, 0.32 * _h, 0u);
+        break;
+    case FUDE_ZOOM_MECH_DAMPER:
+        // (a cylinder on one end, a rod from the other into it to its piston)
+        fzm_line(&_d, -0.9 * _w, 0.0, -0.75 * _w, 0.0);
+        fzm_begin(&_d);
+        fzm_pt(&_d, -0.75 * _w, -0.7 * _h); fzm_pt(&_d, 0.15 * _w, -0.7 * _h); fzm_pt(&_d, 0.15 * _w, 0.7 * _h); fzm_pt(&_d, -0.75 * _w, 0.7 * _h);
+        fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+        fzm_line(&_d, -0.15 * _w, -0.55 * _h, -0.15 * _w, 0.55 * _h);
+        fzm_line(&_d, -0.15 * _w, 0.0, 0.9 * _w, 0.0);
+        fzm_circle(&_d, -0.9 * _w, 0.0, _h * 0.3, 0u);
+        fzm_circle(&_d, 0.9 * _w, 0.0, _h * 0.3, 0u);
+        break;
+    case FUDE_ZOOM_MECH_WORM: {
+        // (a screw on its shaft: its threads' slants a lead apart — what moves as it plays —, short of its right end by more
+        // than a lead, so that they stay on it however far round it is)
+        fzm_line(&_d, -_w, 0.0, -0.85 * _w, 0.0);
+        fzm_line(&_d, 0.85 * _w, 0.0, _w, 0.0);
+        fzm_begin(&_d);
+        fzm_pt(&_d, -0.85 * _w, -0.6 * _h); fzm_pt(&_d, 0.85 * _w, -0.6 * _h); fzm_pt(&_d, 0.85 * _w, 0.6 * _h); fzm_pt(&_d, -0.85 * _w, 0.6 * _h);
+        fzm_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED | F);
+        const f64 _lead = FUDE_ZOOM_MECH_WORM_LEAD;
+        for(f64 _x = -0.85 * _w + 0.2 * _lead; _x + 1.35 * _lead <= 0.85 * _w; _x += _lead) {
+            fzm_begin(&_d);
+            fzm_pt(&_d, _x, -0.6 * _h);
+            fzm_pt(&_d, _x + 0.3 * _lead, 0.6 * _h);
+            fzm_end(&_d, FUDE_ZOOM_SYMBOL_MOVES);
+        }
+        break;
+    }
     case FUDE_ZOOM_MECH_WALL:
     default:
         fzm_begin(&_d);
@@ -347,6 +488,11 @@ void fude_zoom_mech_plan_init(fude_zoom_mech_plan* _p) {
     _p->meshes  = rde_arr_new(sizeof(fude_zoom_mech_mesh), _heap);
     _p->ropes   = rde_arr_new(sizeof(fude_zoom_mech_rope), _heap);
     _p->slides  = rde_arr_new(sizeof(fude_zoom_mech_slide), _heap);
+    _p->tracers = rde_arr_new(sizeof(fude_zoom_mech_tracer), _heap);
+    _p->belts   = rde_arr_new(sizeof(fude_zoom_mech_belt), _heap);
+    _p->dampers = rde_arr_new(sizeof(fude_zoom_mech_damper), _heap);
+    _p->worms   = rde_arr_new(sizeof(fude_zoom_mech_worm), _heap);
+    _p->pawls   = rde_arr_new(sizeof(fude_zoom_mech_pawl), _heap);
     _p->piece_points = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     _p->piece_counts = rde_arr_new(sizeof(u32), _heap);
     _p->unit    = 1.0;
@@ -359,6 +505,11 @@ void fude_zoom_mech_plan_destroy(fude_zoom_mech_plan* _p) {
     rde_arr_free(&_p->meshes);
     rde_arr_free(&_p->ropes);
     rde_arr_free(&_p->slides);
+    rde_arr_free(&_p->tracers);
+    rde_arr_free(&_p->belts);
+    rde_arr_free(&_p->dampers);
+    rde_arr_free(&_p->worms);
+    rde_arr_free(&_p->pawls);
     rde_arr_free(&_p->piece_points);
     rde_arr_free(&_p->piece_counts);
 }
@@ -378,9 +529,31 @@ void fude_zoom_mech_plan_copy(fude_zoom_mech_plan* _to, const fude_zoom_mech_pla
     fzm_arr_copy(&_to->meshes, &_from->meshes, sizeof(fude_zoom_mech_mesh));
     fzm_arr_copy(&_to->ropes, &_from->ropes, sizeof(fude_zoom_mech_rope));
     fzm_arr_copy(&_to->slides, &_from->slides, sizeof(fude_zoom_mech_slide));
+    fzm_arr_copy(&_to->tracers, &_from->tracers, sizeof(fude_zoom_mech_tracer));
+    fzm_arr_copy(&_to->belts, &_from->belts, sizeof(fude_zoom_mech_belt));
+    fzm_arr_copy(&_to->dampers, &_from->dampers, sizeof(fude_zoom_mech_damper));
+    fzm_arr_copy(&_to->worms, &_from->worms, sizeof(fude_zoom_mech_worm));
+    fzm_arr_copy(&_to->pawls, &_from->pawls, sizeof(fude_zoom_mech_pawl));
     fzm_arr_copy(&_to->piece_points, &_from->piece_points, sizeof(fude_zoom_v2));
     fzm_arr_copy(&_to->piece_counts, &_from->piece_counts, sizeof(u32));
     _to->unit = _from->unit;
+}
+
+f64 fude_zoom_mech_belt_radius(const fude_zoom_mech_body* _b) {
+    const f64 _m = fmin(_b->hw, _b->hh);
+    switch(_b->part->kind) {
+    case FUDE_ZOOM_MECH_GEAR:     return fude_zoom_mech_pitch(_b->part, _m);
+    case FUDE_ZOOM_MECH_SPROCKET: return 0.88 * _m;
+    case FUDE_ZOOM_MECH_CRANK:
+    case FUDE_ZOOM_MECH_WHEEL:    return 0.95 * _m;
+    default:                      return 0.0;
+    }
+}
+
+void fude_zoom_mech_ratchet_radii(const fude_zoom_mech_body* _b, f64* _tip, f64* _root) {
+    const f64 _m = fmin(_b->hw, _b->hh);
+    *_tip  = 0.95 * _m;
+    *_root = 0.72 * _m;
 }
 
 f64 fude_zoom_mech_pulley_radius(const fude_zoom_mech_body* _b) {
@@ -409,9 +582,18 @@ RDE_INTERNAL b8 fzm_on(const fude_zoom_mech_plan* _p, const fude_zoom_mech_body*
     case FUDE_ZOOM_MECH_WEIGHT:
     case FUDE_ZOOM_MECH_WHEEL:
     case FUDE_ZOOM_MECH_GEAR:
+    case FUDE_ZOOM_MECH_SPROCKET:
+    case FUDE_ZOOM_MECH_CAM:
+    case FUDE_ZOOM_MECH_RATCHET:
         return hypot(_lx, _ly) <= fmin(_b->hw, _b->hh) + _tol;
+    case FUDE_ZOOM_MECH_FOLLOWER:
+        // (its rod and roller: not its guide)
+        return _lx >= -0.95 * _b->hw - _tol && _lx <= 0.95 * _b->hw + _tol && fabs(_ly) <= 0.6 * _b->hh + _tol;
     case FUDE_ZOOM_MECH_LINK:
         return fabs(_ly) <= _b->hh + _tol && fabs(_lx) <= _b->hw + _tol;
+    case FUDE_ZOOM_MECH_PLUNGER:
+        // (its rod, out of its coil: not the coil)
+        return _lx >= 0.2 * _b->hw - _tol && _lx <= FUDE_ZOOM_SOLENOID_TIP * _b->hw + 0.3 * _b->hh + _tol && fabs(_ly) <= 0.3 * _b->hh + _tol;
     default:
         return fabs(_lx) <= _b->hw + _tol && fabs(_ly) <= _b->hh + _tol;
     }
@@ -438,10 +620,15 @@ void fude_zoom_mech_rope_keep(fude_zoom_mech_pull* _t, u32 _n, f64 _stretch) {
 // Body _b's hole _h where it is (home units).
 RDE_INTERNAL fude_zoom_v2 fzm_hole(const fude_zoom_mech_body* _b, u32 _h) {
     f64 _x = (f64)_b->part->holes[_h][0] * _b->hw, _y = (f64)_b->part->holes[_h][1] * _b->hh;
-    if(_b->part->kind == FUDE_ZOOM_MECH_LINK) {
-        _x = (_h == 0u ? -1.0 : 1.0) * fmax(_b->hw - _b->hh, 0.0);   // (a link's holes at its round ends' middles, however long)
+    if(_b->part->kind == FUDE_ZOOM_MECH_LINK || _b->part->kind == FUDE_ZOOM_MECH_BELT) {
+        _x = (_h == 0u ? -1.0 : 1.0) * fmax(_b->hw - _b->hh, 0.0);   // (a link's holes at its round ends' middles, however long; a belt's)
     }
     return (fude_zoom_v2){ _b->at.x + _x * cos(_b->angle) - _y * sin(_b->angle), _b->at.y + _x * sin(_b->angle) + _y * cos(_b->angle) };
+}
+
+// What holds nothing itself — its ends are held, on what they are on: a spring, a rope, a belt, a damper.
+RDE_INTERNAL b8 fzm_not_held(u8 _kind) {
+    return _kind == FUDE_ZOOM_MECH_SPRING || _kind == FUDE_ZOOM_MECH_ROPE || _kind == FUDE_ZOOM_MECH_BELT || _kind == FUDE_ZOOM_MECH_DAMPER;
 }
 
 RDE_INTERNAL b8 fzm_on_drawn(const fude_zoom_mech_plan* _p, const fude_zoom_mech_body* _b, fude_zoom_v2 _q, f64 _tol) {
@@ -686,7 +873,7 @@ RDE_INTERNAL void fzm_phases(fude_zoom_mech_plan* _p) {
     // from its first.
     for(u32 _pass = 0; _pass < 2u; _pass++) {
         for(u32 _k = 0; _k < _nm; _k++) {
-            if(_m[_k].rack) {
+            if(_m[_k].rack || _m[_k].belt) {
                 continue;
             }
             const u32 _start = _set[_m[_k].a] ? _m[_k].a : (_set[_m[_k].b] ? _m[_k].b : (_pass == 1u ? _m[_k].a : FUDE_ZOOM_NONE));
@@ -699,7 +886,7 @@ RDE_INTERNAL void fzm_phases(fude_zoom_mech_plan* _p) {
             for(u32 _head = 0; _head < (u32)rde_arr_length(&_queue); _head++) {
                 const u32 _v = ((const u32*)_queue.memory)[_head];
                 for(u32 _e = 0; _e < _nm; _e++) {
-                    const u32 _o = _m[_e].rack ? FUDE_ZOOM_NONE : (_m[_e].a == _v ? _m[_e].b : (_m[_e].b == _v ? _m[_e].a : FUDE_ZOOM_NONE));
+                    const u32 _o = _m[_e].rack || _m[_e].belt ? FUDE_ZOOM_NONE : (_m[_e].a == _v ? _m[_e].b : (_m[_e].b == _v ? _m[_e].a : FUDE_ZOOM_NONE));
                     if(_o == FUDE_ZOOM_NONE || _set[_o]) {
                         continue;
                     }
@@ -738,6 +925,182 @@ RDE_INTERNAL void fzm_phases(fude_zoom_mech_plan* _p) {
     rde_arr_free(&_queue);
 }
 
+// The turning part whose hole is at _q (a gear, a sprocket, a crank, a wheel on its axle: one a belt goes round), not _not;
+// FUDE_ZOOM_NONE: none.
+RDE_INTERNAL u32 fzm_belt_on(const fude_zoom_mech_plan* _p, fude_zoom_v2 _q, f64 _tol, u32 _not) {
+    // (the topmost there — the last drawn: a sprocket on a gear's middle, not the gear under it)
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    for(u32 _j = (u32)rde_arr_length(&_p->bodies); _j-- > 0u;) {
+        if(_j != _not && fude_zoom_mech_belt_radius(&_b[_j]) > 0.0) {
+            const fude_zoom_v2 _c = fzm_hole(&_b[_j], 0u);
+            if(hypot(_c.x - _q.x, _c.y - _q.y) <= _tol) {
+                return _j;
+            }
+        }
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+// Are bodies _a and _b (FUDE_ZOOM_NONE: the ground) joined at _q already — by hinges there (within _tol), through others
+// on the same pin? (Three parts on one pin: two hinges, not three — a pin's own; more fight each other.)
+RDE_INTERNAL b8 fzm_pinned_there(const fude_zoom_mech_plan* _p, u32 _a, u32 _b, fude_zoom_v2 _q, f64 _tol) {
+    if(_a == _b) {
+        return true;
+    }
+    const fude_zoom_mech_hinge* _h = (const fude_zoom_mech_hinge*)_p->hinges.memory;
+    const u32 _n = (u32)rde_arr_length(&_p->hinges);
+    u32 _reach[32];   // (what _a reaches there: a pin holds few)
+    u32 _count = 1;
+    _reach[0] = _a;
+    for(u32 _grew = 1; _grew;) {
+        _grew = 0;
+        for(u32 _k = 0; _k < _n; _k++) {
+            if(hypot(_h[_k].at.x - _q.x, _h[_k].at.y - _q.y) > _tol) {
+                continue;
+            }
+            b8 _has_a = false, _has_b = false;
+            for(u32 _r = 0; _r < _count; _r++) {
+                _has_a = _has_a || _reach[_r] == _h[_k].a;
+                _has_b = _has_b || _reach[_r] == _h[_k].b;
+            }
+            if(_has_a != _has_b && _count < 32u) {
+                _reach[_count++] = _has_a ? _h[_k].b : _h[_k].a;
+                _grew = 1;
+            }
+        }
+    }
+    for(u32 _r = 0; _r < _count; _r++) {
+        if(_reach[_r] == _b) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Is _part keyed to turning part _on, its hole on _on's middle — on one shaft, as a camshaft's cams are on its sprocket:
+// a cam on a gear, a sprocket or a hand crank; a sprocket on a gear?
+RDE_INTERNAL b8 fzm_keyed(const fude_zoom_mech_body* _part, const fude_zoom_mech_body* _on) {
+    const u8 _k = _on->part->kind;
+    return (_part->part->kind == FUDE_ZOOM_MECH_CAM && (_k == FUDE_ZOOM_MECH_GEAR || _k == FUDE_ZOOM_MECH_SPROCKET || _k == FUDE_ZOOM_MECH_CRANK)) ||
+           (_part->part->kind == FUDE_ZOOM_MECH_SPROCKET && _k == FUDE_ZOOM_MECH_GEAR);
+}
+
+// Belts and chains: each round the two turning parts its ends' middles are on — meshed as gears are, the one turned as
+// far along its rim as the other (−a's radius over b's: the same way; crossed, +).
+RDE_INTERNAL void fzm_belts(fude_zoom_mech_plan* _p, f64 _tol) {
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_p->bodies); _i++) {
+        if(_b[_i].part->kind != FUDE_ZOOM_MECH_BELT) {
+            continue;
+        }
+        const f64 _reach = fmax(_tol, _b[_i].hh);   // (its end's middle within its own roundness of the wheel's)
+        const u32 _a = fzm_belt_on(_p, fzm_hole(&_b[_i], 0u), _reach, FUDE_ZOOM_NONE);
+        const u32 _c = _a != FUDE_ZOOM_NONE ? fzm_belt_on(_p, fzm_hole(&_b[_i], 1u), _reach, _a) : FUDE_ZOOM_NONE;
+        if(_c == FUDE_ZOOM_NONE) {
+            continue;
+        }
+        const b8 _crossed = _b[_i].value > 0.5;
+        const fude_zoom_mech_belt _bt = { _i, _a, _c, fude_zoom_mech_belt_radius(&_b[_a]), fude_zoom_mech_belt_radius(&_b[_c]), _crossed,
+                                          strcmp(_b[_i].part->id, "chain") == 0 };
+        rde_arr_add(&_p->belts, (any)&_bt);
+        const fude_zoom_mech_mesh _m = { _a, _c, (_crossed ? 1.0 : -1.0) * _bt.ra / _bt.rb, 0.0, 0.0, 0.0, false, true };
+        rde_arr_add(&_p->meshes, (any)&_m);
+        _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    }
+}
+
+// Dampers: their ends on what they are on (a body that moves; else the ground there), as springs' are.
+RDE_INTERNAL void fzm_dampers(fude_zoom_mech_plan* _p, f64 _tol) {
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    const u32 _nb = (u32)rde_arr_length(&_p->bodies);
+    for(u32 _i = 0; _i < _nb; _i++) {
+        if(_b[_i].part->kind != FUDE_ZOOM_MECH_DAMPER) {
+            continue;
+        }
+        fude_zoom_mech_damper _d = { _i, FUDE_ZOOM_NONE, FUDE_ZOOM_NONE, fzm_hole(&_b[_i], 0u), fzm_hole(&_b[_i], 1u), _b[_i].value };
+        for(u32 _e = 0; _e < 2u; _e++) {
+            const fude_zoom_v2 _at = _e == 0u ? _d.pa : _d.pb;
+            for(u32 _j = 0; _j < _nb; _j++) {
+                if(_j == _i || fzm_not_held(_b[_j].part->kind) || _b[_j].fixed) {
+                    continue;
+                }
+                for(u32 _h = 0; _h < _b[_j].part->hole_count; _h++) {
+                    const fude_zoom_v2 _q = fzm_hole(&_b[_j], _h);
+                    if(hypot(_q.x - _at.x, _q.y - _at.y) <= _tol) {
+                        if(_e == 0u) { _d.a = _j; } else { _d.b = _j; }
+                    }
+                }
+            }
+        }
+        if(_d.a != FUDE_ZOOM_NONE || _d.b != FUDE_ZOOM_NONE) {
+            rde_arr_add(&_p->dampers, (any)&_d);
+        }
+    }
+}
+
+#define FZM_WORM_TORQUE 200.0   // a worm's hold on its gear (N·m: it does not give — a worm is not turned back)
+
+// Worms: a gear whose pitch circle is on a worm's pitch line (0.45 of its half height from its axis), along it: its axle
+// driven a tooth a turn of the worm — over it counter-clockwise as the worm turns on, under it clockwise.
+RDE_INTERNAL void fzm_worms(fude_zoom_mech_plan* _p) {
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    const u32 _nb = (u32)rde_arr_length(&_p->bodies);
+    for(u32 _w = 0; _w < _nb; _w++) {
+        if(_b[_w].part->kind != FUDE_ZOOM_MECH_WORM) {
+            continue;
+        }
+        const fude_zoom_v2 _u = { cos(_b[_w].angle), sin(_b[_w].angle) }, _n = { -_u.y, _u.x };
+        for(u32 _g = 0; _g < _nb; _g++) {
+            if(_b[_g].part->kind != FUDE_ZOOM_MECH_GEAR) {
+                continue;
+            }
+            const f64 _r = fude_zoom_mech_pitch(_b[_g].part, fmin(_b[_g].hw, _b[_g].hh)), _mod = 2.0 * _r / (f64)_b[_g].part->teeth;
+            const f64 _dx = _b[_g].at.x - _b[_w].at.x, _dy = _b[_g].at.y - _b[_w].at.y;
+            const f64 _along = _dx * _u.x + _dy * _u.y, _up = _dx * _n.x + _dy * _n.y;
+            if(fabs(fabs(_up) - (0.45 * _b[_w].hh + _r)) > 0.6 * _mod + 0.15 * _b[_w].hh || fabs(_along) > _b[_w].hw) {
+                continue;
+            }
+            fude_zoom_mech_hinge* _h = (fude_zoom_mech_hinge*)_p->hinges.memory;
+            for(u32 _k = 0; _k < (u32)rde_arr_length(&_p->hinges); _k++) {
+                if(_h[_k].a == _g && _h[_k].b == FUDE_ZOOM_NONE && !_h[_k].motor && _h[_k].shaft == FUDE_ZOOM_NONE) {
+                    const f64 _side = _up >= 0.0 ? 1.0 : -1.0;
+                    _h[_k].motor  = true;
+                    _h[_k].speed  = _side * 2.0 * FZM_PI * _b[_w].value / (f64)_b[_g].part->teeth;
+                    _h[_k].torque = FZM_WORM_TORQUE;
+                    const fude_zoom_mech_worm _wm = { _w, _g, _k, _side, _b[_w].value };
+                    rde_arr_add(&_p->worms, (any)&_wm);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Pawls: each pressed onto the ratchet its tip is at (between its teeth's roots and tips).
+RDE_INTERNAL void fzm_pawls(fude_zoom_mech_plan* _p, f64 _tol) {
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_p->bodies.memory;
+    const u32 _nb = (u32)rde_arr_length(&_p->bodies);
+    for(u32 _i = 0; _i < _nb; _i++) {
+        if(_b[_i].part->kind != FUDE_ZOOM_MECH_PAWL) {
+            continue;
+        }
+        const fude_zoom_v2 _tip = { _b[_i].at.x + cos(_b[_i].angle) * 0.97 * _b[_i].hw, _b[_i].at.y + sin(_b[_i].angle) * 0.97 * _b[_i].hw };
+        fude_zoom_mech_pawl _pw = { _i, FUDE_ZOOM_NONE };
+        for(u32 _j = 0; _j < _nb; _j++) {
+            if(_b[_j].part->kind != FUDE_ZOOM_MECH_RATCHET) {
+                continue;
+            }
+            f64 _rt, _rr;
+            fude_zoom_mech_ratchet_radii(&_b[_j], &_rt, &_rr);
+            const f64 _d = hypot(_tip.x - _b[_j].at.x, _tip.y - _b[_j].at.y);
+            if(_d >= _rr - _tol && _d <= _rt + _tol) {
+                _pw.ratchet = _j;
+            }
+        }
+        rde_arr_add(&_p->pawls, (any)&_pw);
+    }
+}
+
 u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, const u8* _scope) {
     rde_arr_clear(&_p->bodies);
     rde_arr_clear(&_p->hinges);
@@ -745,6 +1108,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
     rde_arr_clear(&_p->meshes);
     rde_arr_clear(&_p->ropes);
     rde_arr_clear(&_p->slides);
+    rde_arr_clear(&_p->tracers);
+    rde_arr_clear(&_p->belts);
+    rde_arr_clear(&_p->dampers);
+    rde_arr_clear(&_p->worms);
+    rde_arr_clear(&_p->pawls);
     rde_arr_clear(&_p->piece_points);
     rde_arr_clear(&_p->piece_counts);
     const u32 _home = _s->home != FUDE_ZOOM_NONE ? _s->home : _s->root;
@@ -758,9 +1126,13 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         }
         const fude_zoom_mech_part* _part = fude_zoom_mech_of(_s, _i);
         if(_part == NULL) {
-            // (a circuit's motor or servo: its shaft, what is pinned on it turned as the circuit drives it)
+            // (a circuit's motor, servo or stepper: its shaft, what is pinned on it turned as the circuit drives it — an
+            // encoder's or a pot's, read as it turns; a solenoid's plunger)
             const fude_zoom_part* _ep = fude_zoom_part_of(_s, _i);
-            _part = _ep != NULL && (_ep->model == FUDE_ZOOM_MODEL_MOTOR || _ep->model == FUDE_ZOOM_MODEL_SERVO) ? fude_zoom_mech_find("motor shaft") : NULL;
+            const u8 _em = _ep != NULL ? _ep->model : FUDE_ZOOM_MODEL_NONE;
+            _part = _em == FUDE_ZOOM_MODEL_MOTOR || _em == FUDE_ZOOM_MODEL_SERVO || _em == FUDE_ZOOM_MODEL_STEPPER || _em == FUDE_ZOOM_MODEL_ENCODER ||
+                    _em == FUDE_ZOOM_MODEL_POT ? fude_zoom_mech_find("motor shaft") :
+                    (_em == FUDE_ZOOM_MODEL_SOLENOID ? fude_zoom_mech_find("plunger") : NULL);
         }
         if(_part == NULL) {
             continue;
@@ -782,7 +1154,8 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         _b.hh     = _num[2] * _k;
         _b.scale  = _k;
         _b.fixed  = _part->kind == FUDE_ZOOM_MECH_PIVOT || _part->kind == FUDE_ZOOM_MECH_MOTOR || _part->kind == FUDE_ZOOM_MECH_WALL ||
-                    _part->kind == FUDE_ZOOM_MECH_PULLEY || _part->kind == FUDE_ZOOM_MECH_RAIL || _part->kind == FUDE_ZOOM_MECH_SHAFT;
+                    _part->kind == FUDE_ZOOM_MECH_PULLEY || _part->kind == FUDE_ZOOM_MECH_RAIL || _part->kind == FUDE_ZOOM_MECH_SHAFT ||
+                    _part->kind == FUDE_ZOOM_MECH_WORM;
         fude_zoom_symbol_text(_num, _count, _text, sizeof(_text));
         f64 _v = 0.0;
         const b8 _has = fude_zoom_circuit_value(_text, 0u, &_v);
@@ -796,15 +1169,25 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         } else if(_part->kind == FUDE_ZOOM_MECH_WEIGHT || _part->kind == FUDE_ZOOM_MECH_CRATE) {
             // (kilograms: "2 kg" read as 2000 grams, "500 g" as 500, "2" as 2 kg)
             _b.value = _has && _v > 0.0 ? (strchr(_text, 'g') != NULL ? _v / 1000.0 : _v) : (_part->kind == FUDE_ZOOM_MECH_CRATE ? 2.0 : 1.0);
-        } else if(_part->kind == FUDE_ZOOM_MECH_SPRING) {
+        } else if(_part->kind == FUDE_ZOOM_MECH_SPRING || _part->kind == FUDE_ZOOM_MECH_DAMPER) {
             _b.value = _has && _v > 0.0 ? _v : 1.0;
+        } else if(_part->kind == FUDE_ZOOM_MECH_WORM) {
+            // (turns a second; "-", "cw": the other way)
+            _b.value = (_has ? _v : 60.0) / 60.0;
+            if(strstr(_text, "-") != NULL || strstr(_text, "cw") != NULL || strstr(_text, "CW") != NULL) {
+                _b.value = -_b.value;
+            }
+        } else if(_part->kind == FUDE_ZOOM_MECH_BELT) {
+            _b.value = strstr(_text, "cross") != NULL ? 1.0 : 0.0;   // (crossed)
+        } else if(_part->kind == FUDE_ZOOM_MECH_CRANK) {
+            _b.value = _has && _v >= 0.0 ? _v : FUDE_ZOOM_MECH_CRANK_FRICTION;   // (its axle's friction, N·m)
         }
         rde_arr_add(&_p->bodies, (any)&_b);
-        if(_part->kind == FUDE_ZOOM_MECH_SHAFT) {
-            continue;   // (a circuit's part: not the mechanism's size)
+        if(_part->kind == FUDE_ZOOM_MECH_SHAFT || _part->kind == FUDE_ZOOM_MECH_PLUNGER || _part->kind == FUDE_ZOOM_MECH_TRACER) {
+            continue;   // (a circuit's part, a tracer's pen: not the mechanism's size — no body of its own to weigh)
         }
         const f64 _size = _part->kind == FUDE_ZOOM_MECH_LINK || _part->kind == FUDE_ZOOM_MECH_ROPE || _part->kind == FUDE_ZOOM_MECH_RAIL ||
-                          _part->kind == FUDE_ZOOM_MECH_RACK ? fmax(_b.hh, _b.hw * 0.08) : fmin(_b.hw, _b.hh) * 0.5;
+                          _part->kind == FUDE_ZOOM_MECH_RACK || _part->kind == FUDE_ZOOM_MECH_BELT ? fmax(_b.hh, _b.hw * 0.08) : fmin(_b.hw, _b.hh) * 0.5;
         _p->unit = _p->unit > 0.0 ? fmin(_p->unit, _size) : _size;
     }
     rde_arr_free(&_n);
@@ -832,9 +1215,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
     fude_zoom_mech_body* _b = (fude_zoom_mech_body*)_p->bodies.memory;
     const u32 _nb = (u32)rde_arr_length(&_p->bodies);
     const f64 _tol = 0.5 * _p->unit;
+    rde_arr _keys = rde_arr_new(sizeof(fude_zoom_mech_mesh), rde_memory_allocator_get_default_std());
     // Hinges: holes over holes (a fixed pivot's or a motor's: the ground there). Springs: their ends to what they are on.
     for(u32 _i = 0; _i < _nb; _i++) {
-        if(_b[_i].part->kind == FUDE_ZOOM_MECH_ROPE || _b[_i].part->kind == FUDE_ZOOM_MECH_PIN) {
+        if(_b[_i].part->kind == FUDE_ZOOM_MECH_ROPE || _b[_i].part->kind == FUDE_ZOOM_MECH_PIN || _b[_i].part->kind == FUDE_ZOOM_MECH_BELT ||
+           _b[_i].part->kind == FUDE_ZOOM_MECH_DAMPER) {
             continue;   // (below)
         }
         if(_b[_i].part->kind == FUDE_ZOOM_MECH_SPRING) {
@@ -843,7 +1228,7 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             for(u32 _e = 0; _e < 2u; _e++) {
                 const fude_zoom_v2 _at = _e == 0u ? _sp.pa : _sp.pb;
                 for(u32 _j = 0; _j < _nb; _j++) {
-                    if(_j == _i || _b[_j].part->kind == FUDE_ZOOM_MECH_SPRING || _b[_j].part->kind == FUDE_ZOOM_MECH_ROPE) {
+                    if(_j == _i || fzm_not_held(_b[_j].part->kind)) {
                         continue;
                     }
                     for(u32 _h = 0; _h < _b[_j].part->hole_count; _h++) {
@@ -862,8 +1247,7 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         for(u32 _h = 0; _h < _b[_i].part->hole_count; _h++) {
             const fude_zoom_v2 _at = fzm_hole(&_b[_i], _h);
             for(u32 _j = _i + 1u; _j < _nb; _j++) {
-                if(_b[_j].part->kind == FUDE_ZOOM_MECH_SPRING || _b[_j].part->kind == FUDE_ZOOM_MECH_ROPE || _b[_j].part->kind == FUDE_ZOOM_MECH_PIN ||
-                   (_b[_i].fixed && _b[_j].fixed)) {
+                if(fzm_not_held(_b[_j].part->kind) || _b[_j].part->kind == FUDE_ZOOM_MECH_PIN || (_b[_i].fixed && _b[_j].fixed)) {
                     continue;
                 }
                 for(u32 _g = 0; _g < _b[_j].part->hole_count; _g++) {
@@ -871,8 +1255,21 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
                     if(hypot(_q.x - _at.x, _q.y - _at.y) > _tol) {
                         continue;
                     }
-                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0, 0.0, FUDE_ZOOM_NONE };
+                    const b8 _cam_i = _g == 0u && fzm_keyed(&_b[_i], &_b[_j]), _cam_j = _h == 0u && fzm_keyed(&_b[_j], &_b[_i]);
+                    if(_cam_i || _cam_j) {
+                        // (a cam or a sprocket on a turning part's middle: keyed to it — on an axle of its own there, turned with
+                        // it: below)
+                        const fude_zoom_mech_mesh _key = { _cam_i ? _j : _i, _cam_i ? _i : _j, -1.0, 0.0, 0.0, 0.0, false, true };
+                        rde_arr_add(&_keys, (any)&_key);
+                        continue;
+                    }
+                    fude_zoom_mech_hinge _hg = { _i, _j, { (_at.x + _q.x) * 0.5, (_at.y + _q.y) * 0.5 }, false, 0.0, 0.0, FUDE_ZOOM_NONE, false };
                     const u32 _fixed = _b[_i].fixed ? _i : (_b[_j].fixed ? _j : FUDE_ZOOM_NONE);
+                    if((_fixed == FUDE_ZOOM_NONE || _b[_fixed].part->kind == FUDE_ZOOM_MECH_PIVOT) &&
+                       fzm_pinned_there(_p, _fixed == _i ? FUDE_ZOOM_NONE : _i, _fixed == _j ? FUDE_ZOOM_NONE : _j, _hg.at, _tol)) {
+                        continue;   // (one pin through them all: these two joined there already, through the others on it — a
+                                    // motor's or a circuit's shaft's own hinge kept: what drives it, what reads it)
+                    }
                     if(_fixed != FUDE_ZOOM_NONE) {
                         _hg.a = _fixed == _i ? _j : _i;
                         _hg.b = FUDE_ZOOM_NONE;
@@ -890,9 +1287,18 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             }
         }
     }
-    // A gear nothing holds: on an axle of its own where it is (gears turn, they do not fall).
+    // A hand crank: on an axle of its own at its middle, turned by hand.
     for(u32 _i = 0; _i < _nb; _i++) {
-        if(_b[_i].part->kind != FUDE_ZOOM_MECH_GEAR) {
+        if(_b[_i].part->kind == FUDE_ZOOM_MECH_CRANK) {
+            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0, 0.0, FUDE_ZOOM_NONE, true };
+            rde_arr_add(&_p->hinges, (any)&_axle);
+        }
+    }
+    // A gear nothing holds — a sprocket, a cam, a ratchet, a pawl —: on an axle of its own where its hole is (they turn,
+    // they do not fall).
+    for(u32 _i = 0; _i < _nb; _i++) {
+        const u8 _k = _b[_i].part->kind;
+        if(_k != FUDE_ZOOM_MECH_GEAR && _k != FUDE_ZOOM_MECH_SPROCKET && _k != FUDE_ZOOM_MECH_CAM && _k != FUDE_ZOOM_MECH_RATCHET && _k != FUDE_ZOOM_MECH_PAWL) {
             continue;
         }
         b8 _held = false;
@@ -901,9 +1307,30 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             _held = _held || _h[_k].a == _i || _h[_k].b == _i;
         }
         if(!_held) {
-            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, _b[_i].at, false, 0.0, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _axle = { _i, FUDE_ZOOM_NONE, fzm_hole(&_b[_i], 0u), false, 0.0, 0.0, FUDE_ZOOM_NONE, false };
             rde_arr_add(&_p->hinges, (any)&_axle);
         }
+    }
+    // Cams and sprockets keyed (as a belt is, a coupling with no teeth: turned as far as what they are on — its axle's own,
+    // or its motor's —, the same way).
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_keys); _i++) {
+        rde_arr_add(&_p->meshes, (any)&((const fude_zoom_mech_mesh*)_keys.memory)[_i]);
+    }
+    rde_arr_free(&_keys);
+    // Tracers: each on the topmost thing that moves under its point (the last drawn), else on nothing.
+    for(u32 _i = 0; _i < _nb; _i++) {
+        if(_b[_i].part->kind != FUDE_ZOOM_MECH_TRACER) {
+            continue;
+        }
+        fude_zoom_mech_tracer _t = { _i, FUDE_ZOOM_NONE, _b[_i].at };
+        for(u32 _j = 0; _j < _nb; _j++) {
+            const u8 _k = _b[_j].part->kind;
+            if(_j != _i && !_b[_j].fixed && !fzm_not_held(_k) && _k != FUDE_ZOOM_MECH_PIN &&
+               _k != FUDE_ZOOM_MECH_TRACER && _k != FUDE_ZOOM_MECH_PULLEY && fzm_on(_p, &_b[_j], _t.at, _tol * 0.5)) {
+                _t.on = _j;
+            }
+        }
+        rde_arr_add(&_p->tracers, (any)&_t);
     }
     // Pins: the bodies under each hinged together there; one alone, or a fixed thing under it too: to the ground.
     for(u32 _i = 0; _i < _nb; _i++) {
@@ -916,7 +1343,8 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         b8 _ground = false;
         for(u32 _j = 0; _j < _nb; _j++) {
             const u8 _k = _b[_j].part->kind;
-            if(_j == _i || _k == FUDE_ZOOM_MECH_SPRING || _k == FUDE_ZOOM_MECH_ROPE || _k == FUDE_ZOOM_MECH_PIN || !fzm_on(_p, &_b[_j], _q, _tol * 0.5)) {
+            if(_j == _i || fzm_not_held(_k) || _k == FUDE_ZOOM_MECH_PIN || _k == FUDE_ZOOM_MECH_TRACER ||
+               !fzm_on(_p, &_b[_j], _q, _tol * 0.5)) {
                 continue;
             }
             if(_b[_j].fixed) {
@@ -926,11 +1354,11 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             }
         }
         for(u32 _k = 1; _k < _m; _k++) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _hg = { _moving[0], _moving[_k], _q, false, 0.0, 0.0, FUDE_ZOOM_NONE, false };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
         if(_m > 0u && (_ground || _m == 1u)) {
-            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0, 0.0, FUDE_ZOOM_NONE };
+            const fude_zoom_mech_hinge _hg = { _moving[0], FUDE_ZOOM_NONE, _q, false, 0.0, 0.0, FUDE_ZOOM_NONE, false };
             rde_arr_add(&_p->hinges, (any)&_hg);
         }
     }
@@ -948,7 +1376,8 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             u32 _held = FUDE_ZOOM_NONE;
             for(u32 _j = 0; _j < _nb && _held == FUDE_ZOOM_NONE; _j++) {
                 const u8 _k = _b[_j].part->kind;
-                if(_j != _i && !_b[_j].fixed && _k != FUDE_ZOOM_MECH_SPRING && _k != FUDE_ZOOM_MECH_ROPE && fzm_on(_p, &_b[_j], _q, _tol * 0.5)) {
+                if(_j != _i && !_b[_j].fixed && !fzm_not_held(_k) && _k != FUDE_ZOOM_MECH_TRACER &&
+                   fzm_on(_p, &_b[_j], _q, _tol * 0.5)) {
                     _held = _j;
                 }
             }
@@ -983,9 +1412,21 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
         }
     }
     // Sliders on rails: along the rail's line, between its ends. Racks: along their own length (as far as half of it
-    // each way).
+    // each way). A solenoid's plunger: along it, in as far as its stroke.
     for(u32 _i = 0; _i < _nb; _i++) {
         const u8 _k = _b[_i].part->kind;
+        if(_k == FUDE_ZOOM_MECH_PLUNGER) {
+            const fude_zoom_mech_slide _sl = { _i, _b[_i].at, { cos(_b[_i].angle), sin(_b[_i].angle) }, -FUDE_ZOOM_SOLENOID_STROKE * _b[_i].hw, 0.0 };
+            rde_arr_add(&_p->slides, (any)&_sl);
+            continue;
+        }
+        if(_k == FUDE_ZOOM_MECH_FOLLOWER) {
+            // (a follower: along itself in its guide, its stroke either way)
+            const f64 _st = FUDE_ZOOM_MECH_FOLLOWER_STROKE * _b[_i].hw;
+            const fude_zoom_mech_slide _sl = { _i, _b[_i].at, { cos(_b[_i].angle), sin(_b[_i].angle) }, -_st, _st };
+            rde_arr_add(&_p->slides, (any)&_sl);
+            continue;
+        }
         if(_k == FUDE_ZOOM_MECH_RACK) {
             const fude_zoom_mech_slide _sl = { _i, _b[_i].at, { cos(_b[_i].angle), sin(_b[_i].angle) }, -_b[_i].hw * 0.5, _b[_i].hw * 0.5 };
             rde_arr_add(&_p->slides, (any)&_sl);
@@ -1058,6 +1499,10 @@ u32 fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s
             }
         }
     }
+    fzm_belts(_p, _tol);
+    fzm_dampers(_p, _tol);
+    fzm_worms(_p);
+    fzm_pawls(_p, _tol);
     fzm_rack_travel(_p);
     fzm_phases(_p);
     return _nb;

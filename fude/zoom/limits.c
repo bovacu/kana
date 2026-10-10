@@ -118,8 +118,50 @@ RDE_INTERNAL const fude_zoom_limits_preset FZL_3914[] = {
 RDE_INTERNAL const fude_zoom_limits_preset FZL_LCD[] = {
     FZL("HD44780", true, 0, 0.12, 7, 0),
 };
+RDE_INTERNAL const fude_zoom_limits_preset FZL_LDR[] = {
+    FZL("GL5528", true, 0.1, 0, 150, 0), FZL("GL5537", true, 0.1, 0, 150, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_NTC[] = {
+    FZL("MF52", true, 0.05, 0, 0, 0), FZL("NTC 0.5 W", false, 0.5, 0, 0, 0),
+};
 RDE_INTERNAL const fude_zoom_limits_preset FZL_SERVO[] = {
     FZL("SG90", true, 0, 1, 7, 0), FZL("MG90S", true, 0, 1.2, 7, 0), FZL("MG996R", true, 0, 3, 7.5, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_COMPARATOR[] = {
+    FZL("LM393", true, 0, 0.02, 36, 0), FZL("LM339", true, 0, 0.02, 36, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_SCR[] = {
+    FZL("C106", true, 0, 4, 400, 0), FZL("2N5064", true, 0, 0.8, 200, 0), FZL("BT151", true, 0, 12, 500, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_TRIAC[] = {
+    FZL("BT136", true, 0, 4, 600, 0), FZL("BTA16", true, 0, 16, 600, 0), FZL("Z0607", true, 0, 0.8, 600, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_XFMR[] = {
+    FZL("1 A", false, 0, 1, 0, 0), FZL("3 A", false, 0, 3, 0, 0), FZL("0.3 A", false, 0, 0.3, 0, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_BRIDGE[] = {
+    FZL("DB107", true, 0, 1, 0, 1000), FZL("KBP206", true, 0, 2, 0, 600), FZL("GBU806", true, 0, 8, 0, 600),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_OPTO[] = {
+    FZL("PC817", true, 0, 0.05, 0, 6), FZL("4N35", true, 0, 0.06, 0, 6),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_PHOTODIODE[] = {
+    FZL("BPW34", true, 0, 0, 0, 32),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_PHOTOT[] = {
+    FZL("TEPT5600", true, 0.1, 0.02, 6, 0), FZL("BPW85", true, 0.1, 0.05, 70, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_SPEAKER[] = {
+    FZL("0.5 W", false, 0.5, 0, 0, 0), FZL("2 W", false, 2, 0, 0, 0), FZL("10 W", false, 10, 0, 0, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_STEPPER[] = {
+    FZL("28BYJ-48", true, 0, 0.16, 0, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_ENCODER[] = {
+    FZL("EC11", true, 0, 0.01, 0, 0), FZL("KY-040", true, 0, 0.01, 0, 0),
+};
+RDE_INTERNAL const fude_zoom_limits_preset FZL_SLOT[] = {
+    FZL("ITR9608", true, 0, 0.05, 0, 5), FZL("H21A1", true, 0, 0.06, 0, 6), FZL("TCST2103", true, 0, 0.06, 0, 6),
 };
 
 const fude_zoom_limits_preset* fude_zoom_limits_presets(const fude_zoom_part* _part, u32* _count) {
@@ -148,7 +190,11 @@ const fude_zoom_limits_preset* fude_zoom_limits_presets(const fude_zoom_part* _p
     case FUDE_ZOOM_MODEL_ACSOURCE:
     case FUDE_ZOOM_MODEL_RAIL:      FZL_IS(FZL_SUPPLY); break;
     case FUDE_ZOOM_MODEL_BATTERY:   FZL_IS(FZL_BATTERY); break;
-    case FUDE_ZOOM_MODEL_SWITCH:    FZL_IS(FZL_SWITCH); break;
+    case FUDE_ZOOM_MODEL_SWITCH:
+    case FUDE_ZOOM_MODEL_SPDT:
+    case FUDE_ZOOM_MODEL_DPDT:      FZL_IS(FZL_SWITCH); break;
+    case FUDE_ZOOM_MODEL_LDR:       FZL_IS(FZL_LDR); break;
+    case FUDE_ZOOM_MODEL_THERMISTOR: FZL_IS(FZL_NTC); break;
     case FUDE_ZOOM_MODEL_BUTTON:    FZL_IS(FZL_BUTTON); break;
     case FUDE_ZOOM_MODEL_OPAMP:     FZL_IS(FZL_OPAMP); break;
     case FUDE_ZOOM_MODEL_AMMETER:   FZL_IS(FZL_AMMETER); break;
@@ -164,6 +210,21 @@ const fude_zoom_limits_preset* fude_zoom_limits_presets(const fude_zoom_part* _p
     case FUDE_ZOOM_MODEL_ULN2003:   FZL_IS(FZL_2003); break;
     case FUDE_ZOOM_MODEL_RELAY:     FZL_IS(FZL_RELAY); break;
     case FUDE_ZOOM_MODEL_SERVO:     FZL_IS(FZL_SERVO); break;
+    case FUDE_ZOOM_MODEL_STEPPER:   FZL_IS(FZL_STEPPER); break;
+    case FUDE_ZOOM_MODEL_COMPARATOR: FZL_IS(FZL_COMPARATOR); break;
+    case FUDE_ZOOM_MODEL_OPAMP2:    FZL_IS(FZL_OPAMP); break;
+    case FUDE_ZOOM_MODEL_JKFF:
+    case FUDE_ZOOM_MODEL_SRLATCH:   FZL_IS(FZL_LOGIC); break;
+    case FUDE_ZOOM_MODEL_SCR:       FZL_IS(FZL_SCR); break;
+    case FUDE_ZOOM_MODEL_TRIAC:     FZL_IS(FZL_TRIAC); break;
+    case FUDE_ZOOM_MODEL_TRANSFORMER: FZL_IS(FZL_XFMR); break;
+    case FUDE_ZOOM_MODEL_BRIDGE:    FZL_IS(FZL_BRIDGE); break;
+    case FUDE_ZOOM_MODEL_OPTO:      FZL_IS(FZL_OPTO); break;
+    case FUDE_ZOOM_MODEL_PHOTODIODE: FZL_IS(FZL_PHOTODIODE); break;
+    case FUDE_ZOOM_MODEL_PHOTOTRANSISTOR: FZL_IS(FZL_PHOTOT); break;
+    case FUDE_ZOOM_MODEL_SPEAKER:   FZL_IS(FZL_SPEAKER); break;
+    case FUDE_ZOOM_MODEL_ENCODER:   FZL_IS(FZL_ENCODER); break;
+    case FUDE_ZOOM_MODEL_SLOT:      FZL_IS(FZL_SLOT); break;
     case FUDE_ZOOM_MODEL_SEG_PANEL: FZL_IS(FZL_PANEL); break;
     case FUDE_ZOOM_MODEL_LED_MATRIX: FZL_IS(FZL_MATRIX); break;
     case FUDE_ZOOM_MODEL_BAR_GRAPH: FZL_IS(FZL_BAR); break;
@@ -226,7 +287,8 @@ fude_zoom_limits fude_zoom_limits_typical(const fude_zoom_part* _part, const c8*
         return _l;
     }
     // Those whose limits follow from their values: a lamp half again its watts; a motor half again its volts, and half
-    // the current it draws held still at them (held still for long, it burns); a buzzer half again its volts.
+    // the current it draws held still at them (held still for long, it burns); a buzzer half again its volts; a
+    // solenoid's coil half again its watts at its rated volts.
     const f64 _v0 = _value != NULL ? _value[0] : 0.0, _v1 = _value != NULL ? _value[1] : 0.0;
     switch(_part->model) {
     case FUDE_ZOOM_MODEL_LAMP:
@@ -238,6 +300,9 @@ fude_zoom_limits fude_zoom_limits_typical(const fude_zoom_part* _part, const c8*
         break;
     case FUDE_ZOOM_MODEL_BUZZER:
         _l.most[FUDE_ZOOM_LIMIT_VOLTAGE] = _v0 > 0.0 ? 1.5 * _v0 : 0.0;
+        break;
+    case FUDE_ZOOM_MODEL_SOLENOID:
+        _l.most[FUDE_ZOOM_LIMIT_POWER] = _v0 > 0.0 && _v1 > 0.0 ? 1.5 * _v0 * _v0 / _v1 : 0.0;
         break;
     case FUDE_ZOOM_MODEL_PANEL_METER:
         // An ammeter half again its full scale (its shunt, its fuse); a voltmeter's input 250 V (twice a higher range).
@@ -263,7 +328,27 @@ u32 fude_zoom_limits_kinds(const fude_zoom_part* _part) {
     case FUDE_ZOOM_MODEL_RESISTOR:
     case FUDE_ZOOM_MODEL_POT:
     case FUDE_ZOOM_MODEL_ZENER:
+    case FUDE_ZOOM_MODEL_THERMISTOR:
+    case FUDE_ZOOM_MODEL_SOLENOID:
     case FUDE_ZOOM_MODEL_LAMP:      return FZL_BIT_W;
+    case FUDE_ZOOM_MODEL_STEPPER:
+    case FUDE_ZOOM_MODEL_ENCODER:
+    case FUDE_ZOOM_MODEL_TRANSFORMER: return FZL_BIT_A;
+    case FUDE_ZOOM_MODEL_SLOT:
+    case FUDE_ZOOM_MODEL_OPTO:
+    case FUDE_ZOOM_MODEL_BRIDGE:    return FZL_BIT_A | FZL_BIT_R;
+    case FUDE_ZOOM_MODEL_PHOTODIODE: return FZL_BIT_R;
+    case FUDE_ZOOM_MODEL_SPEAKER:   return FZL_BIT_W;
+    case FUDE_ZOOM_MODEL_SCR:
+    case FUDE_ZOOM_MODEL_TRIAC:
+    case FUDE_ZOOM_MODEL_PHOTOTRANSISTOR:
+    case FUDE_ZOOM_MODEL_COMPARATOR:
+    case FUDE_ZOOM_MODEL_OPAMP2:
+    case FUDE_ZOOM_MODEL_JKFF:
+    case FUDE_ZOOM_MODEL_SRLATCH:   return FZL_BIT_A | FZL_BIT_V;
+    case FUDE_ZOOM_MODEL_LDR:       return FZL_BIT_W | FZL_BIT_V;
+    case FUDE_ZOOM_MODEL_SPDT:
+    case FUDE_ZOOM_MODEL_DPDT:      return FZL_BIT_A;
     case FUDE_ZOOM_MODEL_CAPACITOR: return strcmp(_part->id, "electrolytic") == 0 ? FZL_BIT_V | FZL_BIT_R : FZL_BIT_V;
     case FUDE_ZOOM_MODEL_INDUCTOR:
     case FUDE_ZOOM_MODEL_VSOURCE:
@@ -312,14 +397,23 @@ f64 fude_zoom_limits_tau(const fude_zoom_part* _part) {
     switch(_part != NULL ? _part->model : FUDE_ZOOM_MODEL_NONE) {
     case FUDE_ZOOM_MODEL_RESISTOR:
     case FUDE_ZOOM_MODEL_POT:
+    case FUDE_ZOOM_MODEL_LDR:
+    case FUDE_ZOOM_MODEL_THERMISTOR:
     case FUDE_ZOOM_MODEL_INDUCTOR:  return 2.0;
     case FUDE_ZOOM_MODEL_CAPACITOR: return 0.3;
     case FUDE_ZOOM_MODEL_LAMP:      return 0.2;
-    case FUDE_ZOOM_MODEL_MOTOR:     return 20.0;
+    case FUDE_ZOOM_MODEL_MOTOR:
+    case FUDE_ZOOM_MODEL_SOLENOID:
+    case FUDE_ZOOM_MODEL_STEPPER:
+    case FUDE_ZOOM_MODEL_TRANSFORMER: return 20.0;
+    case FUDE_ZOOM_MODEL_SPEAKER:   return 2.0;
     case FUDE_ZOOM_MODEL_BUZZER:
     case FUDE_ZOOM_MODEL_SWITCH:
+    case FUDE_ZOOM_MODEL_SPDT:
+    case FUDE_ZOOM_MODEL_DPDT:
     case FUDE_ZOOM_MODEL_BUTTON:
     case FUDE_ZOOM_MODEL_RELAY:
+    case FUDE_ZOOM_MODEL_ENCODER:
     case FUDE_ZOOM_MODEL_SERVO:     return 1.0;
     case FUDE_ZOOM_MODEL_AMMETER:
     case FUDE_ZOOM_MODEL_PANEL_METER: return 0.5;
@@ -383,6 +477,8 @@ void fude_zoom_limits_measure(const fude_zoom_part* _part, const f64* _volts, co
         _out[FUDE_ZOOM_LIMIT_REVERSE] = fabs(FZL_VOLT(0) - FZL_VOLT(2));   // (its gate's, either way)
         break;
     case FUDE_ZOOM_MODEL_POT:
+    case FUDE_ZOOM_MODEL_SPDT:
+    case FUDE_ZOOM_MODEL_DPDT:
         for(u32 _k = 0; _k < _pins; _k++) {
             _out[FUDE_ZOOM_LIMIT_CURRENT] = fmax(_out[FUDE_ZOOM_LIMIT_CURRENT], FZL_AMP(_k));
         }
@@ -400,11 +496,46 @@ void fude_zoom_limits_measure(const fude_zoom_part* _part, const f64* _volts, co
     case FUDE_ZOOM_MODEL_RELAY:
         _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(3);   // (through its contacts: COM)
         break;
+    case FUDE_ZOOM_MODEL_STEPPER:
+        for(u32 _k = 0; _k < 4u && _k < _pins; _k++) {
+            _out[FUDE_ZOOM_LIMIT_CURRENT] = fmax(_out[FUDE_ZOOM_LIMIT_CURRENT], FZL_AMP(_k));   // (each coil's)
+        }
+        break;
+    case FUDE_ZOOM_MODEL_ENCODER:
+        _out[FUDE_ZOOM_LIMIT_CURRENT] = fmax(FZL_AMP(0), FZL_AMP(2));   // (A's contact, B's)
+        break;
+    case FUDE_ZOOM_MODEL_SLOT:
+    case FUDE_ZOOM_MODEL_OPTO:
+        _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(0);                       // (its LED's: A, K, C, E)
+        _out[FUDE_ZOOM_LIMIT_REVERSE] = fmax(FZL_VOLT(1) - FZL_VOLT(0), 0.0);
+        break;
+    case FUDE_ZOOM_MODEL_PHOTODIODE:
+        _out[FUDE_ZOOM_LIMIT_REVERSE] = fmax(FZL_VOLT(1) - FZL_VOLT(0), 0.0);
+        break;
+    case FUDE_ZOOM_MODEL_SCR:
+    case FUDE_ZOOM_MODEL_TRIAC:
+        _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(0);                       // (through it: A or MT2)
+        _out[FUDE_ZOOM_LIMIT_VOLTAGE] = fabs(FZL_VOLT(0) - FZL_VOLT(1));
+        break;
+    case FUDE_ZOOM_MODEL_TRANSFORMER:
+        _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(2);                       // (its secondary's)
+        break;
+    case FUDE_ZOOM_MODEL_BRIDGE: {
+        // (what it gives, out of +; each diode's backwards voltage: + over an AC pin, an AC pin over −)
+        _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(1);
+        _out[FUDE_ZOOM_LIMIT_REVERSE] = fmax(fmax(FZL_VOLT(1) - FZL_VOLT(0), FZL_VOLT(1) - FZL_VOLT(2)), fmax(FZL_VOLT(0) - FZL_VOLT(3), FZL_VOLT(2) - FZL_VOLT(3)));
+        _out[FUDE_ZOOM_LIMIT_REVERSE] = fmax(_out[FUDE_ZOOM_LIMIT_REVERSE], 0.0);
+        break;
+    }
     case FUDE_ZOOM_MODEL_CHAR_LCD:
         _out[FUDE_ZOOM_LIMIT_CURRENT] = FZL_AMP(14);                 // (its backlight's: A)
         _out[FUDE_ZOOM_LIMIT_VOLTAGE] = FZL_VOLT(1) - FZL_VOLT(0);   // (its supply: VDD over VSS)
         break;
     case FUDE_ZOOM_MODEL_OPAMP:
+    case FUDE_ZOOM_MODEL_COMPARATOR:
+    case FUDE_ZOOM_MODEL_OPAMP2:
+    case FUDE_ZOOM_MODEL_JKFF:
+    case FUDE_ZOOM_MODEL_SRLATCH:
     case FUDE_ZOOM_MODEL_TIMER555:
     case FUDE_ZOOM_MODEL_SHIFT595:
     case FUDE_ZOOM_MODEL_DRIVER293:

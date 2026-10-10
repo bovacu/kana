@@ -1204,6 +1204,17 @@ static b8 fly_and_check(fude_zoom_scene* s, fude_zoom_camera to, fude_zoom_v2 ha
     return ok;
 }
 
+// Flown to _to and settled: the same depth, the same point in the middle (a view deeper in its frame
+// than a frame shows lands in the frame below, as zooming in does).
+static b8 fly_near(fude_zoom_scene* s, fude_zoom_camera to, fude_zoom_v2 half) {
+    fude_zoom_flight f;
+    if(fude_zoom_fly_begin(&f, s, to, half, 0.0)) {
+        for(u32 i = 1; i <= 200 && f.active; i++) fude_zoom_fly_step(&f, s, half, f.length * (f64)i / 199.0);
+    }
+    const fude_zoom_v2 at = fude_zoom_sim_apply(fude_zoom_scene_sim(s, to.frame, s->camera.frame), to.at);
+    return !f.active && fabs(fude_zoom_nav_depth(s) - fude_zoom_nav_depth_of(s, to)) < 1e-9 && hypot(at.x - s->camera.at.x, at.y - s->camera.at.y) * s->camera.z < 1e-3;
+}
+
 static void test_navigation(void) {
     // Nearest first: in order, and the first is brute force's nearest.
     {
@@ -1322,6 +1333,70 @@ static void test_navigation(void) {
         CHECK(fude_zoom_scene_frame(&t, t.home)->id == home && t.home != t.root);
         fude_zoom_scene_destroy(&t);
         fude_zoom_scene_destroy(&h);
+    }
+
+    // The depth's levels. Out twelve levels past a drawing (a frame made at each on the way, nothing in
+    // it but the one below): one level, the drawing framed — said as a fair zoom (it was ×8·10⁻³⁷, the
+    // top at its zoom 1, with seven more like it on the way down), and landed on exactly.
+    {
+        fude_zoom_scene h; fude_zoom_scene_init(&h, 7);
+        line(&h, -50, 0, 50, 0, 2.0, 2.0f);
+        for(u32 k = 0; k < 120; k++) { fude_zoom_camera_zoom_at(&h, (fude_zoom_v2){ 0, 0 }, 0.5); fude_zoom_camera_settle(&h, half); }
+        CHECK(fude_zoom_scene_depth(&h, h.home) >= 11u);
+        fude_zoom_camera v[8];
+        u32 n = fude_zoom_nav_levels(&h, half, v, 8u);
+        const f64 framed = log10(2.0 * 500.0 * 0.8 / 104.0);   // the line and its ends' round caps, 104 across
+        CHECK(n == 1u && v[0].frame == h.home && fabs(fude_zoom_nav_depth_of(&h, v[0]) - framed) < 0.02);
+        CHECK(fly_and_check(&h, v[0], half));
+        // There: the one level is where the camera is — still offered (the list is never empty).
+        n = fude_zoom_nav_levels(&h, half, v, 8u);
+        CHECK(n == 1u && v[0].frame == h.home);
+        // In closer, and a second drawing two levels up, off to the side: two levels, the first
+        // drawing and then both — the levels made on the way out past them, none.
+        fude_zoom_camera_look_at(&h, h.home, (fude_zoom_v2){ 0, 0 }, 40.0);
+        u32 up = h.home;
+        for(u32 k = 0; k < 2u; k++) up = fude_zoom_scene_frame(&h, up)->parent;
+        fude_zoom_camera_look_at(&h, up, (fude_zoom_v2){ 0.5, 0 }, 1000.0);
+        line(&h, 0.4, 0.0, 0.6, 0.0, 0.004, 0.002f);
+        fude_zoom_camera_look_at(&h, h.home, (fude_zoom_v2){ 0, 0 }, 40.0);
+        n = fude_zoom_nav_levels(&h, half, v, 8u);
+        CHECK(n == 2u && v[0].frame == h.home && v[1].frame == up);
+        CHECK(fude_zoom_nav_depth_of(&h, v[1]) < fude_zoom_nav_depth_of(&h, v[0]) - 3.0);
+        CHECK(fly_near(&h, v[1], half) && fly_and_check(&h, v[0], half));
+        // At most _max: the nearest, and the outermost last.
+        CHECK(fude_zoom_nav_levels(&h, half, v, 1u) == 1u && v[0].frame == up);
+        fude_zoom_scene_destroy(&h);
+        // Nothing drawn: the top at its zoom 1.
+        fude_zoom_scene e; fude_zoom_scene_init(&e, 7);
+        CHECK(fude_zoom_nav_levels(&e, half, v, 8u) == 1u && v[0].frame == e.root && v[0].z == 1.0);
+        fude_zoom_scene_destroy(&e);
+    }
+
+    // An arrow to what is drawn in a frame made by zooming in: its drawing, from that frame — not the
+    // view it was made for, many times wider (its preview was a speck in the middle of nothing).
+    {
+        fude_zoom_scene a; fude_zoom_scene_init(&a, 7);
+        line(&a, -50, 0, 50, 0, 2.0, 2.0f);
+        fude_zoom_camera_look_at(&a, a.root, (fude_zoom_v2){ 3000, 0 }, 1.0);
+        for(u32 k = 0; k < 12; k++) { fude_zoom_camera_zoom_at(&a, (fude_zoom_v2){ 0, 0 }, 2.0); fude_zoom_camera_settle(&a, half); }
+        const u32 deep = a.camera.frame;
+        CHECK(deep != a.root && fude_zoom_scene_frame(&a, deep)->parent == a.root);
+        { const f64 d = 2.0 / a.camera.z; line(&a, a.camera.at.x - d, a.camera.at.y, a.camera.at.x + d, a.camera.at.y, d / 40.0, (f32)(1.0 / a.camera.z)); }
+        const fude_zoom_box made = fude_zoom_scene_object(&a, fude_zoom_scene_frame(&a, deep)->object)->box;
+        CHECK(made.max_x - made.min_x > 1.0);   // the view it was made for: units across
+        fude_zoom_camera_look_at(&a, a.root, (fude_zoom_v2){ 1500, 0 }, 1.0);
+        fude_zoom_nav_mark marks[FUDE_ZOOM_NAV_MARKS];
+        const u32 n = fude_zoom_nav_marks(&a, half, 30.0f, marks);
+        i32 right = -1;
+        for(u32 i = 0; i < n; i++) if(!marks[i].ring && fabsf(marks[i].angle) < 0.1f) right = (i32)i;
+        CHECK(right >= 0 && marks[right].frame == deep);
+        const fude_zoom_box got = marks[right].box;
+        const fude_zoom_box drawn = fude_zoom_nav_drawn(&a, deep, FUDE_ZOOM_NONE);
+        CHECK(memcmp(&got, &drawn, sizeof got) == 0 && got.max_x - got.min_x < 10.0);
+        // ...and the map's whole is the drawing too, not the view either was made for.
+        const fude_zoom_box all = fude_zoom_map_contents(&a);
+        CHECK(all.max_x < 3000.0 + 0.01 && all.max_x > 3000.0 - 0.01 && all.min_x < -49.0);
+        fude_zoom_scene_destroy(&a);
     }
 
     // Bookmarks (MARK objects): undone and redone as any change, kept through
@@ -5550,7 +5625,7 @@ static void test_big_circuits(void) {
         wire_put(&s, rail, 0, r2, 0); wire_put(&s, r2, 1, g, 0);
         fude_zoom_circuit c; fude_zoom_circuit_init(&c);
         fude_zoom_circuit_build(&c, &s);
-        CHECK(c.blocks == 2u);
+        CHECK(c.blocks == 1u);   // (the rail's circuit: its node held, ground the other side — nothing unknown)
         CHECK(fude_zoom_circuit_run(&c, 0.05, 100u));
         const fude_zoom_circuit_part* b = cpart(&c, bat);
         CHECK(fabs(fude_zoom_circuit_volts(&c, b->node[1])) < 1e-6);   // (its minus: 0 V)
@@ -5838,6 +5913,41 @@ static void test_display_examples(void) {
         p[e].switch_on = 0u; CHECK(run_for(&c, 0.02));
         CHECK(lc != NULL && fude_zoom_lcd_shown(lc, 16, 2, 0, 0, NULL) == 'H');
         printf("  LCD by hand: on, an H at the top left\n");
+        example_close(&s, &c);
+    }
+    {
+        // RC on an oscilloscope: CH1 the square (0 and 5 V), CH2 the capacitor between them, charging toward each.
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_SCOPE_RC);
+        const u32 sp = nth_of(&c, FUDE_ZOOM_MODEL_SCOPE, 0);
+        CHECK(sp != FUDE_ZOOM_NONE && run_for(&c, 0.2));
+        const fude_zoom_circuit_part* p = &((const fude_zoom_circuit_part*)c.parts.memory)[sp];
+        const f32* smp = (const f32*)fude_zoom_circuit_store(&c, p);
+        f64 lo1 = 1e300, hi1 = -1e300, lo2 = 1e300, hi2 = -1e300;
+        u32 between = 0;
+        for(u32 i = 0; smp != NULL && i < FUDE_ZOOM_SCOPE_SAMPLES; i++) {
+            lo1 = fmin(lo1, smp[i]); hi1 = fmax(hi1, smp[i]);
+            lo2 = fmin(lo2, smp[FUDE_ZOOM_SCOPE_SAMPLES + i]); hi2 = fmax(hi2, smp[FUDE_ZOOM_SCOPE_SAMPLES + i]);
+            between += smp[FUDE_ZOOM_SCOPE_SAMPLES + i] > 0.5f && smp[FUDE_ZOOM_SCOPE_SAMPLES + i] < 4.5f;
+        }
+        printf("  RC on a scope: CH1 %.2f to %.2f V, CH2 %.2f to %.2f V (%u samples on its way)\n", lo1, hi1, lo2, hi2, between);
+        CHECK(fabs(lo1) < 0.05 && fabs(hi1 - 5.0) < 0.05 && lo2 > -0.05 && lo2 < 0.2 && hi2 > 4.8 && hi2 < 5.05 && between > 40u);
+        example_close(&s, &c);
+    }
+    {
+        // Night light and thermometer: a room's light, the LED off; dark, on; the meter 2.50 V at 25 °C, under 1.5 V at 60.
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_LIGHT_TEMP);
+        fude_zoom_circuit_part* p = (fude_zoom_circuit_part*)c.parts.memory;
+        const u32 ldr = nth_of(&c, FUDE_ZOOM_MODEL_LDR, 0), ntc = nth_of(&c, FUDE_ZOOM_MODEL_THERMISTOR, 0), led = nth_of(&c, FUDE_ZOOM_MODEL_LED, 0), pm = nth_of(&c, FUDE_ZOOM_MODEL_PANEL_METER, 0);
+        CHECK(ldr != FUDE_ZOOM_NONE && ntc != FUDE_ZOOM_NONE && led != FUDE_ZOOM_NONE && pm != FUDE_ZOOM_NONE);
+        CHECK(run_for(&c, 0.05));
+        const f64 room = p[led].shown, warm = p[pm].shown;
+        p[ldr].state[0] = 1.0;
+        p[ntc].state[0] = 60.0;
+        CHECK(run_for(&c, 0.05));
+        printf("  night light: the LED %.2f in a room's light, %.2f in the dark; the thermometer %.2f V at 25, %.2f V at 60\n", room, p[led].shown, warm, p[pm].shown);
+        CHECK(room < 0.05 && p[led].shown > 0.5 && fabs(warm - 2.5) < 0.02 && p[pm].shown < 1.5);
         example_close(&s, &c);
     }
 }
@@ -6148,6 +6258,1194 @@ static void test_panel_meter(void) {
     }
 }
 
+// SENSORS AND CHANGEOVER SWITCHES. An LDR's resistance by its light (a GL5528's), a thermistor's by its temperature
+// (10 kΩ, B 3950), their sliders' scales; each under 10 kΩ from 5 V: the divider as each says, tapped through its
+// presets. An SPDT's common on 5 V into A's 1 kΩ, or (tapped) B's; a DPDT's two poles together.
+static void test_sensors_switches(void) {
+    printf("sensors and changeover switches\n");
+    CHECK(fabs(fude_zoom_circuit_ldr_ohms(10.0) - 20000.0) < 1e-6 && fabs(fude_zoom_circuit_ldr_ohms(100.0) - 20000.0 * pow(10.0, -0.7)) < 1e-6);
+    CHECK(fabs(fude_zoom_circuit_ldr_ohms(1.0) - 20000.0 * pow(10.0, 0.7)) < 1e-6 && fude_zoom_circuit_ldr_ohms(1e-3) == 1e6 && fude_zoom_circuit_ldr_ohms(1e5) == 100.0);
+    CHECK(fabs(fude_zoom_circuit_ntc_ohms(10000.0, 3950.0, 25.0) - 10000.0) < 1e-6);
+    CHECK(fabs(fude_zoom_circuit_ntc_ohms(10000.0, 3950.0, 0.0) - 10000.0 * exp(3950.0 * (1.0 / 273.15 - 1.0 / 298.15))) < 1e-6);
+    CHECK(fude_zoom_circuit_ntc_ohms(10000.0, 3950.0, 100.0) < 700.0 && fude_zoom_circuit_ntc_ohms(10000.0, 3950.0, 100.0) > 690.0);
+    CHECK(fabs(fude_zoom_circuit_sensor_along(FUDE_ZOOM_MODEL_LDR, 100.0) - 0.4) < 1e-12 && fabs(fude_zoom_circuit_sensor_at(FUDE_ZOOM_MODEL_LDR, 0.4) - 100.0) < 1e-9);
+    CHECK(fabs(fude_zoom_circuit_sensor_along(FUDE_ZOOM_MODEL_THERMISTOR, 50.0) - 0.5) < 1e-12 && fabs(fude_zoom_circuit_sensor_at(FUDE_ZOOM_MODEL_THERMISTOR, 0.5) - 50.0) < 1e-9);
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 sen = part_put(&s, k == 0u ? "LDR" : "thermistor", 0, 0, 30, 20, k == 0u ? "GL5528" : "10k NTC");
+        resist(&s, sen, 0, 30.0, "10k", "5V");
+        tie(&s, sen, 1, 30.0, 0.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        const u32 idx = cindex(&c, sen);
+        for(u32 t = 0; t < 4u; t++) {
+            CHECK(run_for(&c, 0.01));
+            const fude_zoom_circuit_part* p = cpart(&c, sen);
+            const f64 r = k == 0u ? fude_zoom_circuit_ldr_ohms(p->state[0]) : fude_zoom_circuit_ntc_ohms(10000.0, 3950.0, p->state[0]);
+            const f64 want = 5.0 * r / (r + 10000.0), got = fude_zoom_circuit_volts(&c, p->node[0]);
+            if(fabs(got - want) > 1e-3) printf("  %s at %.0f: %.4f V, not %.4f\n", k == 0u ? "LDR" : "NTC", p->state[0], got, want);
+            CHECK(fabs(got - want) < 1e-3);
+            const f64 was = p->state[0];
+            c8 say[32];
+            CHECK(fude_zoom_circuit_tap(&c, idx, -1, say, sizeof say) && say[0] != 0);
+            CHECK(cpart(&c, sen)->state[0] != was);
+        }
+        CHECK(k == 0u ? cpart(&c, sen)->state[0] == 10000.0 : cpart(&c, sen)->state[0] == 25.0);   // (round its presets: three, four)
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const b8 dp = k == 1u;
+        const u32 sw = part_put(&s, dp ? "DPDT switch" : "SPDT switch", 0, 0, 30, dp ? 60 : 30, "A");
+        const u32 poles = dp ? 2u : 1u;
+        u32 ra[2], rb[2];
+        for(u32 pl = 0; pl < poles; pl++) {
+            fude_zoom_v2 at;
+            tie(&s, sw, 3u * pl, -30.0, 0.0, "5V");
+            CHECK(fude_zoom_part_pin_at(&s, sw, 3u * pl + 1u, &at));
+            ra[pl] = part_put(&s, "resistor", at.x + 50.0, at.y, 20, 7, "1k");
+            wire_put(&s, sw, 3u * pl + 1u, ra[pl], 0);
+            tie(&s, ra[pl], 1, 30.0, 0.0, NULL);
+            CHECK(fude_zoom_part_pin_at(&s, sw, 3u * pl + 2u, &at));
+            rb[pl] = part_put(&s, "resistor", at.x + 120.0, at.y, 20, 7, "1k");
+            wire_put(&s, sw, 3u * pl + 2u, rb[pl], 0);
+            tie(&s, rb[pl], 1, 30.0, 0.0, NULL);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        for(u32 t = 0; t < 2u; t++) {
+            CHECK(run_for(&c, 0.01));
+            for(u32 pl = 0; pl < poles; pl++) {
+                const f64 ia = fabs(cpart(&c, ra[pl])->pin_i[0]), ib = fabs(cpart(&c, rb[pl])->pin_i[0]);
+                CHECK(t == 0u ? (fabs(ia - 5e-3) < 1e-4 && ib < 1e-6) : (fabs(ib - 5e-3) < 1e-4 && ia < 1e-6));
+            }
+            c8 say[8];
+            CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw), -1, say, sizeof say) && strcmp(say, t == 0u ? "B" : "A") == 0);
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// A SOLENOID (circuit.h), alone: its coil R and L in series (12 V: 24 Ω, 48 mH — 2 ms) — its current rising as
+// 1 − e^(−t/τ), to its rated 0.5 A; its plunger in at its rated volts, not at 10 V (83%: short of the 87% it needs from
+// all the way out), held in down to 8 V, out at 6 V; past its watts (24 V: 24 W of its 9) it heats. A STEPPER, its coils
+// to ground through switches, COM on 5 V: a step on for each coil in turn, back for the one before, half a step for
+// two, none for the opposite one, and no faster than its 500 steps a second; its shaft 2048 steps a turn. A ROTARY
+// ENCODER's contacts in quadrature — a tap a detent clockwise: A low, both, B, neither; back, B first. A SLOTTED
+// SENSOR: its LED on 5 V through 330 Ω (11.5 mA); its transistor pulling C low through 10k while the slot is clear,
+// let go (5 V) while it is blocked.
+static void src_across(fude_zoom_scene* s, u32 part, u32 pa, u32 pb, const c8* volts, u32* src) {
+    fude_zoom_v2 at;
+    CHECK(fude_zoom_part_pin_at(s, part, pa, &at));
+    *src = part_put(s, "DC source", at.x - 120.0, at.y - 40.0, 20, 30, volts);
+    wire_put(s, *src, 0, part, pa);
+    wire_put(s, *src, 1, part, pb);
+    tie(s, *src, 1, 0.0, -40.0, NULL);
+}
+
+static void test_mech_parts_alone(void) {
+    printf("solenoid, stepper, encoder, slotted sensor (alone)\n");
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 so = part_put(&s, "solenoid", 0, 0, 50, 20, "12V");
+        u32 src;
+        src_across(&s, so, 0, 1, "12V", &src);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        const fude_zoom_circuit_part* p = cpart(&c, so);
+        CHECK(fabs(p->value[1] - 24.0) < 1e-12 && fabs(p->value[2] - 0.048) < 1e-12);
+        CHECK(fabs(fude_zoom_limits_typical(p->part, "12V", p->value).most[FUDE_ZOOM_LIMIT_POWER] - 9.0) < 1e-9);
+        f64 worst = 0.0;
+        for(u32 k = 1; k <= 40u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 2.5e-4, 400u));
+            const f64 t = 2.5e-4 * (f64)k, want = 0.5 * (1.0 - exp(-t / 0.002));
+            worst = fmax(worst, fabs(cpart(&c, so)->state[0] - want));
+        }
+        printf("  12 V on its coil: its current within %.4f A of 0.5 (1 - e^(-t/2ms)) over 10 ms\n", worst);
+        CHECK(worst < 0.01);
+        CHECK(run_for(&c, 0.05));
+        CHECK(fabs(cpart(&c, so)->state[0] - 0.5) < 1e-3 && cpart(&c, so)->state[2] == 1.0 && cpart(&c, so)->shown == 1.0);
+        CHECK(fabs(fude_zoom_circuit_solenoid_pull(cpart(&c, so)) - 1.4) < 0.01);   // (all the way in at its rated current)
+        // (held in at 8 V; out at 6 V; not in again at 10 V)
+        const f64 volts[3] = { 8.0, 6.0, 10.0 }, in[3] = { 1.0, 0.0, 0.0 };
+        for(u32 k = 0; k < 3u; k++) {
+            cpart(&c, src)->value[0] = volts[k];
+            CHECK(run_for(&c, 0.1));
+            if(cpart(&c, so)->state[2] != in[k]) printf("  at %.0f V: its plunger %.2f in, not %.0f\n", volts[k], cpart(&c, so)->state[2], in[k]);
+            CHECK(cpart(&c, so)->state[2] == in[k]);
+        }
+        cpart(&c, src)->value[0] = 24.0;
+        CHECK(run_for(&c, 0.2));
+        CHECK(cpart(&c, so)->state[2] == 1.0 && cpart(&c, so)->stress > 2.5 && cpart(&c, so)->heat > 0.0);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 st = part_put(&s, "stepper motor", 0, 0, 80, 60, "28BYJ-48");
+        tie(&s, st, 4, -40.0, 0.0, "5V");
+        u32 sw[4];
+        for(u32 k = 0; k < 4u; k++) {
+            fude_zoom_v2 at;
+            CHECK(fude_zoom_part_pin_at(&s, st, k, &at));
+            sw[k] = part_put(&s, "SPST switch", at.x - 200.0 - 70.0 * (f64)k, at.y, 20, 10, "off");
+            wire_by(&s, st, k, sw[k], 1, NULL, 0);
+            tie(&s, sw[k], 0, -10.0, -30.0 - 10.0 * (f64)k, NULL);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(cpart(&c, st)->value[0] == 2048.0 && cpart(&c, st)->state[7] == -1.0);
+        c8 say[16];
+        // (each switch tapped on — and the one before off —, given 20 ms: its steps after each)
+        const u32 order[9] = { 0, 1, 2, 3, 0, 3, 2, 2, 0 };
+        const f64 want[9]  = { 0, 1, 2, 3, 4, 3, 2, 2.5, 2.5 };   // (the 8th: D and C both on; the 9th: A alone, opposite C+D's… half a turn off: stays)
+        u32 on = FUDE_ZOOM_NONE;
+        for(u32 k = 0; k < 9u; k++) {
+            if(k == 7u) {
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[3]), -1, say, sizeof say));   // (D on again with C: half a step back)
+                on = 3u;
+            } else if(k == 8u) {
+                // (both off, then A alone: C+D's field was at 225°, A's at 0° — 135° the short way: on to 4… it goes)
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[2]), -1, say, sizeof say));
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[3]), -1, say, sizeof say));
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[0]), -1, say, sizeof say));
+                on = 0u;
+            } else {
+                if(on != FUDE_ZOOM_NONE) CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[on]), -1, say, sizeof say));
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[order[k]]), -1, say, sizeof say));
+                on = order[k];
+            }
+            CHECK(run_for(&c, 0.02));
+            const f64 got = cpart(&c, st)->state[2], should = k == 8u ? 4.0 : want[k];
+            if(fabs(got - should) > 1e-6) printf("  stepper, move %u: %.4f steps, not %.1f\n", k, got, should);
+            CHECK(fabs(got - should) < 1e-6);
+        }
+        CHECK(fabs(cpart(&c, st)->state[1] - 4.0 * 360.0 / 2048.0) < 1e-9);   // (its shaft: 4 steps of 2048 a turn)
+        f64 strength = 0.0;
+        CHECK(fabs(fude_zoom_circuit_stepper_field(cpart(&c, st), &strength)) < 1e-9 && fabs(strength - 1.0) < 0.01);
+        // (the opposite coil alone: C, half a turn of its field from A — it stays)
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[0]), -1, say, sizeof say));
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[2]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.05));
+        CHECK(fabs(cpart(&c, st)->state[2] - 4.0) < 1e-6);
+        // (D then: a step back… in no less than 2 ms — its 500 steps a second)
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[2]), -1, say, sizeof say));
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[3]), -1, say, sizeof say));
+        CHECK(fude_zoom_circuit_run(&c, 5e-4, 400u));
+        const f64 early = cpart(&c, st)->state[2];
+        CHECK(early < 4.0 && early >= 4.0 - 0.25 - 1e-9);
+        CHECK(run_for(&c, 0.02) && fabs(cpart(&c, st)->state[2] - 3.0) < 1e-6);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        b8 a, b;
+        const f64 at[6] = { 0.0, 0.3, 0.6, 0.8, -0.2, 7.55 };
+        const b8 wa[6] = { false, true, true, false, false, true }, wb[6] = { false, false, true, true, true, true };
+        for(u32 k = 0; k < 6u; k++) {
+            fude_zoom_circuit_encoder_contacts(at[k], &a, &b);
+            CHECK(a == wa[k] && b == wb[k]);
+        }
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 en = part_put(&s, "rotary encoder", 0, 0, 40, 40, "20");
+        tie(&s, en, 1, -40.0, -20.0, NULL);
+        resist(&s, en, 0, 60.0, "10k", "5V");
+        resist(&s, en, 2, 60.0, "10k", "5V");
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        for(u32 way = 0; way < 2u; way++) {
+            c8 say[16];
+            if(way == 0u) {
+                CHECK(fude_zoom_circuit_tap(&c, cindex(&c, en), -1, say, sizeof say) && strcmp(say, "1") == 0);
+            } else {
+                cpart(&c, en)->state[1] = 0.0;   // (back a detent)
+            }
+            u32 seen[8], n = 0, last = 99u;
+            for(u32 t = 0; t < 80u; t++) {
+                CHECK(fude_zoom_circuit_run(&c, 1e-3, 400u));
+                const fude_zoom_circuit_part* p = cpart(&c, en);
+                const u32 now = (fude_zoom_circuit_volts(&c, p->node[0]) > 2.5 ? 2u : 0u) | (fude_zoom_circuit_volts(&c, p->node[2]) > 2.5 ? 1u : 0u);
+                if(now != last && n < 8u) seen[n++] = now;
+                last = now;
+            }
+            // (A high and B high: 3; A low: 1; both low: 0; B low: 2 — clockwise 3 1 0 2 3, back 3 2 0 1 3)
+            const u32 cw[5] = { 3, 1, 0, 2, 3 }, ccw[5] = { 3, 2, 0, 1, 3 };
+            CHECK(n == 5u);
+            for(u32 k = 0; k < 5u && k < n; k++) CHECK(seen[k] == (way == 0u ? cw[k] : ccw[k]));
+            CHECK(fabs(cpart(&c, en)->state[0] - (way == 0u ? 1.0 : 0.0)) < 1e-9);
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 sl = part_put(&s, "slotted sensor", 0, 0, 40, 30, "ITR9608");
+        resist(&s, sl, 0, 60.0, "330", "5V");
+        tie(&s, sl, 1, -30.0, -20.0, NULL);
+        fude_zoom_v2 at;
+        CHECK(fude_zoom_part_pin_at(&s, sl, 2, &at));
+        const u32 pu = part_put(&s, "resistor", at.x + 80.0, at.y, 20, 7, "10k");
+        wire_put(&s, sl, 2, pu, 0);
+        tie(&s, pu, 1, 30.0, 0.0, "5V");
+        tie(&s, sl, 3, 30.0, -20.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(fabs(cpart(&c, sl)->limits.most[FUDE_ZOOM_LIMIT_CURRENT] - 0.05) < 1e-12);
+        for(u32 k = 0; k < 3u; k++) {
+            CHECK(run_for(&c, 0.02));
+            const fude_zoom_circuit_part* p = cpart(&c, sl);
+            const f64 vc = fude_zoom_circuit_volts(&c, p->node[2]);
+            printf("  slotted sensor %s: its LED %.2f mA, C at %.3f V\n", p->state[0] > 0.5 ? "blocked" : "clear", p->pin_i[0] * 1e3, vc);
+            CHECK(fabs(p->pin_i[0] - 0.0115) < 0.001);
+            CHECK(k == 1u ? vc > 4.95 : vc < 0.3);
+            c8 say[8];
+            CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sl), -1, say, sizeof say));
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // A coil's current broken (circuit.h's FUDE_ZOOM_ARC): a switch opened on the solenoid with no diode arcs at 50 V — said
+    // once, its spark's time kept —, the current gone in a millisecond, solved all along; a diode across the coil (its
+    // cathode on the plus) carries it instead — 13 V over the switch at most, the current dying away in its 2 ms, no
+    // spark. A 2N2222 (saturated: 9 mA into its base) switching it off with no diode breaks down at 50 V (a quarter past
+    // its 40) and burns (25 W of its ½ W); with the diode, 12.7 V over it, nothing burnt.
+    for(u32 k = 0; k < 4u; k++) {
+        const b8 diode = (k & 1u) != 0u, npn = k >= 2u;
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 so = part_put(&s, "solenoid", 0, 0, 50, 20, "12V");
+        tie(&s, so, 0, -40.0, 30.0, "12V");
+        u32 sw = FUDE_ZOOM_NONE, q = FUDE_ZOOM_NONE;
+        fude_zoom_v2 at;
+        CHECK(fude_zoom_part_pin_at(&s, so, 1, &at));
+        if(npn) {
+            q = part_put(&s, "NPN", at.x + 60.0, at.y - 80.0, 30, 30, "2N2222");
+            wire_put(&s, so, 1, q, 1);
+            tie(&s, q, 2, 0.0, -30.0, NULL);
+            fude_zoom_v2 bp;
+            CHECK(fude_zoom_part_pin_at(&s, q, 0, &bp));
+            const u32 rb = part_put(&s, "resistor", bp.x - 60.0, bp.y, 20, 7, "470");   // (9 mA: saturated)
+            wire_put(&s, rb, 1, q, 0);
+            sw = part_put(&s, "SPST switch", bp.x - 160.0, bp.y, 20, 10, "on");
+            wire_put(&s, sw, 1, rb, 0);
+            tie(&s, sw, 0, -30.0, 0.0, "5V");
+        } else {
+            sw = part_put(&s, "SPST switch", at.x + 80.0, at.y - 80.0, 20, 10, "on");
+            wire_put(&s, so, 1, sw, 0);
+            tie(&s, sw, 1, 30.0, -20.0, NULL);
+        }
+        if(diode) {
+            const u32 d = part_put(&s, "diode", 0, 80, 20, 10, "1N4007");
+            wire_put(&s, d, 0, so, 1);   // (its anode on the coil's low end, its cathode on its plus)
+            wire_put(&s, d, 1, so, 0);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.05) && fabs(cpart(&c, so)->state[0] - 0.5) < 0.01 && (!npn || !cpart(&c, q)->burnt));
+        rde_arr_clear(&c.events);
+        c8 say[16];
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw), -1, say, sizeof say));
+        f64 peak = 0.0, at1ms = 0.0;
+        b8 solved = true;
+        for(u32 t = 1; t <= 40u; t++) {
+            solved = solved && fude_zoom_circuit_run(&c, 1e-4, 400u);
+            const fude_zoom_circuit_part* p = npn ? cpart(&c, q) : cpart(&c, sw);
+            const f64 v = npn ? fude_zoom_circuit_volts(&c, p->node[1]) - fude_zoom_circuit_volts(&c, p->node[2]) :
+                                fude_zoom_circuit_volts(&c, p->node[0]) - fude_zoom_circuit_volts(&c, p->node[1]);
+            peak = fmax(peak, fabs(v));
+            if(t == 10u) at1ms = cpart(&c, so)->state[0];
+        }
+        u32 arcs = 0, burns = 0;
+        for(u32 e = 0; e < (u32)rde_arr_length(&c.events); e++) {
+            arcs  += ((const fude_zoom_circuit_event*)c.events.memory)[e].kind == FUDE_ZOOM_CIRCUIT_ARC ? 1u : 0u;
+            burns += ((const fude_zoom_circuit_event*)c.events.memory)[e].kind == FUDE_ZOOM_CIRCUIT_BURNT ? 1u : 0u;
+        }
+        printf("  broken by %s%s: %.2f V over it at most, %.3f A through the coil after 1 ms, %u sparks, %u burnt\n", npn ? "a 2N2222" : "a switch",
+               diode ? " (a diode across the coil)" : "", peak, at1ms, arcs, burns);
+        CHECK(solved);
+        if(!diode) {
+            CHECK(peak > 49.0 && peak < 51.5);
+            CHECK(fabs(at1ms) < 1e-3);
+            CHECK(npn ? (burns == 1u && cpart(&c, q)->burnt && arcs == 0u) : (arcs == 1u && fude_zoom_circuit_sparked(cpart(&c, sw)) > 0.05));   // (burnt, it flashes over at 50 V)
+        } else {
+            CHECK(peak < 13.5 && at1ms > 0.15 && arcs == 0u && burns == 0u);
+            CHECK(fude_zoom_circuit_sparked(cpart(&c, sw)) == 0.0 && (!npn || !cpart(&c, q)->burnt));
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    // Their limits: a solenoid's watts, a stepper's coils' current, an encoder's contacts', a slotted sensor's LED's.
+    CHECK(fude_zoom_limits_kinds(fude_zoom_part_find("solenoid")) == (1u << FUDE_ZOOM_LIMIT_POWER));
+    CHECK(fude_zoom_limits_kinds(fude_zoom_part_find("stepper motor")) == (1u << FUDE_ZOOM_LIMIT_CURRENT));
+    CHECK(fude_zoom_limits_kinds(fude_zoom_part_find("rotary encoder")) == (1u << FUDE_ZOOM_LIMIT_CURRENT));
+    CHECK(fude_zoom_limits_kinds(fude_zoom_part_find("slotted sensor")) == ((1u << FUDE_ZOOM_LIMIT_CURRENT) | (1u << FUDE_ZOOM_LIMIT_REVERSE)));
+    CHECK(fude_zoom_limits_named(fude_zoom_part_find("stepper motor"), "28BYJ-48") == 0 && fude_zoom_limits_named(fude_zoom_part_find("slotted sensor"), "H21A1") == 1);
+}
+
+// Batch 0.1.75's parts (circuit.h). A JK flip-flop: J and K 1 toggles each rising clock, J alone sets, K alone resets,
+// neither holds; an SR latch: S sets, R resets, neither holds. A CD4017 on the canvas: a step on each clock, Q0 first. An
+// LM393: its output let go (pulled up to 5 V) while IN− is under IN+, sinking under 0.3 V while it is over; unpowered,
+// let go. An LM358 as a follower: 2 V in, 2 V out; 4.5 V in, 3.45 V out (its output 1.5 V under VCC at most, less 50 mV). An SCR:
+// off until its gate fires it, on after its gate lets go, off once its anode's current stops — and off when it comes
+// back. A TRIAC on AC fired by a resistor from MT2: both ways; without it, nothing. A 2:1 transformer: 24 V of AC in, 12 V
+// out (a 1k load), its primary's current half its secondary's and its magnetising current. A bridge: both
+// halves of the AC out of +, two diodes' drops less, never backwards; a capacitor on it, steady. An optocoupler: its
+// LED lit, C pulled low; dark, C high. A photodiode's current 50 nA a lux, a phototransistor's 2 µA. A speaker's sound:
+// a sample each 1/48000 s of the circuit's time, a 440 Hz tone's crossings, half full scale at 50 mA.
+static u32 rail_at(fude_zoom_scene* s, f64 x, f64 y, const c8* volts) { return part_put(s, "supply rail", x, y, 30, 10, volts); }
+
+static f64 swing_of(fude_zoom_circuit* c, f64 seconds, u32 obj, u32 pa, u32 pb, f64* lo, f64* hi) {
+    *lo = 1e300; *hi = -1e300;
+    for(f64 t = 0.0; t < seconds - 1e-9; t += 2e-4) {
+        CHECK(fude_zoom_circuit_run(c, 2e-4, 400u));
+        const fude_zoom_circuit_part* p = cpart(c, obj);
+        const f64 v = fude_zoom_circuit_volts(c, p->node[pa]) - (pb == FUDE_ZOOM_NONE ? 0.0 : fude_zoom_circuit_volts(c, p->node[pb]));
+        *lo = fmin(*lo, v); *hi = fmax(*hi, v);
+    }
+    return *hi - *lo;
+}
+
+static void test_batch5_parts(void) {
+    printf("flip-flops, CD4017, comparator, thyristors, transformer, bridge, light, speaker\n");
+    {
+        // An island ground reaches nowhere in a block it reaches (across an optocoupler; a transformer's): held at 0 V at
+        // its source's minus, solved as any — the optocoupler's other side's LED lit by what its own LED's current lets
+        // through (its 9 V's minus, ground or not, the same), the transformer's floating secondary at half its primary.
+        for(u32 k = 0; k < 3u; k++) {
+            fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+            fude_zoom_circuit c; fude_zoom_circuit_init(&c);
+            if(k < 2u) {
+                const u32 op = part_put(&s, "optocoupler", 0, 0, 50, 30, "PC817");
+                const u32 b1 = part_put(&s, "battery", -200, 0, 20, 30, "5V"), r1 = part_put(&s, "resistor", -100, 60, 30, 10, "470");
+                wire_put(&s, b1, 0, r1, 0); wire_put(&s, r1, 1, op, 0); wire_put(&s, op, 1, b1, 1);
+                tie(&s, b1, 1, 0.0, -30.0, NULL);
+                const u32 b2 = part_put(&s, "battery", 200, 0, 20, 30, "9V"), r2 = part_put(&s, "resistor", 200, 100, 30, 10, "1k");
+                const u32 led = part_put(&s, "LED", 100, 100, 30, 10, "green");
+                wire_put(&s, b2, 0, r2, 1); wire_put(&s, r2, 0, led, 0); wire_put(&s, led, 1, op, 2); wire_put(&s, op, 3, b2, 1);
+                if(k == 1u) tie(&s, b2, 1, 0.0, -30.0, NULL);
+                fude_zoom_circuit_build(&c, &s);
+                const u32 refs = (u32)rde_arr_length(&c.block_reference);
+                CHECK(refs == (k == 0u ? 1u : 0u));
+                if(refs == 1u) CHECK(((const u32*)c.block_reference.memory)[0] == circuit_part(&c, b2)->node[1]);
+                CHECK(run_for(&c, 0.1));
+                const f64 i = circuit_part(&c, led)->pin_i[0];
+                printf("  an optocoupler's other side %s: %.2f mA, its battery's minus at %.3f V\n", k == 0u ? "apart" : "grounded", i * 1e3, circuit_volts(&c, b2, 1));
+                CHECK(i > 5e-3 && i < 7.5e-3 && fabs(circuit_volts(&c, b2, 1)) < 1e-6);
+            } else {
+                const u32 tx = part_put(&s, "transformer", 0, 0, 40, 40, "2:1");
+                const u32 ac = part_put(&s, "AC source", -150, 0, 20, 30, "10V 50Hz"), rl = part_put(&s, "resistor", 120, 0, 10, 30, "1k");
+                wire_put(&s, ac, 0, tx, 0); wire_put(&s, ac, 1, tx, 1);
+                tie(&s, ac, 1, 0.0, -30.0, NULL);
+                wire_put(&s, tx, 2, rl, 0); wire_put(&s, tx, 3, rl, 1);
+                fude_zoom_circuit_build(&c, &s);
+                CHECK(rde_arr_length(&c.block_reference) == 1u);
+                CHECK(run_for(&c, 0.2));
+                f64 p = 0.0, q = 0.0;
+                for(u32 n = 0; n < 40u; n++) {
+                    CHECK(fude_zoom_circuit_run(&c, 0.0005, 40u));
+                    p = fmax(p, fabs(circuit_volts(&c, tx, 0) - circuit_volts(&c, tx, 1)));
+                    q = fmax(q, fabs(circuit_volts(&c, tx, 2) - circuit_volts(&c, tx, 3)));
+                }
+                printf("  a transformer's floating secondary: %.2f V of its primary's %.2f\n", q, p);
+                CHECK(p > 9.0 && q / p > 0.45 && q / p < 0.51);
+            }
+            fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+        }
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 jk = part_put(&s, "JK flip-flop", 0, 0, 40, 40, "");
+        const u32 in[3] = { part_put(&s, "logic input", -150, 20, 30, 8, "1"), part_put(&s, "logic input", -150, 0, 30, 8, "0"), part_put(&s, "logic input", -150, -20, 30, 8, "1") };
+        for(u32 k = 0; k < 3u; k++) wire_put(&s, in[k], 0, jk, k);
+        const u32 pr = part_put(&s, "logic probe", 100, 20, 20, 8, "");
+        wire_put(&s, jk, 3, pr, 0);
+        const u32 sr = part_put(&s, "SR latch", 0, -200, 40, 40, "");
+        const u32 si = part_put(&s, "logic input", -150, -180, 30, 8, "0"), ri = part_put(&s, "logic input", -150, -220, 30, 8, "0");
+        wire_put(&s, si, 0, sr, 0);
+        wire_put(&s, ri, 0, sr, 1);
+        const u32 ps = part_put(&s, "logic probe", 100, -180, 20, 8, "");
+        wire_put(&s, sr, 2, ps, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c));
+        // (J K: 11 toggles, 10 sets, 01 resets, 00 holds — each after a rising clock)
+        const u32 jks[6][2] = { { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 0 }, { 0, 1 }, { 0, 0 } };
+        u32 q = probe(&c, pr), right = 0;
+        for(u32 k = 0; k < 6u; k++) {
+            set_in(&c, in[0], jks[k][0]); set_in(&c, in[2], jks[k][1]);
+            CHECK(step(&c));
+            set_in(&c, in[1], 1u); CHECK(step(&c)); CHECK(step(&c));
+            set_in(&c, in[1], 0u); CHECK(step(&c));
+            const u32 want = jks[k][0] && jks[k][1] ? 1u - q : (jks[k][0] ? 1u : (jks[k][1] ? 0u : q));
+            right += probe(&c, pr) == want;
+            q = probe(&c, pr);
+        }
+        CHECK(right == 6u);
+        const u32 srs[5][3] = { { 1, 0, 1 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 0, 0 }, { 1, 0, 1 } };   // (S, R, Q after)
+        right = 0;
+        for(u32 k = 0; k < 5u; k++) {
+            set_in(&c, si, srs[k][0]); set_in(&c, ri, srs[k][1]);
+            CHECK(step(&c)); CHECK(step(&c));
+            right += probe(&c, ps) == srs[k][2];
+        }
+        CHECK(right == 5u);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 ch = part_put(&s, "CD4017", 0, 0, 100, 90, "CD4017");
+        tie(&s, ch, 15, 30.0, 0.0, "5V");
+        tie(&s, ch, 7, -30.0, 0.0, NULL);
+        tie(&s, ch, 12, 30.0, -10.0, NULL);   // (INH)
+        tie(&s, ch, 14, 30.0, -10.0, NULL);   // (RST)
+        fude_zoom_v2 at;
+        CHECK(fude_zoom_part_pin_at(&s, ch, 13, &at));
+        const u32 ck = part_put(&s, "logic input", at.x + 200.0, at.y, 30, 8, "0");
+        wire_put(&s, ck, 0, ch, 13);
+        const u32 outs[5] = { 2, 1, 3, 6, 9 };   // (Q0, Q1, Q2, Q3, Q4)
+        for(u32 k = 0; k < 5u; k++) resist(&s, ch, outs[k], 30.0, "100k", NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(step(&c));
+        u32 right = 0;
+        for(u32 n = 0; n < 7u; n++) {
+            u32 hot = 0, which = 99u;
+            for(u32 k = 0; k < 5u; k++) if(fude_zoom_circuit_volts(&c, cpart(&c, ch)->node[outs[k]]) > 2.5) { hot++; which = k; }
+            const b8 ok = n < 5u ? (hot == 1u && which == n) : hot == 0u;
+            if(!ok) printf("  CD4017 after %u clocks: %u of Q0-Q4 high (Q%u)\n", n, hot, which);
+            right += ok;
+            set_in(&c, ck, 1u); CHECK(step(&c)); CHECK(step(&c));
+            set_in(&c, ck, 0u); CHECK(step(&c));
+        }
+        CHECK(right == 7u);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 3u; k++) {
+        // (LM393: OUT1 IN1− IN1+ GND down its left, VCC at its right's top; IN1+ at 2.5 V, IN1− at 2 or 3 V; k 2: unpowered)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 cmp = part_put(&s, "LM393", 0, 0, 100, 50, "LM393");
+        if(k < 2u) tie(&s, cmp, 7, 30.0, 0.0, "5V");
+        tie(&s, cmp, 3, -40.0, -20.0, NULL);
+        resist(&s, cmp, 2, 30.0, "1k", "2.5V");
+        resist(&s, cmp, 1, 120.0, "1k", k == 1u ? "3V" : "2V");
+        resist(&s, cmp, 0, 210.0, "10k", "5V");
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.01));
+        const f64 out = fude_zoom_circuit_volts(&c, cpart(&c, cmp)->node[0]);
+        printf("  LM393, IN- %s IN+%s: OUT1 %.3f V\n", k == 1u ? "over" : "under", k == 2u ? " (no supply)" : "", out);
+        CHECK(k == 1u ? out < 0.3 : out > 4.9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 amp = part_put(&s, "LM358", 0, 0, 100, 50, "LM358");
+        tie(&s, amp, 7, 30.0, 0.0, "5V");
+        tie(&s, amp, 3, -40.0, -20.0, NULL);
+        wire_put(&s, amp, 0, amp, 1);   // (a follower: OUT1 into IN1−)
+        resist(&s, amp, 2, 30.0, "1k", k == 0u ? "2V" : "4.5V");
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.01));
+        const f64 out = fude_zoom_circuit_volts(&c, cpart(&c, amp)->node[0]);
+        CHECK(fabs(out - (k == 0u ? 2.0 : 3.45)) < 0.01);   // (3.5 less its 50 mV)
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        // (SCR: 12 V through 100 Ω into A, K to ground; its gate from a 5 V rail through 1k, the rail switched)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 scr = part_put(&s, "SCR", 0, 0, 30, 20, "C106");
+        fude_zoom_v2 a, g;
+        CHECK(fude_zoom_part_pin_at(&s, scr, 0, &a) && fude_zoom_part_pin_at(&s, scr, 2, &g));
+        const u32 ra = part_put(&s, "resistor", a.x - 60.0, a.y, 20, 7, "100"), sup = rail_at(&s, a.x - 120.0, a.y + 30.0, "12V");
+        wire_put(&s, ra, 1, scr, 0);
+        wire_by(&s, sup, 0, ra, 0, (const fude_zoom_v2[]){ { a.x - 120.0, a.y } }, 1u);
+        tie(&s, scr, 1, 30.0, -20.0, NULL);
+        const u32 rg = part_put(&s, "resistor", g.x, g.y - 60.0, 20, 7, "1k"), gate = rail_at(&s, g.x + 80.0, g.y - 30.0, "0V");
+        wire_by(&s, scr, 2, rg, 1, (const fude_zoom_v2[]){ { g.x + 40.0, g.y - 20.0 }, { g.x + 40.0, g.y - 60.0 } }, 2u);
+        wire_by(&s, rg, 0, gate, 0, (const fude_zoom_v2[]){ { g.x - 40.0, g.y - 60.0 }, { g.x - 40.0, g.y - 100.0 }, { g.x + 80.0, g.y - 100.0 } }, 3u);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.02));
+        const f64 off = cpart(&c, scr)->pin_i[0];
+        cpart(&c, gate)->value[0] = 5.0;   // (its gate fired)
+        CHECK(run_for(&c, 0.02));
+        const f64 on = cpart(&c, scr)->pin_i[0];
+        cpart(&c, gate)->value[0] = 0.0;   // (let go: it stays on)
+        CHECK(run_for(&c, 0.02));
+        const f64 kept = cpart(&c, scr)->pin_i[0];
+        cpart(&c, sup)->value[0] = 0.0;    // (its anode's current stopped: off)
+        CHECK(run_for(&c, 0.02));
+        cpart(&c, sup)->value[0] = 12.0;
+        CHECK(run_for(&c, 0.02));
+        const f64 again = cpart(&c, scr)->pin_i[0];
+        printf("  SCR: %.4f A off, %.4f A fired, %.4f A after its gate let go, %.4f A after its supply came back\n", off, on, kept, again);
+        CHECK(fabs(off) < 1e-4 && on > 0.1 && fabs(kept - on) < 1e-3 && fabs(again) < 1e-4);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        // (TRIAC: 12 V of AC through 100 Ω into MT2, MT1 to ground; fired through 1k from MT2 — or not)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 tr = part_put(&s, "TRIAC", 0, 0, 30, 20, "BT136");
+        fude_zoom_v2 a, g;
+        CHECK(fude_zoom_part_pin_at(&s, tr, 0, &a) && fude_zoom_part_pin_at(&s, tr, 2, &g));
+        const u32 ac = part_put(&s, "AC source", a.x - 160.0, a.y - 40.0, 20, 30, "12V 50Hz");
+        const u32 rl = part_put(&s, "resistor", a.x - 60.0, a.y, 20, 7, "100");
+        wire_put(&s, rl, 1, tr, 0);
+        wire_by(&s, ac, 0, rl, 0, (const fude_zoom_v2[]){ { a.x - 160.0, a.y } }, 1u);
+        tie(&s, ac, 1, 0.0, -30.0, NULL);
+        tie(&s, tr, 1, 30.0, -20.0, NULL);
+        if(k == 0u) {
+            const u32 rg = part_put(&s, "resistor", a.x - 10.0, g.y - 40.0, 20, 7, "1k");
+            wire_by(&s, tr, 2, rg, 1, (const fude_zoom_v2[]){ { g.x, g.y - 40.0 } }, 1u);
+            wire_by(&s, rg, 0, tr, 0, (const fude_zoom_v2[]){ { a.x - 40.0, g.y - 40.0 }, { a.x - 40.0, a.y - 5.0 }, { a.x - 5.0, a.y - 5.0 } }, 3u);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        f64 lo = 1e300, hi = -1e300;
+        for(f64 t = 0.0; t < 0.1; t += 2e-4) {
+            CHECK(fude_zoom_circuit_run(&c, 2e-4, 400u));
+            lo = fmin(lo, cpart(&c, rl)->pin_i[0]); hi = fmax(hi, cpart(&c, rl)->pin_i[0]);
+        }
+        printf("  TRIAC on AC%s: its load's current %.4f to %.4f A\n", k == 0u ? ", fired from MT2" : ", its gate unjoined", lo, hi);
+        CHECK(k == 0u ? (hi > 0.08 && lo < -0.08) : (hi < 1e-3 && lo > -1e-3));
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        // (a 2:1 transformer: 24 V of AC across its primary, 1k on its secondary — a 100 Ω one, ¼ W, would burn)
+        const u32 k = 0u;
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 tx = part_put(&s, "transformer", 0, 0, 40, 40, "2:1");
+        const u32 src = part_put(&s, k == 0u ? "AC source" : "DC source", -150, 0, 20, 30, k == 0u ? "24V 50Hz" : "5V");
+        wire_put(&s, src, 0, tx, 0);
+        wire_put(&s, src, 1, tx, 1);
+        tie(&s, tx, 1, -20.0, -30.0, NULL);
+        const u32 ld = part_put(&s, "resistor", 120, 0, 20, 7, "1k");
+        wire_by(&s, tx, 2, ld, 0, (const fude_zoom_v2[]){ { 60.0, 20.0 }, { 60.0, 0.0 } }, 2u);
+        wire_by(&s, tx, 3, ld, 1, (const fude_zoom_v2[]){ { 70.0, -20.0 }, { 70.0, -40.0 }, { 170.0, -40.0 }, { 170.0, 0.0 } }, 4u);
+        tie(&s, tx, 3, 20.0, -50.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.2));
+        f64 lo, hi;
+        swing_of(&c, 0.04, tx, 2, 3, &lo, &hi);
+        f64 ip = 0.0, is = 0.0;
+        for(f64 t = 0.0; t < 0.02; t += 2e-4) {
+            CHECK(fude_zoom_circuit_run(&c, 2e-4, 400u));
+            ip = fmax(ip, fabs(cpart(&c, tx)->pin_i[0])); is = fmax(is, fabs(cpart(&c, tx)->pin_i[2]));
+        }
+        printf("  transformer 2:1 on %s: its secondary %.3f to %.3f V; its currents %.4f A in, %.4f A out\n", k == 0u ? "24 V AC" : "5 V DC", lo, hi, ip, is);
+        CHECK(hi > 11.6 && hi < 12.1 && lo < -11.6 && lo > -12.1);
+        CHECK(ip > 0.5 * is && ip < 0.5 * is + 0.03);   // (and its magnetising current, a quarter turn behind)
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        // (a bridge: 12 V of AC on AC1 and AC2, 1k from + to −, − the ground; k 1, 1000 µF across too)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 br = part_put(&s, "bridge rectifier", 0, 0, 40, 40, "DB107");
+        const u32 ac = part_put(&s, "AC source", -150, 0, 20, 30, "12V 50Hz");
+        wire_by(&s, ac, 0, br, 0, (const fude_zoom_v2[]){ { -150.0, 60.0 }, { 0.0, 60.0 } }, 2u);
+        wire_by(&s, ac, 1, br, 2, (const fude_zoom_v2[]){ { -150.0, -60.0 }, { 0.0, -60.0 } }, 2u);
+        const u32 ld = part_put(&s, "resistor", 120, 80, 20, 7, "1k");
+        wire_by(&s, br, 1, ld, 1, (const fude_zoom_v2[]){ { 160.0, 0.0 }, { 160.0, 80.0 } }, 2u);
+        wire_by(&s, ld, 0, br, 3, (const fude_zoom_v2[]){ { 80.0, 80.0 }, { 80.0, 110.0 }, { -70.0, 110.0 }, { -70.0, 0.0 } }, 4u);
+        tie(&s, br, 3, -40.0, -30.0, NULL);
+        if(k == 1u) {
+            const u32 cp = part_put(&s, "electrolytic", 200, -80, 20, 10, "1000uF");
+            wire_by(&s, br, 1, cp, 0, (const fude_zoom_v2[]){ { 140.0, 0.0 }, { 140.0, -80.0 } }, 2u);
+            wire_by(&s, cp, 1, br, 3, (const fude_zoom_v2[]){ { 240.0, -80.0 }, { 240.0, -130.0 }, { -90.0, -130.0 }, { -90.0, 0.0 } }, 4u);
+        }
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.3));
+        f64 lo, hi;
+        swing_of(&c, 0.04, br, 1, 3, &lo, &hi);
+        printf("  bridge rectifier%s: + over - %.3f to %.3f V\n", k == 1u ? " with 1000 uF" : "", lo, hi);
+        CHECK(hi > 10.2 && hi < 11.0 && (k == 0u ? lo > -0.05 && lo < 0.05 : lo > hi - 0.2));
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 op = part_put(&s, "optocoupler", 0, 0, 50, 30, "PC817");
+        fude_zoom_v2 a;
+        CHECK(fude_zoom_part_pin_at(&s, op, 0, &a));
+        const u32 rl = part_put(&s, "resistor", a.x - 60.0, a.y, 20, 7, "1k"), led = rail_at(&s, a.x - 120.0, a.y + 30.0, "5V");
+        wire_put(&s, rl, 1, op, 0);
+        wire_by(&s, led, 0, rl, 0, (const fude_zoom_v2[]){ { a.x - 120.0, a.y } }, 1u);
+        tie(&s, op, 1, -30.0, -20.0, NULL);
+        fude_zoom_v2 cc;
+        CHECK(fude_zoom_part_pin_at(&s, op, 2, &cc));
+        const u32 pu = part_put(&s, "resistor", cc.x + 60.0, cc.y, 20, 7, "10k");
+        wire_put(&s, op, 2, pu, 0);
+        tie(&s, pu, 1, 30.0, 0.0, "5V");
+        tie(&s, op, 3, 30.0, -20.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.01));
+        const f64 lit = fude_zoom_circuit_volts(&c, cpart(&c, op)->node[2]);
+        cpart(&c, led)->value[0] = 0.0;
+        CHECK(run_for(&c, 0.01));
+        const f64 dark = fude_zoom_circuit_volts(&c, cpart(&c, op)->node[2]);
+        printf("  optocoupler: C at %.3f V lit, %.3f V dark\n", lit, dark);
+        CHECK(lit < 0.3 && dark > 4.95);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        // (a photodiode backwards on 5 V through 10k; a phototransistor on 5 V through 1k)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const b8 diode = k == 0u;
+        const u32 ph = part_put(&s, diode ? "photodiode" : "phototransistor", 0, 0, 30, diode ? 20 : 30, diode ? "BPW34" : "TEPT5600");
+        const u32 top = diode ? 1u : 0u, bottom = diode ? 0u : 1u;
+        fude_zoom_v2 at;
+        CHECK(fude_zoom_part_pin_at(&s, ph, top, &at));
+        const u32 r = part_put(&s, "resistor", at.x + 80.0, at.y + 40.0, 20, 7, diode ? "10k" : "1k");
+        wire_by(&s, ph, top, r, 0, (const fude_zoom_v2[]){ { at.x, at.y + 40.0 } }, 1u);
+        tie(&s, r, 1, 30.0, 0.0, "5V");
+        tie(&s, ph, bottom, diode ? -30.0 : 0.0, diode ? -20.0 : -30.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        const f64 lux[2] = { 100.0, 1000.0 };
+        for(u32 l = 0; l < 2u; l++) {
+            cpart(&c, ph)->state[0] = lux[l];
+            CHECK(run_for(&c, 0.01));
+            const f64 i = fabs(cpart(&c, r)->pin_i[0]), want = (diode ? FUDE_ZOOM_PHOTODIODE_A_LUX : FUDE_ZOOM_PHOTOTRANSISTOR_A_LUX) * lux[l];
+            if(fabs(i - want) > 0.03 * want) printf("  %s at %.0f lux: %.3g A, not %.3g\n", diode ? "photodiode" : "phototransistor", lux[l], i, want);
+            CHECK(fabs(i - want) < 0.03 * want);
+        }
+        CHECK(fude_zoom_circuit_lit(cpart(&c, ph)->part->model));
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        // (a speaker on 0.4 V of 440 Hz — 50 mA —; k 1: a resistor instead — no sound)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 sp = part_put(&s, k == 0u ? "speaker" : "resistor", 0, 0, 30, 20, k == 0u ? "8 ohm" : "8");
+        const u32 ac = part_put(&s, "AC source", -150, 0, 20, 30, "0.4V 440Hz");
+        wire_put(&s, ac, 0, sp, 0);
+        wire_put(&s, ac, 1, sp, 1);
+        tie(&s, ac, 1, 0.0, -30.0, NULL);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        fude_zoom_circuit_sound(&c, 48000.0);
+        CHECK(run_for(&c, 0.2));
+        const u32 n = (u32)rde_arr_length(&c.audio);
+        if(k == 1u) {
+            CHECK(n == 0u);
+        } else {
+            const f32* a = (const f32*)c.audio.memory;
+            u32 cross = 0;
+            f64 peak = 0.0;
+            for(u32 i = n / 2u + 1u; i < n; i++) {
+                cross += (a[i - 1u] < 0.0f) != (a[i] < 0.0f) ? 1u : 0u;
+                peak = fmax(peak, fabs((f64)a[i]));
+            }
+            const f64 span = (f64)(n - n / 2u - 1u) / 48000.0;
+            printf("  speaker: %u samples in 0.2 s, %u crossings in %.3f s (%.1f Hz), its peak %.3f\n", n, cross, span, (f64)cross / (2.0 * span), peak);
+            CHECK(n >= 9590u && n <= 9610u);
+            CHECK(fabs((f64)cross / (2.0 * span) - 440.0) < 10.0 && fabs(peak - 0.5) < 0.05);
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// The batch's examples work as they say: the decade counter's LEDs one at a time, 0 to 9 and round, a step each tick;
+// the SR latch set and reset by its inputs and holding between, the JK changing on each tick (its /Q the other way);
+// the comparator's LED off in a room's light, on in the dark; the SCR's lamp lit by its gate and staying lit until its
+// switch opens, the TRIAC's lit on AC with its switch closed; the power supply's 7805 at 5 V, its capacitor above 9 V,
+// its LED lit; the optocoupler's green LED lit with its switch (the circuits apart), the photodiode's and the
+// phototransistor's meters lower as the light grows; the speaker's tone at about 464 Hz.
+static void test_batch5_examples(void) {
+    printf("batch 5 examples\n");
+    fude_zoom_scene s; fude_zoom_circuit c;
+    c8 say[64];
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_DECADE);
+        u32 leds[10];
+        CHECK(example_parts(&s, "LED", NULL, leds, 10u) == 10u);
+        static const u32 count[10] = { 5, 1, 0, 2, 6, 7, 3, 9, 4, 8 };   // (each LED's, as drawn: its outputs' lanes in order)
+        u32 seq[64], n = 0, bad = 0;
+        for(u32 k = 0; k < 300u; k++) {
+            CHECK(run_for(&c, 0.01));
+            u32 lit = 0, which = FUDE_ZOOM_NONE;
+            for(u32 i = 0; i < 10u; i++) if(cpart(&c, leds[i])->shown > 0.3) { lit++; which = count[i]; }
+            if(lit != 1u) { bad++; continue; }
+            if(n == 0u || seq[n - 1u] != which) { if(n < 64u) seq[n++] = which; }
+        }
+        u32 wrong = 0;
+        for(u32 i = 1; i < n; i++) wrong += seq[i] != (seq[i - 1u] + 1u) % 10u ? 1u : 0u;
+        printf("  decade counter: %u steps in 3 s (from %u), %u out of order, %u samples not one LED\n", n - 1u, n != 0u ? seq[0] : 99u, wrong, bad);
+        CHECK(n >= 12u && n <= 14u && seq[0] <= 1u && wrong == 0u && bad <= 3u);   // (its clock's first edge at once: 1)
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_FLIPFLOPS);
+        u32 in[4], pr[4];
+        CHECK(example_parts(&s, "logic input", NULL, in, 4u) == 4u && example_parts(&s, "logic probe", NULL, pr, 4u) == 4u);
+        CHECK(run_for(&c, 0.02));
+        const u32 q0 = probe(&c, pr[0]), n0 = probe(&c, pr[1]);
+        set_in(&c, in[0], 1); CHECK(run_for(&c, 0.02));
+        const u32 q1 = probe(&c, pr[0]), n1 = probe(&c, pr[1]);
+        set_in(&c, in[0], 0); CHECK(run_for(&c, 0.02));
+        const u32 q2 = probe(&c, pr[0]);
+        set_in(&c, in[1], 1); CHECK(run_for(&c, 0.02));
+        const u32 q3 = probe(&c, pr[0]), n3 = probe(&c, pr[1]);
+        set_in(&c, in[1], 0); CHECK(run_for(&c, 0.02));
+        const u32 q4 = probe(&c, pr[0]);
+        CHECK(q0 == 0u && n0 == 1u && q1 == 1u && n1 == 0u && q2 == 1u && q3 == 0u && n3 == 1u && q4 == 0u);
+        u32 changes = 0, apart = 0, was = probe(&c, pr[2]);
+        for(u32 k = 0; k < 400u; k++) {
+            CHECK(run_for(&c, 0.01));
+            const u32 q = probe(&c, pr[2]);
+            changes += q != was ? 1u : 0u;
+            apart += q != probe(&c, pr[3]) ? 1u : 0u;
+            was = q;
+        }
+        printf("  flip-flops: the SR latch %u%u %u%u %u %u%u %u; the JK changed %u times in 4 s at 1 Hz\n", q0, n0, q1, n1, q2, q3, n3, q4, changes);
+        CHECK(changes >= 3u && changes <= 5u && apart == 400u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_COMPARATOR);
+        fude_zoom_circuit_part* p = (fude_zoom_circuit_part*)c.parts.memory;
+        const u32 ldr = nth_of(&c, FUDE_ZOOM_MODEL_LDR, 0), led = nth_of(&c, FUDE_ZOOM_MODEL_LED, 0);
+        CHECK(ldr != FUDE_ZOOM_NONE && led != FUDE_ZOOM_NONE);
+        p[ldr].state[0] = 300.0;
+        CHECK(run_for(&c, 0.05));
+        const f64 room = p[led].shown;
+        p[ldr].state[0] = 3.0;
+        CHECK(run_for(&c, 0.05));
+        const f64 dark = p[led].shown;
+        p[ldr].state[0] = 300.0;
+        CHECK(run_for(&c, 0.05));
+        printf("  comparator: the LED %.2f at 300 lux, %.2f at 3, %.2f at 300 again\n", room, dark, p[led].shown);
+        CHECK(room < 0.05 && dark > 0.5 && p[led].shown < 0.05);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_THYRISTORS);
+        u32 lamps[2], sw[2];
+        CHECK(example_parts(&s, "lamp", NULL, lamps, 2u) == 2u && example_parts(&s, "SPST switch", NULL, sw, 2u) == 2u);
+        const u32 g = example_part(&s, "logic input", NULL);
+        CHECK(run_for(&c, 0.3));
+        const f64 off = cpart(&c, lamps[0])->shown, off2 = cpart(&c, lamps[1])->shown;
+        set_in(&c, g, 1); CHECK(run_for(&c, 0.3));
+        const f64 fired = cpart(&c, lamps[0])->shown;
+        set_in(&c, g, 0); CHECK(run_for(&c, 0.3));
+        const f64 held = cpart(&c, lamps[0])->shown;
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[0]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.3));
+        const f64 opened = cpart(&c, lamps[0])->shown;
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[0]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.3));
+        const f64 closed = cpart(&c, lamps[0])->shown;
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw[1]), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.5));
+        f64 ac = 0.0;   // (at its most over a cycle: at 10 ms it crosses 0)
+        for(u32 k = 0; k < 20u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.001, 40u));
+            ac = fmax(ac, cpart(&c, lamps[1])->shown);
+        }
+        printf("  thyristors: the SCR's lamp %.2f, fired %.2f, held %.2f, its switch open %.2f, closed again %.2f; the TRIAC's %.2f, on %.2f\n", off, fired, held, opened, closed, off2, ac);
+        CHECK(off < 0.05 && fired > 0.5 && held > 0.5 && opened < 0.05 && closed < 0.05 && off2 < 0.05 && ac > 0.3);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_POWER_SUPPLY);
+        const u32 reg = example_part(&s, "7805", NULL), cap = example_part(&s, "electrolytic", NULL), led = example_part(&s, "LED", NULL);
+        CHECK(run_for(&c, 1.0));
+        f64 lo = 1e9, hi = -1e9, out_lo = 1e9, out_hi = -1e9;
+        for(u32 k = 0; k < 40u; k++) {
+            CHECK(fude_zoom_circuit_run(&c, 0.001, 40u));
+            const f64 vc = circuit_volts(&c, cap, 0) - circuit_volts(&c, cap, 1), vo = circuit_volts(&c, reg, 2);
+            lo = fmin(lo, vc); hi = fmax(hi, vc); out_lo = fmin(out_lo, vo); out_hi = fmax(out_hi, vo);
+        }
+        printf("  power supply: its capacitor %.2f to %.2f V, the 7805's out %.3f to %.3f V, the LED %.2f\n", lo, hi, out_lo, out_hi, cpart(&c, led)->shown);
+        CHECK(lo > 9.0 && hi < 18.0 && fabs(out_lo - 5.0) < 0.1 && fabs(out_hi - 5.0) < 0.1 && cpart(&c, led)->shown > 0.3);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_LIGHT_LINK);
+        const u32 led = example_part(&s, "LED", NULL), sw = example_part(&s, "SPST switch", NULL);
+        u32 m[2];
+        CHECK(example_parts(&s, "voltmeter", NULL, m, 2u) == 2u);
+        fude_zoom_circuit_part* p = (fude_zoom_circuit_part*)c.parts.memory;
+        const u32 pd = nth_of(&c, FUDE_ZOOM_MODEL_PHOTODIODE, 0), pt = nth_of(&c, FUDE_ZOOM_MODEL_PHOTOTRANSISTOR, 0);
+        CHECK(pd != FUDE_ZOOM_NONE && pt != FUDE_ZOOM_NONE);
+        CHECK(run_for(&c, 0.1));
+        const f64 off = cpart(&c, led)->shown;
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.1));
+        const f64 on = cpart(&c, led)->shown;
+        const f64 lux[2] = { 10.0, 500.0 };
+        f64 v[2][2];
+        for(u32 l = 0; l < 2u; l++) {
+            p[pd].state[0] = lux[l]; p[pt].state[0] = lux[l];
+            CHECK(run_for(&c, 0.1));
+            v[l][0] = cpart(&c, m[0])->shown; v[l][1] = cpart(&c, m[1])->shown;
+        }
+        printf("  light: the optocoupler's LED %.2f, with its switch %.2f; the photodiode's meter %.2f V at 10 lux, %.2f at 500; the phototransistor's %.2f, %.2f\n", off, on, v[0][0], v[1][0], v[0][1], v[1][1]);
+        CHECK(off < 0.05 && on > 0.3);
+        CHECK(fabs(v[0][0] - (5.0 - 10.0 * FUDE_ZOOM_PHOTODIODE_A_LUX * 1e5)) < 0.05 && fabs(v[1][0] - (5.0 - 500.0 * FUDE_ZOOM_PHOTODIODE_A_LUX * 1e5)) < 0.1);
+        CHECK(fabs(v[0][1] - (5.0 - 10.0 * FUDE_ZOOM_PHOTOTRANSISTOR_A_LUX * 1e3)) < 0.05 && fabs(v[1][1] - (5.0 - 500.0 * FUDE_ZOOM_PHOTOTRANSISTOR_A_LUX * 1e3)) < 0.1);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_SPEAKER_TONE);
+        fude_zoom_circuit_sound(&c, 48000.0);
+        CHECK(run_for(&c, 0.5));
+        const u32 n = (u32)rde_arr_length(&c.audio);
+        const f32* a = (const f32*)c.audio.memory;
+        u32 cross = 0;
+        f64 peak = 0.0;
+        for(u32 i = n / 2u + 1u; i < n; i++) {
+            cross += (a[i - 1u] < 0.0f) != (a[i] < 0.0f) ? 1u : 0u;
+            peak = fmax(peak, fabs((f64)a[i]));
+        }
+        const f64 span = (f64)(n - n / 2u - 1u) / 48000.0, hz = (f64)cross / (2.0 * span);
+        printf("  speaker tone: %u samples, %.0f Hz, its peak %.3f\n", n, hz, peak);
+        CHECK(n > 23900u && hz > 400.0 && hz < 520.0 && peak > 0.05 && peak <= 1.0);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+        // Its pace: a frame's sixtieth of a second within 2000 steps (Play's most while a speaker is heard) — and within
+        // 400 (Play's otherwise): its steps follow how its capacitor's curve bends, not each 0.05 V it goes (that took
+        // over 400 a frame, in slow motion, its sound stuttering).
+        for(u32 k = 0; k < 2u; k++) {
+            example_open(&s, &c, FUDE_ZOOM_EXAMPLE_SPEAKER_TONE);
+            u32 short_frames = 0;
+            for(u32 f = 0; f < 60u; f++) {
+                const f64 was = c.time;
+                CHECK(fude_zoom_circuit_run(&c, 1.0 / 60.0, k == 0u ? 2000u : 400u));
+                short_frames += c.time - was < 1.0 / 60.0 - 1e-9 ? 1u : 0u;
+            }
+            printf("  speaker tone at %u steps a frame: %u of 60 frames short\n", k == 0u ? 2000u : 400u, short_frames);
+            CHECK(short_frames == 0u);
+            example_close(&s, &c);
+        }
+    }
+}
+
+// The big electronics examples. THE CROSSROADS' LIGHTS: two cycles of its ten steps, at every one (the CD4017's one output
+// high) each light as its step says — N–S red 5–9, yellow 4, green 0–3; E–W red 0–4, yellow 9, green 5–8; WALK 5–8 — and
+// its number in binary into the CD4511; the beeper heard only while WALK is lit. INH held: it stays; RST: back to 0. THE
+// PIANO: its keys' notes (C4, E4, A4, C5) within 3% of their frequencies (its 555's OUT), each heard; none held, silent;
+// two held, higher than either; the volume pot turned down, quieter.
+static u32 freq_of_audio(fude_zoom_circuit* c, f64* peak) {
+    const u32 n = (u32)rde_arr_length(&c->audio);
+    const f32* a = (const f32*)c->audio.memory;
+    u32 cross = 0;
+    *peak = 0.0;
+    for(u32 i = 1; i < n; i++) {
+        cross += (a[i - 1u] < 0.0f) != (a[i] < 0.0f) ? 1u : 0u;
+        *peak = fmax(*peak, fabs((f64)a[i]));
+    }
+    return cross;
+}
+
+static void test_big_examples(void) {
+    printf("big electronics examples\n");
+    fude_zoom_scene s; fude_zoom_circuit c;
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_TRAFFIC);
+        fude_zoom_circuit_sound(&c, 8000.0);
+        const u32 ch = example_part(&s, "CD4017", "CD4017"), dec = example_part(&s, "CD4511", "CD4511");
+        u32 red[2], yellow[2], green[2];
+        CHECK(example_parts(&s, "LED", "red", red, 2u) == 2u && example_parts(&s, "LED", "yellow", yellow, 2u) == 2u &&
+              example_parts(&s, "LED", "green", green, 2u) == 2u);
+        const u32 walk = example_part(&s, "LED", "white");
+        u32 ins[5];
+        CHECK(example_parts(&s, "logic input", "0", ins, 5u) == 3u);   // (INH, RST, LE)
+        static const u32 qpin[10] = { 2, 1, 3, 6, 9, 0, 4, 5, 8, 10 };
+        u32 seen = 0, wrong_lights = 0, wrong_bcd = 0, samples = 0, quiet_walk = 0, loud_else = 0;
+        for(u32 k = 0; k < 300u; k++) {   // (15 s: two cycles)
+            rde_arr_clear(&c.audio);
+            CHECK(run_for(&c, 0.05));
+            u32 high = 0, n = 0;
+            for(u32 q = 0; q < 10u; q++) if(circuit_volts(&c, ch, qpin[q]) > 2.5) { high++; n = q; }
+            if(high != 1u) continue;
+            samples++;
+            seen |= 1u << n;
+            const b8 want[7] = { n >= 5u, n == 4u, n <= 3u, n <= 4u, n == 9u, n >= 5u && n <= 8u, n >= 5u && n <= 8u };
+            const u32 led[7] = { red[0], yellow[0], green[0], red[1], yellow[1], green[1], walk };
+            for(u32 l = 0; l < 7u; l++) {
+                const f64 b = cpart(&c, led[l])->shown;
+                if(want[l] ? b < 0.1 : b > 0.02) { wrong_lights++; if(wrong_lights < 4u) printf("  step %u: light %u at %.3f\n", n, l, b); }
+            }
+            const u32 bcd = (circuit_volts(&c, dec, 6) > 2.5 ? 1u : 0u) | (circuit_volts(&c, dec, 0) > 2.5 ? 2u : 0u) | (circuit_volts(&c, dec, 1) > 2.5 ? 4u : 0u) |
+                            (circuit_volts(&c, dec, 5) > 2.5 ? 8u : 0u);
+            wrong_bcd += bcd != n ? 1u : 0u;
+            f64 peak;
+            freq_of_audio(&c, &peak);
+            if(want[6] && peak < 0.02) quiet_walk++;
+            if(!want[6] && peak > 0.005 && n != 5u && n != 9u) loud_else++;   // (as WALK comes on and goes off: its edge heard)
+        }
+        printf("  crossroads: %u samples, steps seen %03x, %u lights wrong, %u numbers wrong, WALK quiet %u, beeps elsewhere %u\n", samples, seen,
+               wrong_lights, wrong_bcd, quiet_walk, loud_else);
+        CHECK(seen == 0x3FFu && samples > 250u && wrong_lights == 0u && wrong_bcd == 0u && quiet_walk == 0u && loud_else == 0u);
+        // (INH high: held; RST high then low: at 0)
+        u32 at = 0;
+        for(u32 q = 0; q < 10u; q++) if(circuit_volts(&c, ch, qpin[q]) > 2.5) at = q;
+        set_in(&c, ins[0], 1);
+        CHECK(run_for(&c, 2.0));
+        u32 held = 0;
+        for(u32 q = 0; q < 10u; q++) if(circuit_volts(&c, ch, qpin[q]) > 2.5) held = q;
+        set_in(&c, ins[0], 0);
+        set_in(&c, ins[1], 1);
+        CHECK(run_for(&c, 0.2));
+        set_in(&c, ins[1], 0);
+        CHECK(run_for(&c, 0.05));
+        printf("  INH held it at %u (it was %u); RST: Q0 %.2f V\n", held, at, circuit_volts(&c, ch, qpin[0]));
+        CHECK(held == at && circuit_volts(&c, ch, qpin[0]) > 2.5);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+    }
+    {
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_PIANO);
+        fude_zoom_circuit_sound(&c, 48000.0);
+        u32 keys[13];
+        CHECK(example_parts(&s, "push button", NULL, keys, 13u) == 13u);
+        static const f64 note[13] = { 261.6, 277.2, 293.7, 311.1, 329.6, 349.2, 370.0, 392.0, 415.3, 440.0, 466.2, 493.9, 523.3 };
+        static const u32 tried[4] = { 0u, 4u, 9u, 12u };
+        const u32 t555 = example_part(&s, "NE555", "NE555");
+        u32 off_note = 0;
+        f64 peaks[4] = { 0 };
+        for(u32 t = 0; t < 4u; t++) {
+            // (its pitch: OUT's rises over 0.4 s; its sound: what the speaker made meanwhile — the coupling capacitor's
+            // spikes, a note's own way to sound)
+            set_in(&c, keys[tried[t]], 1);
+            CHECK(run_for(&c, 0.15));
+            rde_arr_clear(&c.audio);
+            u32 rises = 0;
+            b8 was = circuit_volts(&c, t555, 2) > 4.5;
+            for(u32 n = 0; n < 4000u; n++) {
+                CHECK(fude_zoom_circuit_run(&c, 1e-4, 400u));
+                const b8 h = circuit_volts(&c, t555, 2) > 4.5;
+                rises += h && !was ? 1u : 0u;
+                was = h;
+            }
+            freq_of_audio(&c, &peaks[t]);
+            const f64 hz = (f64)rises / 0.4;
+            printf("  key %u: %.1f Hz (%.1f), its peak %.3f\n", tried[t], hz, note[tried[t]], peaks[t]);
+            off_note += fabs(hz / note[tried[t]] - 1.0) > 0.03 ? 1u : 0u;
+            set_in(&c, keys[tried[t]], 0);
+            CHECK(run_for(&c, 0.15));
+        }
+        CHECK(off_note == 0u && peaks[0] > 0.05 && peaks[3] > 0.05);
+        rde_arr_clear(&c.audio);
+        CHECK(run_for(&c, 0.3));
+        f64 quiet;
+        freq_of_audio(&c, &quiet);
+        set_in(&c, keys[0], 1); set_in(&c, keys[4], 1);
+        CHECK(run_for(&c, 0.15));
+        rde_arr_clear(&c.audio);
+        CHECK(run_for(&c, 0.3));
+        f64 both_peak;
+        freq_of_audio(&c, &both_peak);
+        u32 both_rises = 0;
+        b8 both_was = circuit_volts(&c, t555, 2) > 4.5;
+        for(u32 n = 0; n < 4000u; n++) {
+            CHECK(fude_zoom_circuit_run(&c, 1e-4, 400u));
+            const b8 h = circuit_volts(&c, t555, 2) > 4.5;
+            both_rises += h && !both_was ? 1u : 0u;
+            both_was = h;
+        }
+        const f64 both = (f64)both_rises / 0.4;
+        // (the volume pot a step round: 75% to 100%, its wiper at the end — and on to 0%: the most resistance, quieter)
+        const u32 pot = example_part(&s, "potentiometer", NULL);
+        c8 say[16];
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, pot), -1, say, sizeof say));
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, pot), -1, say, sizeof say));
+        CHECK(run_for(&c, 0.15));
+        rde_arr_clear(&c.audio);
+        CHECK(run_for(&c, 0.3));
+        f64 low_peak;
+        freq_of_audio(&c, &low_peak);
+        printf("  none held: its peak %.4f; C4 and E4 held: %.1f Hz, its peak %.3f; the volume at %s: %.3f\n", quiet, both, both_peak, say, low_peak);
+        CHECK(quiet < 0.002 && both > note[4] * 1.1 && low_peak < 0.6 * both_peak);
+        CHECK(rde_arr_length(&c.events) == 0u);
+        example_close(&s, &c);
+    }
+}
+
+// AN OSCILLOSCOPE (display.h): its text read; its sampling from steps of any length (a ramp's samples on a line); on a
+// 50 Hz sine of 5 V (5 ms a division: two and a half cycles a sweep), triggered rising through its middle — its first
+// sample there, rising, 160 samples a cycle, ±5 V —, or through 2.5 V when told; CH2 a steady 3 V; on steady 1 V alone,
+// sweeping all the same (auto); the circuit's steps no longer than between its samples.
+static void test_scope(void) {
+    printf("oscilloscope\n");
+    fude_zoom_scope sc = fude_zoom_display_scope("1ms 2V");
+    CHECK(fabs(sc.time_div - 1e-3) < 1e-15 && fabs(sc.volt_div - 2.0) < 1e-12 && isnan(sc.level));
+    sc = fude_zoom_display_scope("200us 500mV trig 1.5V");
+    CHECK(fabs(sc.time_div - 2e-4) < 1e-15 && fabs(sc.volt_div - 0.5) < 1e-12 && fabs(sc.level - 1.5) < 1e-12);
+    sc = fude_zoom_display_scope("2V trig -1V 10ms");
+    CHECK(fabs(sc.time_div - 1e-2) < 1e-15 && fabs(sc.volt_div - 2.0) < 1e-12 && fabs(sc.level + 1.0) < 1e-12);
+    sc = fude_zoom_display_scope("");
+    CHECK(fabs(sc.time_div - 1e-3) < 1e-15 && fabs(sc.volt_div - 2.0) < 1e-12);
+    {
+        // A ramp of 1 V a second, stepped unevenly, its trigger 0.05 V: its samples on the ramp from where it rose through.
+        f64 st[8];
+        f32 smp[2u * FUDE_ZOOM_SCOPE_SAMPLES];
+        const fude_zoom_scope r = { 1e-3, 1.0, 0.05 };
+        fude_zoom_scope_step(&r, st, smp, 0.0, 0.0, 0.0, true);
+        f64 t = 0.0;
+        for(u32 k = 0; t < 0.07; k++) {
+            t += (k % 3u == 0u) ? 0.00037 : 0.00011;
+            fude_zoom_scope_step(&r, st, smp, t, t, -t, false);
+        }
+        f64 worst = 0.0;
+        for(u32 i = 0; i < FUDE_ZOOM_SCOPE_SAMPLES; i++) {
+            worst = fmax(worst, fabs((f64)smp[i] - (0.05 + 0.01 * (f64)i / (f64)FUDE_ZOOM_SCOPE_SAMPLES * 1.0)));
+            worst = fmax(worst, fabs((f64)smp[FUDE_ZOOM_SCOPE_SAMPLES + i] + (0.05 + 0.01 * (f64)i / (f64)FUDE_ZOOM_SCOPE_SAMPLES)));
+        }
+        CHECK(worst < 1e-5);
+    }
+    for(u32 k = 0; k < 3u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 ac = part_put(&s, k == 2u ? "DC source" : "AC source", -300, 0, 20, 30, k == 2u ? "1V" : "5V 50Hz");
+        const u32 sp = part_put(&s, "oscilloscope", 0, 0, 110, 80, k == 1u ? "5ms 2V trig 2.5V" : "5ms 2V");
+        wire_put(&s, ac, 0, sp, 0);
+        wire_put(&s, ac, 1, sp, 2);
+        const u32 g = part_put(&s, "ground", -300, -150, 20, 20, "");
+        wire_put(&s, ac, 1, g, 0);
+        if(k == 0u) tie(&s, sp, 1, -40.0, 0.0, "3V");
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(c.step <= 0.05 / (f64)FUDE_ZOOM_SCOPE_SAMPLES + 1e-12);
+        CHECK(run_for(&c, k == 2u ? 0.5 : 0.31));
+        const fude_zoom_circuit_part* p = cpart(&c, sp);
+        const f32* smp = (const f32*)fude_zoom_circuit_store(&c, p);
+        CHECK(smp != NULL);
+        if(smp == NULL) { fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s); continue; }
+        // (the last full sweep: those taken since it began, and the rest from the sweep before — a cycle is the same)
+        f64 lo = 1e300, hi = -1e300;
+        for(u32 i = 0; i < FUDE_ZOOM_SCOPE_SAMPLES; i++) { lo = fmin(lo, smp[i]); hi = fmax(hi, smp[i]); }
+        if(k == 2u) {
+            printf("  on steady 1 V: %.3f to %.3f, sweeping (at %u)\n", lo, hi, fude_zoom_scope_at(p->state));
+            CHECK(fabs(lo - 1.0) < 1e-3 && fabs(hi - 1.0) < 1e-3);
+        } else {
+            // Rising crossings of its level along the sweep: a cycle (20 ms) 160 samples apart.
+            const f64 level = k == 1u ? 2.5 : 0.0;
+            u32 first = FUDE_ZOOM_NONE, second = FUDE_ZOOM_NONE;
+            for(u32 i = 1; i < FUDE_ZOOM_SCOPE_SAMPLES; i++) {
+                if(smp[i - 1u] < level && smp[i] >= level) { if(first == FUDE_ZOOM_NONE) first = i; else if(second == FUDE_ZOOM_NONE) second = i; }
+            }
+            printf("  on 50 Hz, 5 V%s: %.3f to %.3f V, its first sample %.3f (then %.3f), a cycle %d samples\n", k == 1u ? " (trig 2.5 V)" : "", lo, hi, smp[0], smp[1],
+                   second != FUDE_ZOOM_NONE && first != FUDE_ZOOM_NONE ? (i32)(second - first) : -1);
+            CHECK(fabs(hi - 5.0) < 0.1 && fabs(lo + 5.0) < 0.1);
+            CHECK(fabs((f64)smp[0] - level) < 0.15 && smp[1] > smp[0]);   // (triggered: rising through its level)
+            CHECK(first != FUDE_ZOOM_NONE && second != FUDE_ZOOM_NONE && abs((i32)(second - first) - 160) <= 2);
+            if(k == 0u) {
+                f64 w = 0.0;
+                for(u32 i = 0; i < FUDE_ZOOM_SCOPE_SAMPLES; i++) w = fmax(w, fabs((f64)smp[FUDE_ZOOM_SCOPE_SAMPLES + i] - 3.0));
+                CHECK(w < 1e-3);   // (CH2: the steady 3 V)
+            }
+        }
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+}
+
+// AN OSCILLOSCOPE'S KNOBS (display.h): each channel's volts a division from its text (CH2's its second volts, else CH1's);
+// every knob found anywhere in its cell — its right half turning it clockwise, its left back —, none on its screen or off
+// its panel, none overlapping; volts and time stepping 1, 2, 5 (bigger the wave clockwise) and stopping at their ends,
+// off-step values to the next step; positions half a division at a time, 8 either way; each knob further round
+// clockwise; what each says. Its face's words on its panel, not its screen. In a circuit: CH1's volts turned, nothing
+// else changed; its time turned from 5 ms to 2 ms a division — its sweep started again, its steps finer, a 50 Hz cycle 400
+// samples long instead of 160; a step past its end said, unchanged.
+static void test_scope_knobs(void) {
+    printf("oscilloscope knobs\n");
+    fude_zoom_scope sc = fude_zoom_display_scope("1ms 2V 0.5V");
+    CHECK(fabs(sc.volt_div - 2.0) < 1e-12 && fabs(sc.volt_div2 - 0.5) < 1e-12 && sc.pos1 == 0.0 && sc.pos2 == 0.0);
+    sc = fude_zoom_display_scope("1ms 2V");
+    CHECK(fabs(sc.volt_div2 - 2.0) < 1e-12);
+    sc = fude_zoom_display_scope("1ms trig 1V 2V 0.2V");
+    CHECK(fabs(sc.level - 1.0) < 1e-12 && fabs(sc.volt_div - 2.0) < 1e-12 && fabs(sc.volt_div2 - 0.2) < 1e-12);
+    f64 su0, sv0, su1, sv1;
+    fude_zoom_scope_screen(&su0, &sv0, &su1, &sv1);
+    CHECK(fabs((su1 - su0) * 150.0 / ((sv1 - sv0) * 80.0) - FUDE_ZOOM_SCOPE_DIVS_X / FUDE_ZOOM_SCOPE_DIVS_Y) < 0.01);   // (its divisions square, as it comes)
+    u32 found = 0, ways = 0;
+    for(u32 k = 0; k < FUDE_ZOOM_SCOPE_KNOBS; k++) {
+        f64 u, v, r;
+        fude_zoom_scope_knob(k, &u, &v, &r);
+        i32 way = 0;
+        found += fude_zoom_scope_knob_at(u + 0.03, v, &way) == k ? 1u : 0u;
+        ways  += way == 1 ? 1u : 0u;
+        found += fude_zoom_scope_knob_at(u - 0.03, v - 0.1, &way) == k ? 1u : 0u;
+        ways  += way == -1 ? 1u : 0u;
+        CHECK(u - r * 80.0 / 150.0 > su1 && u + r * 80.0 / 150.0 < 1.0 && v + r < 1.0 && v - r > -1.0);   // (on its panel)
+    }
+    CHECK(found == 2u * FUDE_ZOOM_SCOPE_KNOBS && ways == 2u * FUDE_ZOOM_SCOPE_KNOBS);
+    // (none on its screen; every point of its panel some knob's — the one whose middle is in the same row and column —,
+    // each knob's ring wholly its own)
+    u32 on_screen = 0, panel = 0, panel_found = 0, ring_off = 0;
+    for(f64 u = -1.0; u <= 1.0; u += 0.01) {
+        for(f64 v = -1.0; v <= 1.0; v += 0.01) {
+            const u32 k = fude_zoom_scope_knob_at(u, v, NULL);
+            on_screen += k != FUDE_ZOOM_NONE && u <= su1 ? 1u : 0u;
+            if(u >= 0.5 && u <= 0.98) {
+                panel++;
+                panel_found += k != FUDE_ZOOM_NONE ? 1u : 0u;
+            }
+        }
+    }
+    for(u32 k = 0; k < FUDE_ZOOM_SCOPE_KNOBS; k++) {
+        f64 u, v, r;
+        fude_zoom_scope_knob(k, &u, &v, &r);
+        for(u32 a = 0; a < 16u; a++) {
+            const f64 an = 2.0 * 3.14159265358979 * (f64)a / 16.0;
+            ring_off += fude_zoom_scope_knob_at(u + 1.2 * r * 80.0 / 150.0 * cos(an), v + 1.2 * r * sin(an), NULL) != k ? 1u : 0u;
+        }
+    }
+    CHECK(on_screen == 0u && panel_found == panel && ring_off == 0u);
+    // (volts: 2 down to 1 mV clockwise, a step at a time, then no further; back up to 50 V)
+    sc = fude_zoom_display_scope("1ms 2V");
+    u32 steps = 0;
+    f64 was_round = fude_zoom_scope_knob_round(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1);
+    b8 rounder = true;
+    while(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, 1) && steps < 50u) {
+        steps++;
+        const f64 r = fude_zoom_scope_knob_round(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1);
+        rounder = rounder && r > was_round;
+        was_round = r;
+    }
+    CHECK(steps == 10u && fabs(sc.volt_div - 1e-3) < 1e-15 && rounder && fabs(was_round - 1.0) < 1e-9);   // (1, 0.5, 0.2 ... 0.001)
+    steps = 0;
+    while(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, -1) && steps < 50u) steps++;
+    CHECK(steps == 14u && fabs(sc.volt_div - 50.0) < 1e-12 && fude_zoom_scope_knob_round(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1) < 1e-9);
+    sc = fude_zoom_display_scope("1ms 3V");
+    fude_zoom_scope s2 = sc;
+    CHECK(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, 1) && fabs(sc.volt_div - 2.0) < 1e-12);
+    CHECK(fude_zoom_scope_turn(&s2, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, -1) && fabs(s2.volt_div - 5.0) < 1e-12);
+    CHECK(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS2, 1) && fabs(sc.volt_div2 - 2.0) < 1e-12 && fabs(sc.volt_div - 2.0) < 1e-12);
+    CHECK(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_TIME, 1) && fabs(sc.time_div - 5e-4) < 1e-15);
+    // (positions: half a division at a time, to 8 and no further)
+    steps = 0;
+    while(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_POS1, 1) && steps < 50u) steps++;
+    CHECK(steps == 16u && fabs(sc.pos1 - FUDE_ZOOM_SCOPE_POS_MOST) < 1e-12 && sc.pos2 == 0.0);
+    CHECK(fude_zoom_scope_turn(&sc, FUDE_ZOOM_SCOPE_KNOB_POS2, -1) && fabs(sc.pos2 + 0.5) < 1e-12);
+    c8 say[32];
+    static const struct { u32 knob; const c8* want; } said[5] = { { FUDE_ZOOM_SCOPE_KNOB_VOLTS1, "2 V" }, { FUDE_ZOOM_SCOPE_KNOB_VOLTS2, "2 V" },
+                                                                   { FUDE_ZOOM_SCOPE_KNOB_TIME, "500 \xC2\xB5s" }, { FUDE_ZOOM_SCOPE_KNOB_POS1, "+8" },
+                                                                   { FUDE_ZOOM_SCOPE_KNOB_POS2, "-0.5" } };
+    u32 right = 0;
+    for(u32 i = 0; i < 5u; i++) {
+        fude_zoom_scope_knob_say(&sc, said[i].knob, say, sizeof(say));
+        if(strcmp(say, said[i].want) != 0) printf("  knob %u says '%s', not '%s'\n", said[i].knob, say, said[i].want);
+        right += strcmp(say, said[i].want) == 0 ? 1u : 0u;
+    }
+    CHECK(right == 5u);
+    sc.volt_div = 0.05; sc.time_div = 2.0; sc.pos1 = 0.0;
+    fude_zoom_scope_knob_say(&sc, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, say, sizeof(say)); CHECK(strcmp(say, "50 mV") == 0);
+    fude_zoom_scope_knob_say(&sc, FUDE_ZOOM_SCOPE_KNOB_TIME, say, sizeof(say));   CHECK(strcmp(say, "2 s") == 0);
+    fude_zoom_scope_knob_say(&sc, FUDE_ZOOM_SCOPE_KNOB_POS1, say, sizeof(say));   CHECK(strcmp(say, "0") == 0);
+    // (its face's words: on its panel, right of its screen; a resistor's: none)
+    fude_zoom_part_label words[16];
+    const u32 nw = fude_zoom_part_labels(fude_zoom_part_find("oscilloscope"), words, 16u);
+    u32 off = 0;
+    for(u32 i = 0; i < nw; i++) off += words[i].u <= su1 + 0.03 || fabsf(words[i].v) > 1.0f ? 1u : 0u;
+    CHECK(nw == 7u && off == 0u && fude_zoom_part_labels(fude_zoom_part_find("resistor"), words, 16u) == 0u);
+    // In a circuit: 50 Hz into CH1, 5 ms a division.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const u32 ac = part_put(&s, "AC source", -300, 0, 20, 30, "5V 50Hz");
+    const u32 sp = part_put(&s, "oscilloscope", 0, 0, 150, 80, "5ms 2V");
+    wire_put(&s, ac, 0, sp, 0);
+    wire_put(&s, ac, 1, sp, 2);
+    const u32 g = part_put(&s, "ground", -300, -150, 20, 20, "");
+    wire_put(&s, ac, 1, g, 0);
+    fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+    CHECK(run_for(&c, 0.31));
+    const u32 at = cindex(&c, sp);
+    CHECK(fude_zoom_circuit_scope_turn(&c, at, FUDE_ZOOM_SCOPE_KNOB_VOLTS1, 1, say, sizeof(say)) && strcmp(say, "CH1 VOLTS/DIV 1 V") == 0);
+    const fude_zoom_scope now = fude_zoom_display_scope_of(cpart(&c, sp));
+    CHECK(fabs(now.volt_div - 1.0) < 1e-12 && fabs(now.volt_div2 - 2.0) < 1e-12 && fabs(now.time_div - 5e-3) < 1e-15);
+    const f64 step_was = c.step;
+    CHECK(fude_zoom_circuit_scope_turn(&c, at, FUDE_ZOOM_SCOPE_KNOB_TIME, 1, say, sizeof(say)) && strcmp(say, "TIME/DIV 2 ms") == 0);
+    CHECK(cpart(&c, sp)->state[1] == -1.0 && c.step < step_was && c.step <= 0.02 / (f64)FUDE_ZOOM_SCOPE_SAMPLES + 1e-12);
+    CHECK(run_for(&c, 0.2));
+    const f32* smp = (const f32*)fude_zoom_circuit_store(&c, cpart(&c, sp));
+    u32 rises = 0;
+    for(u32 i = 1; smp != NULL && i < FUDE_ZOOM_SCOPE_SAMPLES; i++) rises += smp[i - 1u] < 0.0f && smp[i] >= 0.0f ? 1u : 0u;
+    CHECK(rises <= 1u);   // (a sweep a cycle: triggered at its start, no other rise through 0 in it)
+    for(u32 k = 0; k < 20u; k++) fude_zoom_circuit_scope_turn(&c, at, FUDE_ZOOM_SCOPE_KNOB_TIME, -1, say, sizeof(say));
+    CHECK(strcmp(say, "TIME/DIV 5 s") == 0 && fabs(fude_zoom_display_scope_of(cpart(&c, sp)).time_div - 5.0) < 1e-12);
+    CHECK(!fude_zoom_circuit_scope_turn(&c, cindex(&c, ac), FUDE_ZOOM_SCOPE_KNOB_TIME, 1, say, sizeof(say)));
+    fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+}
+
 // A character LCD (an HD44780): its controller alone — 8 bits, then 4 — and on its pins, written by logic inputs.
 static void lcd_send(fude_zoom_lcd* l, b8 rs, u8 b) { fude_zoom_lcd_strobe(l, rs, b); }
 static void lcd_send4(fude_zoom_lcd* l, b8 rs, u8 b) { fude_zoom_lcd_strobe(l, rs, (u8)(b & 0xF0u)); fude_zoom_lcd_strobe(l, rs, (u8)(b << 4)); }
@@ -6393,6 +7691,29 @@ static void test_limits(void) {
         CHECK(n == 0u);
         example_close(&s, &c);
     }
+}
+
+// The examples' folders: each example's set under its own group; every set something in it; a group's sets together, in
+// the groups' order (electronics', mechanisms', both's).
+static void test_example_sets(void) {
+    printf("example folders\n");
+    u32 in_set[FUDE_ZOOM_EXAMPLE_SETS] = { 0 }, wrong_group = 0;
+    for(u32 e = 0; e < FUDE_ZOOM_EXAMPLE_COUNT; e++) {
+        const u8 set = fude_zoom_example_set(e);
+        CHECK(set < FUDE_ZOOM_EXAMPLE_SETS);
+        if(set >= FUDE_ZOOM_EXAMPLE_SETS) continue;
+        in_set[set]++;
+        if(fude_zoom_example_set_group(set) != fude_zoom_example_group(e)) {
+            printf("  example %u in a folder of another group\n", e);
+            wrong_group++;
+        }
+    }
+    u32 empty = 0, out_of_order = 0;
+    for(u8 set = 0; set < FUDE_ZOOM_EXAMPLE_SETS; set++) {
+        empty += in_set[set] == 0u ? 1u : 0u;
+        out_of_order += set > 0u && fude_zoom_example_set_group(set) < fude_zoom_example_set_group((u8)(set - 1u)) ? 1u : 0u;
+    }
+    CHECK(wrong_group == 0u && empty == 0u && out_of_order == 0u);
 }
 
 // Every electronics example works as it says: the torch lit; every gate's truth for A 1, B 0; the flasher on and off;
@@ -6649,10 +7970,18 @@ int main(void) {
     test_lm3914();
     test_panel_meter();
     test_lcd();
+    test_scope();
+    test_scope_knobs();
+    test_sensors_switches();
+    test_mech_parts_alone();
+    test_batch5_parts();
+    test_batch5_examples();
+    test_big_examples();
     test_display_examples();
     test_examples_go_wrong();
     test_logic_draw();
     test_custom();
+    test_example_sets();
     test_examples_electronics();
     test_mechanisms();
     test_calc();

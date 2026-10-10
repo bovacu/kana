@@ -487,7 +487,18 @@ typedef struct fude_zoom_page {
     b8                 circuit_failed;  // said that it could not be solved (once, until it can)
     u32                circuit_held;    // a push button held down (its part in the circuit; FUDE_ZOOM_NONE: none)
     f64                circuit_held_at; // ...from when (the circuit's time)
+    u8                 mech_hold;       // a hand on a mechanism playing: 0 none, 1 a part held, 2 a hand crank turned
+    u32                mech_hold_crank; // ...the crank (the world's)
+    f64                mech_hold_angle; // ...the hand's angle round it (radians, every turn counted)
+    f64                mech_hold_offset;// ...the crank's turn less the hand's, as it was taken
+    u32                mech_finger;     // ...the finger on it (its id + 1; 0: the pen)
     b8                 circuit_letting; // ...let go too soon: up once it has been down long enough to be seen
+    u32                knob_part;       // an oscilloscope's knob held (its part in the circuit; FUDE_ZOOM_NONE: none)
+    u32                knob;            // ...which (display.h's)
+    i32                knob_way;        // ...which half it was taken on (a tap's way: +1, -1)
+    rde_vec_2F         knob_from;       // ...where the hand took it, less the steps it has turned it (screen)
+    f32                knob_step;       // ...how far a step is (screen points)
+    b8                 knob_dragged;    // ...dragged (else, let go: a tap)
     b8                 wire_tool;       // the pen draws wires
     b8                 wiring;          // ...one being drawn, from:
     u32                wire_from;       // a part (FUDE_ZOOM_NONE: a point)
@@ -500,6 +511,9 @@ typedef struct fude_zoom_page {
     fude_zoom_coupling    coupling;         // ...and the circuit with it (its motors' shafts, its buttons pressed by its parts)
     b8                    play_coupled;
     rde_arr TYPE(u8)      mech_lifted;
+    rde_arr TYPE(f32)     play_moved;         // (what moves in a symbol as it plays — a solenoid's plunger —: render.h's moved)
+    rde_audio_stream*     sound;              // (a speaker's sound as it plays: open while one plays — rde's audio stream)
+    b8                    play_fine;          // (a speaker or an oscilloscope playing: more steps a frame — FUDE_ZOOM_PAGE_FINE_STEPS)
     rde_arr TYPE(u8)      circuit_labelled;   // (scratch: each node's voltage written once on the canvas while Play draws)
     // Aligned as it moves (Electronics, Mechanisms): the points of what the lasso holds that line up (a part's pins, a
     // mechanism part's holes and middle) and the others' on the screen, as the drag began (screen); what it lines up
@@ -522,11 +536,15 @@ typedef struct fude_zoom_page {
     f64                   play_time;        // seconds played
     f64                   play_sim_span, play_real_span;   // (the circuit's seconds against the clock's, this half second)
     f64                   play_speed;       // the circuit's seconds a second (1: in time; less: slow motion — too fast to keep up)
+    f64                   play_rate;        // as fast as asked (its speed chip: 1, ½, ¼, a tenth; kept from one Play to the next)
+    b8                    play_step_once;   // Step pressed: a 60th of a second (at its rate) on, paused
     b8                    play_slow_told;   // (said, until it keeps up again)
     u32                   play_seen;        // the canvas's revision the circuit was last built at (edited since: built again)
     fude_zoom_plot_play   plot_play;        // graphs: their time, the sliders' holds
     fude_zoom_plot_var    play_vars[4];     // the sliders (the played graphs' variables)
     u32                   play_var_count;
+    u32                   play_sensors[4];  // the circuit's sensors (an LDR, a thermistor) with a slider each (their objects)
+    u32                   play_sensor_count;
     i32                   play_slider;      // the slider held (-1: none)
     u64                   play_hand;        // the hand on the panel (0: none)
     rde_vec_2F            play_down;

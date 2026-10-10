@@ -54,9 +54,29 @@ typedef enum {
     FUDE_ZOOM_MECH_RACK,       // a toothed bar sliding along its length: a gear on it turns as it goes
     FUDE_ZOOM_MECH_PIN,        // a pin: whatever bodies are under it hinged there (one alone: to the ground, a nail)
     FUDE_ZOOM_MECH_DRAWN,      // a drawing made a body (props.h): its own shape, its material
-    FUDE_ZOOM_MECH_SHAFT       // a circuit's motor (circuit.h): its shaft in its middle — what is pinned there it turns, as the
+    FUDE_ZOOM_MECH_SHAFT,      // a circuit's motor (circuit.h): its shaft in its middle — what is pinned there it turns, as the
                                // circuit drives it, and is turned by (coupling.h)
+    FUDE_ZOOM_MECH_TRACER,     // a pen on what moves under it: the path its point takes drawn as it plays (mechrun.h)
+    FUDE_ZOOM_MECH_CRANK,      // a hand crank: a disc on an axle of its own, a handle hole at its rim — turned by hand as it plays
+    FUDE_ZOOM_MECH_PLUNGER,    // a circuit's solenoid (circuit.h): its plunger, sliding in and out of its coil — a hole at its
+                               // end; pulled in as the circuit drives it (coupling.h)
+    // (0.1.74: belts and chains, cams, ratchets, dampers, worms)
+    FUDE_ZOOM_MECH_BELT,       // a belt (or a chain: its text's or its id's) round the two turning parts its ends' middles are
+                               // on — a sprocket, a gear, a crank, a wheel on its axle —: the one turned as far along its rim as
+                               // the other, the same way (crossed, its text "crossed": the other way)
+    FUDE_ZOOM_MECH_SPROCKET,   // a toothed wheel a belt or a chain runs round: on its own axle where it is, its hole in its middle
+    FUDE_ZOOM_MECH_CAM,        // an eccentric cam: a disc turning about a hole off its middle — what rests on it rises and falls
+    FUDE_ZOOM_MECH_FOLLOWER,   // a cam's follower: a rod in a guide, its roller pressed along it (its spring) onto what is in front
+    FUDE_ZOOM_MECH_RATCHET,    // a ratchet wheel: sawtooth teeth, free counter-clockwise past a pawl, held clockwise
+    FUDE_ZOOM_MECH_PAWL,       // a pawl: a lever on its own pivot, pressed onto the ratchet its tip is at
+    FUDE_ZOOM_MECH_DAMPER,     // a dashpot between its two ends: as hard against them moving apart or together as they go
+    FUDE_ZOOM_MECH_WORM        // a worm turning at its text's speed ("60 rpm"), turning a gear on it a tooth a turn — and held by
+                               // it: a gear cannot turn a worm
 } FUDE_ZOOM_MECH_;
+
+// A hand crank's axle's friction unless its text says (N·m): let go, it stops within a few degrees — a pot's or an
+// encoder's shaft; "0.05", a flywheel's, nearly free.
+#define FUDE_ZOOM_MECH_CRANK_FRICTION 2.0
 
 typedef struct {
     const c8* id;            // its symbol's id (symbol.c)
@@ -83,7 +103,8 @@ typedef struct {
     fude_zoom_v2               at;        // its middle (the home frame's units)
     f64                        angle;     // its turn (radians)
     f64                        hw, hh;    // its half sizes (home units)
-    f64                        value;     // a motor's speed (turns a second), a weight's or a crate's mass (kg), a spring's stiffness
+    f64                        value;     // a motor's speed (turns a second), a weight's or a crate's mass (kg), a spring's stiffness,
+                                          // a hand crank's axle's friction (N·m)
     f64                        scale;     // home units its own unit (as its symbol is drawn)
     f64                        phase;     // a gear's: turned this much more as it starts (radians): its teeth in the gaps they mesh with
     f64                        shift;     // a rack's: moved this far along itself as it starts (home units): its teeth in its gear's gaps
@@ -103,6 +124,7 @@ typedef struct {
     f64          speed;      // ...this fast (radians a second)
     f64          torque;     // ...as hard at most (N·m)
     u32          shaft;      // on a circuit's motor's shaft: that body (FUDE_ZOOM_NONE: none)
+    b8           crank;      // a hand crank's axle: turned by hand (mechrun.h), free while it is not held
 } fude_zoom_mech_hinge;
 
 typedef struct {
@@ -118,7 +140,48 @@ typedef struct {
     f64 lower, upper;        // a rack's: its travel (home units, its slide's) while a is over its teeth
     f64 period;              // a's tooth (radians): meshing again, a whole one from where it was
     b8  rack;
+    b8  belt;                // a belt's or a chain's: no teeth meeting (ratio: −a's radius over b's; crossed, +)
 } fude_zoom_mech_mesh;
+
+// A belt or a chain drawn (its own symbol: the plan's body _body) round bodies _a and _b, _ra and _rb round (home units),
+// crossed or not; a chain's links, a belt's smooth.
+typedef struct {
+    u32 body;
+    u32 a, b;
+    f64 ra, rb;
+    b8  crossed, chain;
+} fude_zoom_mech_belt;
+
+// A damper (its own symbol _body) between what its ends are on (FUDE_ZOOM_NONE: the ground there): as hard against them
+// as they move apart or together along it — _strength times its parts' mass ten times a second.
+typedef struct {
+    u32          body;
+    u32          a, b;
+    fude_zoom_v2 pa, pb;
+    f64          strength;
+} fude_zoom_mech_damper;
+
+// A worm (_body) turning a gear (_gear) on its own axle (its hinge, the plan's _hinge, driven): the gear a tooth a turn of
+// the worm, the way its side of the worm makes it (_side: 1 over it, −1 under it).
+typedef struct {
+    u32 body;
+    u32 gear;
+    u32 hinge;
+    f64 side;
+    f64 speed;               // the worm's (turns a second; less than 0: the other way)
+} fude_zoom_mech_worm;
+
+// A pawl (_body) pressed onto ratchet _ratchet (FUDE_ZOOM_NONE: none at its tip).
+typedef struct {
+    u32 body;
+    u32 ratchet;
+} fude_zoom_mech_pawl;
+
+// A follower's push along itself onto what is in front of it, and how far it may go each way (home units).
+#define FUDE_ZOOM_MECH_FOLLOWER_STROKE 0.4   // of its half width
+#define FUDE_ZOOM_MECH_CAM_ECCENTRIC   0.3   // a cam's hole off its middle, of its radius
+#define FUDE_ZOOM_MECH_RATCHET_TEETH   12u
+#define FUDE_ZOOM_MECH_WORM_LEAD       (3.14159265358979323846 * 5.0)   // a worm's thread's lead (its own units: a 5-point module's tooth)
 
 // What slides: a slider along its rail, a rack along its length.
 typedef struct {
@@ -137,6 +200,14 @@ typedef struct {
     u32          pair;       // the rope down that pulley's other side (FUDE_ZOOM_NONE: none): their lengths together kept
 } fude_zoom_mech_rope;
 
+// A tracer: on body _on (the plan's; FUDE_ZOOM_NONE: on nothing that moves) at _at (home units, as drawn); its symbol
+// the plan's body _body.
+typedef struct {
+    u32          body;
+    u32          on;
+    fude_zoom_v2 at;
+} fude_zoom_mech_tracer;
+
 typedef struct {
     rde_arr TYPE(fude_zoom_mech_body)   bodies;
     rde_arr TYPE(fude_zoom_mech_hinge)  hinges;
@@ -144,6 +215,11 @@ typedef struct {
     rde_arr TYPE(fude_zoom_mech_mesh)   meshes;
     rde_arr TYPE(fude_zoom_mech_rope)   ropes;
     rde_arr TYPE(fude_zoom_mech_slide)  slides;
+    rde_arr TYPE(fude_zoom_mech_tracer) tracers;
+    rde_arr TYPE(fude_zoom_mech_belt)   belts;
+    rde_arr TYPE(fude_zoom_mech_damper) dampers;
+    rde_arr TYPE(fude_zoom_mech_worm)   worms;
+    rde_arr TYPE(fude_zoom_mech_pawl)   pawls;
     rde_arr TYPE(fude_zoom_v2)          piece_points;   // drawn bodies' convex pieces' corners, in turn
     rde_arr TYPE(u32)                   piece_counts;   // ...how many each
     f64                                 unit;   // the parts' size (home units: a link's thickness, the smallest)
@@ -154,10 +230,16 @@ void fude_zoom_mech_plan_destroy(fude_zoom_mech_plan* _p);
 // _to as _from is (its own copy of everything).
 void fude_zoom_mech_plan_copy(fude_zoom_mech_plan* _to, const fude_zoom_mech_plan* _from);
 // Worked out from what is on the canvas (every part alive and shown; _scope: only the objects it marks — one byte an
-// object, NULL: all) — a circuit's motor among them a shaft (its part FUDE_ZOOM_MECH_SHAFT's, fixed). How many bodies.
+// object, NULL: all) — a circuit's motor, servo, stepper, encoder or pot among them a shaft (its part FUDE_ZOOM_MECH_SHAFT's,
+// fixed), a solenoid its plunger (FUDE_ZOOM_MECH_PLUNGER's: sliding along it, in as far as its stroke). How many bodies.
 u32  fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, const u8* _scope);
 // A pulley's radius where ropes run (home units).
 f64  fude_zoom_mech_pulley_radius(const fude_zoom_mech_body* _b);
+// The radius a belt or a chain runs round on a turning part (a sprocket's, a gear's pitch circle, a crank's, a wheel's; 0:
+// not one a belt goes round).
+f64  fude_zoom_mech_belt_radius(const fude_zoom_mech_body* _b);
+// A ratchet's teeth's tips' and roots' radii (home units).
+void fude_zoom_mech_ratchet_radii(const fude_zoom_mech_body* _b, f64* _tip, f64* _root);
 // A rack's pitch line: how far above its middle (its own units, for half height _hh), and its teeth's pitch for a
 // gear of module _module (its teeth across its pitch circle: 2 × pitch radius / teeth).
 f64  fude_zoom_mech_rack_pitch_line(f64 _hh);

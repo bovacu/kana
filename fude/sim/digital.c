@@ -86,6 +86,8 @@ RDE_INTERNAL b8 fsr_logic_port(const fude_sim_port* _p) {
     return _p->domain == FUDE_SIM_LOGIC;
 }
 
+RDE_INTERNAL void fsr_start_quiet(fude_sim_run* _run);
+
 void fude_sim_run_init(fude_sim_run* _run, const fude_sim_flat* _flat) {
     memset(_run, 0, sizeof(*_run));
     _run->flat         = _flat;
@@ -149,12 +151,15 @@ void fude_sim_run_init(fude_sim_run* _run, const fude_sim_flat* _flat) {
     for(u32 _n = 0; _n < _nets; _n++) {
         FSR_U8(_run->net_value)[_n] = _df[_n + 1u] > _df[_n] ? FUDE_SIM_X : FUDE_SIM_Z;
     }
-    // Each started (its outputs as it begins), then each worked out once from what it reads, then all of it settled.
+    // Each started (its outputs as it begins), those outputs put on their nets all at once — nothing worked out from
+    // them one at a time: a flip-flop reading its set still unknown as its reset arrives would latch X for ever —, then
+    // each worked out once from what it reads, then all of it settled.
     for(u32 _p = 0; _p < _prims; _p++) {
         if(_pr[_p].model != NULL && _pr[_p].model->start != NULL) {
             _pr[_p].model->start(_run, _p);
         }
     }
+    fsr_start_quiet(_run);
     for(u32 _p = 0; _p < _prims; _p++) {
         if(_pr[_p].model != NULL && _pr[_p].model->logic != NULL) {
             _pr[_p].model->logic(_run, _p);
@@ -205,6 +210,26 @@ RDE_INTERNAL void fsr_fire(fude_sim_run* _run, const fude_sim_event* _ev) {
         const u32 _p = FSR_U32(_run->read_prims)[_i];
         if(_pr[_p].model != NULL && _pr[_p].model->logic != NULL) {
             _pr[_p].model->logic(_run, _p);
+        }
+    }
+}
+
+// The starting outputs on their nets, none of their readers worked out (fude_sim_run_init's): each drive at time now
+// applied as fsr_fire would, a wake left for its time.
+RDE_INTERNAL void fsr_start_quiet(fude_sim_run* _run) {
+    while(rde_arr_length(&_run->events) > 0u) {
+        const fude_sim_event* _top = (const fude_sim_event*)_run->events.memory;
+        if(_top->port == FUDE_SIM_NONE || _top->time > _run->now) {
+            break;
+        }
+        const fude_sim_event _ev = fsr_pop(_run);
+        if(_ev.seq != FSR_U64(_run->pending)[_ev.port]) {
+            continue;
+        }
+        FSR_U8(_run->drive)[_ev.port] = _ev.value;
+        const u32 _net = ((const u32*)_run->flat->port_nets.memory)[_ev.port];
+        if(_net < _run->flat->nets) {
+            FSR_U8(_run->net_value)[_net] = fsr_resolve(_run, _net);
         }
     }
 }

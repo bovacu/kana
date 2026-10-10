@@ -1297,10 +1297,23 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
     const fude_zoom_symbol_part* _pa = (const fude_zoom_symbol_part*)_geo->parts.memory;
     const u32* _range = (const u32*)_geo->tri_range.memory;
     const fude_zoom_v2* _tris = (const fude_zoom_v2*)_geo->tris.memory;
+    // (what moves in it, as far along it as it has: on the screen, its own width's way that far)
+    const f64 _along = _r->moved != NULL && _r->drawing < (u32)rde_arr_length(_r->moved) ? (f64)((const f32*)_r->moved->memory)[_r->drawing] : 0.0;
+    const fude_zoom_v2 _shift = { _all.a * _along, _all.b * _along };
+    for(u32 _i = 0; _i < _np; _i++) {
+        const u8 _fl = _pa[_i].flags;
+        if((_fl & FUDE_ZOOM_SYMBOL_MOVES) && _along != 0.0) {
+            for(u32 _j = 0; _j < _pa[_i].count; _j++) {
+                _p[_pa[_i].first + _j].x += _shift.x;
+                _p[_pa[_i].first + _j].y += _shift.y;
+            }
+        }
+    }
     for(u32 _i = 0; _i < _np; _i++) {
         const fude_zoom_v2* _q = &_p[_pa[_i].first];
         const u32           _m = _pa[_i].count;
         const u8            _fl = _pa[_i].flags;
+        const fude_zoom_v2  _by = (_fl & FUDE_ZOOM_SYMBOL_MOVES) ? _shift : (fude_zoom_v2){ 0.0, 0.0 };
         const b8 _solid = (_fl & FUDE_ZOOM_SYMBOL_SOLID) != 0u, _tinted = (_fl & FUDE_ZOOM_SYMBOL_TINTED) != 0u;
         if((_solid || _tinted || ((_fl & FUDE_ZOOM_SYMBOL_FILLED) && _filled)) && _range[2u * _i + 1u] > 0u) {
             rde_color _fc = _solid ? _color : (_tinted ? _pa[_i].fill : _fill);
@@ -1311,7 +1324,8 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
             const fude_zoom_v2* _t = &_tris[3u * _range[2u * _i]];
             for(u32 _j = 0; _j < _range[2u * _i + 1u]; _j++) {
                 const fude_zoom_v2 _a = fude_zoom_sim_apply(_all, _t[3u * _j]), _b = fude_zoom_sim_apply(_all, _t[3u * _j + 1u]), _c = fude_zoom_sim_apply(_all, _t[3u * _j + 2u]);
-                rde_rendering_2d_draw_triangle((rde_vec_2F){ (f32)_a.x, (f32)_a.y }, (rde_vec_2F){ (f32)_b.x, (f32)_b.y }, (rde_vec_2F){ (f32)_c.x, (f32)_c.y }, _fc, NULL);
+                rde_rendering_2d_draw_triangle((rde_vec_2F){ (f32)(_a.x + _by.x), (f32)(_a.y + _by.y) }, (rde_vec_2F){ (f32)(_b.x + _by.x), (f32)(_b.y + _by.y) },
+                                               (rde_vec_2F){ (f32)(_c.x + _by.x), (f32)(_c.y + _by.y) }, _fc, NULL);
             }
         }
         if(_fl & FUDE_ZOOM_SYMBOL_NO_LINE) {
@@ -1437,6 +1451,21 @@ RDE_INTERNAL void fude_zoom_render_symbol(fude_zoom_renderer* _r, const fude_zoo
                     _x = (f32)_at.x - _w * 0.5f;
                 }
                 rde_rendering_2d_draw_text_2(_r->font, _q.name, (rde_vec_3F){ _x, (f32)_at.y - _qpx * 0.36f, 0.0f }, (rde_vec_2F){ _qpx / _r->font_px, _qpx / _r->font_px }, 0.0f, _soft);
+            }
+        }
+    }
+    // Words on its face by what they name (an oscilloscope's knobs'), smaller than its pins' names, upright.
+    fude_zoom_part_label _words[16];
+    const u32 _nw = _as == NULL && _r->font != NULL && _info->h > 0.0f ? fude_zoom_part_labels(_part, _words, 16u) : 0u;
+    if(_nw > 0u) {
+        const f64 _pitch = _n[2] * _k / (fude_zoom_part_room_h(_part, (f64)_info->h) * 0.5) * 20.0;
+        const f32 _px = (f32)fmin(_pitch * 0.4, 11.0);
+        if(_px >= 5.0f) {
+            for(u32 _i = 0; _i < _nw; _i++) {
+                const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (f64)_words[_i].u * _n[1], (f64)_words[_i].v * _n[2] });
+                const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _words[_i].text, _px);
+                rde_rendering_2d_draw_text_2(_r->font, _words[_i].text, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
+                                             (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, fude_theme_active()->text_soft);
             }
         }
     }

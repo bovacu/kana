@@ -15,12 +15,22 @@ void fude_zoom_coupling_init(fude_zoom_coupling* _k) {
     _k->motors  = rde_arr_new(sizeof(fude_zoom_coupled_motor), _heap);
     _k->servos  = rde_arr_new(sizeof(fude_zoom_coupled_servo), _heap);
     _k->buttons = rde_arr_new(sizeof(fude_zoom_coupled_button), _heap);
+    _k->slots     = rde_arr_new(sizeof(fude_zoom_coupled_button), _heap);
+    _k->steppers  = rde_arr_new(sizeof(fude_zoom_coupled_shaft), _heap);
+    _k->encoders  = rde_arr_new(sizeof(fude_zoom_coupled_shaft), _heap);
+    _k->pots      = rde_arr_new(sizeof(fude_zoom_coupled_shaft), _heap);
+    _k->solenoids = rde_arr_new(sizeof(fude_zoom_coupled_solenoid), _heap);
 }
 
 void fude_zoom_coupling_destroy(fude_zoom_coupling* _k) {
     rde_arr_free(&_k->motors);
     rde_arr_free(&_k->servos);
     rde_arr_free(&_k->buttons);
+    rde_arr_free(&_k->slots);
+    rde_arr_free(&_k->steppers);
+    rde_arr_free(&_k->encoders);
+    rde_arr_free(&_k->pots);
+    rde_arr_free(&_k->solenoids);
 }
 
 RDE_INTERNAL fude_zoom_circuit_part* fzk_part(fude_zoom_circuit* _c, u32 _i) {
@@ -33,13 +43,21 @@ void fude_zoom_coupling_clear(fude_zoom_coupling* _k, fude_zoom_circuit* _c) {
         _p->shafted = false;
         _p->spin    = 0.0;
         _p->pushed  = false;
-        if(_p->part->model == FUDE_ZOOM_MODEL_SERVO) {
+        const u8 _m = _p->part->model;
+        if(_m == FUDE_ZOOM_MODEL_SERVO || _m == FUDE_ZOOM_MODEL_STEPPER || _m == FUDE_ZOOM_MODEL_ENCODER) {
             _p->state[7] = -1.0;   // (turning itself)
+        } else if(_m == FUDE_ZOOM_MODEL_SOLENOID) {
+            _p->state[3] = 0.0;    // (its plunger its own)
         }
     }
     rde_arr_clear(&_k->motors);
     rde_arr_clear(&_k->servos);
     rde_arr_clear(&_k->buttons);
+    rde_arr_clear(&_k->slots);
+    rde_arr_clear(&_k->steppers);
+    rde_arr_clear(&_k->encoders);
+    rde_arr_clear(&_k->pots);
+    rde_arr_clear(&_k->solenoids);
     _k->left = 0.0;
 }
 
@@ -66,15 +84,37 @@ u32 fude_zoom_coupling_build(fude_zoom_coupling* _k, fude_zoom_circuit* _c, cons
                 rde_arr_add(&_k->servos, (any)&_sv);
                 _p->state[7] = 0.0;
             }
-        } else if(_p->part->model == FUDE_ZOOM_MODEL_BUTTON && _p->object < fude_zoom_scene_object_count(_s)) {
-            // (its middle in the home frame, where the world's parts are)
+        } else if(_p->part->model == FUDE_ZOOM_MODEL_STEPPER || _p->part->model == FUDE_ZOOM_MODEL_ENCODER || _p->part->model == FUDE_ZOOM_MODEL_POT) {
+            const u32 _shaft = fude_zoom_mech_world_shaft(_w, _p->object);
+            if(_shaft != FUDE_ZOOM_NONE) {
+                const f64 _a = fude_zoom_mech_world_shaft_angle(_w, _shaft);
+                const fude_zoom_coupled_shaft _sh = { _i, _shaft, _p->state[0], _a, 0.0 };
+                rde_arr_add(_p->part->model == FUDE_ZOOM_MODEL_STEPPER ? &_k->steppers : (_p->part->model == FUDE_ZOOM_MODEL_ENCODER ? &_k->encoders : &_k->pots),
+                            (any)&_sh);
+                if(_p->part->model != FUDE_ZOOM_MODEL_POT) {
+                    _p->state[7] = 0.0;
+                }
+            }
+        } else if(_p->part->model == FUDE_ZOOM_MODEL_SOLENOID) {
+            const u32 _pl = fude_zoom_mech_world_plunger(_w, _p->object);
+            if(_pl != FUDE_ZOOM_NONE) {
+                const fude_zoom_coupled_solenoid _so = { _i, _pl };
+                rde_arr_add(&_k->solenoids, (any)&_so);
+                _p->state[3] = 1.0;
+            }
+        } else if((_p->part->model == FUDE_ZOOM_MODEL_BUTTON || _p->part->model == FUDE_ZOOM_MODEL_SLOT) && _p->object < fude_zoom_scene_object_count(_s)) {
+            // (a button's middle in the home frame, where the world's parts are; a slotted sensor's beam, across its slot)
             const fude_zoom_object* _o = fude_zoom_scene_object(_s, _p->object);
             const fude_zoom_sim _up = fude_zoom_sim_compose(fude_zoom_scene_sim(_s, _o->frame, _home), fude_zoom_object_sim(_o));
-            const fude_zoom_coupled_button _b = { _i, fude_zoom_sim_apply(_up, (fude_zoom_v2){ 0.0, 0.0 }) };
-            rde_arr_add(&_k->buttons, (any)&_b);
+            f64 _n[3] = { 0.0, 0.0, 0.0 };
+            fude_zoom_scene_shape_numbers(_s, _p->object, _n, 3u);
+            const b8 _slot = _p->part->model == FUDE_ZOOM_MODEL_SLOT;
+            const fude_zoom_coupled_button _b = { _i, fude_zoom_sim_apply(_up, (fude_zoom_v2){ 0.0, _slot ? 0.3 * _n[2] : 0.0 }) };
+            rde_arr_add(_slot ? &_k->slots : &_k->buttons, (any)&_b);
         }
     }
-    return (u32)(rde_arr_length(&_k->motors) + rde_arr_length(&_k->servos) + rde_arr_length(&_k->buttons));
+    return (u32)(rde_arr_length(&_k->motors) + rde_arr_length(&_k->servos) + rde_arr_length(&_k->buttons) + rde_arr_length(&_k->slots) +
+                 rde_arr_length(&_k->steppers) + rde_arr_length(&_k->encoders) + rde_arr_length(&_k->pots) + rde_arr_length(&_k->solenoids));
 }
 
 // Each shafted motor's drive, as the circuit loads it now: toward the speed at which nothing flows through it, with the
@@ -123,6 +163,63 @@ RDE_INTERNAL void fzk_servos(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude
     }
 }
 
+// Each stepper on a shaft driven toward where its coils' field is the nearest way (a step's worth of its shaft's turn
+// for each quarter of the field's), as hard as its holding torque as strong as the field is; no field: held by its
+// detents a little; the field straight behind its rotor: free (balanced).
+RDE_INTERNAL void fzk_steppers(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude_zoom_mech_world* _w) {
+    const fude_zoom_coupled_shaft* _st = (const fude_zoom_coupled_shaft*)_k->steppers.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->steppers); _i++) {
+        fude_zoom_circuit_part* _p = fzk_part(_c, _st[_i].part);
+        if(_p == NULL) {
+            continue;
+        }
+        f64 _strength = 0.0;
+        const f64 _to = fude_zoom_circuit_stepper_field(_p, &_strength);
+        const f64 _off = remainder(_to - _p->state[0], 2.0 * FZK_PI);
+        if(_p->burnt || _strength <= 0.3) {
+            fude_zoom_mech_world_shaft_drive(_w, _st[_i].shaft, 0.0, 0.05 * FUDE_ZOOM_COUPLING_HOLD);
+        } else if(fabs(_off) > FZK_PI - 0.05) {
+            fude_zoom_mech_world_shaft_drive(_w, _st[_i].shaft, 0.0, 0.0);
+        } else {
+            // (there in a step, as fast as its rotor goes at most: a step of a 28BYJ-48's shaft is 0.003 rad — no gentler
+            // pace keeps up with its field)
+            const f64 _per = 4.0 / fmax(_p->value[0], 1.0);   // (its shaft's radians a radian of its field)
+            const f64 _top = FUDE_ZOOM_STEPPER_RATE * 0.5 * FZK_PI * _per;
+            fude_zoom_mech_world_shaft_drive(_w, _st[_i].shaft, fmin(fmax(_off * _per / FUDE_ZOOM_MECH_STEP, -_top), _top), FUDE_ZOOM_COUPLING_HOLD * fmin(_strength, 1.5));
+        }
+    }
+}
+
+// A shaft's turn since it began, every turn counted (its angle read again: the world's wraps round).
+RDE_INTERNAL f64 fzk_turned(fude_zoom_coupled_shaft* _sh, const fude_zoom_mech_world* _w) {
+    const f64 _a = fude_zoom_mech_world_shaft_angle(_w, _sh->shaft);
+    _sh->turned += remainder(_a - _sh->was, 2.0 * FZK_PI);
+    _sh->was = _a;
+    return _sh->turned;
+}
+
+b8 fude_zoom_coupling_works(const fude_zoom_coupling* _k, u32 _part) {
+    const fude_zoom_coupled_shaft* _e = (const fude_zoom_coupled_shaft*)_k->encoders.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->encoders); _i++) {
+        if(_e[_i].part == _part) {
+            return true;
+        }
+    }
+    const fude_zoom_coupled_shaft* _p = (const fude_zoom_coupled_shaft*)_k->pots.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->pots); _i++) {
+        if(_p[_i].part == _part) {
+            return true;
+        }
+    }
+    const fude_zoom_coupled_button* _s = (const fude_zoom_coupled_button*)_k->slots.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->slots); _i++) {
+        if(_s[_i].part == _part) {
+            return true;
+        }
+    }
+    return false;
+}
+
 b8 fude_zoom_coupling_step(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude_zoom_mech_world* _w, f64 _dt) {
     if(!fude_zoom_mech_world_on(_w)) {
         return true;
@@ -159,6 +256,47 @@ b8 fude_zoom_coupling_step(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude_z
                 }
             }
         }
+        const fude_zoom_coupled_button* _sl = (const fude_zoom_coupled_button*)_k->slots.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->slots); _i++) {
+            fude_zoom_circuit_part* _p = fzk_part(_c, _sl[_i].part);
+            if(_p != NULL) {
+                const f64 _blocked = fude_zoom_mech_world_covers(_w, _sl[_i].at) ? 1.0 : 0.0;
+                if(_blocked != _p->state[0]) {
+                    _p->state[0] = _blocked;
+                    fude_zoom_circuit_jump(_c);
+                }
+            }
+        }
+        // (steppers' rotors, encoders' contacts, pots' wipers: as their shafts have turned; plungers as far in as they are)
+        fude_zoom_coupled_shaft* _sh = (fude_zoom_coupled_shaft*)_k->steppers.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->steppers); _i++) {
+            fude_zoom_circuit_part* _p = fzk_part(_c, _sh[_i].part);
+            if(_p != NULL) {
+                _p->state[0] = _sh[_i].from + fzk_turned(&_sh[_i], _w) * fmax(_p->value[0], 1.0) / 4.0;
+            }
+        }
+        _sh = (fude_zoom_coupled_shaft*)_k->encoders.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->encoders); _i++) {
+            fude_zoom_circuit_part* _p = fzk_part(_c, _sh[_i].part);
+            if(_p != NULL) {
+                _p->state[0] = _sh[_i].from - fzk_turned(&_sh[_i], _w) * _p->value[0] / (2.0 * FZK_PI);   // (clockwise on)
+                _p->state[1] = _p->state[0];
+            }
+        }
+        _sh = (fude_zoom_coupled_shaft*)_k->pots.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->pots); _i++) {
+            fude_zoom_circuit_part* _p = fzk_part(_c, _sh[_i].part);
+            if(_p != NULL) {
+                _p->state[0] = fmin(fmax(_sh[_i].from - fzk_turned(&_sh[_i], _w) / (1.5 * FZK_PI), 0.0), 1.0);   // (270° end to end)
+            }
+        }
+        const fude_zoom_coupled_solenoid* _so = (const fude_zoom_coupled_solenoid*)_k->solenoids.memory;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->solenoids); _i++) {
+            fude_zoom_circuit_part* _p = fzk_part(_c, _so[_i].part);
+            if(_p != NULL) {
+                _p->state[2] = fude_zoom_mech_world_plunger_in(_w, _so[_i].plunger);
+            }
+        }
         // The circuit as long, in its own steps (as fine as what happens in it needs).
         if(rde_arr_length(&_c->parts) > 0u) {
             _ok  = fude_zoom_circuit_advance(_c, FUDE_ZOOM_MECH_STEP, FZK_STEPS_MOST, false);
@@ -168,6 +306,12 @@ b8 fude_zoom_coupling_step(fude_zoom_coupling* _k, fude_zoom_circuit* _c, fude_z
         if(_ok) {
             fzk_drive(_k, _c, _w);
             fzk_servos(_k, _c, _w);
+            fzk_steppers(_k, _c, _w);
+            for(u32 _i = 0; _i < (u32)rde_arr_length(&_k->solenoids); _i++) {
+                const fude_zoom_circuit_part* _p = fzk_part(_c, _so[_i].part);
+                const f64 _pull = _p != NULL && !_p->burnt ? fude_zoom_circuit_solenoid_pull(_p) : 0.0;
+                fude_zoom_mech_world_plunger_pull(_w, _so[_i].plunger, (_pull - FUDE_ZOOM_SOLENOID_SPRING) * FUDE_ZOOM_COUPLING_PULL);
+            }
         }
         fude_zoom_mech_world_tick(_w);
     }

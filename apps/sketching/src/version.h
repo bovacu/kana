@@ -11,7 +11,7 @@
 #define SKETCHING_NAME "Sketching"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define SKETCHING_VERSION "0.1.70"
+#define SKETCHING_VERSION "0.1.77"
 
 // The app's Apple ID on the App Store (digits only). Empty until the app is there.
 #define SKETCHING_APP_STORE_ID ""

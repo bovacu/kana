@@ -3,6 +3,7 @@
 #include "zoom/display.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // --- sized parts ---------------------------------------------------------------------------------
@@ -495,6 +496,273 @@ void fude_zoom_lcd_glyph(const fude_zoom_lcd* _l, u8 _code, u8* _rows) {
 
 // --- a panel meter -------------------------------------------------------------------------------
 
+// --- an oscilloscope ------------------------------------------------------------------------------
+//
+// Its state: [0] its sweep's start (the circuit's time), [1] the next sample (-1: waiting for its trigger), [2] [3] CH1's
+// and CH2's voltages as last stepped, [4] when, [5] since when it has waited, [6] [7] the least and most CH1 was over the
+// last sweep (its auto level halfway between).
+
+fude_zoom_scope fude_zoom_display_scope(const c8* _text) {
+    fude_zoom_scope _s = { 1e-3, 2.0, NAN, NAN, 0.0, 0.0 };
+    u32 _volts = 0;   // (volts a division read: CH1's, then CH2's)
+    // Each number and the unit after it: seconds (a time a division), volts (volts a division; after "trig": its level).
+    const c8* _p = _text;
+    b8 _trig = false;
+    while(_p != NULL && *_p != 0) {
+        if((_p[0] | 0x20) == 't' && (_p[1] | 0x20) == 'r' && (_p[2] | 0x20) == 'i' && (_p[3] | 0x20) == 'g') {
+            _trig = true;
+            _p += 4;
+            continue;
+        }
+        if(!((*_p >= '0' && *_p <= '9') || ((*_p == '.' || *_p == '-') && _p[1] >= '0' && _p[1] <= '9'))) {
+            _p++;
+            continue;
+        }
+        c8* _end = NULL;
+        f64 _v = strtod(_p, &_end);
+        _p = _end;
+        while(*_p == ' ') {
+            _p++;
+        }
+        f64 _k = 1.0;
+        if(*_p == 'm') { _k = 1e-3; _p++; }
+        else if(*_p == 'u') { _k = 1e-6; _p++; }
+        else if((u8)_p[0] == 0xC2 && (u8)_p[1] == 0xB5) { _k = 1e-6; _p += 2; }
+        else if(*_p == 'n') { _k = 1e-9; _p++; }
+        else if(*_p == 'k') { _k = 1e3; _p++; }
+        if(*_p == 's') {
+            if(_v * _k > 0.0) {
+                _s.time_div = _v * _k;
+            }
+        } else if(*_p == 'V' || *_p == 'v') {
+            if(_trig) {
+                _s.level = _v * _k;
+                _trig = false;
+            } else if(_v * _k > 0.0) {
+                if(_volts == 0u) {
+                    _s.volt_div = _v * _k;
+                } else if(_volts == 1u) {
+                    _s.volt_div2 = _v * _k;
+                }
+                _volts++;
+            }
+        }
+    }
+    if(isnan(_s.volt_div2)) {
+        _s.volt_div2 = _s.volt_div;
+    }
+    return _s;
+}
+
+fude_zoom_scope fude_zoom_display_scope_of(const fude_zoom_circuit_part* _q) {
+    const fude_zoom_scope _s = { _q->value[0] > 0.0 ? _q->value[0] : 1e-3, _q->value[1] > 0.0 ? _q->value[1] : 1.0, _q->value[2],
+                                 _q->value[3] > 0.0 ? _q->value[3] : (_q->value[1] > 0.0 ? _q->value[1] : 1.0), _q->value[4], _q->value[5] };
+    return _s;
+}
+
+// --- its knobs ---
+
+#define FZD_SCOPE_VOLTS_LEAST 1e-3
+#define FZD_SCOPE_VOLTS_MOST  50.0
+#define FZD_SCOPE_TIME_LEAST  1e-5
+#define FZD_SCOPE_TIME_MOST   5.0
+#define FZD_SCOPE_KNOB_R      0.14   // (of its half height)
+#define FZD_SCOPE_PANEL_U     0.48   // its knobs' panel: from here to its right edge (of its half width)
+
+void fude_zoom_scope_screen(f64* _u0, f64* _v0, f64* _u1, f64* _v1) {
+    *_u0 = -0.62;
+    *_v0 = -0.78;
+    *_u1 = 0.42;
+    *_v1 = 0.78;
+}
+
+void fude_zoom_scope_knob(u32 _k, f64* _u, f64* _v, f64* _r) {
+    static const f64 _at[FUDE_ZOOM_SCOPE_KNOBS][2] = { { 0.6, 0.56 }, { 0.84, 0.56 }, { 0.6, 0.02 }, { 0.84, 0.02 }, { 0.72, -0.52 } };
+    const u32 _i = _k < FUDE_ZOOM_SCOPE_KNOBS ? _k : 0u;
+    *_u = _at[_i][0];
+    *_v = _at[_i][1];
+    *_r = FZD_SCOPE_KNOB_R;
+}
+
+u32 fude_zoom_scope_knob_at(f64 _u, f64 _v, i32* _way) {
+    // (its panel in cells, every point of it some knob's: three rows — halfway between the knobs' middles —, the upper
+    // two in CH1's column and CH2's, TIME's across both)
+    if(_u < FZD_SCOPE_PANEL_U || _u > 1.0 || _v < -1.0 || _v > 1.0) {
+        return FUDE_ZOOM_NONE;
+    }
+    f64 _u1, _v1, _u2, _v2, _ut, _vt, _r;
+    fude_zoom_scope_knob(FUDE_ZOOM_SCOPE_KNOB_VOLTS1, &_u1, &_v1, &_r);
+    fude_zoom_scope_knob(FUDE_ZOOM_SCOPE_KNOB_POS2, &_u2, &_v2, &_r);
+    fude_zoom_scope_knob(FUDE_ZOOM_SCOPE_KNOB_TIME, &_ut, &_vt, &_r);
+    const b8 _ch2 = _u >= 0.5 * (_u1 + _u2);
+    const u32 _k = _v >= 0.5 * (_v1 + _v2) ? (_ch2 ? FUDE_ZOOM_SCOPE_KNOB_VOLTS2 : FUDE_ZOOM_SCOPE_KNOB_VOLTS1) :
+                   (_v >= 0.5 * (_v2 + _vt) ? (_ch2 ? FUDE_ZOOM_SCOPE_KNOB_POS2 : FUDE_ZOOM_SCOPE_KNOB_POS1) : FUDE_ZOOM_SCOPE_KNOB_TIME);
+    f64 _ku, _kv;
+    fude_zoom_scope_knob(_k, &_ku, &_kv, &_r);
+    if(_way != NULL) {
+        *_way = _u >= _ku ? 1 : -1;
+    }
+    return _k;
+}
+
+// The next of 1, 2, 5, 10... from _x within [_least, _most]: smaller (_way +1) or bigger (-1). False: none.
+RDE_INTERNAL b8 fzd_step_125(f64* _x, i32 _way, f64 _least, f64 _most) {
+    f64 _best = _way > 0 ? -1.0 : 1e300;
+    for(i32 _d = (i32)floor(log10(_least)) - 1; _d <= (i32)ceil(log10(_most)) + 1; _d++) {
+        static const f64 _m[3] = { 1.0, 2.0, 5.0 };
+        for(u32 _i = 0; _i < 3u; _i++) {
+            const f64 _c = _m[_i] * pow(10.0, (f64)_d);
+            if(_c < _least * (1.0 - 1e-9) || _c > _most * (1.0 + 1e-9)) {
+                continue;
+            }
+            if(_way > 0 && _c < *_x * (1.0 - 1e-6) && _c > _best) {
+                _best = _c;
+            } else if(_way < 0 && _c > *_x * (1.0 + 1e-6) && _c < _best) {
+                _best = _c;
+            }
+        }
+    }
+    if(_best < 0.0 || _best >= 1e300) {
+        return false;
+    }
+    *_x = _best;
+    return true;
+}
+
+b8 fude_zoom_scope_turn(fude_zoom_scope* _s, u32 _k, i32 _way) {
+    switch(_k) {
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS1: return fzd_step_125(&_s->volt_div, _way, FZD_SCOPE_VOLTS_LEAST, FZD_SCOPE_VOLTS_MOST);
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS2: return fzd_step_125(&_s->volt_div2, _way, FZD_SCOPE_VOLTS_LEAST, FZD_SCOPE_VOLTS_MOST);
+    case FUDE_ZOOM_SCOPE_KNOB_TIME:   return fzd_step_125(&_s->time_div, _way, FZD_SCOPE_TIME_LEAST, FZD_SCOPE_TIME_MOST);
+    case FUDE_ZOOM_SCOPE_KNOB_POS1:
+    case FUDE_ZOOM_SCOPE_KNOB_POS2: {
+        f64* _p = _k == FUDE_ZOOM_SCOPE_KNOB_POS1 ? &_s->pos1 : &_s->pos2;
+        const f64 _to = fmin(fmax(round(2.0 * *_p) * 0.5 + 0.5 * (f64)_way, -FUDE_ZOOM_SCOPE_POS_MOST), FUDE_ZOOM_SCOPE_POS_MOST);
+        if(fabs(_to - *_p) < 1e-9) {
+            return false;
+        }
+        *_p = _to;
+        return true;
+    }
+    default: return false;
+    }
+}
+
+f64 fude_zoom_scope_knob_round(const fude_zoom_scope* _s, u32 _k) {
+    switch(_k) {
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS1:
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS2: {
+        const f64 _x = _k == FUDE_ZOOM_SCOPE_KNOB_VOLTS1 ? _s->volt_div : _s->volt_div2;
+        return fmin(fmax(log(FZD_SCOPE_VOLTS_MOST / fmax(_x, 1e-12)) / log(FZD_SCOPE_VOLTS_MOST / FZD_SCOPE_VOLTS_LEAST), 0.0), 1.0);
+    }
+    case FUDE_ZOOM_SCOPE_KNOB_TIME:
+        return fmin(fmax(log(FZD_SCOPE_TIME_MOST / fmax(_s->time_div, 1e-12)) / log(FZD_SCOPE_TIME_MOST / FZD_SCOPE_TIME_LEAST), 0.0), 1.0);
+    case FUDE_ZOOM_SCOPE_KNOB_POS1:
+    case FUDE_ZOOM_SCOPE_KNOB_POS2:
+        return fmin(fmax(((_k == FUDE_ZOOM_SCOPE_KNOB_POS1 ? _s->pos1 : _s->pos2) + FUDE_ZOOM_SCOPE_POS_MOST) / (2.0 * FUDE_ZOOM_SCOPE_POS_MOST), 0.0), 1.0);
+    default: return 0.5;
+    }
+}
+
+const c8* fude_zoom_scope_knob_name(u32 _k) {
+    static const c8* const _names[FUDE_ZOOM_SCOPE_KNOBS] = { "CH1 VOLTS/DIV", "CH2 VOLTS/DIV", "CH1 POSITION", "CH2 POSITION", "TIME/DIV" };
+    return _k < FUDE_ZOOM_SCOPE_KNOBS ? _names[_k] : "";
+}
+
+// _x of _unit with its prefix (m, µ), as few figures as it needs: "500 mV", "2 s".
+RDE_INTERNAL void fzd_si(f64 _x, const c8* _unit, c8* _out, usize _size) {
+    const c8* _pre = "";
+    f64 _k = 1.0;
+    if(fabs(_x) < 1e-3 * (1.0 - 1e-9)) {
+        _pre = "\xC2\xB5";
+        _k = 1e6;
+    } else if(fabs(_x) < 1.0 * (1.0 - 1e-9)) {
+        _pre = "m";
+        _k = 1e3;
+    }
+    snprintf(_out, _size, "%g %s%s", round(_x * _k * 1000.0) / 1000.0, _pre, _unit);
+}
+
+void fude_zoom_scope_knob_say(const fude_zoom_scope* _s, u32 _k, c8* _out, usize _size) {
+    c8 _v[32];
+    switch(_k) {
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS1:
+    case FUDE_ZOOM_SCOPE_KNOB_VOLTS2:
+        fzd_si(_k == FUDE_ZOOM_SCOPE_KNOB_VOLTS1 ? _s->volt_div : _s->volt_div2, "V", _v, sizeof(_v));
+        snprintf(_out, _size, "%s", _v);
+        break;
+    case FUDE_ZOOM_SCOPE_KNOB_TIME:
+        fzd_si(_s->time_div, "s", _v, sizeof(_v));
+        snprintf(_out, _size, "%s", _v);
+        break;
+    case FUDE_ZOOM_SCOPE_KNOB_POS1:
+    case FUDE_ZOOM_SCOPE_KNOB_POS2: {
+        const f64 _p = _k == FUDE_ZOOM_SCOPE_KNOB_POS1 ? _s->pos1 : _s->pos2;
+        snprintf(_out, _size, fabs(_p) < 1e-9 ? "0" : "%+g", _p);
+        break;
+    }
+    default:
+        if(_size > 0u) {
+            _out[0] = 0;
+        }
+        break;
+    }
+}
+
+u32 fude_zoom_scope_at(const f64* _state) {
+    return _state[1] < 0.0 ? FUDE_ZOOM_SCOPE_SAMPLES : (u32)_state[1];
+}
+
+void fude_zoom_scope_step(const fude_zoom_scope* _s, f64* _st, f32* _samples, f64 _t, f64 _v1, f64 _v2, b8 _first) {
+    const f64 _sweep = FUDE_ZOOM_SCOPE_DIVS_X * _s->time_div, _gap = _sweep / (f64)FUDE_ZOOM_SCOPE_SAMPLES;
+    if(_first) {
+        _st[0] = _t;
+        _st[1] = -1.0;
+        _st[2] = _v1;
+        _st[3] = _v2;
+        _st[4] = _t;
+        _st[5] = _t;
+        _st[6] = _v1;
+        _st[7] = _v1;
+        return;
+    }
+    const f64 _t0 = _st[4], _p1 = _st[2], _p2 = _st[3];
+    if(_st[1] < 0.0) {
+        // (waiting: its level what it was told, else halfway between what the last sweep saw at its least and most)
+        const f64 _level = !isnan(_s->level) ? _s->level : 0.5 * (_st[6] + _st[7]);
+        if(_p1 < _level && _v1 >= _level && _t > _t0) {
+            _st[0] = _t0 + (_t - _t0) * (_level - _p1) / (_v1 - _p1);   // (where it rose through, between the steps)
+            _st[1] = 0.0;
+        } else if(_t - _st[5] >= 2.0 * _sweep) {
+            _st[0] = _t;   // (auto: waited long enough)
+            _st[1] = 0.0;
+        }
+        if(_st[1] == 0.0) {
+            _st[6] = _st[7] = _v1;
+        }
+    }
+    while(_st[1] >= 0.0 && _st[1] < (f64)FUDE_ZOOM_SCOPE_SAMPLES) {
+        const f64 _ts = _st[0] + _st[1] * _gap;
+        if(_ts > _t + 1e-12) {
+            break;
+        }
+        const f64 _f = _t > _t0 ? fmin(fmax((_ts - _t0) / (_t - _t0), 0.0), 1.0) : 1.0;
+        const u32 _i = (u32)_st[1];
+        _samples[_i] = (f32)(_p1 + (_v1 - _p1) * _f);
+        _samples[FUDE_ZOOM_SCOPE_SAMPLES + _i] = (f32)(_p2 + (_v2 - _p2) * _f);
+        _st[6] = fmin(_st[6], (f64)_samples[_i]);
+        _st[7] = fmax(_st[7], (f64)_samples[_i]);
+        _st[1] += 1.0;
+    }
+    if(_st[1] >= (f64)FUDE_ZOOM_SCOPE_SAMPLES) {
+        _st[1] = -1.0;   // (the sweep done: waiting for the next trigger)
+        _st[5] = _t;
+    }
+    _st[2] = _v1;
+    _st[3] = _v2;
+    _st[4] = _t;
+}
+
 fude_zoom_meter fude_zoom_display_meter(const c8* _text) {
     fude_zoom_meter _m;
     memset(&_m, 0, sizeof(_m));
@@ -656,6 +924,71 @@ void fude_zoom_display_render(const fude_zoom_circuit* _c, const fude_zoom_circu
                 const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _cx + _gap * 0.5, -_dh * 0.5 });
                 rde_rendering_2d_draw_circle((rde_vec_2F){ (f32)_at.x, (f32)_at.y }, (f32)fmax(0.05 * _hh * fude_zoom_sim_scale(_all), 1.0), 8u, _ink, NULL);
             }
+        }
+        break;
+    }
+    case FUDE_ZOOM_MODEL_SCOPE: {
+        // Its screen (its own units: its window as drawn — circuit.c's): a graticule of 10 × 8, CH1 yellow, CH2 cyan (when
+        // it is joined), each as big as its VOLTS/DIV says, its 0 V where its POSITION is (marked at the screen's left
+        // edge); its knobs' pointers, as far round as each is set.
+        f64 _u0, _v0, _u1, _v1;
+        fude_zoom_scope_screen(&_u0, &_v0, &_u1, &_v1);
+        const f64 _x0 = _u0 * _hw, _x1 = _u1 * _hw, _y0 = _v0 * _hh, _y1 = _v1 * _hh, _div = (_y1 - _y0) / FUDE_ZOOM_SCOPE_DIVS_Y;
+        fzd_quad(_all, _x0, _y0, _x1, _y1, (rde_color){ 12, 24, 18, 255 });
+        const rde_color _grid = { 60, 110, 80, 120 };
+        for(u32 _k = 1; _k < 10u; _k++) {
+            const f64 _x = _x0 + (_x1 - _x0) * (f64)_k / 10.0;
+            fzd_bar(_all, _x, _y0, _x, _y1, _k == 5u ? 0.012 * _hh : 0.006 * _hh, _grid);
+        }
+        for(u32 _k = 1; _k < 8u; _k++) {
+            const f64 _y = _y0 + (_y1 - _y0) * (f64)_k / 8.0;
+            fzd_bar(_all, _x0, _y, _x1, _y, _k == 4u ? 0.012 * _hh : 0.006 * _hh, _grid);
+        }
+        const fude_zoom_scope _sc = fude_zoom_display_scope_of(_q);
+        const rde_color _colour[2] = { { 250, 220, 60, 255 }, { 70, 220, 240, 255 } };
+        for(u32 _ch = 0; _ch < 2u; _ch++) {
+            if(_q->node[_ch] == FUDE_ZOOM_NONE) {
+                continue;
+            }
+            const f64 _pos = _ch == 0u ? _sc.pos1 : _sc.pos2, _zero = 0.5 * (_y0 + _y1) + _pos * _div;
+            if(_zero >= _y0 && _zero <= _y1) {
+                // (its 0 V: a small arrow into the screen at its left edge)
+                const f64 _a = 0.05 * _hh;
+                const fude_zoom_v2 _p0 = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _x0, _zero }), _p1 = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _x0 - 1.4 * _a, _zero + _a });
+                const fude_zoom_v2 _p2 = fude_zoom_sim_apply(_all, (fude_zoom_v2){ _x0 - 1.4 * _a, _zero - _a });
+                const rde_vec_2F _tri[3] = { { (f32)_p0.x, (f32)_p0.y }, { (f32)_p1.x, (f32)_p1.y }, { (f32)_p2.x, (f32)_p2.y } };
+                rde_rendering_2d_draw_polygon(_tri, 3u, _colour[_ch], NULL);
+            }
+            if(_store == NULL) {
+                continue;
+            }
+            const f32* _smp = (const f32*)_store;
+            const f64 _vd = _ch == 0u ? _sc.volt_div : _sc.volt_div2;
+            fude_zoom_v2 _was = { 0.0, 0.0 };
+            for(u32 _i = 0; _i < FUDE_ZOOM_SCOPE_SAMPLES; _i++) {
+                const f64 _v = fmin(fmax((f64)_smp[_ch * FUDE_ZOOM_SCOPE_SAMPLES + _i] / _vd + _pos, -4.0), 4.0);
+                const fude_zoom_v2 _at = { _x0 + (_x1 - _x0) * (f64)_i / (f64)(FUDE_ZOOM_SCOPE_SAMPLES - 1u), 0.5 * (_y0 + _y1) + _v * _div };
+                if(_i > 0u) {
+                    fzd_bar(_all, _was.x, _was.y, _at.x, _at.y, 0.018 * _hh, _colour[_ch]);
+                }
+                _was = _at;
+            }
+        }
+        // (where its sweep is: a mark along its bottom)
+        const u32 _at = fude_zoom_scope_at(_q->state);
+        if(_store != NULL && _at < FUDE_ZOOM_SCOPE_SAMPLES) {
+            const f64 _x = _x0 + (_x1 - _x0) * (f64)_at / (f64)FUDE_ZOOM_SCOPE_SAMPLES;
+            fzd_bar(_all, _x, _y0, _x, _y0 + 0.06 * _hh, 0.02 * _hh, (rde_color){ 250, 220, 60, 200 });
+        }
+        // (its knobs' pointers: from 150° counter-clockwise of up at their stop to 150° clockwise of it)
+        for(u32 _k = 0; _k < FUDE_ZOOM_SCOPE_KNOBS; _k++) {
+            f64 _ku, _kv, _kr;
+            fude_zoom_scope_knob(_k, &_ku, &_kv, &_kr);
+            const f64 _an = (-150.0 + 300.0 * fude_zoom_scope_knob_round(&_sc, _k)) * 3.14159265358979323846 / 180.0;
+            const f64 _r = _kr * _hh;
+            fzd_bar(_all, _ku * _hw + 0.25 * _r * sin(_an), _kv * _hh + 0.25 * _r * cos(_an), _ku * _hw + 0.95 * _r * sin(_an), _kv * _hh + 0.95 * _r * cos(_an),
+                    0.035 * _hh, _k == FUDE_ZOOM_SCOPE_KNOB_VOLTS1 || _k == FUDE_ZOOM_SCOPE_KNOB_POS1 ? _colour[0] :
+                                 (_k == FUDE_ZOOM_SCOPE_KNOB_TIME ? (rde_color){ 230, 230, 230, 255 } : _colour[1]));
         }
         break;
     }

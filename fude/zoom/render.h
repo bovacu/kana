@@ -109,6 +109,9 @@ typedef struct {
     // Graphs playing (plot.h): per object, set: drawn as _plot_play says (its time, its sliders); NULL: none.
     const rde_arr*                    plot_mask;
     const struct fude_zoom_plot_play* plot_play;
+    // What moves in a symbol as it plays (its FUDE_ZOOM_SYMBOL_MOVES parts: a solenoid's plunger): per object, an f32 —
+    // how far along its own width they are drawn from where they are (its own units). NULL: where they are.
+    const rde_arr*                    moved;
     u32                               drawing;   // the object being drawn (render_symbol's)
     // The rulers stuck to the screen's edges at the last draw (fude_zoom_render_sheets_stuck): each band as drawn, its
     // sheet, and which it is (1: the top one, along the sheet's X; 0: the left one, up its Y).

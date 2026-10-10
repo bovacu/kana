@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/map.h"
+#include "zoom/nav.h"
 #include "zoom/shape.h"
 #include "zoom/symbol.h"
 
@@ -29,26 +30,8 @@ b8 fude_zoom_map_is_area(const fude_zoom_scene* _s, u32 _object) {
 }
 
 fude_zoom_box fude_zoom_map_contents(const fude_zoom_scene* _s) {
-    fude_zoom_box _all = fude_zoom_box_empty();
-    const u32 _root = _s->root;
-    for(u32 _i = 0; _i < fude_zoom_scene_object_count(_s); _i++) {
-        const fude_zoom_object* _o = fude_zoom_scene_object(_s, _i);
-        if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _o->frame != _root || _o->kind == FUDE_ZOOM_KIND_MARK || _o->kind == FUDE_ZOOM_KIND_LAYER ||
-           fude_zoom_scene_hides(_s, _o)) {
-            continue;
-        }
-        if(_o->kind == FUDE_ZOOM_KIND_FRAME) {
-            const fude_zoom_frame* _c = fude_zoom_scene_frame(_s, _o->child);
-            if(_c->removed || !fude_zoom_scene_frame_used(_s, _o->child)) {
-                continue;   // (made for a camera that passed through: nothing in it)
-            }
-        }
-        if(_o->kind == FUDE_ZOOM_KIND_SHAPE && (_o->channels == FUDE_ZOOM_SHAPE_GUIDE || fude_zoom_shape_is_attribute(_o->channels))) {
-            continue;   // (a guide reaches far past what it helps draw)
-        }
-        _all = fude_zoom_box_union(_all, _o->box);
-    }
-    return _all;
+    // (A frame in it for what is drawn in it: the view it was made for showed as an empty stretch.)
+    return fude_zoom_nav_drawn(_s, _s->root, FUDE_ZOOM_NONE);
 }
 
 fude_zoom_box fude_zoom_map_view(const fude_zoom_scene* _s, fude_zoom_v2 _half) {

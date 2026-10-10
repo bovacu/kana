@@ -1019,6 +1019,38 @@ RDE_INTERNAL void fzs_chip_3914(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zo
 RDE_INTERNAL void fzs_chip_4511(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("CD4511"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_disp_meter(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("panel meter"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_disp_lcd(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("character LCD"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_disp_scope(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("oscilloscope"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_tracer(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("tracer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_crank(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("hand crank"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_belt(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("belt"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_chain(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("chain"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_sprocket(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("sprocket"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_cam(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("cam"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_follower(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("follower"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_ratchet(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("ratchet"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_pawl(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("pawl"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_damper(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("damper"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_mech_worm(fude_zoom_sym* _s) { fude_zoom_mech_draw(fude_zoom_mech_find("worm"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_spdt(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("SPDT switch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_dpdt(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("DPDT switch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_ldr(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LDR"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_ntc(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("thermistor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_solenoid(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("solenoid"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_stepper(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("stepper motor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_encoder(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("rotary encoder"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_jk(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("JK flip-flop"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_sr(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("SR latch"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_lm393(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("LM393"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_scr(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("SCR"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_triac(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("TRIAC"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_xfmr(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("transformer"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_bridge(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("bridge rectifier"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_opto(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("optocoupler"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_photodiode(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("photodiode"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_phototrans(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("phototransistor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_speaker(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("speaker"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_cd4017(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("CD4017"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
+RDE_INTERNAL void fzs_part_slot(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("slotted sensor"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 RDE_INTERNAL void fzs_custom(fude_zoom_sym* _s) { fude_zoom_part_draw(fude_zoom_part_find("custom part"), _s->hw, _s->hh, _s->segments, _s->points, _s->parts); }
 
 
@@ -1449,6 +1481,41 @@ RDE_INTERNAL const fude_zoom_sym_entry FUDE_ZOOM_SYMBOLS[] = {
     FZS("CD4511",              ZOOM_SYM_C_4511,        CHIPS, 200, 180, INSIDE, 1, true, fzs_chip_4511),
     FZS("panel meter",         ZOOM_SYM_E_METER,       ELECTRONICS, 160, 80, BELOW, 1, true, fzs_disp_meter),
     FZS("character LCD",       ZOOM_SYM_M_CHARLCD,     CHIPS, 340, 130, BELOW, 1, true, fzs_disp_lcd),
+    FZS("oscilloscope",        ZOOM_SYM_E_SCOPE,       ELECTRONICS, 300, 160, BELOW, 1, true, fzs_disp_scope),
+    FZS("tracer",              ZOOM_SYM_M_TRACER,      MECHANISMS, 16, 16, BELOW, 1, false, fzs_mech_tracer),
+    FZS("hand crank",          ZOOM_SYM_M_CRANK,       MECHANISMS, 60, 60, BELOW, 1, false, fzs_mech_crank),
+    FZS("SPDT switch",         ZOOM_SYM_E_SPDT,        ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_spdt),
+    FZS("DPDT switch",         ZOOM_SYM_E_DPDT,        ELECTRONICS, 60, 120, BELOW, 1, false, fzs_part_dpdt),
+    FZS("LDR",                 ZOOM_SYM_E_LDR,         ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_ldr),
+    FZS("thermistor",          ZOOM_SYM_E_NTC,         ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_ntc),
+    // (0.1.73: worked by, or working, a mechanism)
+    FZS("solenoid",            ZOOM_SYM_E_SOLENOID,    ELECTRONICS, 100, 40, BELOW, 1, true, fzs_part_solenoid),
+    FZS("stepper motor",       ZOOM_SYM_E_STEPPER,     ELECTRONICS, 160, 120, BELOW, 1, true, fzs_part_stepper),
+    FZS("rotary encoder",      ZOOM_SYM_E_ENCODER,     ELECTRONICS, 80, 80, BELOW, 1, true, fzs_part_encoder),
+    FZS("slotted sensor",      ZOOM_SYM_E_SLOT,        ELECTRONICS, 80, 60, BELOW, 1, false, fzs_part_slot),
+    // (0.1.74: belts and chains, cams, ratchets, dampers, worms)
+    FZS("belt",                ZOOM_SYM_M_BELT,        MECHANISMS, 240, 40, BELOW, 1, true, fzs_mech_belt),
+    FZS("chain",               ZOOM_SYM_M_CHAIN,       MECHANISMS, 240, 40, BELOW, 1, true, fzs_mech_chain),
+    FZS("sprocket",            ZOOM_SYM_M_SPROCKET,    MECHANISMS, 60, 60, BELOW, 1, false, fzs_mech_sprocket),
+    FZS("cam",                 ZOOM_SYM_M_CAM,         MECHANISMS, 80, 80, BELOW, 1, false, fzs_mech_cam),
+    FZS("follower",            ZOOM_SYM_M_FOLLOWER,    MECHANISMS, 120, 30, BELOW, 1, true, fzs_mech_follower),
+    FZS("ratchet",             ZOOM_SYM_M_RATCHET,     MECHANISMS, 80, 80, BELOW, 1, false, fzs_mech_ratchet),
+    FZS("pawl",                ZOOM_SYM_M_PAWL,        MECHANISMS, 70, 16, BELOW, 1, false, fzs_mech_pawl),
+    FZS("damper",              ZOOM_SYM_M_DAMPER,      MECHANISMS, 120, 24, BELOW, 1, true, fzs_mech_damper),
+    FZS("worm",                ZOOM_SYM_M_WORM,        MECHANISMS, 160, 40, BELOW, 1, true, fzs_mech_worm),
+    // (0.1.75: more parts)
+    FZS("JK flip-flop",        ZOOM_SYM_L_JK,          LOGIC, 80, 80, BELOW, 1, false, fzs_part_jk),
+    FZS("SR latch",            ZOOM_SYM_L_SR,          LOGIC, 80, 80, BELOW, 1, false, fzs_part_sr),
+    FZS("LM393",               ZOOM_SYM_C_LM393,       CHIPS, 200, 100, INSIDE, 1, true, fzs_part_lm393),
+    FZS("SCR",                 ZOOM_SYM_E_SCR,         ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_scr),
+    FZS("TRIAC",               ZOOM_SYM_E_TRIAC,       ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_triac),
+    FZS("transformer",         ZOOM_SYM_E_XFMR,        ELECTRONICS, 80, 80, BELOW, 1, true, fzs_part_xfmr),
+    FZS("bridge rectifier",    ZOOM_SYM_E_BRIDGE,      ELECTRONICS, 80, 80, BELOW, 1, true, fzs_part_bridge),
+    FZS("optocoupler",         ZOOM_SYM_E_OPTO,        ELECTRONICS, 100, 60, BELOW, 1, false, fzs_part_opto),
+    FZS("photodiode",          ZOOM_SYM_E_PHOTODIODE,  ELECTRONICS, 60, 40, BELOW, 1, false, fzs_part_photodiode),
+    FZS("phototransistor",     ZOOM_SYM_E_PHOTOTRANS,  ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_phototrans),
+    FZS("speaker",             ZOOM_SYM_E_SPEAKER,     ELECTRONICS, 60, 40, BELOW, 1, true, fzs_part_speaker),
+    FZS("CD4017",              ZOOM_SYM_C_4017,        CHIPS, 200, 180, INSIDE, 1, true, fzs_part_cd4017),
 };
 
 #define FUDE_ZOOM_SYMBOL_N ((u32)(sizeof(FUDE_ZOOM_SYMBOLS) / sizeof(FUDE_ZOOM_SYMBOLS[0])))

@@ -30,6 +30,8 @@
 #define FUDE_ZOOM_NAV_RINGS  8u
 #define FUDE_ZOOM_NAV_MARKS  (FUDE_ZOOM_NAV_ARROWS + FUDE_ZOOM_NAV_RINGS)   // at most, for fude_zoom_nav_marks
 #define FUDE_ZOOM_NAV_RING   2.0    // things drawn smaller than this on screen (points) get a ring
+#define FUDE_ZOOM_NAV_DRAWN_DEPTH 16u   // levels looked into for what is drawn (deeper: a frame's own box)
+#define FUDE_ZOOM_NAV_LEVEL_GROWS 1.5   // a level is one of the depth's when what is drawn there is this much wider
 
 typedef struct {
     b8               active;
@@ -68,6 +70,17 @@ typedef struct {
 // turn off screen, at the edge (inset _inset), and rings for what is on screen
 // but too small to see — in the camera's frame and two above it. How many.
 u32  fude_zoom_nav_marks(const fude_zoom_scene* _s, fude_zoom_v2 _half, f32 _inset, fude_zoom_nav_mark* _out);
+
+// What is drawn in frame _frame and the frames in it, in its units, leaving out its object _skip
+// (FUDE_ZOOM_NONE: none) — a frame in it for its drawing, not the view it was made for; no bookmarks,
+// layers' records, guides, nor what hidden layers hide. Empty: nothing.
+fude_zoom_box fude_zoom_nav_drawn(const fude_zoom_scene* _s, u32 _frame, u32 _skip);
+
+// The depth's levels: what is drawn at each level from the camera's up, framed — the nearest first,
+// the outermost last (kept when there are more than _max). A level with nothing drawn past what the
+// one below it has (frames made on the way out beyond all there is) shows the same: said once. The
+// view the camera is at is left out. Nothing drawn anywhere: the top at its zoom 1. How many.
+u32  fude_zoom_nav_levels(const fude_zoom_scene* _s, fude_zoom_v2 _half, fude_zoom_camera* _out, u32 _max);
 
 // How far in the camera is: log10 of its zoom in home's units (scene.h: the
 // canvas's own frame, ×1 at its zoom 1) — and how far in a view _c would be.

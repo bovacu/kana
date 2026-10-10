@@ -104,6 +104,32 @@ typedef enum {
     FUDE_ZOOM_MODEL_LM3914,
     FUDE_ZOOM_MODEL_PANEL_METER,
     FUDE_ZOOM_MODEL_CHAR_LCD,
+    FUDE_ZOOM_MODEL_SCOPE,       // an oscilloscope: CH1, CH2, GND — their voltages over time on its screen (display.h)
+    FUDE_ZOOM_MODEL_SPDT,        // a changeover switch: COM to A, or (tapped) to B
+    FUDE_ZOOM_MODEL_DPDT,        // two, worked together: COM1 to A1 or B1, COM2 to A2 or B2
+    FUDE_ZOOM_MODEL_LDR,         // a light-dependent resistor: as bright as its light (state[0]: lux)
+    FUDE_ZOOM_MODEL_THERMISTOR,  // an NTC thermistor: as warm as its temperature (state[0]: °C)
+    // Worked by, or working, a mechanism (coupling.h): a solenoid (its coil, its plunger), a unipolar stepper motor, a
+    // rotary encoder, a slotted optical sensor (below).
+    FUDE_ZOOM_MODEL_SOLENOID,
+    FUDE_ZOOM_MODEL_STEPPER,
+    FUDE_ZOOM_MODEL_ENCODER,
+    FUDE_ZOOM_MODEL_SLOT,
+    // (0.1.75) Flip-flops of the logic's own (J, CLK, K; S, R), an LM393's two open-collector comparators, an LM358's two
+    // op-amps, thyristors (an SCR, a TRIAC), a transformer and a bridge rectifier, light (an optocoupler, a photodiode,
+    // a phototransistor), a speaker that sounds (below).
+    FUDE_ZOOM_MODEL_JKFF,
+    FUDE_ZOOM_MODEL_SRLATCH,
+    FUDE_ZOOM_MODEL_COMPARATOR,
+    FUDE_ZOOM_MODEL_OPAMP2,
+    FUDE_ZOOM_MODEL_SCR,
+    FUDE_ZOOM_MODEL_TRIAC,
+    FUDE_ZOOM_MODEL_TRANSFORMER,
+    FUDE_ZOOM_MODEL_BRIDGE,
+    FUDE_ZOOM_MODEL_OPTO,
+    FUDE_ZOOM_MODEL_PHOTODIODE,
+    FUDE_ZOOM_MODEL_PHOTOTRANSISTOR,
+    FUDE_ZOOM_MODEL_SPEAKER,
     FUDE_ZOOM_MODEL_COUNT
 } FUDE_ZOOM_MODEL_;
 
@@ -152,6 +178,13 @@ f32  fude_zoom_part_inset(const fude_zoom_part* _part);
 // ...and where its pins' names go, of its half sizes: a left or right pin's (_u), a top or bottom one's (_v) — a sized
 // display's as big as it is (display.h).
 void fude_zoom_part_insets(const fude_zoom_part* _part, f32* _u, f32* _v);
+// Words on a part's face by what they name (an oscilloscope's knobs: CH1, CH2, VOLTS/DIV, POS, TIME/DIV): each its middle
+// at (u, v) of its half sizes. How many (at most _most).
+typedef struct {
+    f32       u, v;
+    const c8* text;
+} fude_zoom_part_label;
+u32  fude_zoom_part_labels(const fude_zoom_part* _part, fude_zoom_part_label* _out, u32 _most);
 // A part's height as it comes (the catalogue's units): its symbol's (_catalogue_h), a sized display's its size's.
 f64  fude_zoom_part_room_h(const fude_zoom_part* _part, f64 _catalogue_h);
 // A part's pin _i (a breadboard's holes worked out). False: none.
@@ -218,6 +251,14 @@ u32  fude_zoom_wire_remap(fude_zoom_scene* _s, u32 _wire, const fude_zoom_id* _o
 // A value as a part's text says it ("4.7k", "4k7", "100 uF", "10mH", "5V 50Hz": the _index-th number of it, its
 // metric prefix applied: p n u µ m k M G). False: none there.
 b8   fude_zoom_circuit_value(const c8* _text, u32 _index, f64* _out);
+// A light-dependent resistor's resistance in _lux of light (a GL5528's: 20 kΩ at 10 lux, as its light to the -0.7th,
+// 100 Ω to 1 MΩ); an NTC thermistor's at _celsius (_r25 at 25 °C, its B constant _beta).
+f64  fude_zoom_circuit_ldr_ohms(f64 _lux);
+f64  fude_zoom_circuit_ntc_ohms(f64 _r25, f64 _beta, f64 _celsius);
+// What a sensor's slider spans, and where _value is along it (0–1), and back: an LDR's light (1 to 100 000 lux, as its
+// logarithm), a thermistor's temperature (-20 to 120 °C).
+f64  fude_zoom_circuit_sensor_along(u8 _model, f64 _value);
+f64  fude_zoom_circuit_sensor_at(u8 _model, f64 _along);
 
 // --- the circuit and its simulation -----------------------------------------------------------------
 
@@ -243,7 +284,7 @@ typedef struct {
     u32                   object;
     const fude_zoom_part* part;
     u32                   node[64];     // each pin's node (0: ground; FUDE_ZOOM_NONE: joined to nothing)
-    f64                   value[4];     // its numbers as its text says (a resistance, a voltage, a frequency...)
+    f64                   value[8];     // its numbers as its text says (a resistance, a voltage, a frequency...)
     f64                   state[8];     // what it remembers (a capacitor's voltage, a flip-flop's Q, a 555's...)
     f64                   pin_i[64];    // each pin's current, out of the part into its node (amperes), as last solved
     f64                   shown;        // what it shows (an LED's brightness 0..1, a meter's reading, a motor's turn)
@@ -260,7 +301,9 @@ typedef struct {
     b8                    shafted;
     f64                   spin;
     b8                    pushed;
-    u32                   block;        // its pins' block of unknowns (below; FUDE_ZOOM_NONE: on ground or nothing only)
+    u32                   block;        // its pins' block of unknowns (below; FUDE_ZOOM_NONE: on ground, held or nothing only)
+    u64                   sense;        // its pins that only sense (bit: pin) — what is on them read once solved, a leak stamped
+    b8                    spans;        // ...one of them in another block than its own
     // Its limits (above: its own, a real part's its text names, or a typical one's), and how it stands to them as last
     // stepped: each one's measure (W, A, V), the worst measure over its limit (1: at it), its heat (1: it burns), burnt
     // (open until the circuit starts again); its worst limit, and that limit's measure at its worst since it started.
@@ -280,7 +323,8 @@ typedef struct {
 // What happened to a part as the circuit stepped, for the page to tell (fude_zoom_circuit's events, taken by it).
 typedef enum {
     FUDE_ZOOM_CIRCUIT_BURNT = 1,   // past a limit long enough: burnt
-    FUDE_ZOOM_CIRCUIT_OVER         // a source past its current (a short circuit, or near one)
+    FUDE_ZOOM_CIRCUIT_OVER,        // a source past its current (a short circuit, or near one)
+    FUDE_ZOOM_CIRCUIT_ARC          // a contact opened on a coil's current and arced (no diode for it: measure, the volts over it)
 } FUDE_ZOOM_CIRCUIT_EVENT_;
 
 typedef struct {
@@ -347,8 +391,30 @@ typedef struct {
     rde_arr TYPE(u32) block_size;
     u32     blocks;
     rde_arr TYPE(fude_sim_sparse) block_system;
-    rde_arr TYPE(u32) block_reference;     // a block ground reaches nowhere: its node held at 0 V (else FUDE_ZOOM_NONE)
+    rde_arr TYPE(u32) block_reference;     // the nodes held at 0 V: one an island ground reaches nowhere (a block, a side of one)
     rde_arr TYPE(u64) joins;               // each a row's node << 32 | a column's
+    // RAILS HELD: a node a supply rail is on (and no rail at another voltage) is known, as ground is — at the rail's volts,
+    // outside every block; the rail's current what the rest on its node draw (fzc_held_currents). Each node's rail
+    // (FUDE_ZOOM_NONE: none); each other pin on a held node (node << 32 | part << 6 | pin).
+    rde_arr TYPE(u32) node_held;
+    rde_arr TYPE(u64) held_pins;
+    // A block is what a part's pins join — but through a pin that only senses (part.sense: a 555's trigger, a logic
+    // input): its stamp a leak, what it reads read once solved —, and what a stamp writes across (each pair of nodes
+    // once, smaller << 32 | larger: found as it steps, the blocks then made again, reblock).
+    rde_arr TYPE(u64) couplings;
+    b8      reblock;
+    // QUIET blocks, left as they were for a step: one nothing in moved last step (its capacitors' currents and its
+    // inductors' voltages next to none, still), nothing in changing by itself (a clock, an AC source: live), each of its
+    // parts as it was when it was last solved (its key: what its stamps read — its numbers, the state they use, its pins'
+    // volts). A big circuit whose fast corner alone moves (a 555's tone) is stepped as fast as that corner.
+    rde_arr TYPE(u8)  block_still;
+    rde_arr TYPE(u8)  block_live;
+    rde_arr TYPE(u8)  block_quiet;
+    rde_arr TYPE(f64) v_step;              // the voltages as the step began
+    rde_arr TYPE(f64) part_key;            // each part's key as last solved, from key_at's
+    rde_arr TYPE(u32) key_at;
+    b8      wake;                          // every block solved (what the logic drives changed within the step; a DC solve)
+    u32     skipped;                       // blocks left quiet, last step
     b8      reshape;                       // a stamp wrote where its block's shape had no place: shaped again
     b8      recording;                     // (the stamps noting where they write, not writing)
     b8      suspected;                     // a step not solved: parts marked where it would not settle (their suspect)
@@ -365,6 +431,12 @@ typedef struct {
     rde_arr TYPE(fude_zoom_circuit_event) events;
     // What parts hold beyond their state (each part's store_at, store_size: kept as the circuit is built again).
     rde_arr TYPE(u8) store;
+    // Its speakers' sound (below): samples at audio_rate a second (0: none made), the next one's time, the slow average
+    // taken out of them (a speaker moves no air with what does not change).
+    rde_arr TYPE(f32) audio;
+    f64     audio_rate;
+    f64     audio_next;
+    f64     audio_dc;
     // Its logic: gates, flip-flops, chips, custom parts run by the simulation's digital engine (logic.h).
     struct fude_zoom_logic* logic;
 } fude_zoom_circuit;
@@ -405,10 +477,77 @@ f64  fude_zoom_motor_k(const fude_zoom_circuit_part* _motor);
 // flow (*_still, volts). As the circuit last stepped; the circuit left as it was. False: not a shafted motor, or not
 // solved.
 b8   fude_zoom_circuit_motor_load(fude_zoom_circuit* _c, u32 _part, f64* _conductance, f64* _still);
+
+// A SOLENOID (its text: its rated volts, "12V"): a coil — its resistance its rated volts over half an ampere, its
+// inductance its resistance's 2 ms — and a plunger out of it, pulled in as hard as the square of its current (its rated
+// pull at its rated current halfway in: more as it is further in, less further out) against a light spring. Alone it
+// goes in when its pull beats the spring and out when it does not — in from all the way out from 87% of its rated
+// current, out again below 57% of it (held in, it holds on with less): a solenoid's, a relay's. On a mechanism (coupling.h) its plunger
+// is the mechanism's: it pulls what is pinned on its end (its hole), pushes what is in its way, presses a button.
+// state: 0 its current (pin 0 to pin 1), 1 the voltage over it, 2 how far in its plunger is (0 out, 1 in), 3 on a
+// mechanism (1) or not.
+#define FUDE_ZOOM_SOLENOID_STROKE 0.3    // its plunger's travel, of its half width
+#define FUDE_ZOOM_SOLENOID_TIP    0.85   // its plunger's end out (its hole: of its half width from its middle)
+#define FUDE_ZOOM_SOLENOID_SPRING 0.45   // its spring's push, of its rated pull
+f64  fude_zoom_circuit_solenoid_pull(const fude_zoom_circuit_part* _p);
+// A UNIPOLAR STEPPER MOTOR (a 28BYJ-48: its text "28BYJ-48" — 2048 steps a turn of its geared shaft —, or how many,
+// "200 steps"): four coils from COM to A, B, C, D (50 Ω each), each a quarter of its rotor's electrical turn on from the
+// one before; its rotor drawn toward where their currents together point, as far as the nearest way there is (it
+// follows coils energised in turn — A, B, C, D: a step each on —, two at a time, half steps; too fast, or the
+// opposite coil, and it is lost), as fast as its rotor can (500 steps a second). Its shaft four steps a turn of its
+// rotor's field. On a mechanism, what is on its shaft turned there as hard as its holding torque, and holding it there
+// (pushed past half a turn of its field, it slips a step). state: 0 its rotor's electrical angle (radians), 1 its
+// shaft's (degrees), 2 its steps (full ones, from where it began), 3–6 its coils' currents (into each from COM), 7 on a
+// mechanism's shaft (≥ 0) or not (−1).
+#define FUDE_ZOOM_STEPPER_COIL  50.0    // ohms
+#define FUDE_ZOOM_STEPPER_RATE  500.0   // full steps a second, at most
+// Where its coils' currents point (radians: A's way 0, B's a quarter turn on…), and how strongly, of one coil's at 5 V.
+f64  fude_zoom_circuit_stepper_field(const fude_zoom_circuit_part* _p, f64* _strength);
+// A ROTARY ENCODER (its text: its detents a turn, "20"): A and B each a contact to C, closed in turn as its shaft turns
+// (quadrature) — a detent all the way through each's closing and opening, A a quarter of it before B turned clockwise,
+// both open at a detent. Alone a tap turns it a detent clockwise; on a mechanism, as what is on its shaft turns.
+// state: 0 where it is (detents, clockwise), 1 where a tap sends it, 6 where its contacts were last stepped, 7 on a
+// mechanism's shaft (≥ 0) or not (−1).
+void fude_zoom_circuit_encoder_contacts(f64 _detents, b8* _a, b8* _b);
+// A SLOTTED OPTICAL SENSOR (a photo-interrupter): A and K its infrared LED's (1.2 V), C and E its phototransistor's —
+// conducting a tenth of the LED's current while its slot is clear, nothing while something is in it (a mechanism's
+// part going through its slot; alone, a tap: a hand in it). state: 0 blocked (1) or clear (0).
+#define FUDE_ZOOM_SLOT_CTR 0.1   // its phototransistor's current over its LED's, the slot clear
+// THYRISTORS. An SCR (A, K, G): off — nothing through it but a leak, up to its breakover (its voltage limit) — until
+// its gate takes its trigger current with its anode over its cathode; on — a diode from anode to cathode (a volt) —
+// until what goes through it falls under its holding current. A TRIAC (MT2, MT1, G): the same either way round,
+// triggered by its gate's current either way — on AC, off at each crossing, on again when the gate fires it.
+// state: 0 on (1) or off (0). Their trigger and holding currents: value 0 and 1.
+// A TRANSFORMER (P1, P2, S1, S2; its text its turns' ratio, "2:1"): two windings coupled (0.995) — its primary 10 H, its
+// secondary as many turns fewer squared; 1 Ω in its primary, as much less in its secondary — so on AC its secondary has
+// its primary's volts over its ratio, a load's current back in its primary over it; on DC, only its windings'
+// resistance. state: 0, 1 its windings' currents, 2, 3 their voltages (the last step's).
+// A BRIDGE RECTIFIER (AC, +, AC, −): four diodes — whichever AC pin is higher into +, − out of whichever is lower.
+// An OPTOCOUPLER (A, K, C, E: a PC817): its LED's light on its phototransistor — C to E a current its CTR times its
+// LED's (1), less as C nears E. A PHOTODIODE (A, K): a diode, and against it a current as its light (50 nA a lux).
+// A PHOTOTRANSISTOR (C, E): as much current as its light (2 µA a lux), less as C nears E. Their light: state 0, lux
+// (as an LDR's: its text's, a tap's, Play's slider).
+#define FUDE_ZOOM_PHOTODIODE_A_LUX       50e-9
+#define FUDE_ZOOM_PHOTOTRANSISTOR_A_LUX  2e-6
+// Whether a part's model is lit (an LDR, a photodiode, a phototransistor: state 0 its light, lux).
+b8   fude_zoom_circuit_lit(u8 _model);
+// A SPEAKER (8 Ω, or its text's): the current through it its cone's push. Its sound, while the circuit makes it
+// (audio_rate above 0): the speakers' currents together, a sample every 1/audio_rate seconds of the circuit's time,
+// 0.1 A full scale, the slow average (under 20 Hz) taken out — the page plays them.
+// Sound made at _rate samples a second from now (0: none; the samples made so far let go).
+void fude_zoom_circuit_sound(fude_zoom_circuit* _c, f64 _rate);
 // A part's state toggled by a tap (a switch, a button pressed or let go, a logic input, a pot's wiper on a step, a
-// board's pin through input, high, low, blink): what it says now into _say (its text, as the part keeps it). False:
-// nothing to toggle there.
+// board's pin through input, high, low, blink; an encoder a detent on, a slotted sensor's slot blocked or clear): what
+// it says now into _say (its text, as the part keeps it). False: nothing to toggle there.
+// A contact (a switch's, a button's, a changeover's, a relay's) arcs when it opens on a coil's current with no diode to
+// carry it: FUDE_ZOOM_ARC volts over it. When one last did (circuit seconds; at most 0: never) — its state[7].
+#define FUDE_ZOOM_ARC 50.0
+f64  fude_zoom_circuit_sparked(const fude_zoom_circuit_part* _p);
 b8   fude_zoom_circuit_tap(fude_zoom_circuit* _c, u32 _part, i32 _pin, c8* _say, usize _size);
+// An oscilloscope's knob _knob (display.h's) turned a step _way (+1: clockwise, -1) as it plays: its sweep started again
+// when its time a division changes (and the circuit's steps no longer than its samples are apart); what it is set to now
+// into _say ("CH1 VOLTS/DIV 0.5 V"). False: not an oscilloscope's knob.
+b8   fude_zoom_circuit_scope_turn(fude_zoom_circuit* _c, u32 _part, u32 _knob, i32 _way, c8* _say, usize _size);
 // How high Play's tags' letters are (a node's volts, a meter's reading, a logic input's 0 or 1: screen points), for
 // parts whose smaller half-sizes on the screen are _sizes (sorted here): as big as the parts look — half the typical
 // one's (their median; a part not seen, no size or none finite, not counted) —, at most _most; 0 (none drawn) under

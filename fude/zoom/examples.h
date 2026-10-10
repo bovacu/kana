@@ -39,6 +39,17 @@ typedef enum {
     FUDE_ZOOM_EXAMPLE_BAR_METER,       // an LM3914 and a bar graph: a pot's voltage as a bar
     FUDE_ZOOM_EXAMPLE_PANEL_METERS,    // a panel voltmeter on a pot's wiper, a panel ammeter in a row with 100 Ω
     FUDE_ZOOM_EXAMPLE_LCD_BY_HAND,     // a character LCD written by hand: logic inputs on its pins, a button on E
+    FUDE_ZOOM_EXAMPLE_SCOPE_RC,        // a 100 Hz square into 10 kΩ and 100 nF: both on an oscilloscope
+    FUDE_ZOOM_EXAMPLE_LIGHT_TEMP,      // a night light (an LDR under 47 kΩ into a transistor) and a thermistor's thermometer
+    FUDE_ZOOM_EXAMPLE_DECADE,          // a 4 Hz clock into a CD4017: ten LEDs one at a time
+    FUDE_ZOOM_EXAMPLE_FLIPFLOPS,       // an SR latch on two logic inputs; a JK flip-flop toggling on a clock
+    FUDE_ZOOM_EXAMPLE_COMPARATOR,      // an LM393 night light: an LDR's divider against a pot, an LED on its open collector
+    FUDE_ZOOM_EXAMPLE_THYRISTORS,      // an SCR latching a lamp on (a switch to stop it); a TRIAC switching a lamp on AC
+    FUDE_ZOOM_EXAMPLE_POWER_SUPPLY,    // 24 V AC, a 2:1 transformer, a bridge, 1000 µF, a 7805: an LED on 5 V
+    FUDE_ZOOM_EXAMPLE_LIGHT_LINK,      // an optocoupler between two circuits; a photodiode and a phototransistor on meters
+    FUDE_ZOOM_EXAMPLE_SPEAKER_TONE,    // a 555 at about 460 Hz into a speaker: heard as it plays
+    FUDE_ZOOM_EXAMPLE_TRAFFIC,         // a crossroads' lights: a 555, a CD4017, a ROM of 39 diodes, a digit, a beeper
+    FUDE_ZOOM_EXAMPLE_PIANO,           // a 13-key piano: a 555 each key tunes, a volume pot, a speaker, an oscilloscope
     FUDE_ZOOM_EXAMPLE_CRANK,           // a crank and rocker on a motor
     FUDE_ZOOM_EXAMPLE_GEAR_TRAIN,      // three gears on a motor
     FUDE_ZOOM_EXAMPLE_PENDULUM,        // a pendulum, a weight on a spring
@@ -52,6 +63,15 @@ typedef enum {
     FUDE_ZOOM_EXAMPLE_MATERIALS,       // blocks of ice, wood, rubber, steel down ramps; balls of rubber, glass, foam bouncing
     FUDE_ZOOM_EXAMPLE_TOO_HEAVY,       // weights on links and ropes: 500 kg shears a pin, 300 kg snaps a rope (mechrun.h)
     FUDE_ZOOM_EXAMPLE_MOTOR_TORQUE,    // 10 kg on an arm: a 2 N·m motor jammed, a 30 N·m one turning it round
+    FUDE_ZOOM_EXAMPLE_COUPLER_CURVE,   // the crank and rocker with tracers: its crank's circle, its coupler's curve
+    FUDE_ZOOM_EXAMPLE_BY_HAND,         // a crank and rocker on a hand crank; a pendulum to take hold of
+    FUDE_ZOOM_EXAMPLE_BELTS,           // a chain from a small sprocket to one twice as big (half as fast); a crossed belt (backwards)
+    FUDE_ZOOM_EXAMPLE_CAM,             // an eccentric cam on a motor, a follower riding up and down on it
+    FUDE_ZOOM_EXAMPLE_RATCHET,         // two wheels holding weights on ropes: one with a pawl holds, one without runs back
+    FUDE_ZOOM_EXAMPLE_DAMPER,          // two weights on springs: one with a damper beside it settles at once
+    FUDE_ZOOM_EXAMPLE_WORM,            // a worm turning a 30-tooth gear a tooth a turn, lowering a weight it never lets go
+    FUDE_ZOOM_EXAMPLE_STRANDBEEST,     // Theo Jansen's walking legs: two of his eleven-bar legs on one crank, their feet traced
+    FUDE_ZOOM_EXAMPLE_ENGINE,          // a four-stroke engine: piston, rod, crank, a timing belt at half speed to two camshafts, valves
     FUDE_ZOOM_EXAMPLE_MOTOR_GEARS,     // a battery, a switch, a meter, a motor turning a gear train (coupling.h)
     FUDE_ZOOM_EXAMPLE_DYNAMO,          // a drive motor turning a dynamo through gears: it lights an LED, a meter reads it
     FUDE_ZOOM_EXAMPLE_FORWARD_BACK,    // two logic inputs into an L293D: its motor's pinion moves a rack one way or back
@@ -59,8 +79,12 @@ typedef enum {
     FUDE_ZOOM_EXAMPLE_SHUTTLE,         // a rack pressing a button at each end: a latch of NORs turns its L293D's motor back
     FUDE_ZOOM_EXAMPLE_SERVO_TESTER,    // a 555's short pulses (a pot their length) turning a servo's arm
     FUDE_ZOOM_EXAMPLE_SERVO_ANGLES,    // 1, 1.5, 2 ms pulses: arms at 45°, 90°, 135°; a servo on 12 V burnt
+    FUDE_ZOOM_EXAMPLE_SOLENOID,        // a button on a 12 V solenoid pulling a latch's bolt, a diode across it; one with none sparks
+    FUDE_ZOOM_EXAMPLE_STEPPER,         // a clock into two D flip-flops (a ring of four), a ULN2003 stepping a 28BYJ-48's arm round
+    FUDE_ZOOM_EXAMPLE_SHAFT_SENSORS,   // cranks on an encoder (its LEDs in turn) and a pot (a meter); an arm through a slotted sensor
     FUDE_ZOOM_EXAMPLE_WORKBENCH,       // a counter and gates beside gears and pulleys
     FUDE_ZOOM_EXAMPLE_EVERYTHING,      // the chaser, the 4-bit adder, the gearbox, the machine, the shuttle, the counter
+    FUDE_ZOOM_EXAMPLE_SOLENOID_ENGINE, // a solenoid engine: a slotted sensor on its crank fires its coil — a counter, a scope, a meter
     FUDE_ZOOM_EXAMPLE_COUNT
 } FUDE_ZOOM_EXAMPLE_;
 
@@ -72,6 +96,31 @@ typedef enum {
 
 // Which of them example _example is (FUDE_ZOOM_EXAMPLES_; the mechanisms' and both: Play's mechanisms in them).
 u8 fude_zoom_example_group(u32 _example);
+// The examples' folders, under their group's (Insert → Examples: Examples / Electronics / Logic and counting / ...): what
+// each is about. In order.
+typedef enum {
+    FUDE_ZOOM_EXAMPLE_SET_FIRST = 0,      // (electronics) first circuits
+    FUDE_ZOOM_EXAMPLE_SET_LOGIC,          // logic and counting
+    FUDE_ZOOM_EXAMPLE_SET_DISPLAYS,       // displays
+    FUDE_ZOOM_EXAMPLE_SET_SENSING,        // sensors and instruments
+    FUDE_ZOOM_EXAMPLE_SET_POWER,          // power and switching
+    FUDE_ZOOM_EXAMPLE_SET_E_WRONG,        // what goes wrong
+    FUDE_ZOOM_EXAMPLE_SET_E_BIG,          // big projects
+    FUDE_ZOOM_EXAMPLE_SET_LINKAGES,       // (mechanisms) linkages
+    FUDE_ZOOM_EXAMPLE_SET_GEARS,          // gears and drives
+    FUDE_ZOOM_EXAMPLE_SET_MOTION,         // motion and forces
+    FUDE_ZOOM_EXAMPLE_SET_M_WRONG,        // what goes wrong
+    FUDE_ZOOM_EXAMPLE_SET_M_BIG,          // big projects
+    FUDE_ZOOM_EXAMPLE_SET_MOTORS,         // (both) motors
+    FUDE_ZOOM_EXAMPLE_SET_ACTUATORS,      // servos, steppers and solenoids
+    FUDE_ZOOM_EXAMPLE_SET_MACHINE_SENSORS,// sensors on machines
+    FUDE_ZOOM_EXAMPLE_SET_B_BIG,          // big projects
+    FUDE_ZOOM_EXAMPLE_SETS
+} FUDE_ZOOM_EXAMPLE_SET_;
+
+// Which folder example _example goes in (FUDE_ZOOM_EXAMPLE_SET_), and which group a folder is under (FUDE_ZOOM_EXAMPLES_).
+u8 fude_zoom_example_set(u32 _example);
+u8 fude_zoom_example_set_group(u8 _set);
 // Is example _example made to show what goes wrong (a part burnt, a short, a pin sheared, a motor jammed): its parts'
 // events what it is for?
 b8 fude_zoom_example_goes_wrong(u32 _example);
@@ -84,7 +133,22 @@ typedef enum {
     FUDE_ZOOM_EXAMPLE_WORD_NO_FUSE,             // "No fuse"
     FUDE_ZOOM_EXAMPLE_WORD_BACKWARDS,           // "backwards"
     FUDE_ZOOM_EXAMPLE_WORD_RESTART,             // "Restart: new parts"
-    FUDE_ZOOM_EXAMPLE_WORD_LCD_STEPS            // "Tap E to send D7–D0 as set: …"
+    FUDE_ZOOM_EXAMPLE_WORD_LCD_STEPS,           // "Tap E to send D7–D0 as set: …"
+    FUDE_ZOOM_EXAMPLE_WORD_TURN_CRANK,          // "Turn the crank: drag round it"
+    FUDE_ZOOM_EXAMPLE_WORD_DRAG_WEIGHT,         // "Drag the weight"
+    FUDE_ZOOM_EXAMPLE_WORD_SLIDERS,             // "Change the light and the temperature with Play's sliders, or tap them"
+    FUDE_ZOOM_EXAMPLE_WORD_NO_DIODE,            // "No diode: let go of its button"
+    FUDE_ZOOM_EXAMPLE_WORD_RATCHET_DRAG,        // "Drag the wheels round: the one with a pawl turns one way only"
+    FUDE_ZOOM_EXAMPLE_WORD_FLIPFLOPS,           // "Tap S and R …"
+    FUDE_ZOOM_EXAMPLE_WORD_COMPARATOR,          // "Turn the light down with its slider …"
+    FUDE_ZOOM_EXAMPLE_WORD_THYRISTORS,          // "Tap G to fire the SCR …"
+    FUDE_ZOOM_EXAMPLE_WORD_LIGHT,               // "Change the light with the sliders …"
+    FUDE_ZOOM_EXAMPLE_WORD_SCOPE,               // "Tap the knobs while it plays …"
+    FUDE_ZOOM_EXAMPLE_WORD_TRAFFIC,             // "Each output of the CD4017 lights, through its diodes, …"
+    FUDE_ZOOM_EXAMPLE_WORD_PIANO,               // "Press the keys while it plays …"
+    FUDE_ZOOM_EXAMPLE_WORD_STRANDBEEST,         // "Theo Jansen's leg …"
+    FUDE_ZOOM_EXAMPLE_WORD_ENGINE,              // "A starter motor turns the crank …"
+    FUDE_ZOOM_EXAMPLE_WORD_SOLENOID_ENGINE      // "It starts by itself …"
 } FUDE_ZOOM_EXAMPLE_WORD_;
 
 // An example's title (its name in the person's language: the app's), or one of the words above; NULL: none written.

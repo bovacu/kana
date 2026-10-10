@@ -126,6 +126,59 @@ fude_zoom_meter fude_zoom_display_meter(const c8* _text);
 // What it shows reading _value (V or A): its digits; past its range, a 1 alone.
 void fude_zoom_display_meter_show(const fude_zoom_meter* _m, f64 _value, fude_zoom_meter_shown* _out);
 
+// --- an oscilloscope -----------------------------------------------------------------------------
+
+#define FUDE_ZOOM_SCOPE_SAMPLES 400u   // a sweep's (10 divisions across)
+#define FUDE_ZOOM_SCOPE_DIVS_X  10.0
+#define FUDE_ZOOM_SCOPE_DIVS_Y  8.0
+
+// What an oscilloscope's text says ("1ms 2V", "1ms 2V 0.5V", "trig 1.5V"): its time a division (seconds), CH1's volts a
+// division, the level CH1 rises through to start a sweep (NAN: halfway between what the last sweep saw at its least and
+// most), CH2's volts a division (a second volts: its own; else CH1's), and where each channel's 0 V is (divisions up from
+// the screen's middle: its POSITION knob's, 0 as it comes).
+typedef struct {
+    f64 time_div, volt_div, level, volt_div2, pos1, pos2;
+} fude_zoom_scope;
+
+fude_zoom_scope fude_zoom_display_scope(const c8* _text);
+
+// Its face: its screen on its left (a 10 × 8 graticule), its knobs on its right — as a bench oscilloscope's, each
+// channel's VOLTS/DIV (how big its wave is: the fewer volts a division, the bigger) over its POSITION (where its 0 V is),
+// CH1's column and CH2's, and TIME/DIV under them (how much of the wave a sweep shows). Each knob turns in steps: tapped on
+// its right half, a step clockwise (bigger: fewer volts or less time a division — the wave grown, stretched —, or up);
+// on its left, back. Volts and time go 1, 2, 5, 10... (1 mV to 50 V; 10 µs to 5 s), position half a division at a time
+// (8 either way).
+enum {
+    FUDE_ZOOM_SCOPE_KNOB_VOLTS1, FUDE_ZOOM_SCOPE_KNOB_VOLTS2, FUDE_ZOOM_SCOPE_KNOB_POS1, FUDE_ZOOM_SCOPE_KNOB_POS2, FUDE_ZOOM_SCOPE_KNOB_TIME,
+    FUDE_ZOOM_SCOPE_KNOBS
+};
+#define FUDE_ZOOM_SCOPE_POS_MOST 8.0   // divisions a channel's 0 V goes up or down at most
+
+// A circuit's oscilloscope's settings as they are now (its text's, its knobs turned since: circuit.c's values 0–5).
+fude_zoom_scope fude_zoom_display_scope_of(const fude_zoom_circuit_part* _q);
+// Its screen on its face (of its half sizes: u across, v up).
+void fude_zoom_scope_screen(f64* _u0, f64* _v0, f64* _u1, f64* _v1);
+// Knob _k's middle on its face (of its half sizes) and its radius (of its half height).
+void fude_zoom_scope_knob(u32 _k, f64* _u, f64* _v, f64* _r);
+// The knob a point on its face is on — anywhere on its panel: each knob's cell its name and the room round it (of its half
+// sizes) —, and which way a tap there turns it (+1: right of its middle, -1: left). FUDE_ZOOM_NONE: off its panel.
+u32  fude_zoom_scope_knob_at(f64 _u, f64 _v, i32* _way);
+// Knob _k turned a step _way (+1, -1) on _s. False: at its end already.
+b8   fude_zoom_scope_turn(fude_zoom_scope* _s, u32 _k, i32 _way);
+// How far round knob _k is on _s: 0 at its stop counter-clockwise, 1 at its clockwise one.
+f64  fude_zoom_scope_knob_round(const fude_zoom_scope* _s, u32 _k);
+// Its name ("CH1 VOLTS/DIV") and what it is set to ("0.5 V", "+1.5", "200 µs").
+const c8* fude_zoom_scope_knob_name(u32 _k);
+void fude_zoom_scope_knob_say(const fude_zoom_scope* _s, u32 _k, c8* _out, usize _size);
+
+// One step of the circuit's for an oscilloscope (state: 8 numbers, a part's; samples: CH1's, then CH2's, a sweep each):
+// the voltages it has now (_v1, _v2) at time _t. Sampled evenly along each sweep (what lies between the steps from the
+// voltages either side), a sweep started when CH1 rises through the level — or, waiting twice a sweep for it, at once
+// (auto). Its first call (_first): where it starts from.
+void fude_zoom_scope_step(const fude_zoom_scope* _s, f64* _state, f32* _samples, f64 _t, f64 _v1, f64 _v2, b8 _first);
+// How far the sweep has got (samples taken; FUDE_ZOOM_SCOPE_SAMPLES: waiting for its trigger).
+u32  fude_zoom_scope_at(const f64* _state);
+
 // --- drawn in Play -------------------------------------------------------------------------------
 
 // What display part _q shows, over its symbol: _all its own units to the screen, _hw × _hh its half sizes there, _led its

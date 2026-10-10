@@ -1421,17 +1421,17 @@ static void test_chips(void) {
     // Every chip reads, and its pins are as many as its package's.
     {
         fude_sim_lib lib; fude_sim_lib_init(&lib);
-        CHECK(fude_sim_chips_add(&lib) == 0u && fude_sim_chip_count() == 15u);
-        const c8* const ids[15] = { "74HC00", "74HC02", "74HC04", "74HC08", "74HC32", "74HC86", "74HC74", "74HC138", "74HC157", "74HC161", "74HC173", "74HC245", "74HC283", "74HC189",
-                                    "CD4511" };
-        const u32 pins[15] = { 14, 14, 14, 14, 14, 14, 14, 16, 16, 16, 16, 20, 16, 16, 16 };
-        for(u32 i = 0; i < 15u; i++) {
+        CHECK(fude_sim_chips_add(&lib) == 0u && fude_sim_chip_count() == 16u);
+        const c8* const ids[16] = { "74HC00", "74HC02", "74HC04", "74HC08", "74HC32", "74HC86", "74HC74", "74HC138", "74HC157", "74HC161", "74HC173", "74HC245", "74HC283", "74HC189",
+                                    "CD4511", "CD4017" };
+        const u32 pins[16] = { 14, 14, 14, 14, 14, 14, 14, 16, 16, 16, 16, 20, 16, 16, 16, 16 };
+        for(u32 i = 0; i < 16u; i++) {
             const fude_sim_def* d = fude_sim_lib_find(&lib, ids[i]);
             CHECK(d != NULL && rde_arr_length(&d->ports) == pins[i]);
             // (its supply its last pin, its ground the last of its first half: as in the package — a CD40's VDD, VSS)
             if(d != NULL) {
                 const fude_sim_port* p = (const fude_sim_port*)d->ports.memory;
-                const b8 cmos = i == 14u;
+                const b8 cmos = i >= 14u;
                 CHECK(strcmp(p[pins[i] - 1u].name, cmos ? "VDD" : "VCC") == 0 && strcmp(p[pins[i] / 2u - 1u].name, cmos ? "VSS" : "GND") == 0 &&
                       p[pins[i] - 1u].domain == FUDE_SIM_ELECTRIC);
             }
@@ -1534,6 +1534,33 @@ static void test_chips(void) {
         got = 0;
         for(u32 g = 0; g < 7u; g++) got |= (u8)(get(&w, seg[g]) == 1u ? 1u << g : 0u);
         CHECK(got == 0);
+        world_free(&w, top);
+    }
+    // The decade counter: 0 at reset, a step on each rising clock — one output at a time, 9 then 0 again —, CO high for 0
+    // to 4; INH high holds it; RST high back to 0.
+    {
+        fude_sim_def* top = chip_bench(&w, "CD4017");
+        static const c8* const q[10] = { "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9" };
+        put(&w, "RST", 0u); put(&w, "INH", 0u); put(&w, "CLK", 0u);
+        put(&w, "RST", 1u); put(&w, "RST", 0u);
+        u32 right = 0;
+        for(u32 k = 0; k < 23u; k++) {
+            u32 hot = 0, which = 99u;
+            for(u32 i = 0; i < 10u; i++) if(get(&w, q[i]) == 1u) { hot++; which = i; }
+            const b8 ok = hot == 1u && which == k % 10u && get(&w, "CO") == (k % 10u < 5u ? 1u : 0u);
+            if(!ok) printf("  CD4017 after %u clocks: %u high (Q%u), CO %u\n", k, hot, which, get(&w, "CO"));
+            right += ok;
+            put(&w, "CLK", 1u); put(&w, "CLK", 0u);
+        }
+        CHECK(right == 23u);   // (23 clocks: at 3)
+        put(&w, "INH", 1u);
+        put(&w, "CLK", 1u); put(&w, "CLK", 0u);
+        CHECK(get(&w, "Q3") == 1u);
+        put(&w, "INH", 0u);
+        put(&w, "RST", 1u);
+        CHECK(get(&w, "Q0") == 1u && get(&w, "Q3") == 0u);
+        put(&w, "CLK", 1u); put(&w, "CLK", 0u);
+        CHECK(get(&w, "Q0") == 1u);   // (held at 0 while RST is high)
         world_free(&w, top);
     }
     // The adder: 512 sums.

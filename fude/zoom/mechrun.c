@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/mechrun.h"
+#include "zoom/circuit.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,8 +33,16 @@ void fude_zoom_mech_world_init(fude_zoom_mech_world* _w) {
     _w->ropes_were = rde_arr_new(sizeof(f64), _heap);
     _w->motors     = rde_arr_new(sizeof(fude_zoom_mech_motor), _heap);
     _w->shafts     = rde_arr_new(sizeof(fude_zoom_mech_shaft), _heap);
+    _w->cranks     = rde_arr_new(sizeof(fude_zoom_mech_crank), _heap);
+    _w->plungers   = rde_arr_new(sizeof(fude_zoom_mech_plunger), _heap);
+    _w->turned     = rde_arr_new(sizeof(f64), _heap);
+    _w->turned_was = rde_arr_new(sizeof(f64), _heap);
+    _w->grab       = FUDE_ZOOM_NONE;
     _w->joints     = rde_arr_new(sizeof(fude_zoom_mech_joint), _heap);
     _w->events     = rde_arr_new(sizeof(fude_zoom_mech_event), _heap);
+    _w->trail      = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    _w->trail_of   = rde_arr_new(sizeof(u32), _heap);
+    _w->trail_last = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     _w->k          = 1.0;
 }
 
@@ -49,8 +58,16 @@ void fude_zoom_mech_world_stop(fude_zoom_mech_world* _w) {
     rde_arr_clear(&_w->ropes_were);
     rde_arr_clear(&_w->motors);
     rde_arr_clear(&_w->shafts);
+    rde_arr_clear(&_w->cranks);
+    rde_arr_clear(&_w->plungers);
+    rde_arr_clear(&_w->turned);
+    rde_arr_clear(&_w->turned_was);
+    _w->grab = FUDE_ZOOM_NONE;
     rde_arr_clear(&_w->joints);
     rde_arr_clear(&_w->events);
+    rde_arr_clear(&_w->trail);
+    rde_arr_clear(&_w->trail_of);
+    rde_arr_clear(&_w->trail_last);
     _w->time = 0.0;
     _w->left = 0.0;
 }
@@ -64,8 +81,49 @@ void fude_zoom_mech_world_destroy(fude_zoom_mech_world* _w) {
     rde_arr_free(&_w->ropes_were);
     rde_arr_free(&_w->motors);
     rde_arr_free(&_w->shafts);
+    rde_arr_free(&_w->cranks);
+    rde_arr_free(&_w->plungers);
+    rde_arr_free(&_w->turned);
+    rde_arr_free(&_w->turned_was);
     rde_arr_free(&_w->joints);
     rde_arr_free(&_w->events);
+    rde_arr_free(&_w->trail);
+    rde_arr_free(&_w->trail_of);
+    rde_arr_free(&_w->trail_last);
+}
+
+u32 fude_zoom_mech_world_trail(const fude_zoom_mech_world* _w, u32 _t, rde_arr* _out) {
+    rde_arr_clear(_out);
+    const fude_zoom_v2* _p = (const fude_zoom_v2*)_w->trail.memory;
+    const u32* _of = (const u32*)_w->trail_of.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->trail); _i++) {
+        if(_of[_i] == _t) {
+            rde_arr_add(_out, (any)&_p[_i]);
+        }
+    }
+    return (u32)rde_arr_length(_out);
+}
+
+// Each tracer where it is now, kept when it has moved a tenth of the parts' size from where it was last kept (to the most
+// the trail keeps).
+RDE_INTERNAL void fzw_trace(fude_zoom_mech_world* _w) {
+    const fude_zoom_mech_tracer* _t = (const fude_zoom_mech_tracer*)_w->plan.tracers.memory;
+    const u32 _nt = (u32)rde_arr_length(&_w->plan.tracers);
+    while((u32)rde_arr_length(&_w->trail_last) < _nt) {
+        const fude_zoom_v2 _none = { NAN, NAN };
+        rde_arr_add(&_w->trail_last, (any)&_none);
+    }
+    fude_zoom_v2* _last = (fude_zoom_v2*)_w->trail_last.memory;
+    const f64 _apart = 0.1 * _w->plan.unit;
+    for(u32 _i = 0; _i < _nt && (u32)rde_arr_length(&_w->trail) < FUDE_ZOOM_MECH_TRAIL_MOST; _i++) {
+        const fude_zoom_v2 _p = fude_zoom_mech_world_point(_w, _t[_i].on, _t[_i].at);
+        if(!isnan(_last[_i].x) && hypot(_p.x - _last[_i].x, _p.y - _last[_i].y) < _apart) {
+            continue;
+        }
+        rde_arr_add(&_w->trail, (any)&_p);
+        rde_arr_add(&_w->trail_of, (any)&_i);
+        _last[_i] = _p;
+    }
 }
 
 b8 fude_zoom_mech_world_broken(const fude_zoom_mech_world* _w, u8 _kind, u32 _item) {
@@ -97,8 +155,11 @@ RDE_INTERNAL f64 fzw_strength(const fude_zoom_mech_world* _w, u32 _i) {
     if(_i == FUDE_ZOOM_NONE || _i >= (u32)rde_arr_length(&_w->plan.bodies)) {
         return FZW_GROUND;
     }
-    const f64 _s = ((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_i].strength;
-    return _s > 0.0 ? _s : FZW_PLASTIC;
+    const fude_zoom_mech_body* _b = &((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_i];
+    if(_b->part->kind == FUDE_ZOOM_MECH_PLUNGER) {
+        return FZW_GROUND;   // (a solenoid's plunger: steel)
+    }
+    return _b->strength > 0.0 ? _b->strength : FZW_PLASTIC;
 }
 
 // A joint noted (its place in joints).
@@ -186,6 +247,10 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         f32 _mass = 1.0f;
         RDE_PHYSICS_2D_BODY_TYPE_ _type = RDE_PHYSICS_2D_BODY_TYPE_DYNAMIC;
         b8 _own = true;
+        // (more shapes on it: a ratchet's teeth, a follower's roller, a pawl's tip — on the layer of parts that bear on each
+        // other, 8: cams, followers, ratchets, pawls)
+        rde_physics_2d_shape_def _more[FUDE_ZOOM_MECH_RATCHET_TEETH];
+        u32 _mores = 0;
         switch(_kind) {
         case FUDE_ZOOM_MECH_LINK:
             _sh.type = RDE_PHYSICS_2D_SHAPE_CAPSULE;
@@ -207,6 +272,13 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
         case FUDE_ZOOM_MECH_GEAR:
             _sh.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
             _sh.circle.radius = (f32)(fude_zoom_mech_pitch(_b[_i].part, (f64)_m));
+            _sh.layer = 1u; _sh.layer_mask = 4u;
+            _mass = 3.0f * _m * _m;
+            break;
+        case FUDE_ZOOM_MECH_CRANK:
+            // (a disc, passing over what is pinned to it, as a gear does)
+            _sh.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
+            _sh.circle.radius = _m * 0.95f;
             _sh.layer = 1u; _sh.layer_mask = 4u;
             _mass = 3.0f * _m * _m;
             break;
@@ -246,6 +318,85 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             _sh.layer = 1u; _sh.layer_mask = 2u | 4u;
             _mass = 2.0f * _hw * _hh;
             break;
+        case FUDE_ZOOM_MECH_PLUNGER: {
+            // (its rod, from inside its coil to its end — its solenoid's middle its own: it slides along it; it passes over
+            // what is pinned to it, as a slider does, and pushes what is in its way)
+            const f32 _from = -0.35f * _hw, _to = (f32)FUDE_ZOOM_SOLENOID_TIP * _hw + 0.3f * _hh;
+            _sh.type = RDE_PHYSICS_2D_SHAPE_BOX;
+            _sh.box.half_extents = (rde_vec_2F){ (_to - _from) * 0.5f, 0.3f * _hh };
+            _sh.offset = (rde_vec_2F){ (_to + _from) * 0.5f, 0.0f };
+            _sh.layer = 1u; _sh.layer_mask = 2u | 4u;
+            _mass = 2.0f * _sh.box.half_extents.x * _sh.box.half_extents.y;
+            break;
+        }
+        case FUDE_ZOOM_MECH_SPROCKET:
+            // (a disc, passing over what is pinned to it, as a gear does)
+            _sh.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
+            _sh.circle.radius = _m * 0.88f;
+            _sh.layer = 1u; _sh.layer_mask = 4u;
+            _mass = 3.0f * _m * _m;
+            break;
+        case FUDE_ZOOM_MECH_CAM:
+            // (its disc about its middle, the body's own — it turns about its hole off it)
+            _sh.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
+            _sh.circle.radius = _m * 0.95f;
+            _sh.layer = 8u; _sh.layer_mask = 8u;
+            _mass = 3.0f * _m * _m;
+            break;
+        case FUDE_ZOOM_MECH_FOLLOWER:
+            // (its rod, passing over links as a slider does; its roller, bearing on cams)
+            _sh.type = RDE_PHYSICS_2D_SHAPE_BOX;
+            _sh.box.half_extents = (rde_vec_2F){ 0.785f * _hw, 0.3f * _hh };
+            _sh.offset = (rde_vec_2F){ -0.165f * _hw, 0.0f };
+            _sh.layer = 1u; _sh.layer_mask = 2u | 4u;
+            _mass = 2.0f * _sh.box.half_extents.x * _sh.box.half_extents.y;
+            _more[_mores] = _sh;
+            _more[_mores].type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
+            _more[_mores].circle.radius = 0.6f * _hh;
+            _more[_mores].offset = (rde_vec_2F){ 0.75f * _hw, 0.0f };
+            _more[_mores].layer = 8u; _more[_mores].layer_mask = 8u;
+            _more[_mores].friction = 0.05f;   // (a roller: it rolls)
+            _mores++;
+            break;
+        case FUDE_ZOOM_MECH_RATCHET: {
+            // (its hub, passing over what is pinned to it; its teeth, each a triangle from its tip down its back)
+            f64 _tip, _root;
+            fude_zoom_mech_ratchet_radii(&_b[_i], &_tip, &_root);
+            _sh.type = RDE_PHYSICS_2D_SHAPE_CIRCLE;
+            _sh.circle.radius = (f32)(_root * _k);
+            _sh.layer = 1u; _sh.layer_mask = 4u;
+            _mass = 3.0f * _m * _m;
+            const f64 _p = 2.0 * 3.14159265358979323846 / (f64)FUDE_ZOOM_MECH_RATCHET_TEETH;
+            for(u32 _t = 0; _t < FUDE_ZOOM_MECH_RATCHET_TEETH; _t++) {
+                const f64 _a = _p * (f64)_t;
+                rde_physics_2d_shape_def* _q = &_more[_mores++];
+                *_q = _sh;
+                _q->type = RDE_PHYSICS_2D_SHAPE_POLYGON;
+                _q->polygon.count = 3u;
+                _q->polygon.verts[0] = (rde_vec_2F){ (f32)(cos(_a) * _root * 0.9 * _k), (f32)(sin(_a) * _root * 0.9 * _k) };
+                _q->polygon.verts[1] = (rde_vec_2F){ (f32)(cos(_a) * _tip * _k), (f32)(sin(_a) * _tip * _k) };
+                _q->polygon.verts[2] = (rde_vec_2F){ (f32)(cos(_a + _p) * _root * _k), (f32)(sin(_a + _p) * _root * _k) };
+                _q->layer = 8u; _q->layer_mask = 8u;
+            }
+            break;
+        }
+        case FUDE_ZOOM_MECH_PAWL:
+            // (its lever, passing over links; its point, bearing on ratchets)
+            _sh.type = RDE_PHYSICS_2D_SHAPE_BOX;
+            _sh.box.half_extents = (rde_vec_2F){ 0.75f * _hw, 0.6f * _hh };
+            _sh.offset = (rde_vec_2F){ -0.2f * _hw, 0.0f };
+            _sh.layer = 1u; _sh.layer_mask = 2u | 4u;
+            _mass = 2.0f * _sh.box.half_extents.x * _sh.box.half_extents.y;
+            _more[_mores] = _sh;
+            _more[_mores].type = RDE_PHYSICS_2D_SHAPE_POLYGON;
+            _more[_mores].offset = (rde_vec_2F){ 0.0f, 0.0f };
+            _more[_mores].polygon.count = 3u;
+            _more[_mores].polygon.verts[0] = (rde_vec_2F){ 0.55f * _hw, -0.6f * _hh };
+            _more[_mores].polygon.verts[1] = (rde_vec_2F){ 0.97f * _hw, 0.0f };
+            _more[_mores].polygon.verts[2] = (rde_vec_2F){ 0.55f * _hw, 0.6f * _hh };
+            _more[_mores].layer = 8u; _more[_mores].layer_mask = 8u;
+            _mores++;
+            break;
         case FUDE_ZOOM_MECH_WALL:
             _sh.type = RDE_PHYSICS_2D_SHAPE_BOX;
             _sh.box.half_extents = (rde_vec_2F){ _hw, _hh };
@@ -263,6 +414,9 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             for(u32 _k = 1; _kind == FUDE_ZOOM_MECH_DRAWN && _k < _b[_i].pieces; _k++) {
                 _sh.polygon.count = fzw_piece(_w, _b[_i].piece + _k, _sh.polygon.verts);
                 rde_physics_2d_body_add_shape(_body, &_sh);
+            }
+            for(u32 _k = 0; _body != NULL && _k < _mores; _k++) {
+                rde_physics_2d_body_add_shape(_body, &_more[_k]);
             }
         }
         rde_arr_add(&_w->bodies, (any)&_body);
@@ -310,6 +464,13 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
             const fude_zoom_mech_motor _mo = { _j, -_h[_i].speed, _pin, 0.0, 0.0, 0.0, 0.0, false };
             rde_arr_add(&_w->motors, (any)&_mo);
         }
+        if(_j != NULL && _h[_i].crank) {
+            // (a hand crank's axle: free until a hand turns it, but for its friction — a motor holding it still, as hard)
+            const f64 _nm = 1e-3 / _k;
+            rde_physics_2d_joint_enable_motor(_j, 0.0f, (f32)(_b[_h[_i].a].value / (_nm * _nm)));
+            const fude_zoom_mech_crank _cr = { _j, _h[_i].a, 0.0, 0.0, false, 0.0 };
+            rde_arr_add(&_w->cranks, (any)&_cr);
+        }
         if(_j != NULL && _h[_i].shaft != FUDE_ZOOM_NONE && _h[_i].b == FUDE_ZOOM_NONE) {
             // (a circuit's motor's: free until the circuit drives it)
             const fude_zoom_mech_shaft _sh = { _j, _h[_i].a, _b[_h[_i].shaft].object };
@@ -339,9 +500,19 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
                                                                      (rde_vec_2F){ (f32)_sl[_i].axis.x, (f32)_sl[_i].axis.y },
                                                                      (f32)((_sl[_i].lower - _b[_sl[_i].body].shift) * _k), (f32)((_sl[_i].upper - _b[_sl[_i].body].shift) * _k));   // (from where it starts)
         rde_physics_2d_joint_set_stiffness(_held[_sl[_i].body].slide, FZW_STIFF, 2.0f);
-        // (its strength: its material over the part's size and thickness, half of it bearing)
+        // (its strength: its material over the part's size and thickness, half of it bearing; a solenoid's plunger in its
+        // coil: it never gives — 0)
+        const b8 _plunger = _b[_sl[_i].body].part->kind == FUDE_ZOOM_MECH_PLUNGER || _b[_sl[_i].body].part->kind == FUDE_ZOOM_MECH_FOLLOWER;
         _held[_sl[_i].body].slide_at = fzw_note(_w, _held[_sl[_i].body].slide, FUDE_ZOOM_MECH_JOINT_SLIDE, _i, _sl[_i].body, FUDE_ZOOM_NONE, _c,
-                                                0.5 * fzw_strength(_w, _sl[_i].body) * fmax(_w->plan.unit, 2.0) * FZW_THICK);
+                                                _plunger ? 0.0 : 0.5 * fzw_strength(_w, _sl[_i].body) * fmax(_w->plan.unit, 2.0) * FZW_THICK);
+    }
+    // Solenoids' plungers: pulled as their coils say (coupling.h), along their slides.
+    for(u32 _i = 0; _i < _nb; _i++) {
+        if(_b[_i].part->kind == FUDE_ZOOM_MECH_PLUNGER && _pb[_i] != NULL) {
+            const fude_zoom_mech_plunger _pl = { _i, _b[_i].object, { cos(_b[_i].angle), sin(_b[_i].angle) }, rde_physics_2d_body_get_position(_pb[_i]),
+                                                 FUDE_ZOOM_SOLENOID_STROKE * _b[_i].hw, 0.0 };
+            rde_arr_add(&_w->plungers, (any)&_pl);
+        }
     }
     // Springs: Box2D's, their stiffness its frequency (a stiffness of 1: about 2 Hz), a little damped.
     const fude_zoom_mech_spring* _sp = (const fude_zoom_mech_spring*)_w->plan.springs.memory;
@@ -429,7 +600,14 @@ b8 fude_zoom_mech_world_start(fude_zoom_mech_world* _w, const fude_zoom_mech_pla
     rde_arr_free(&_held_arr);
     _w->time = 0.0;
     _w->left = 0.0;
+    // (each body's turn counted from as it starts)
+    for(u32 _i = 0; _i < _nb; _i++) {
+        const f64 _zero = 0.0, _was = _pb[_i] != NULL ? (f64)rde_physics_2d_body_get_angle(_pb[_i]) : 0.0;
+        rde_arr_add(&_w->turned, (any)&_zero);
+        rde_arr_add(&_w->turned_was, (any)&_was);
+    }
     fzw_publish(_w);   // (as it starts: its gears turned to mesh already)
+    fzw_trace(_w);     // (its tracers' first points: where they start)
     return true;
 }
 
@@ -439,10 +617,19 @@ RDE_INTERNAL void fzw_publish(fude_zoom_mech_world* _w) {
     rde_physics_2d_body** _pb = (rde_physics_2d_body**)_w->bodies.memory;
     fude_zoom_sim* _mv = (fude_zoom_sim*)_w->moves.memory;
     const u32 _nb = (u32)rde_arr_length(&_w->plan.bodies);
+    f64* _tu = (f64*)_w->turned.memory;
+    f64* _tw = (f64*)_w->turned_was.memory;
+    const b8 _counting = (u32)rde_arr_length(&_w->turned) == _nb;
     for(u32 _i = 0; _i < _nb; _i++) {
         _mv[_i] = fude_zoom_sim_identity();
         if(_pb[_i] == NULL) {
             continue;
+        }
+        if(_counting) {
+            // (its turn, every one counted: what the world's angle went round since it was last read)
+            const f64 _an = (f64)rde_physics_2d_body_get_angle(_pb[_i]);
+            _tu[_i] += remainder(_an - _tw[_i], 2.0 * 3.14159265358979323846);
+            _tw[_i]  = _an;
         }
         const rde_vec_2F _p = rde_physics_2d_body_get_position(_pb[_i]);
         const f64 _turn = (f64)rde_physics_2d_body_get_angle(_pb[_i]) - _b[_i].angle;
@@ -581,6 +768,204 @@ RDE_INTERNAL void fzw_strain(fude_zoom_mech_world* _w) {
     }
 }
 
+// By hand, before a step: each crank's turn counted (its angle's steps added up), a held one driven toward where the hand
+// would have it (as fast as it is off — a 30th of a second to get there —, as hard as a hand turns at most); a part held
+// pulled toward where it is dragged (a spring its mass makes FUDE_ZOOM_MECH_HAND_HZ, damped, at most 30 times its weight).
+RDE_INTERNAL void fzw_hand(fude_zoom_mech_world* _w) {
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    fude_zoom_mech_crank* _cr = (fude_zoom_mech_crank*)_w->cranks.memory;
+    const f64 _nm = 1e-3 / _w->k;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->cranks); _i++) {
+        if(_pb[_cr[_i].body] == NULL || _cr[_i].joint == NULL) {
+            continue;
+        }
+        const f64 _now = (f64)rde_physics_2d_body_get_angle(_pb[_cr[_i].body]);
+        f64 _d = _now - _cr[_i].was;
+        _d -= 2.0 * 3.14159265358979323846 * floor((_d + 3.14159265358979323846) / (2.0 * 3.14159265358979323846));
+        _cr[_i].turned += _d;
+        _cr[_i].was = _now;
+        if(_cr[_i].held) {
+            const f64 _spin = fmin(fmax(30.0 * (_cr[_i].target - _cr[_i].turned), -60.0), 60.0);
+            rde_physics_2d_joint_enable_motor(_cr[_i].joint, (f32)-_spin, (f32)fmin(FUDE_ZOOM_MECH_HAND_TORQUE / (_nm * _nm), 1e9));
+        }
+    }
+    if(_w->grab != FUDE_ZOOM_NONE && _pb[_w->grab] != NULL) {
+        rde_physics_2d_body* _body = _pb[_w->grab];
+        const rde_vec_2F _p = rde_physics_2d_body_get_position(_body), _v = rde_physics_2d_body_get_velocity(_body);
+        const f32 _a = rde_physics_2d_body_get_angle(_body), _om = rde_physics_2d_body_get_angular_velocity(_body);
+        const f32 _c = cosf(_a), _s = sinf(_a);
+        const rde_vec_2F _r = { _c * _w->grab_on.x - _s * _w->grab_on.y, _s * _w->grab_on.x + _c * _w->grab_on.y };
+        const rde_vec_2F _at = { _p.x + _r.x, _p.y + _r.y }, _va = { _v.x - _om * _r.y, _v.y + _om * _r.x };
+        const f64 _m = (f64)rde_physics_2d_body_get_mass(_body), _w0 = 2.0 * 3.14159265358979323846 * FUDE_ZOOM_MECH_HAND_HZ;
+        f64 _fx = _m * (_w0 * _w0 * (_w->grab_to.x * _w->k - (f64)_at.x) - 2.0 * _w0 * (f64)_va.x);
+        f64 _fy = _m * (_w0 * _w0 * (_w->grab_to.y * _w->k - (f64)_at.y) - 2.0 * _w0 * (f64)_va.y);
+        const f64 _most = 30.0 * _m * 9810.0 * _w->k, _f = hypot(_fx, _fy);
+        if(_f > _most) {
+            _fx *= _most / _f;
+            _fy *= _most / _f;
+        }
+        rde_physics_2d_body_apply_force_at_point(_body, (rde_vec_2F){ (f32)_fx, (f32)_fy }, _at);
+    }
+}
+
+u32 fude_zoom_mech_world_crank_at(const fude_zoom_mech_world* _w, fude_zoom_v2 _at) {
+    const fude_zoom_mech_crank* _cr = (const fude_zoom_mech_crank*)_w->cranks.memory;
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_w->plan.bodies.memory;
+    for(u32 _i = 0; _w->world != NULL && _i < (u32)rde_arr_length(&_w->cranks); _i++) {
+        const fude_zoom_mech_body* _c = &_b[_cr[_i].body];
+        if(hypot(_at.x - _c->at.x, _at.y - _c->at.y) <= 1.15 * fmin(_c->hw, _c->hh)) {
+            return _i;
+        }
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+void fude_zoom_mech_world_crank_hold(fude_zoom_mech_world* _w, u32 _c, f64 _angle) {
+    if(_c < (u32)rde_arr_length(&_w->cranks)) {
+        fude_zoom_mech_crank* _cr = &((fude_zoom_mech_crank*)_w->cranks.memory)[_c];
+        _cr->held   = true;
+        _cr->target = _angle;
+    }
+}
+
+void fude_zoom_mech_world_crank_let_go(fude_zoom_mech_world* _w, u32 _c) {
+    if(_c < (u32)rde_arr_length(&_w->cranks)) {
+        fude_zoom_mech_crank* _cr = &((fude_zoom_mech_crank*)_w->cranks.memory)[_c];
+        _cr->held = false;
+        if(_cr->joint != NULL) {
+            const f64 _nm = 1e-3 / _w->k;
+            rde_physics_2d_joint_enable_motor(_cr->joint, 0.0f, (f32)(((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_cr->body].value / (_nm * _nm)));
+        }
+    }
+}
+
+f64 fude_zoom_mech_world_crank_angle(const fude_zoom_mech_world* _w, u32 _c) {
+    return _c < (u32)rde_arr_length(&_w->cranks) ? ((const fude_zoom_mech_crank*)_w->cranks.memory)[_c].turned : 0.0;
+}
+
+fude_zoom_v2 fude_zoom_mech_world_crank_middle(const fude_zoom_mech_world* _w, u32 _c) {
+    if(_c >= (u32)rde_arr_length(&_w->cranks)) {
+        return (fude_zoom_v2){ 0.0, 0.0 };
+    }
+    return ((const fude_zoom_mech_body*)_w->plan.bodies.memory)[((const fude_zoom_mech_crank*)_w->cranks.memory)[_c].body].at;
+}
+
+b8 fude_zoom_mech_world_grab(fude_zoom_mech_world* _w, fude_zoom_v2 _at) {
+    _w->grab = FUDE_ZOOM_NONE;
+    if(_w->world == NULL) {
+        return false;
+    }
+    rde_physics_2d_overlap_result _hit[16];
+    const rde_vec_2F _q = { (f32)(_at.x * _w->k), (f32)(_at.y * _w->k) };
+    const u32 _n = rde_physics_2d_world_point_query(_w->world, _q, _hit, 16u);
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    const f64* _inv = (const f64*)_w->inv_mass.memory;
+    for(u32 _h = 0; _h < _n && _h < 16u && _w->grab == FUDE_ZOOM_NONE; _h++) {
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->bodies); _i++) {
+            if(_pb[_i] == _hit[_h].body && _inv[_i] > 0.0) {
+                // (where on it: its own frame as it is now)
+                const rde_vec_2F _p = rde_physics_2d_body_get_position(_pb[_i]);
+                const f32 _a = rde_physics_2d_body_get_angle(_pb[_i]), _c = cosf(_a), _s = sinf(_a);
+                const rde_vec_2F _d = { _q.x - _p.x, _q.y - _p.y };
+                _w->grab    = _i;
+                _w->grab_on = (rde_vec_2F){ _c * _d.x + _s * _d.y, -_s * _d.x + _c * _d.y };
+                _w->grab_to = _at;
+                break;
+            }
+        }
+    }
+    return _w->grab != FUDE_ZOOM_NONE;
+}
+
+void fude_zoom_mech_world_drag(fude_zoom_mech_world* _w, fude_zoom_v2 _to) {
+    _w->grab_to = _to;
+}
+
+void fude_zoom_mech_world_let_go(fude_zoom_mech_world* _w) {
+    _w->grab = FUDE_ZOOM_NONE;
+}
+
+b8 fude_zoom_mech_world_grabbed(const fude_zoom_mech_world* _w, fude_zoom_v2* _at) {
+    rde_physics_2d_body* const* _pb = (rde_physics_2d_body* const*)_w->bodies.memory;
+    if(_w->grab == FUDE_ZOOM_NONE || _w->world == NULL || _pb[_w->grab] == NULL) {
+        return false;
+    }
+    const rde_vec_2F _p = rde_physics_2d_body_get_position(_pb[_w->grab]);
+    const f32 _a = rde_physics_2d_body_get_angle(_pb[_w->grab]), _c = cosf(_a), _s = sinf(_a);
+    *_at = (fude_zoom_v2){ ((f64)_p.x + (f64)(_c * _w->grab_on.x - _s * _w->grab_on.y)) / _w->k, ((f64)_p.y + (f64)(_s * _w->grab_on.x + _c * _w->grab_on.y)) / _w->k };
+    return true;
+}
+
+// What presses on its own, each step: a follower along itself onto what is in front of it (three times its weight), a
+// pawl's point onto its ratchet (twice its weight, toward its middle); and dampers: each as hard against its ends going
+// apart or together as they go — its strength times their mass ten times a second, no more than half stops them in a
+// step (it never throws them back).
+#define FZW_FOLLOWER_PUSH 3.0
+#define FZW_PAWL_PUSH     2.0
+#define FZW_DAMPING       10.0
+
+RDE_INTERNAL void fzw_springs_of(fude_zoom_mech_world* _w) {
+    const fude_zoom_mech_body* _b = (const fude_zoom_mech_body*)_w->plan.bodies.memory;
+    rde_physics_2d_body** _pb = (rde_physics_2d_body**)_w->bodies.memory;
+    const f64* _inv = (const f64*)_w->inv_mass.memory;
+    const f64 _g = fude_zoom_mech_world_torque_unit(_w);   // (a unit of mass's weight)
+    const fude_zoom_mech_slide* _sl = (const fude_zoom_mech_slide*)_w->plan.slides.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->plan.slides); _i++) {
+        const u32 _bd = _sl[_i].body;
+        if(_b[_bd].part->kind != FUDE_ZOOM_MECH_FOLLOWER || _pb[_bd] == NULL) {
+            continue;
+        }
+        const f64 _f = FZW_FOLLOWER_PUSH * (f64)rde_physics_2d_body_get_mass(_pb[_bd]) * _g;
+        rde_physics_2d_body_apply_force(_pb[_bd], (rde_vec_2F){ (f32)(_sl[_i].axis.x * _f), (f32)(_sl[_i].axis.y * _f) });
+    }
+    const fude_zoom_mech_pawl* _pw = (const fude_zoom_mech_pawl*)_w->plan.pawls.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->plan.pawls); _i++) {
+        rde_physics_2d_body* _p = _pb[_pw[_i].body];
+        if(_pw[_i].ratchet == FUDE_ZOOM_NONE || _p == NULL || _pb[_pw[_i].ratchet] == NULL) {
+            continue;
+        }
+        const rde_vec_2F _o = rde_physics_2d_body_get_position(_p), _c = rde_physics_2d_body_get_position(_pb[_pw[_i].ratchet]);
+        const f32 _a = rde_physics_2d_body_get_angle(_p), _r = (f32)(0.97 * _b[_pw[_i].body].hw * _w->k);
+        const rde_vec_2F _tip = { _o.x + cosf(_a) * _r, _o.y + sinf(_a) * _r };
+        const f64 _dx = (f64)(_c.x - _tip.x), _dy = (f64)(_c.y - _tip.y), _d = hypot(_dx, _dy);
+        if(_d > 0.0) {
+            const f64 _f = FZW_PAWL_PUSH * (f64)rde_physics_2d_body_get_mass(_p) * _g / _d;
+            rde_physics_2d_body_apply_force_at_point(_p, (rde_vec_2F){ (f32)(_dx * _f), (f32)(_dy * _f) }, _tip);
+        }
+    }
+    const fude_zoom_mech_damper* _dm = (const fude_zoom_mech_damper*)_w->plan.dampers.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->plan.dampers); _i++) {
+        const u32 _e[2] = { _dm[_i].a, _dm[_i].b };
+        rde_vec_2F _at[2], _v[2];
+        f64 _iw = 0.0;
+        for(u32 _k = 0; _k < 2u; _k++) {
+            const fude_zoom_v2 _q = fude_zoom_mech_world_point(_w, _e[_k], _k == 0u ? _dm[_i].pa : _dm[_i].pb);
+            _at[_k] = (rde_vec_2F){ (f32)(_q.x * _w->k), (f32)(_q.y * _w->k) };
+            _v[_k]  = (rde_vec_2F){ 0.0f, 0.0f };
+            if(_e[_k] != FUDE_ZOOM_NONE && _pb[_e[_k]] != NULL) {
+                const rde_vec_2F _o = rde_physics_2d_body_get_position(_pb[_e[_k]]), _lv = rde_physics_2d_body_get_velocity(_pb[_e[_k]]);
+                const f32 _om = rde_physics_2d_body_get_angular_velocity(_pb[_e[_k]]);
+                _v[_k] = (rde_vec_2F){ _lv.x - _om * (_at[_k].y - _o.y), _lv.y + _om * (_at[_k].x - _o.x) };
+                _iw += _inv[_e[_k]];
+            }
+        }
+        const f64 _dx = (f64)(_at[1].x - _at[0].x), _dy = (f64)(_at[1].y - _at[0].y), _len = hypot(_dx, _dy);
+        if(!(_len > 0.0) || !(_iw > 0.0)) {
+            continue;
+        }
+        const f64 _ux = _dx / _len, _uy = _dy / _len;
+        const f64 _apart = (f64)(_v[1].x - _v[0].x) * _ux + (f64)(_v[1].y - _v[0].y) * _uy;
+        const f64 _c = fmin(_dm[_i].strength * FZW_DAMPING, 0.5 / FZW_STEP) / _iw;   // (their mass together: 1 / the sum of their 1 / masses)
+        const f64 _f = _c * _apart;   // (on b back toward a; on a toward b)
+        for(u32 _k = 0; _k < 2u; _k++) {
+            if(_e[_k] != FUDE_ZOOM_NONE && _pb[_e[_k]] != NULL) {
+                const f64 _sg = _k == 0u ? 1.0 : -1.0;
+                rde_physics_2d_body_apply_force_at_point(_pb[_e[_k]], (rde_vec_2F){ (f32)(_sg * _f * _ux), (f32)(_sg * _f * _uy) }, _at[_k]);
+            }
+        }
+    }
+}
+
 RDE_INTERNAL void fzw_tick(fude_zoom_mech_world* _w) {
     if(_w->time < FZW_SPIN_UP + FZW_STEP) {
         // (motors coming up to speed: smoothly, from rest)
@@ -592,6 +977,15 @@ RDE_INTERNAL void fzw_tick(fude_zoom_mech_world* _w) {
             }
         }
     }
+    fzw_hand(_w);
+    // (solenoids' plungers: pulled as hard as their coils pull, along their way in)
+    const fude_zoom_mech_plunger* _pl = (const fude_zoom_mech_plunger*)_w->plungers.memory;
+    rde_physics_2d_body** _pb = (rde_physics_2d_body**)_w->bodies.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->plungers); _i++) {
+        const f64 _f = -_pl[_i].pull * fude_zoom_mech_world_torque_unit(_w);
+        rde_physics_2d_body_apply_force(_pb[_pl[_i].body], (rde_vec_2F){ (f32)(_pl[_i].axis.x * _f), (f32)(_pl[_i].axis.y * _f) });
+    }
+    fzw_springs_of(_w);
     rde_physics_2d_world_step(_w->world, (f32)FZW_STEP);   // (hinges, motors, slides, springs, ropes, pulleys, gears: RDE's)
     _w->time += FZW_STEP;
     fzw_strain(_w);
@@ -607,6 +1001,7 @@ void fude_zoom_mech_world_step(fude_zoom_mech_world* _w, f64 _dt) {
         fzw_tick(_w);
     }
     fzw_publish(_w);
+    fzw_trace(_w);
 }
 
 void fude_zoom_mech_world_tick(fude_zoom_mech_world* _w) {
@@ -615,6 +1010,7 @@ void fude_zoom_mech_world_tick(fude_zoom_mech_world* _w) {
     }
     fzw_tick(_w);
     fzw_publish(_w);
+    fzw_trace(_w);
 }
 
 u32 fude_zoom_mech_world_shaft(const fude_zoom_mech_world* _w, u32 _object) {
@@ -663,6 +1059,48 @@ void fude_zoom_mech_world_shaft_drive(fude_zoom_mech_world* _w, u32 _shaft, f64 
 
 f64 fude_zoom_mech_world_torque_unit(const fude_zoom_mech_world* _w) {
     return 9810.0 * _w->k;   // (its gravity, in world units: a unit of mass at a unit of length)
+}
+
+f64 fude_zoom_mech_world_turned(const fude_zoom_mech_world* _w, u32 _body) {
+    return _body < (u32)rde_arr_length(&_w->turned) ? ((const f64*)_w->turned.memory)[_body] : 0.0;
+}
+
+f64 fude_zoom_mech_world_slid(const fude_zoom_mech_world* _w, u32 _body) {
+    const fude_zoom_mech_slide* _sl = (const fude_zoom_mech_slide*)_w->plan.slides.memory;
+    for(u32 _i = 0; _w->world != NULL && _i < (u32)rde_arr_length(&_w->plan.slides); _i++) {
+        if(_sl[_i].body == _body) {
+            const fude_zoom_v2 _at = ((const fude_zoom_mech_body*)_w->plan.bodies.memory)[_body].at;
+            const fude_zoom_v2 _now = fude_zoom_sim_apply(fude_zoom_mech_world_move(_w, _body), _at);
+            return (_now.x - _at.x) * _sl[_i].axis.x + (_now.y - _at.y) * _sl[_i].axis.y;
+        }
+    }
+    return 0.0;
+}
+
+u32 fude_zoom_mech_world_plunger(const fude_zoom_mech_world* _w, u32 _object) {
+    const fude_zoom_mech_plunger* _pl = (const fude_zoom_mech_plunger*)_w->plungers.memory;
+    for(u32 _i = 0; _w->world != NULL && _i < (u32)rde_arr_length(&_w->plungers); _i++) {
+        if(_pl[_i].object == _object) {
+            return _i;
+        }
+    }
+    return FUDE_ZOOM_NONE;
+}
+
+void fude_zoom_mech_world_plunger_pull(fude_zoom_mech_world* _w, u32 _plunger, f64 _pull) {
+    if(_plunger < (u32)rde_arr_length(&_w->plungers)) {
+        ((fude_zoom_mech_plunger*)_w->plungers.memory)[_plunger].pull = _pull;
+    }
+}
+
+f64 fude_zoom_mech_world_plunger_in(const fude_zoom_mech_world* _w, u32 _plunger) {
+    if(_w->world == NULL || _plunger >= (u32)rde_arr_length(&_w->plungers)) {
+        return 0.0;
+    }
+    const fude_zoom_mech_plunger* _pl = &((const fude_zoom_mech_plunger*)_w->plungers.memory)[_plunger];
+    const rde_vec_2F _now = rde_physics_2d_body_get_position(((rde_physics_2d_body* const*)_w->bodies.memory)[_pl->body]);
+    const f64 _out = ((f64)(_now.x - _pl->start.x) * _pl->axis.x + (f64)(_now.y - _pl->start.y) * _pl->axis.y) / _w->k;
+    return fmin(fmax(-_out / fmax(_pl->stroke, 1e-12), 0.0), 1.0);
 }
 
 b8 fude_zoom_mech_world_covers(const fude_zoom_mech_world* _w, fude_zoom_v2 _at) {

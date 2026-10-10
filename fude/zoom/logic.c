@@ -229,7 +229,8 @@ b8 fude_zoom_logic_is(const fude_zoom_part* _part) {
         return false;
     }
     const u8 _m = _part->model;
-    return _m == FUDE_ZOOM_MODEL_GATE || _m == FUDE_ZOOM_MODEL_DFF || _m == FUDE_ZOOM_MODEL_TFF || _m == FUDE_ZOOM_MODEL_LOGIC_IN ||
+    return _m == FUDE_ZOOM_MODEL_GATE || _m == FUDE_ZOOM_MODEL_DFF || _m == FUDE_ZOOM_MODEL_TFF || _m == FUDE_ZOOM_MODEL_JKFF ||
+           _m == FUDE_ZOOM_MODEL_SRLATCH || _m == FUDE_ZOOM_MODEL_LOGIC_IN ||
            _m == FUDE_ZOOM_MODEL_LOGIC_OUT || _m == FUDE_ZOOM_MODEL_SIM;
 }
 
@@ -304,6 +305,20 @@ RDE_INTERNAL b8 fzl_what(const fude_zoom_circuit_part* _p, c8* _def, usize _def_
         _port_of_pin[3] = 4u;
         *_ports = 5u;
         return true;
+    case FUDE_ZOOM_MODEL_JKFF:
+        // (J, CLK, K, Q, QN as the model's J, K, CLK, R, Q, QN: its R tied low)
+        snprintf(_def, _def_size, "jkff");
+        _port_of_pin[0] = 0u;
+        _port_of_pin[1] = 2u;
+        _port_of_pin[2] = 1u;
+        _port_of_pin[3] = 4u;
+        _port_of_pin[4] = 5u;
+        *_ports = 6u;
+        return true;
+    case FUDE_ZOOM_MODEL_SRLATCH:
+        snprintf(_def, _def_size, "srlatch");   // (S, R, Q, QN: as its pins)
+        *_ports = 4u;
+        return true;
     case FUDE_ZOOM_MODEL_LOGIC_IN:
         snprintf(_def, _def_size, "input");
         snprintf(_params, _params_size, "%u", (u32)(_p->switch_on & 1u));
@@ -336,6 +351,8 @@ RDE_INTERNAL void fzl_port(const fude_zoom_circuit_part* _p, u32 _pin, u8* _doma
     case FUDE_ZOOM_MODEL_GATE:      *_dir = _pin + 1u == _part->pin_count ? FUDE_SIM_OUT : FUDE_SIM_IN; return;
     case FUDE_ZOOM_MODEL_DFF:
     case FUDE_ZOOM_MODEL_TFF:       *_dir = _pin >= 2u ? FUDE_SIM_OUT : FUDE_SIM_IN; return;
+    case FUDE_ZOOM_MODEL_JKFF:      *_dir = _pin >= 3u ? FUDE_SIM_OUT : FUDE_SIM_IN; return;
+    case FUDE_ZOOM_MODEL_SRLATCH:   *_dir = _pin >= 2u ? FUDE_SIM_OUT : FUDE_SIM_IN; return;
     case FUDE_ZOOM_MODEL_LOGIC_IN:  *_dir = FUDE_SIM_OUT; return;
     case FUDE_ZOOM_MODEL_LOGIC_OUT: *_dir = FUDE_SIM_IN; return;
     case FUDE_ZOOM_MODEL_SIM: {
@@ -616,7 +633,9 @@ b8 fude_zoom_logic_step(fude_zoom_logic* _l, const fude_zoom_circuit* _c, f64 _t
         const f64 _vg = fzl_volts(_c, _q, _br[_b].ground);
         const f64 _vs = _br[_b].supply != FUDE_ZOOM_NONE ? fzl_volts(_c, _q, _br[_b].supply) : _vg + FUDE_ZOOM_LOGIC_V;
         const f64 _v  = fude_zoom_circuit_volts(_c, _br[_b].node) - _vg;
-        const u8  _r  = _vs - _vg < 1.0 ? FUDE_SIM_X : (_v > 0.5 * (_vs - _vg) ? FUDE_SIM_1 : FUDE_SIM_0);   // (unpowered: unknown)
+        // (unpowered: low — not unknown: a flip-flop reading its reset as unknown as the circuit comes on would hold X for
+        // ever (no edge ever clears it), where a real chip comes up in some state; its outputs are not driven anyway)
+        const u8  _r  = _vs - _vg < 1.0 ? FUDE_SIM_0 : (_v > 0.5 * (_vs - _vg) ? FUDE_SIM_1 : FUDE_SIM_0);
         if(_r != _br[_b].read) {
             _br[_b].read = _r;
             fude_sim_run_set(&_l->run, _br[_b].input, _r);

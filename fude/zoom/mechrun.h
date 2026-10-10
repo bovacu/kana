@@ -79,6 +79,16 @@ typedef struct {
     f64 force, strength;
 } fude_zoom_mech_event;
 
+// A hand crank (mech.h's): its axle's hinge, its body (the plan's), how far it has turned (radians, every turn counted:
+// its angle's steps added up), and, held, where the hand would have it.
+typedef struct {
+    rde_physics_2d_joint* joint;
+    u32                   body;
+    f64                   was, turned;
+    b8                    held;
+    f64                   target;
+} fude_zoom_mech_crank;
+
 // A circuit's motor's shaft (mech.h' FUDE_ZOOM_MECH_SHAFT): the hinge of what is pinned on it, free, or driven as the
 // circuit says (coupling.h).
 typedef struct {
@@ -86,6 +96,18 @@ typedef struct {
     u32                   body;          // what turns on it (the plan's)
     u32                   object;        // the circuit's motor (its symbol)
 } fude_zoom_mech_shaft;
+
+// A circuit's solenoid's plunger (mech.h' FUDE_ZOOM_MECH_PLUNGER): its rod (the plan's body), its solenoid (the circuit's
+// symbol), the way out of its coil (unit), where its rod started (world units), how far in it goes (home units), and how
+// hard it is pulled in now (in torque_unit's force — its unit of mass's weight —; less than 0: pushed out) — coupling's.
+typedef struct {
+    u32          body;
+    u32          object;
+    fude_zoom_v2 axis;
+    rde_vec_2F   start;
+    f64          stroke;
+    f64          pull;
+} fude_zoom_mech_plunger;
 
 typedef struct {
     fude_zoom_mech_plan   plan;          // what it runs (its own copy)
@@ -97,8 +119,21 @@ typedef struct {
     rde_arr TYPE(f64)     ropes_were;    // each rope's length (end to end) when it started: a pulley's turn
     rde_arr TYPE(fude_zoom_mech_motor) motors;
     rde_arr TYPE(fude_zoom_mech_shaft) shafts;
+    rde_arr TYPE(fude_zoom_mech_crank) cranks;
+    rde_arr TYPE(fude_zoom_mech_plunger) plungers;
+    rde_arr TYPE(f64)     turned;        // each body's turn since it started (radians, counter-clockwise, every turn counted)
+    rde_arr TYPE(f64)     turned_was;    // (its angle as last read)
+    // A part taken hold of by hand (FUDE_ZOOM_NONE: none): where on it (its own frame, world units), where it is dragged to
+    // (home units).
+    u32                   grab;
+    rde_vec_2F            grab_on;
+    fude_zoom_v2          grab_to;
     rde_arr TYPE(fude_zoom_mech_joint) joints;
     rde_arr TYPE(fude_zoom_mech_event) events;
+    // Its tracers' paths (the plan's tracers): each point where one has been (home units, a little apart), whose it is.
+    rde_arr TYPE(fude_zoom_v2) trail;
+    rde_arr TYPE(u32)          trail_of;
+    rde_arr TYPE(fude_zoom_v2) trail_last;   // each tracer's last point (NAN: none yet)
     f64                   k;             // world units a home unit (its parts about one: what the physics is best at)
     f64                   time;          // seconds run
     f64                   left;          // time not stepped yet (less than a step)
@@ -127,6 +162,16 @@ f64  fude_zoom_mech_world_shaft_angle(const fude_zoom_mech_world* _w, u32 _shaft
 void fude_zoom_mech_world_shaft_drive(fude_zoom_mech_world* _w, u32 _shaft, f64 _spin, f64 _torque);
 // The world's torques' scale: what its unit of mass weighs at its unit of length (a turn's worth of what its parts are).
 f64  fude_zoom_mech_world_torque_unit(const fude_zoom_mech_world* _w);
+// Body _body's turn since it started (radians, counter-clockwise, every turn counted: its wheel's belt, its worm's threads).
+f64  fude_zoom_mech_world_turned(const fude_zoom_mech_world* _w, u32 _body);
+// How far along its slide body _body has gone from where it started (home units; 0: it has none) — a follower's.
+f64  fude_zoom_mech_world_slid(const fude_zoom_mech_world* _w, u32 _body);
+// The plunger of the circuit's solenoid _object (FUDE_ZOOM_NONE: none).
+u32  fude_zoom_mech_world_plunger(const fude_zoom_mech_world* _w, u32 _object);
+// Plunger _plunger pulled in as hard as _pull (in torque_unit's force; less than 0: pushed out), each step from now.
+void fude_zoom_mech_world_plunger_pull(fude_zoom_mech_world* _w, u32 _plunger, f64 _pull);
+// How far in plunger _plunger is (0: all the way out, as it started; 1: all the way in).
+f64  fude_zoom_mech_world_plunger_in(const fude_zoom_mech_world* _w, u32 _plunger);
 // Is point _at (home units) under a part that moves (as it is now)?
 b8   fude_zoom_mech_world_covers(const fude_zoom_mech_world* _w, fude_zoom_v2 _at);
 
@@ -136,5 +181,27 @@ b8   fude_zoom_mech_world_broken(const fude_zoom_mech_world* _w, u8 _kind, u32 _
 fude_zoom_sim fude_zoom_mech_world_move(const fude_zoom_mech_world* _w, u32 _b);
 // Point _p (home units, as drawn) held by body _b (FUDE_ZOOM_NONE: still) where it is now.
 fude_zoom_v2 fude_zoom_mech_world_point(const fude_zoom_mech_world* _w, u32 _b, fude_zoom_v2 _p);
+// --- by hand, as it plays ---
+#define FUDE_ZOOM_MECH_HAND_TORQUE 20.0   // N·m: as hard as a hand turns a crank
+#define FUDE_ZOOM_MECH_HAND_HZ     12.0   // how stiffly a part held follows the hand (a spring as its mass makes this, damped)
+// The hand crank whose disc holds point _at (home units; FUDE_ZOOM_NONE: none).
+u32  fude_zoom_mech_world_crank_at(const fude_zoom_mech_world* _w, fude_zoom_v2 _at);
+// Crank _c held: turned toward _angle (radians, counter-clockwise, every turn counted) as hard as a hand turns, at most.
+void fude_zoom_mech_world_crank_hold(fude_zoom_mech_world* _w, u32 _c, f64 _angle);
+// ...let go: it turns free but for its axle's friction (its text's, else FUDE_ZOOM_MECH_CRANK_FRICTION: mech.h).
+void fude_zoom_mech_world_crank_let_go(fude_zoom_mech_world* _w, u32 _c);
+// How far crank _c has turned since it started (radians, counter-clockwise, every turn counted); its middle (home units).
+f64  fude_zoom_mech_world_crank_angle(const fude_zoom_mech_world* _w, u32 _c);
+fude_zoom_v2 fude_zoom_mech_world_crank_middle(const fude_zoom_mech_world* _w, u32 _c);
+// What moves under _at (home units) taken hold of there: pulled toward where it is dragged. False: nothing that moves.
+b8   fude_zoom_mech_world_grab(fude_zoom_mech_world* _w, fude_zoom_v2 _at);
+void fude_zoom_mech_world_drag(fude_zoom_mech_world* _w, fude_zoom_v2 _to);
+void fude_zoom_mech_world_let_go(fude_zoom_mech_world* _w);
+// Where on it the part held is now (home units; false: none held).
+b8   fude_zoom_mech_world_grabbed(const fude_zoom_mech_world* _w, fude_zoom_v2* _at);
+
+#define FUDE_ZOOM_MECH_TRAIL_MOST 40000u   // its tracers' points at most (all of theirs together: the rest not kept)
+// Tracer _t's path (the plan's tracer): its points, in turn, into _out (home units). How many.
+u32  fude_zoom_mech_world_trail(const fude_zoom_mech_world* _w, u32 _t, rde_arr* _out);
 
 #endif

@@ -10,22 +10,6 @@
 
 #define FZX_DEG 0.017453292519943295
 
-
-RDE_INTERNAL const u8 FZX_GROUP[FUDE_ZOOM_EXAMPLE_COUNT] = {
-    // (the electronics', 19; the mechanisms', 13; both, 9)
-    FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS,
-    FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS,
-    FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS,
-    FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS,
-    FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS, FUDE_ZOOM_EXAMPLES_ELECTRONICS,
-    FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS,
-    FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS,
-    FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS, FUDE_ZOOM_EXAMPLES_MECHANISMS,
-    FUDE_ZOOM_EXAMPLES_MECHANISMS,
-    FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH,
-    FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH, FUDE_ZOOM_EXAMPLES_BOTH,
-};
-
 b8 fude_zoom_example_goes_wrong(u32 _example) {
     return _example == FUDE_ZOOM_EXAMPLE_LED_RESISTOR || _example == FUDE_ZOOM_EXAMPLE_RESISTOR_WATTS || _example == FUDE_ZOOM_EXAMPLE_SHORT_FUSE ||
            _example == FUDE_ZOOM_EXAMPLE_CAP_POLARITY || _example == FUDE_ZOOM_EXAMPLE_TRANSISTOR_SIZE || _example == FUDE_ZOOM_EXAMPLE_TOO_HEAVY ||
@@ -33,7 +17,56 @@ b8 fude_zoom_example_goes_wrong(u32 _example) {
 }
 
 u8 fude_zoom_example_group(u32 _example) {
-    return _example < FUDE_ZOOM_EXAMPLE_COUNT ? FZX_GROUP[_example] : FUDE_ZOOM_EXAMPLES_BOTH;
+    // (in the list's order: the electronics' up to the first mechanism's, the mechanisms' up to the first of both's)
+    return _example < FUDE_ZOOM_EXAMPLE_CRANK ? FUDE_ZOOM_EXAMPLES_ELECTRONICS :
+           (_example < FUDE_ZOOM_EXAMPLE_MOTOR_GEARS ? FUDE_ZOOM_EXAMPLES_MECHANISMS : FUDE_ZOOM_EXAMPLES_BOTH);
+}
+
+u8 fude_zoom_example_set(u32 _example) {
+    switch(_example) {
+    case FUDE_ZOOM_EXAMPLE_TORCH: case FUDE_ZOOM_EXAMPLE_FLASHER: case FUDE_ZOOM_EXAMPLE_CHASER: case FUDE_ZOOM_EXAMPLE_SPEAKER_TONE:
+        return FUDE_ZOOM_EXAMPLE_SET_FIRST;
+    case FUDE_ZOOM_EXAMPLE_GATES: case FUDE_ZOOM_EXAMPLE_FULL_ADDER: case FUDE_ZOOM_EXAMPLE_ADDER_4: case FUDE_ZOOM_EXAMPLE_ADDER_CHIP:
+    case FUDE_ZOOM_EXAMPLE_COUNTER: case FUDE_ZOOM_EXAMPLE_FLIPFLOPS: case FUDE_ZOOM_EXAMPLE_DECADE:
+        return FUDE_ZOOM_EXAMPLE_SET_LOGIC;
+    case FUDE_ZOOM_EXAMPLE_DIGIT_COUNTER: case FUDE_ZOOM_EXAMPLE_MATRIX_SCAN: case FUDE_ZOOM_EXAMPLE_BAR_METER: case FUDE_ZOOM_EXAMPLE_PANEL_METERS:
+    case FUDE_ZOOM_EXAMPLE_LCD_BY_HAND:
+        return FUDE_ZOOM_EXAMPLE_SET_DISPLAYS;
+    case FUDE_ZOOM_EXAMPLE_SCOPE_RC: case FUDE_ZOOM_EXAMPLE_LIGHT_TEMP: case FUDE_ZOOM_EXAMPLE_COMPARATOR: case FUDE_ZOOM_EXAMPLE_LIGHT_LINK:
+        return FUDE_ZOOM_EXAMPLE_SET_SENSING;
+    case FUDE_ZOOM_EXAMPLE_THYRISTORS: case FUDE_ZOOM_EXAMPLE_POWER_SUPPLY:
+        return FUDE_ZOOM_EXAMPLE_SET_POWER;
+    case FUDE_ZOOM_EXAMPLE_LED_RESISTOR: case FUDE_ZOOM_EXAMPLE_RESISTOR_WATTS: case FUDE_ZOOM_EXAMPLE_SHORT_FUSE: case FUDE_ZOOM_EXAMPLE_CAP_POLARITY:
+    case FUDE_ZOOM_EXAMPLE_TRANSISTOR_SIZE: case FUDE_ZOOM_EXAMPLE_RINGING:
+        return FUDE_ZOOM_EXAMPLE_SET_E_WRONG;
+    case FUDE_ZOOM_EXAMPLE_CRANK: case FUDE_ZOOM_EXAMPLE_PISTON: case FUDE_ZOOM_EXAMPLE_COUPLER_CURVE: case FUDE_ZOOM_EXAMPLE_BY_HAND:
+        return FUDE_ZOOM_EXAMPLE_SET_LINKAGES;
+    case FUDE_ZOOM_EXAMPLE_GEAR_TRAIN: case FUDE_ZOOM_EXAMPLE_RACK: case FUDE_ZOOM_EXAMPLE_GEARS_RACK: case FUDE_ZOOM_EXAMPLE_GEARBOX:
+    case FUDE_ZOOM_EXAMPLE_BELTS: case FUDE_ZOOM_EXAMPLE_WORM:
+        return FUDE_ZOOM_EXAMPLE_SET_GEARS;
+    case FUDE_ZOOM_EXAMPLE_PENDULUM: case FUDE_ZOOM_EXAMPLE_PULLEYS: case FUDE_ZOOM_EXAMPLE_BODIES: case FUDE_ZOOM_EXAMPLE_CAM:
+    case FUDE_ZOOM_EXAMPLE_RATCHET: case FUDE_ZOOM_EXAMPLE_DAMPER:
+        return FUDE_ZOOM_EXAMPLE_SET_MOTION;
+    case FUDE_ZOOM_EXAMPLE_MATERIALS: case FUDE_ZOOM_EXAMPLE_TOO_HEAVY: case FUDE_ZOOM_EXAMPLE_MOTOR_TORQUE:
+        return FUDE_ZOOM_EXAMPLE_SET_M_WRONG;
+    case FUDE_ZOOM_EXAMPLE_MACHINE:
+        return FUDE_ZOOM_EXAMPLE_SET_M_BIG;
+    case FUDE_ZOOM_EXAMPLE_MOTOR_GEARS: case FUDE_ZOOM_EXAMPLE_DYNAMO: case FUDE_ZOOM_EXAMPLE_FORWARD_BACK: case FUDE_ZOOM_EXAMPLE_SHUTTLE:
+        return FUDE_ZOOM_EXAMPLE_SET_MOTORS;
+    case FUDE_ZOOM_EXAMPLE_SERVO_TESTER: case FUDE_ZOOM_EXAMPLE_SERVO_ANGLES: case FUDE_ZOOM_EXAMPLE_SOLENOID: case FUDE_ZOOM_EXAMPLE_STEPPER:
+        return FUDE_ZOOM_EXAMPLE_SET_ACTUATORS;
+    case FUDE_ZOOM_EXAMPLE_TURN_COUNTER: case FUDE_ZOOM_EXAMPLE_SHAFT_SENSORS:
+        return FUDE_ZOOM_EXAMPLE_SET_MACHINE_SENSORS;
+    default:
+        // (any other: its group's big projects)
+        return fude_zoom_example_group(_example) == FUDE_ZOOM_EXAMPLES_ELECTRONICS ? FUDE_ZOOM_EXAMPLE_SET_E_BIG :
+               (fude_zoom_example_group(_example) == FUDE_ZOOM_EXAMPLES_MECHANISMS ? FUDE_ZOOM_EXAMPLE_SET_M_BIG : FUDE_ZOOM_EXAMPLE_SET_B_BIG);
+    }
+}
+
+u8 fude_zoom_example_set_group(u8 _set) {
+    return _set <= FUDE_ZOOM_EXAMPLE_SET_E_BIG ? FUDE_ZOOM_EXAMPLES_ELECTRONICS :
+           (_set <= FUDE_ZOOM_EXAMPLE_SET_M_BIG ? FUDE_ZOOM_EXAMPLES_MECHANISMS : FUDE_ZOOM_EXAMPLES_BOTH);
 }
 
 // --- drawing one: the library's parts placed, wired, written by ----------------------------------------------------
@@ -307,10 +340,786 @@ RDE_INTERNAL void fzx_ringing(fzx* _x) {
     fzx_title(_x, -280, 230, FUDE_ZOOM_EXAMPLE_RINGING);
 }
 
+// A 100 Hz square wave into 10 kΩ and 100 nF (a millisecond its time constant): on an oscilloscope, the square on CH1
+// (yellow), the capacitor charging and discharging toward it on CH2 (cyan), 2 ms a division.
+RDE_INTERNAL void fzx_scope_rc(fzx* _x) {
+    const u32 _clk = fzx_part(_x, "clock", -250, 0, 0, "100Hz 5V");
+    const u32 _r   = fzx_part(_x, "resistor", -100, 80, 0, "10k");
+    const u32 _cap = fzx_part(_x, "capacitor", 0, 0, -90, "100nF");
+    const u32 _g   = fzx_part(_x, "ground", 0, -100, 0, "");
+    const u32 _sp  = fzx_part(_x, "oscilloscope", 340, 20, 0, "2ms 2V");
+    fzx_route(_x, _clk, 0, _r, 0, FZX_VIA({ -250, 80 }));
+    fzx_route(_x, _r, 1, _cap, 0, FZX_VIA({ 0, 80 }));
+    fzx_line(_x, _cap, 1, _g, 0);
+    fzx_route(_x, _clk, 1, _g, 0, FZX_VIA({ -250, -80 }));
+    fzx_line(_x, _cap, 0, _sp, 1);
+    fzx_route(_x, _sp, 0, _clk, 0, FZX_VIA({ 150, 60 }, { 150, 140 }, { -250, 140 }));
+    fzx_route(_x, _sp, 2, _g, 0, FZX_VIA({ 150, -20 }, { 150, -80 }));
+    fzx_word(_x, -300, -160, 16.0, 560.0, FUDE_ZOOM_EXAMPLE_WORD_SCOPE);
+    fzx_title(_x, -300, 230, FUDE_ZOOM_EXAMPLE_SCOPE_RC);
+}
+
+// A night light: an LDR under 47 kΩ from 5 V, its middle through 4.7 kΩ into a transistor's base — in the dark the LDR's
+// resistance high, the base high, the LED on (a room's light: off) —; and a thermometer: a thermistor under 10 kΩ, a panel
+// meter on it (2.50 V at 25 °C, less as it warms). Play's sliders, or a tap on them, change the light and the heat.
+RDE_INTERNAL void fzx_light_temp(fzx* _x) {
+    const u32 _rail = fzx_part(_x, "supply rail", -300, 210, 0, "5V");
+    const u32 _r1   = fzx_part(_x, "resistor", -300, 130, 90, "47k");
+    const u32 _ldr  = fzx_part(_x, "LDR", -300, 10, 90, "GL5528");
+    const u32 _g1   = fzx_part(_x, "ground", -300, -80, 0, "");
+    const u32 _rb   = fzx_part(_x, "resistor", -200, 70, 0, "4.7k");
+    const u32 _q    = fzx_part(_x, "NPN", -100, 70, 0, "2N2222");
+    const u32 _led  = fzx_part(_x, "LED", -90, 170, -90, "yellow");
+    const u32 _rl   = fzx_part(_x, "resistor", -90, 250, 90, "330");
+    const u32 _rail2 = fzx_part(_x, "supply rail", -90, 320, 0, "5V");
+    const u32 _g2   = fzx_part(_x, "ground", -90, -20, 0, "");
+    fzx_line(_x, _rail, 0, _r1, 1);
+    fzx_line(_x, _r1, 0, _ldr, 1);
+    fzx_line(_x, _ldr, 0, _g1, 0);
+    fzx_route(_x, _r1, 0, _rb, 0, FZX_VIA({ -300, 70 }));
+    fzx_line(_x, _rb, 1, _q, 0);
+    fzx_line(_x, _q, 1, _led, 1);
+    fzx_line(_x, _led, 0, _rl, 0);
+    fzx_line(_x, _rl, 1, _rail2, 0);
+    fzx_line(_x, _q, 2, _g2, 0);
+    // (the thermometer)
+    const u32 _rail3 = fzx_part(_x, "supply rail", 150, 210, 0, "5V");
+    const u32 _rt    = fzx_part(_x, "resistor", 150, 130, 90, "10k");
+    const u32 _ntc   = fzx_part(_x, "thermistor", 150, 10, 90, "10k NTC");
+    const u32 _g3    = fzx_part(_x, "ground", 150, -80, 0, "");
+    const u32 _pm    = fzx_part(_x, "panel meter", 330, 70, 0, "20V");
+    fzx_line(_x, _rail3, 0, _rt, 1);
+    fzx_line(_x, _rt, 0, _ntc, 1);
+    fzx_line(_x, _ntc, 0, _g3, 0);
+    fzx_route(_x, _rt, 0, _pm, 0, FZX_VIA({ 150, 70 }));
+    fzx_route(_x, _pm, 1, _g3, 0, FZX_VIA({ 440, 70 }, { 440, -60 }, { 150, -60 }));
+    fzx_word(_x, -320, -140, 16.0, 640.0, FUDE_ZOOM_EXAMPLE_WORD_SLIDERS);
+    fzx_title(_x, -320, 380, FUDE_ZOOM_EXAMPLE_LIGHT_TEMP);
+}
+
 // --- displays (display.h) ---
 
 // A small ground or supply rail (_volts NULL: a ground) turned to face a pin on its part's left, _gap from it: a wire
 // straight between them.
+// A 4 Hz clock into a CD4017 (its reset and its clock inhibit held low, on 5 V): each of its ten outputs through 470 Ω
+// into an LED, in a row under it, numbered — each output's wire out to its own lane and down, none crossing another (the
+// row in its package's order: 5 1 0 2 6 7 3 on its left, 8 4 9 on its right). One lit at a time, 0 to 9 and round.
+RDE_INTERNAL void fzx_decade(fzx* _x) {
+    const u32 _ch = fzx_part(_x, "CD4017", 0, 0, 0, "CD4017");
+    // (left, x −100: Q5 70, Q1 50, Q0 30, Q2 10, Q6 −10, Q7 −30, Q3 −50, VSS −70; right, x 100: Q8 −70, Q4 −50, Q9 −30,
+    // CO −10, INH 10, CLK 30, RST 50, VDD 70)
+    const u32 _vr = fzx_part(_x, "supply rail", 140, 90, 0, "5V");
+    fzx_route(_x, _ch, 15u, _vr, 0, FZX_VIA({ 140, 70 }));
+    const u32 _gi = fzx_part(_x, "ground", 120, -120, 0, "");
+    fzx_route(_x, _ch, 14u, _gi, 0, FZX_VIA({ 120, 50 }));
+    fzx_route(_x, _ch, 12u, _gi, 0, FZX_VIA({ 110, 10 }, { 110, -100 }));
+    const u32 _clk = fzx_part(_x, "clock", 400, 0, 0, "4Hz");
+    const u32 _gc  = fzx_part(_x, "ground", 400, -80, 0, "");
+    fzx_route(_x, _ch, 13u, _clk, 0, NULL, 0);
+    fzx_route(_x, _clk, 1, _gc, 0, NULL, 0);
+    const u32 _gv = fzx_part(_x, "ground", -130, -120, 0, "");
+    fzx_route(_x, _ch, 7u, _gv, 0, FZX_VIA({ -130, -70 }));
+    // (each output: its pin, its count, its lane — the higher its pin, the farther out)
+    static const u32 _pin[10]  = { 0, 1, 2, 3, 4, 5, 6, 10, 9, 8 };
+    static const u32 _num[10]  = { 5, 1, 0, 2, 6, 7, 3, 9, 4, 8 };
+    static const f64 _lane[10] = { -580, -510, -440, -370, -300, -230, -160, 300, 230, 160 };
+    static const c8* const _digit[10] = { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+    for(u32 _k = 0; _k < 10u; _k++) {
+        const f64 _lx = _lane[_k];
+        const u32 _r = fzx_part(_x, "resistor", _lx, -200, 90, "470");
+        const u32 _l = fzx_sized(_x, "LED", _lx, -300, -90, 60, 20, _num[_k] == 0u ? "red" : "yellow");
+        const u32 _g = fzx_part(_x, "ground", _lx, -380, 0, "");
+        const fude_zoom_v2 _at = fzx_pin(_x, _ch, _pin[_k]);
+        fzx_route(_x, _ch, _pin[_k], _r, 1, FZX_VIA({ _lx, _at.y }));
+        fzx_route(_x, _r, 0, _l, 0, NULL, 0);
+        fzx_route(_x, _l, 1, _g, 0, NULL, 0);
+        fzx_text(_x, _lx + 16.0, -150.0, 18.0, 20.0, _digit[_num[_k]]);
+    }
+    fzx_title(_x, -580, 170, FUDE_ZOOM_EXAMPLE_DECADE);
+}
+
+// An SR latch, S and R on logic inputs, its Q and /Q on probes; a JK flip-flop, J and K on logic inputs (both 1: it
+// changes on each tick), its clock 1 Hz.
+RDE_INTERNAL void fzx_flipflops(fzx* _x) {
+    const u32 _sr = fzx_part(_x, "SR latch", 0, 150, 0, "");
+    const u32 _s  = fzx_sized(_x, "logic input", -150, 170, 0, 60, 20, "0");
+    const u32 _rr = fzx_sized(_x, "logic input", -150, 130, 0, 60, 20, "0");
+    const u32 _q1 = fzx_part(_x, "logic probe", 100, 170, 0, "");
+    const u32 _n1 = fzx_part(_x, "logic probe", 100, 130, 0, "");
+    fzx_route(_x, _s, 0, _sr, 0, NULL, 0);
+    fzx_route(_x, _rr, 0, _sr, 1, NULL, 0);
+    fzx_route(_x, _sr, 2, _q1, 0, NULL, 0);
+    fzx_route(_x, _sr, 3, _n1, 0, NULL, 0);
+    fzx_text(_x, -220, 180, 14.0, 30.0, "S");
+    fzx_text(_x, -220, 140, 14.0, 30.0, "R");
+    const u32 _jk = fzx_part(_x, "JK flip-flop", 0, -50, 0, "");
+    const u32 _j  = fzx_sized(_x, "logic input", -150, -30, 0, 60, 20, "1");
+    const u32 _k  = fzx_sized(_x, "logic input", -150, -70, 0, 60, 20, "1");
+    const u32 _ck = fzx_part(_x, "clock", -230, -130, 0, "1Hz");
+    const u32 _gc = fzx_part(_x, "ground", -230, -210, 0, "");
+    const u32 _q2 = fzx_part(_x, "logic probe", 100, -30, 0, "");
+    const u32 _n2 = fzx_part(_x, "logic probe", 100, -70, 0, "");
+    fzx_route(_x, _j, 0, _jk, 0, NULL, 0);
+    fzx_route(_x, _k, 0, _jk, 2, NULL, 0);
+    fzx_route(_x, _ck, 0, _jk, 1, FZX_VIA({ -230, -50 }));
+    fzx_route(_x, _ck, 1, _gc, 0, NULL, 0);
+    fzx_route(_x, _jk, 3, _q2, 0, NULL, 0);
+    fzx_route(_x, _jk, 4, _n2, 0, NULL, 0);
+    fzx_text(_x, -220, -20, 14.0, 30.0, "J");
+    fzx_text(_x, -220, -60, 14.0, 30.0, "K");
+    fzx_word(_x, -230, -250, 16.0, 460.0, FUDE_ZOOM_EXAMPLE_WORD_FLIPFLOPS);
+    fzx_title(_x, -230, 260, FUDE_ZOOM_EXAMPLE_FLIPFLOPS);
+}
+
+// A night light: an LM393 (on 5 V) comparing an LDR's divider (10k from 5 V over it, the LDR to ground: higher as it gets
+// darker) with a pot's wiper; dark enough, its open collector sinks an LED's current from 5 V through 220 Ω.
+RDE_INTERNAL void fzx_comparator(fzx* _x) {
+    const u32 _ic = fzx_part(_x, "LM393", 0, 0, 0, "LM393");
+    const u32 _vr = fzx_part(_x, "supply rail", 140, 60, 0, "5V");
+    fzx_route(_x, _ic, 7u, _vr, 0, FZX_VIA({ 140, 30 }));
+    const u32 _gi = fzx_part(_x, "ground", -110, -65, 0, "");
+    fzx_route(_x, _ic, 3u, _gi, 0, FZX_VIA({ -110, -30 }));
+    const u32 _rt = fzx_part(_x, "resistor", -300, 10, 0, "10k");
+    const u32 _rr = fzx_part(_x, "supply rail", -360, 40, 0, "5V");
+    const u32 _ldr = fzx_part(_x, "LDR", -270, -60, 90, "GL5528");
+    const u32 _gl = fzx_part(_x, "ground", -270, -130, 0, "");
+    fzx_route(_x, _rt, 1, _ic, 1u, NULL, 0);
+    fzx_route(_x, _rt, 0, _rr, 0, FZX_VIA({ -360, 10 }));
+    fzx_route(_x, _rt, 1, _ldr, 1, NULL, 0);
+    fzx_route(_x, _ldr, 0, _gl, 0, NULL, 0);
+    const u32 _pot = fzx_part(_x, "potentiometer", -150, -110, 0, "10k 50%");
+    const u32 _pr  = fzx_part(_x, "supply rail", -210, -70, 0, "5V");
+    const u32 _pg  = fzx_part(_x, "ground", -120, -160, 0, "");
+    fzx_route(_x, _ic, 2u, _pot, 2, FZX_VIA({ -150, -10 }));
+    fzx_route(_x, _pot, 0, _pr, 0, FZX_VIA({ -210, -120 }));
+    fzx_route(_x, _pot, 1, _pg, 0, NULL, 0);
+    const u32 _rl  = fzx_part(_x, "resistor", -170, 70, 0, "220");
+    const u32 _led = fzx_sized(_x, "LED", -260, 70, 0, 60, 20, "white");
+    const u32 _lr  = fzx_part(_x, "supply rail", -320, 100, 0, "5V");
+    fzx_route(_x, _ic, 0u, _rl, 1, FZX_VIA({ -120, 30 }, { -120, 70 }));
+    fzx_route(_x, _rl, 0, _led, 1, NULL, 0);
+    fzx_route(_x, _led, 0, _lr, 0, FZX_VIA({ -320, 70 }));
+    fzx_word(_x, -390, -190, 16.0, 520.0, FUDE_ZOOM_EXAMPLE_WORD_COMPARATOR);
+    fzx_title(_x, -390, 170, FUDE_ZOOM_EXAMPLE_COMPARATOR);
+}
+
+// An SCR on 12 V in a row with a switch and a lamp: a logic input through 1k into its gate fires it, and it stays on when
+// the gate lets go — the switch opened, it stops (closed again, it stays off). A TRIAC on 12 V AC with a lamp: a switch
+// and 1k from its MT2 side into its gate fire it each half of each cycle.
+RDE_INTERNAL void fzx_thyristors(fzx* _x) {
+    const u32 _scr = fzx_part(_x, "SCR", 0, 100, 0, "C106");
+    const u32 _bat = fzx_part(_x, "battery", 150, 100, 0, "12V");
+    const u32 _sw  = fzx_part(_x, "SPST switch", 90, 160, 0, "on");
+    const u32 _lp  = fzx_part(_x, "lamp", -20, 160, 0, "12V 5W");
+    const u32 _gb  = fzx_part(_x, "ground", 190, 40, 0, "");
+    fzx_route(_x, _bat, 0, _sw, 1, FZX_VIA({ 150, 160 }));
+    fzx_route(_x, _sw, 0, _lp, 1, NULL, 0);
+    fzx_route(_x, _lp, 0, _scr, 0, FZX_VIA({ -80, 160 }, { -80, 100 }));
+    fzx_route(_x, _scr, 1, _bat, 1, FZX_VIA({ 90, 100 }, { 90, 70 }));
+    fzx_route(_x, _bat, 1, _gb, 0, FZX_VIA({ 190, 70 }));
+    const u32 _rg = fzx_part(_x, "resistor", 10, 45, 90, "1k");
+    const u32 _gi = fzx_sized(_x, "logic input", -110, 15, 0, 60, 20, "0");
+    fzx_route(_x, _rg, 1, _scr, 2, NULL, 0);
+    fzx_route(_x, _gi, 0, _rg, 0, NULL, 0);
+    fzx_text(_x, -180, 30, 14.0, 30.0, "G");
+    const u32 _tr = fzx_part(_x, "TRIAC", 0, -150, 0, "BT136");
+    const u32 _ac = fzx_part(_x, "AC source", 150, -150, 0, "12V 50Hz");
+    const u32 _l2 = fzx_part(_x, "lamp", -20, -90, 0, "12V 5W");
+    const u32 _ga = fzx_part(_x, "ground", 190, -210, 0, "");
+    fzx_route(_x, _ac, 0, _l2, 1, FZX_VIA({ 150, -90 }));
+    fzx_route(_x, _l2, 0, _tr, 0, FZX_VIA({ -80, -90 }, { -80, -150 }));
+    fzx_route(_x, _tr, 1, _ac, 1, FZX_VIA({ 90, -150 }, { 90, -180 }));
+    fzx_route(_x, _ac, 1, _ga, 0, FZX_VIA({ 190, -180 }));
+    const u32 _r2 = fzx_part(_x, "resistor", -40, -200, 0, "1k");
+    const u32 _s2 = fzx_part(_x, "SPST switch", -120, -200, 0, "off");
+    fzx_route(_x, _tr, 2, _r2, 1, FZX_VIA({ 10, -200 }));
+    fzx_route(_x, _r2, 0, _s2, 1, NULL, 0);
+    fzx_route(_x, _s2, 0, _l2, 0, FZX_VIA({ -170, -200 }, { -170, -60 }, { -40, -60 }));
+    fzx_word(_x, -200, -260, 16.0, 460.0, FUDE_ZOOM_EXAMPLE_WORD_THYRISTORS);
+    fzx_title(_x, -200, 240, FUDE_ZOOM_EXAMPLE_THYRISTORS);
+}
+
+// A power supply: 24 V of AC into a 2:1 transformer, its secondary into a bridge rectifier (its − the ground), 1000 µF
+// across it (about 10.5 V), a 7805 to 5 V, an LED on it through 330 Ω.
+RDE_INTERNAL void fzx_power_supply(fzx* _x) {
+    const u32 _ac = fzx_part(_x, "AC source", -300, 0, 0, "24V 50Hz");
+    const u32 _tx = fzx_part(_x, "transformer", -150, 0, 0, "2:1");
+    const u32 _g0 = fzx_part(_x, "ground", -340, -70, 0, "");
+    fzx_route(_x, _ac, 0, _tx, 0, FZX_VIA({ -300, 50 }, { -210, 50 }, { -210, 20 }));
+    fzx_route(_x, _ac, 1, _tx, 1, FZX_VIA({ -300, -50 }, { -210, -50 }, { -210, -20 }));
+    fzx_route(_x, _ac, 1, _g0, 0, FZX_VIA({ -340, -30 }));
+    const u32 _br = fzx_part(_x, "bridge rectifier", 0, 0, 0, "DB107");
+    fzx_route(_x, _tx, 2, _br, 0, FZX_VIA({ -80, 20 }, { -80, 70 }, { 0, 70 }));
+    fzx_route(_x, _tx, 3, _br, 2, FZX_VIA({ -70, -20 }, { -70, -70 }, { 0, -70 }));
+    const u32 _g1 = fzx_part(_x, "ground", -50, -130, 0, "");
+    fzx_route(_x, _br, 3, _g1, 0, FZX_VIA({ -50, 0 }));
+    const u32 _cp = fzx_part(_x, "electrolytic", 100, -40, -90, "1000uF");
+    const u32 _g2 = fzx_part(_x, "ground", 100, -100, 0, "");
+    fzx_route(_x, _br, 1, _cp, 0, FZX_VIA({ 100, 0 }));
+    fzx_route(_x, _cp, 1, _g2, 0, NULL, 0);
+    const u32 _rg = fzx_part(_x, "7805", 220, 0, 0, "7805");
+    const u32 _g3 = fzx_part(_x, "ground", 220, -60, 0, "");
+    fzx_route(_x, _cp, 0, _rg, 0, FZX_VIA({ 160, -20 }, { 160, 10 }));
+    fzx_route(_x, _rg, 1, _g3, 0, NULL, 0);
+    const u32 _rl  = fzx_part(_x, "resistor", 310, 10, 0, "330");
+    const u32 _led = fzx_sized(_x, "LED", 400, 10, 0, 60, 20, "green");
+    const u32 _g4  = fzx_part(_x, "ground", 460, -20, 0, "");
+    fzx_route(_x, _rg, 2, _rl, 0, NULL, 0);
+    fzx_route(_x, _rl, 1, _led, 0, NULL, 0);
+    fzx_route(_x, _led, 1, _g4, 0, FZX_VIA({ 460, 10 }));
+    fzx_title(_x, -340, 150, FUDE_ZOOM_EXAMPLE_POWER_SUPPLY);
+}
+
+// Light. An optocoupler between two circuits that share nothing: a switch and 470 Ω from 5 V into its LED; its
+// phototransistor sinking a green LED's current from a 9 V battery of its own. A photodiode backwards on 5 V through 100k,
+// a phototransistor on 5 V through 1k, a voltmeter on each: as much light, as much less.
+RDE_INTERNAL void fzx_light_link(fzx* _x) {
+    const u32 _op = fzx_part(_x, "optocoupler", 0, 120, 0, "PC817");
+    const u32 _vr = fzx_part(_x, "supply rail", -250, 170, 0, "5V");
+    const u32 _sw = fzx_part(_x, "SPST switch", -200, 130, 0, "off");
+    const u32 _ri = fzx_part(_x, "resistor", -110, 130, 0, "470");
+    const u32 _gk = fzx_part(_x, "ground", -70, 70, 0, "");
+    fzx_route(_x, _vr, 0, _sw, 0, FZX_VIA({ -250, 130 }));
+    fzx_route(_x, _sw, 1, _ri, 0, NULL, 0);
+    fzx_route(_x, _ri, 1, _op, 0, NULL, 0);
+    fzx_route(_x, _op, 1, _gk, 0, FZX_VIA({ -70, 110 }));
+    const u32 _bat = fzx_part(_x, "battery", 250, 120, 0, "9V");
+    const u32 _ro  = fzx_part(_x, "resistor", 200, 170, 0, "1k");
+    const u32 _led = fzx_sized(_x, "LED", 110, 170, 180, 60, 20, "green");
+    fzx_route(_x, _bat, 0, _ro, 1, FZX_VIA({ 250, 170 }));
+    fzx_route(_x, _ro, 0, _led, 0, NULL, 0);
+    fzx_route(_x, _led, 1, _op, 2, FZX_VIA({ 70, 170 }, { 70, 130 }));
+    fzx_route(_x, _op, 3, _bat, 1, FZX_VIA({ 80, 110 }, { 80, 80 }, { 250, 80 }));
+    const u32 _pd = fzx_part(_x, "photodiode", -150, -100, 0, "BPW34");
+    const u32 _r1 = fzx_part(_x, "resistor", -120, -30, 90, "100k");
+    const u32 _v1 = fzx_part(_x, "supply rail", -120, 20, 0, "5V");
+    const u32 _g1 = fzx_part(_x, "ground", -200, -140, 0, "");
+    const u32 _m1 = fzx_part(_x, "voltmeter", -40, -100, 0, "");
+    const u32 _g2 = fzx_part(_x, "ground", -20, -140, 0, "");
+    fzx_route(_x, _pd, 1, _r1, 0, NULL, 0);
+    fzx_route(_x, _r1, 1, _v1, 0, NULL, 0);
+    fzx_route(_x, _pd, 0, _g1, 0, FZX_VIA({ -200, -100 }));
+    fzx_route(_x, _pd, 1, _m1, 0, NULL, 0);
+    fzx_route(_x, _m1, 1, _g2, 0, NULL, 0);
+    const u32 _pt = fzx_part(_x, "phototransistor", 150, -110, 0, "TEPT5600");
+    const u32 _r2 = fzx_part(_x, "resistor", 160, -20, 90, "1k");
+    const u32 _v2 = fzx_part(_x, "supply rail", 160, 30, 0, "5V");
+    const u32 _g3 = fzx_part(_x, "ground", 160, -180, 0, "");
+    const u32 _m2 = fzx_part(_x, "voltmeter", 260, -110, 0, "");
+    const u32 _g4 = fzx_part(_x, "ground", 280, -150, 0, "");
+    fzx_route(_x, _pt, 0, _r2, 0, NULL, 0);
+    fzx_route(_x, _r2, 1, _v2, 0, NULL, 0);
+    fzx_route(_x, _pt, 1, _g3, 0, NULL, 0);
+    fzx_route(_x, _pt, 0, _m2, 0, FZX_VIA({ 200, -80 }, { 200, -110 }));
+    fzx_route(_x, _m2, 1, _g4, 0, NULL, 0);
+    fzx_word(_x, -260, -200, 16.0, 560.0, FUDE_ZOOM_EXAMPLE_WORD_LIGHT);
+    fzx_title(_x, -260, 240, FUDE_ZOOM_EXAMPLE_LIGHT_LINK);
+}
+
+// A 555 astable round (_cx, _cy) on 5 V (_volts): R1 _r1 and R2 _r2 (DISCH between them) and its capacitor _cap
+// (_polar: an electrolytic) from THRES and TRIG to ground, about 1.44 / ((R1 + 2 R2) C). Its RESET to its supply when
+// _reset_high; else left for what drives it. Its OUT (left, 10 under its middle) left for what it drives — its wires
+// round its left and under it (none along its pins' ends). (Its pins: GND 30, TRIG 10, OUT −10, RESET −30 down its left,
+// x −100; VCC 30, DISCH 10, THRES −10, CTRL −30 down its right, x 100.)
+RDE_INTERNAL u32 fzx_astable(fzx* _x, f64 _cx, f64 _cy, const c8* _volts, const c8* _r1, const c8* _r2, const c8* _cap, b8 _polar, b8 _reset_high) {
+    const u32 _t  = fzx_part(_x, "NE555", _cx, _cy, 0, "NE555");
+    const u32 _va = fzx_part(_x, "supply rail", _cx + 140, _cy + 70, 0, _volts);
+    fzx_route(_x, _t, 7, _va, 0, FZX_VIA({ _cx + 140, _cy + 30 }));
+    const u32 _a1 = fzx_part(_x, "resistor", _cx + 220, _cy + 40, 90, _r1);
+    const u32 _vb = fzx_part(_x, "supply rail", _cx + 220, _cy + 110, 0, _volts);
+    fzx_route(_x, _a1, 1, _vb, 0, NULL, 0);
+    fzx_route(_x, _t, 6, _a1, 0, NULL, 0);
+    const u32 _a2 = fzx_part(_x, "resistor", _cx + 220, _cy - 40, 90, _r2);
+    fzx_route(_x, _a1, 0, _a2, 1, NULL, 0);
+    fzx_route(_x, _t, 5, _a2, 0, FZX_VIA({ _cx + 160, _cy - 10 }, { _cx + 160, _cy - 70 }));
+    const u32 _c  = fzx_part(_x, _polar ? "electrolytic" : "capacitor", _cx + 220, _cy - 130, -90, _cap);
+    const u32 _gc = fzx_part(_x, "ground", _cx + 220, _cy - 190, 0, "");
+    fzx_route(_x, _a2, 0, _c, 0, NULL, 0);
+    fzx_route(_x, _c, 1, _gc, 0, NULL, 0);
+    fzx_route(_x, _t, 1, _c, 0, FZX_VIA({ _cx - 140, _cy + 10 }, { _cx - 140, _cy - 110 }));
+    if(_reset_high) {
+        const u32 _vc = fzx_part(_x, "supply rail", _cx - 40, _cy - 90, 0, _volts);
+        fzx_route(_x, _t, 3, _vc, 0, FZX_VIA({ _cx - 120, _cy - 30 }, { _cx - 120, _cy - 100 }));
+    }
+    const u32 _gg = fzx_part(_x, "ground", _cx - 180, _cy + 50, 0, "");
+    fzx_route(_x, _t, 0, _gg, 0, FZX_VIA({ _cx - 130, _cy + 30 }, { _cx - 130, _cy + 90 }, { _cx - 180, _cy + 90 }));
+    return _t;
+}
+
+// A 555 astable (as the flasher's, 1k and 15k, 100 nF: about 460 Hz) on 9 V into a speaker through 470 Ω: heard as it
+// plays.
+RDE_INTERNAL void fzx_speaker_tone(fzx* _x) {
+    const u32 _t  = fzx_astable(_x, 0, 0, "9V", "1k", "15k", "100nF", false, true);
+    const u32 _rl = fzx_part(_x, "resistor", -230, -10, 0, "470");
+    const u32 _sp = fzx_part(_x, "speaker", -310, -60, -90, "8 ohm");
+    const u32 _gs = fzx_part(_x, "ground", -370, -40, 0, "");
+    fzx_route(_x, _t, 2, _rl, 1, NULL, 0);
+    fzx_route(_x, _rl, 0, _sp, 0, FZX_VIA({ -300, -10 }));
+    fzx_route(_x, _sp, 1, _gs, 0, FZX_VIA({ -320, 0 }, { -370, 0 }));
+    fzx_title(_x, -370, 170, FUDE_ZOOM_EXAMPLE_SPEAKER_TONE);
+}
+
+// A crossroads' traffic lights, as they were made before microcontrollers: a 555 (about 1.4 Hz) steps a CD4017 through
+// its ten outputs, and a DIODE MATRIX (a ROM of 39 diodes) makes of them every light — each output's lane down through a
+// diode into each line it lights (N–S red 5–9, yellow 4, green 0–3; E–W red 0–4, yellow 9, green 5–8; the pedestrians'
+// WALK 5–8), and into the lines of its number in binary (1, 2, 4, 8) for a CD4511 and a digit: the step shown. While they
+// may walk, a second 555 (RESET on WALK, pulled down) beeps on a speaker. INH and RST (logic inputs) hold it or start it
+// again. Each line pulled down where nothing lights it (10k), each diode's anode on its lane, its cathode on its line.
+RDE_INTERNAL void fzx_traffic(fzx* _x) {
+    const u32 _ch = fzx_part(_x, "CD4017", 0, 0, 0, "CD4017");
+    const u32 _vr = fzx_part(_x, "supply rail", 140, 110, 0, "5V");
+    fzx_route(_x, _ch, 15u, _vr, 0, FZX_VIA({ 140, 70 }));
+    const u32 _gv = fzx_part(_x, "ground", -130, -120, 0, "");
+    fzx_route(_x, _ch, 7u, _gv, 0, FZX_VIA({ -130, -70 }));
+    // (INH and RST: low, tapped to hold it or to start it again)
+    const u32 _inh = fzx_sized(_x, "logic input", 170, 10, 180, 60, 16, "0");
+    const u32 _rst = fzx_sized(_x, "logic input", 170, 50, 180, 60, 16, "0");
+    fzx_route(_x, _inh, 0, _ch, 12u, NULL, 0);
+    fzx_route(_x, _rst, 0, _ch, 14u, NULL, 0);
+    fzx_text(_x, 210, 20, 13.0, 40.0, "INH");
+    fzx_text(_x, 210, 60, 13.0, 40.0, "RST");
+    // Its clock: a 555, 10k and 47k, 10 µF.
+    const u32 _clk = fzx_astable(_x, 620, 280, "5V", "10k", "47k", "10uF", true, true);
+    fzx_route(_x, _clk, 2, _ch, 13u, FZX_VIA({ 360, 270 }, { 360, 30 }));
+    // The matrix: each output's lane (its count, its pin, its x — the higher its pin, the farther out, none crossing) and
+    // the lines it is in.
+    static const u32 _pin[10]  = { 2, 1, 3, 6, 9, 0, 4, 5, 8, 10 };   // (count 0 to 9)
+    static const f64 _lane[10] = { -440, -510, -370, -160, 230, -580, -300, -230, 160, 300 };
+    enum { NS_R, NS_Y, NS_G, EW_R, EW_Y, EW_G, BIT_2, BIT_4, BIT_8, BIT_1, WALK, LINES };
+    static const u16 _of[LINES] = { 0x3E0, 0x010, 0x00F, 0x01F, 0x200, 0x1E0, 0x0CC, 0x0F0, 0x300, 0x2AA, 0x1E0 };   // (bit n: count n)
+    u32 _last[LINES];   // (each line's rightmost diode)
+    u32 _diode[10][LINES];
+    for(u32 _n = 0; _n < 10u; _n++) {
+        const f64 _lx = _lane[_n];
+        u32 _above = FUDE_ZOOM_NONE;
+        for(u32 _l = 0; _l < LINES; _l++) {
+            _diode[_n][_l] = FUDE_ZOOM_NONE;
+            if(!(_of[_l] >> _n & 1u)) {
+                continue;
+            }
+            // (upright: its anode on the lane at the line's row, its cathode 60 under it, on the line)
+            const f64 _ya = -200.0 - 80.0 * (f64)_l;
+            const u32 _d = fzx_part(_x, "diode", _lx, _ya - 30.0, -90, "1N4148");
+            _diode[_n][_l] = _d;
+            if(_above == FUDE_ZOOM_NONE) {
+                const fude_zoom_v2 _at = fzx_pin(_x, _ch, _pin[_n]);
+                fzx_route(_x, _ch, _pin[_n], _d, 0, FZX_VIA({ _lx, _at.y }));
+            } else {
+                const f64 _yb = -200.0 - 80.0 * (f64)_above;
+                fzx_route(_x, _diode[_n][_above], 0, _d, 0, FZX_VIA({ _lx - 30.0, _yb }, { _lx - 30.0, _ya }));
+            }
+            _above = _l;
+        }
+    }
+    // (each line: its cathodes joined left to right)
+    for(u32 _l = 0; _l < LINES; _l++) {
+        u32 _prev = FUDE_ZOOM_NONE;
+        f64 _prev_x = -1e9;
+        for(u32 _k = 0; _k < 10u; _k++) {
+            // (lanes from the left)
+            u32 _best = FUDE_ZOOM_NONE;
+            f64 _bx = 1e9;
+            for(u32 _n = 0; _n < 10u; _n++) {
+                if(_diode[_n][_l] != FUDE_ZOOM_NONE && _lane[_n] > _prev_x && _lane[_n] < _bx) {
+                    _best = _n;
+                    _bx = _lane[_n];
+                }
+            }
+            if(_best == FUDE_ZOOM_NONE) {
+                break;
+            }
+            if(_prev != FUDE_ZOOM_NONE) {
+                fzx_route(_x, _diode[_prev][_l], 1, _diode[_best][_l], 1, NULL, 0);
+            }
+            _prev = _best;
+            _prev_x = _bx;
+        }
+        _last[_l] = _prev != FUDE_ZOOM_NONE ? _diode[_prev][_l] : FUDE_ZOOM_NONE;
+    }
+    // The lights: each line through 1k into its LED (a CD4017's output gives 10 mA at most, and one lights two or three)
+    // — N–S's red, yellow, green over each other, E–W's under them.
+    static const c8* const _colour[6] = { "red", "yellow", "green", "red", "yellow", "green" };
+    for(u32 _l = NS_R; _l <= EW_G; _l++) {
+        const f64 _y = -260.0 - 80.0 * (f64)_l;
+        const u32 _r = fzx_part(_x, "resistor", 420, _y, 0, "1k");
+        const u32 _led = fzx_sized(_x, "LED", 510, _y, 0, 60, 30, _colour[_l]);
+        const u32 _g = fzx_sized(_x, "ground", 575, _y - 32.0, 0, 24, 24, "");
+        fzx_route(_x, _last[_l], 1, _r, 0, NULL, 0);
+        fzx_route(_x, _r, 1, _led, 0, NULL, 0);
+        fzx_route(_x, _led, 1, _g, 0, FZX_VIA({ 575, _y }));
+    }
+    // (their housings, a box round each three)
+    for(u32 _h = 0; _h < 2u; _h++) {
+        // (round its three lights and the names under them, apart from the other's; its own name by its
+        // top, right of the grounds — between the two there is no room for it)
+        const f64 _top = -260.0 - 240.0 * (f64)_h + 24.0, _bottom = _top - 232.0;
+        const fude_zoom_v2 _box[4] = { fzx_at(_x, 470, _top), fzx_at(_x, 550, _top), fzx_at(_x, 550, _bottom), fzx_at(_x, 470, _bottom) };
+        fzx_path(_x, _box, 4u, true, 2.0);
+        fzx_text(_x, 594, _top, 15.0, 60.0, _h == 0u ? "N\xE2\x80\x93S" : "E\xE2\x80\x93W");
+    }
+    // The step in binary into a CD4511 (B, C, D, A: its pins top down), each line pulled down by 10k; its digit.
+    const f64 _dy = -840.0;
+    const u32 _dec = fzx_part(_x, "CD4511", 720, _dy, 0, "CD4511");
+    static const u32 _bits[4] = { BIT_2, BIT_4, BIT_8, BIT_1 };
+    static const u32 _bit_pin[4] = { 0u, 1u, 5u, 6u };   // (B, C, D, A)
+    static const f64 _bit_x[4] = { 520, 520, 520, 540 };
+    for(u32 _b = 0; _b < 4u; _b++) {
+        const f64 _y = -260.0 - 80.0 * (f64)_bits[_b];
+        const u32 _pd = fzx_sized(_x, "resistor", 400, _y - 20.0, 90, 40, 14, "10k");
+        const u32 _g  = fzx_sized(_x, "ground", 400, _y - 64.0, 0, 24, 24, "");
+        fzx_route(_x, _last[_bits[_b]], 1, _pd, 1, NULL, 0);
+        fzx_route(_x, _pd, 0, _g, 0, NULL, 0);
+        const fude_zoom_v2 _in = fzx_pin(_x, _dec, _bit_pin[_b]);
+        fzx_route(_x, _pd, 1, _dec, _bit_pin[_b], FZX_VIA({ _bit_x[_b], _y }, { _bit_x[_b], _in.y }));
+    }
+    static const c8* const _sets[3] = { "1", "1", "0" };   // (~LT, ~BI high, LE low)
+    for(u32 _k = 0; _k < 3u; _k++) {
+        const fude_zoom_v2 _p = fzx_pin(_x, _dec, 2u + _k);
+        const u32 _in = fzx_sized(_x, "logic input", _p.x - 40.0, _p.y, 0, 60, 16, _sets[_k]);
+        fzx_line(_x, _in, 0, _dec, 2u + _k);
+    }
+    const u32 _dg = fzx_part(_x, "ground", 600, _dy - 110.0, 0, "");
+    fzx_route(_x, _dec, 7u, _dg, 0, FZX_VIA({ 600, _dy - 70.0 }));
+    const u32 _dv = fzx_part(_x, "supply rail", 840, _dy + 110.0, 0, "5V");
+    fzx_route(_x, _dec, 15u, _dv, 0, FZX_VIA({ 840, _dy + 70.0 }));
+    const u32 _dig = fzx_part(_x, "7-segment panel", 1120, _dy, 0, "1 digit red");
+    static const u32 _out[7] = { 12u, 11u, 10u, 9u, 8u, 14u, 13u };   // (a b c d e f g)
+    static const f64 _seg_lane[7] = { 990, 1000, 1010, 1020, 1030, 980, 970 };
+    for(u32 _g = 0; _g < 7u; _g++) {
+        const fude_zoom_v2 _o = fzx_pin(_x, _dec, _out[_g]), _in = fzx_pin(_x, _dig, _g);
+        const u32 _r = fzx_sized(_x, "resistor", 900, _o.y, 0, 50, 14, "330");
+        fzx_line(_x, _dec, _out[_g], _r, 0);
+        fzx_route(_x, _r, 1, _dig, _g, FZX_VIA({ _seg_lane[_g], _o.y }, { _seg_lane[_g], _in.y }));
+    }
+    const fude_zoom_v2 _d1 = fzx_pin(_x, _dig, 8u);
+    const u32 _gd = fzx_part(_x, "ground", _d1.x, _d1.y - 50.0, 0, "");
+    fzx_line(_x, _dig, 8u, _gd, 0);
+    // WALK: pulled down, a white LED through 1k, and the beeper's RESET — a 555 (1k, 6.8k, 100 nF: about 1 kHz) into a
+    // speaker through 220 Ω.
+    const f64 _wy = -260.0 - 80.0 * (f64)WALK;
+    const u32 _wpd = fzx_sized(_x, "resistor", 400, _wy - 20.0, 90, 40, 14, "10k");
+    const u32 _wg  = fzx_sized(_x, "ground", 400, _wy - 64.0, 0, 24, 24, "");
+    fzx_route(_x, _last[WALK], 1, _wpd, 1, NULL, 0);
+    fzx_route(_x, _wpd, 0, _wg, 0, NULL, 0);
+    const u32 _wr  = fzx_part(_x, "resistor", 480, _wy, 0, "1k");
+    const u32 _wl  = fzx_sized(_x, "LED", 570, _wy, 0, 60, 30, "white");
+    const u32 _wlg = fzx_sized(_x, "ground", 635, _wy - 32.0, 0, 24, 24, "");
+    fzx_route(_x, _wpd, 1, _wr, 0, NULL, 0);
+    fzx_route(_x, _wr, 1, _wl, 0, NULL, 0);
+    fzx_route(_x, _wl, 1, _wlg, 0, FZX_VIA({ 635, _wy }));
+    fzx_text(_x, 545, _wy + 34.0, 14.0, 60.0, "WALK");
+    // (the beeper right of WALK's resistor, its RESET from it; its OUT left across to the speaker)
+    const f64 _by = _wy - 300.0;
+    const u32 _bp = fzx_astable(_x, 800, _by, "5V", "1k", "6.8k", "100nF", false, false);
+    fzx_route(_x, _wr, 0, _bp, 3, FZX_VIA({ 450, _by - 30.0 }));
+    const u32 _rs = fzx_part(_x, "resistor", 330, _by - 10.0, 0, "220");
+    const u32 _sp = fzx_part(_x, "speaker", 220, _by - 60.0, -90, "8 ohm");
+    const u32 _gs = fzx_part(_x, "ground", 160, _by - 30.0, 0, "");
+    fzx_route(_x, _bp, 2, _rs, 1, NULL, 0);
+    fzx_route(_x, _rs, 0, _sp, 0, FZX_VIA({ 230, _by - 10.0 }));
+    fzx_route(_x, _sp, 1, _gs, 0, FZX_VIA({ 210, _by + 10.0 }, { 160, _by + 10.0 }));
+    fzx_word(_x, -620, 300, 16.0, 640.0, FUDE_ZOOM_EXAMPLE_WORD_TRAFFIC);
+    fzx_title(_x, -620, 400, FUDE_ZOOM_EXAMPLE_TRAFFIC);
+}
+
+// A 555 piano: R1 1k from 9 V to DISCH, and from DISCH thirteen keys — each a resistor and a push button — to THRES and
+// TRIG's capacitor (100 nF): held, a key is R2, its note about 1.44 / ((R1 + 2 R2) C) — C4 to C5, a semitone a key, its
+// frequency under it. Its OUT through 100 Ω and a volume pot (a rheostat: tapped, a quarter round) into 10 µF and a
+// speaker — silent while no key is held (OUT high, nothing through the capacitor). An oscilloscope on OUT.
+RDE_INTERNAL void fzx_piano(fzx* _x) {
+    const u32 _t  = fzx_part(_x, "NE555", 0, 0, 0, "NE555");
+    const u32 _va = fzx_part(_x, "supply rail", 140, 70, 0, "9V");
+    fzx_route(_x, _t, 7, _va, 0, FZX_VIA({ 140, 30 }));
+    const u32 _r1 = fzx_part(_x, "resistor", 220, 40, 90, "1k");
+    const u32 _vb = fzx_part(_x, "supply rail", 220, 110, 0, "9V");
+    fzx_route(_x, _r1, 1, _vb, 0, NULL, 0);
+    fzx_route(_x, _t, 6, _r1, 0, NULL, 0);
+    const u32 _vc = fzx_part(_x, "supply rail", -40, -90, 0, "9V");
+    fzx_route(_x, _t, 3, _vc, 0, FZX_VIA({ -120, -30 }, { -120, -100 }));
+    const u32 _gg = fzx_part(_x, "ground", -180, 50, 0, "");
+    fzx_route(_x, _t, 0, _gg, 0, FZX_VIA({ -130, 30 }, { -130, 90 }, { -180, 90 }));
+    // (THRES down to the timing capacitor, TRIG round under the chip to it, the keys' lower line from it)
+    const u32 _c  = fzx_part(_x, "capacitor", 160, -130, -90, "100nF");
+    const u32 _gc = fzx_part(_x, "ground", 160, -190, 0, "");
+    fzx_route(_x, _t, 5, _c, 0, FZX_VIA({ 160, -10 }));
+    fzx_route(_x, _c, 1, _gc, 0, NULL, 0);
+    fzx_route(_x, _t, 1, _c, 0, FZX_VIA({ -140, 10 }, { -140, -110 }));
+    // The keys: R2 from DISCH's line (y 10) down to a button, the button down to THRES's line (y −140).
+    static const c8* const _r2[13]  = { "27k", "25.5k", "24k", "22.6k", "21.3k", "20.1k", "19k", "17.9k", "16.8k", "15.9k", "14.9k", "14.1k", "13.3k" };
+    static const c8* const _hz[13]  = { "262", "277", "294", "311", "330", "349", "370", "392", "415", "440", "466", "494", "523" };
+    static const b8 _black[13] = { false, true, false, true, false, false, true, false, true, false, true, false, false };
+    u32 _prev_r = _r1, _prev_b = _c;
+    for(u32 _k = 0; _k < 13u; _k++) {
+        const f64 _kx = 300.0 + 70.0 * (f64)_k;
+        const u32 _r = fzx_part(_x, "resistor", _kx, -20, 90, _r2[_k]);
+        const u32 _b = fzx_part(_x, "push button", _kx, -110, 90, "");
+        fzx_route(_x, _prev_r, _k == 0u ? 0u : 1u, _r, 1, NULL, 0);
+        fzx_route(_x, _r, 0, _b, 1, NULL, 0);
+        if(_k == 0u) {
+            fzx_route(_x, _prev_b, 0, _b, 0, FZX_VIA({ 240, -110 }, { 240, -140 }));
+        } else {
+            fzx_route(_x, _prev_b, 0, _b, 0, NULL, 0);
+        }
+        _prev_r = _r;
+        _prev_b = _b;
+        // (its key round it: a white one tall, a black one short; its note's frequency under it)
+        const f64 _hw = _black[_k] ? 24.0 : 32.0, _low = _black[_k] ? -160.0 : -215.0;
+        const fude_zoom_v2 _key[4] = { fzx_at(_x, _kx - _hw, -76), fzx_at(_x, _kx + _hw, -76), fzx_at(_x, _kx + _hw, _low), fzx_at(_x, _kx - _hw, _low) };
+        fzx_path(_x, _key, 4u, true, _black[_k] ? 3.0 : 1.5);
+        fzx_text(_x, _kx - 14.0, _black[_k] ? -172.0 : -228.0, 13.0, 40.0, _hz[_k]);
+    }
+    fzx_text(_x, 1180, -228, 13.0, 40.0, "Hz");
+    // OUT: 100 Ω, the volume pot (from its right end to its wiper), 10 µF, the speaker.
+    const u32 _rs = fzx_part(_x, "resistor", -200, -10, 0, "100");
+    const u32 _pot = fzx_part(_x, "potentiometer", -300, -20, 0, "1k 75%");
+    const u32 _cc = fzx_part(_x, "electrolytic", -360, 40, 180, "10uF");
+    const u32 _sp = fzx_part(_x, "speaker", -420, -20, -90, "8 ohm");
+    const u32 _gs = fzx_part(_x, "ground", -470, -10, 0, "");
+    fzx_route(_x, _t, 2, _rs, 1, NULL, 0);
+    fzx_route(_x, _rs, 0, _pot, 1, FZX_VIA({ -250, -10 }, { -250, -30 }));
+    fzx_route(_x, _pot, 2, _cc, 0, FZX_VIA({ -300, 40 }));
+    fzx_route(_x, _cc, 1, _sp, 0, FZX_VIA({ -410, 40 }));
+    fzx_route(_x, _sp, 1, _gs, 0, FZX_VIA({ -430, 30 }, { -470, 30 }));
+    fzx_text(_x, -290, 30, 13.0, 40.0, "VOL");
+    // (the oscilloscope on OUT, from under its resistor)
+    const u32 _sc = fzx_part(_x, "oscilloscope", 150, -320, 0, "1ms 5V");
+    const u32 _gsc = fzx_part(_x, "ground", -40, -400, 0, "");
+    fzx_route(_x, _rs, 1, _sc, 0, FZX_VIA({ -170, -280 }));
+    fzx_route(_x, _sc, 2, _gsc, 0, FZX_VIA({ -40, -360 }));
+    fzx_word(_x, -480, -470, 16.0, 760.0, FUDE_ZOOM_EXAMPLE_WORD_PIANO);
+    fzx_title(_x, -480, 180, FUDE_ZOOM_EXAMPLE_PIANO);
+}
+
+// Two circles' crossing nearest _near (_a's, _ra round; _b's, _rb round); _near itself where they do not cross.
+RDE_INTERNAL fude_zoom_v2 fzx_crossing(fude_zoom_v2 _a, f64 _ra, fude_zoom_v2 _b, f64 _rb, fude_zoom_v2 _near) {
+    const f64 _dx = _b.x - _a.x, _dy = _b.y - _a.y, _d = hypot(_dx, _dy);
+    if(_d <= 0.0 || _d > _ra + _rb || _d < fabs(_ra - _rb)) {
+        return _near;
+    }
+    const f64 _along = (_ra * _ra - _rb * _rb + _d * _d) / (2.0 * _d), _h = sqrt(fmax(_ra * _ra - _along * _along, 0.0));
+    const f64 _mx = _a.x + _along * _dx / _d, _my = _a.y + _along * _dy / _d;
+    const fude_zoom_v2 _p = { _mx + _h * _dy / _d, _my - _h * _dx / _d }, _q = { _mx - _h * _dy / _d, _my + _h * _dx / _d };
+    return hypot(_p.x - _near.x, _p.y - _near.y) <= hypot(_q.x - _near.x, _q.y - _near.y) ? _p : _q;
+}
+
+// Theo Jansen's leg (his "holy numbers": the bars' lengths), its crank 15 round (0, 0), its fixed pivot at (−38, −7.8):
+// its joints with its crank turned _turn (radians, counter-clockwise from the right) — followed there from where they
+// are with it at 0, a degree at a time, each the crossing nearest where it was (a linkage does not jump to its other
+// way of closing). a: the crank's pin; b over and c under the pivot (on the crank by j and k); d the upper triangle's
+// outer corner (the pivot's, b's); f the lower triangle's, from d; g its foot.
+typedef struct {
+    fude_zoom_v2 a, b, c, d, f, g;
+} fzx_jansen_leg;
+
+RDE_INTERNAL fzx_jansen_leg fzx_jansen(f64 _turn) {
+    const f64 _lb = 41.5, _lc = 39.3, _ld = 40.1, _le = 55.8, _lf = 39.4, _lg = 36.7, _lh = 65.7, _li = 49.0, _lj = 50.0, _lk = 61.9, _lm = 15.0;
+    const fude_zoom_v2 _p = { -38.0, -7.8 };
+    fzx_jansen_leg _l = { { 15.0, 0.0 }, { -24.01, 31.27 }, { -26.95, -45.52 }, { -74.79, 8.14 }, { -59.23, -28.05 }, { -43.16, -91.76 } };
+    const u32 _steps = (u32)fmax(ceil(fabs(_turn) / FZX_DEG), 1.0);
+    for(u32 _s = 1; _s <= _steps; _s++) {
+        const f64 _t = _turn * (f64)_s / (f64)_steps;
+        _l.a = (fude_zoom_v2){ _lm * cos(_t), _lm * sin(_t) };
+        _l.b = fzx_crossing(_l.a, _lj, _p, _lb, _l.b);
+        _l.c = fzx_crossing(_l.a, _lk, _p, _lc, _l.c);
+        _l.d = fzx_crossing(_l.b, _le, _p, _ld, _l.d);
+        _l.f = fzx_crossing(_l.d, _lf, _l.c, _lg, _l.f);
+        _l.g = fzx_crossing(_l.f, _lh, _l.c, _li, _l.g);
+    }
+    return _l;
+}
+
+// A link (a bar _thick thick) with its holes on _a and _b.
+RDE_INTERNAL u32 fzx_bar(fzx* _x, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _thick) {
+    const f64 _len = hypot(_b.x - _a.x, _b.y - _a.y);
+    return fzx_sized(_x, "link", 0.5 * (_a.x + _b.x), 0.5 * (_a.y + _b.y), atan2(_b.y - _a.y, _b.x - _a.x) / FZX_DEG, _len + _thick, _thick, "");
+}
+
+// The Strandbeest's legs: two of Jansen's legs, four times his size, on one motor's two cranks half a turn apart — the
+// left one's at 90°, the right one the left one mirrored (its crank at 270°: the mirror of a leg at −90°) —, each on
+// its own fixed pivot; a tracer on each foot.
+RDE_INTERNAL void fzx_strandbeest(fzx* _x) {
+    const f64 _k = 4.0, _thick = 20.0;
+    fzx_part(_x, "drive motor", 0, 0, 0, "15 rpm 100");
+    for(u32 _side = 0; _side < 2u; _side++) {
+        const f64 _m = _side == 0u ? 1.0 : -1.0;
+        const fzx_jansen_leg _l = fzx_jansen(_side == 0u ? 90.0 * FZX_DEG : -90.0 * FZX_DEG);
+        #define FZX_J(_v) ((fude_zoom_v2){ _m * _k * (_v).x, _k * (_v).y })
+        const fude_zoom_v2 _o = { 0.0, 0.0 }, _p = FZX_J(((fude_zoom_v2){ -38.0, -7.8 }));
+        const fude_zoom_v2 _a = FZX_J(_l.a), _b = FZX_J(_l.b), _c = FZX_J(_l.c), _d = FZX_J(_l.d), _f = FZX_J(_l.f), _g = FZX_J(_l.g);
+        #undef FZX_J
+        fzx_part(_x, "fixed pivot", _p.x, _p.y - 10.0, 0, "");   // (its hole 10 over its middle)
+        fzx_bar(_x, _o, _a, _thick);   // (its crank)
+        fzx_bar(_x, _a, _b, _thick);   // j
+        fzx_bar(_x, _a, _c, _thick);   // k
+        fzx_bar(_x, _p, _b, _thick);   // b
+        fzx_bar(_x, _p, _c, _thick);   // c
+        fzx_bar(_x, _b, _d, _thick);   // e
+        fzx_bar(_x, _p, _d, _thick);   // d
+        fzx_bar(_x, _d, _f, _thick);   // f
+        fzx_bar(_x, _c, _f, _thick);   // g
+        fzx_bar(_x, _f, _g, _thick);   // h
+        fzx_bar(_x, _c, _g, _thick);   // i
+        fzx_part(_x, "tracer", _g.x, _g.y, 0, "");
+    }
+    fzx_word(_x, -360, -440, 16.0, 720.0, FUDE_ZOOM_EXAMPLE_WORD_STRANDBEEST);
+    fzx_title(_x, -360, 260, FUDE_ZOOM_EXAMPLE_STRANDBEEST);
+}
+
+// A belt (or a chain) whose ends' middles are on _a and _b (40 across).
+RDE_INTERNAL u32 fzx_belt(fzx* _x, const c8* _id, fude_zoom_v2 _a, fude_zoom_v2 _b, const c8* _text) {
+    const f64 _len = hypot(_b.x - _a.x, _b.y - _a.y);
+    return fzx_sized(_x, _id, 0.5 * (_a.x + _b.x), 0.5 * (_a.y + _b.y), atan2(_b.y - _a.y, _b.x - _a.x) / FZX_DEG, _len + 40.0, 40.0, _text);
+}
+
+// Which way a drive motor turns what is on it (+1: counter-clockwise), and so the crank and the cams below.
+#define FZX_ENGINE_TURN 1.0
+
+// A four-stroke engine, its cylinder upright: a starter motor turning a crank (50) and a 30-tooth gear; a rod (170) up to
+// the piston, a slider on a rail between the cylinder's walls (its top at the start: the intake stroke's beginning). The
+// gear turns a 30-tooth gear either side of it (out of the cylinder's way), each with a small sprocket on it and a belt
+// up to a camshaft's sprocket twice its size: the camshafts at half the crank's speed, as a four-stroke's are, each with
+// a cam on it opening a valve (a follower toward the cylinder's head) — the left one (intake) as the piston first goes
+// down, the right one (exhaust) as it last comes up: its lobe pointing at its valve a quarter turn of the crank after
+// the start, and three and a half turns. A tracer on the rod's middle.
+RDE_INTERNAL void fzx_engine(fzx* _x) {
+    const f64 _r = 50.0, _rod = 170.0;
+    fzx_part(_x, "drive motor", 0, 0, 0, "30 rpm 200");
+    fzx_part(_x, "gear 30T", 0, 0, 0, "");
+    const fude_zoom_v2 _o = { 0.0, 0.0 }, _a = { 0.0, _r }, _w = { 0.0, _r + _rod };
+    fzx_bar(_x, _o, _a, 18.0);
+    fzx_bar(_x, _a, _w, 16.0);
+    fzx_part(_x, "tracer", 0.0, _r + 0.5 * _rod, 0, "");
+    fzx_sized(_x, "rail", 0, 170, 90, 220, 16, "");   // (as long as the piston goes, and its own width: what it slides between)
+    fzx_sized(_x, "slider", _w.x, _w.y, 0, 100, 60, "");
+    for(u32 _side = 0; _side < 2u; _side++) {
+        const f64 _m = _side == 0u ? -1.0 : 1.0;
+        fzx_sized(_x, "wall", _m * 62.0, 220, 90, 220, 20, "");   // (the cylinder's walls)
+        // (the side gear, its sprocket, the belt up to the camshaft's)
+        const fude_zoom_v2 _g = { _m * 150.0, 0.0 }, _s = { _m * 150.0, 520.0 };
+        fzx_part(_x, "gear 30T", _g.x, _g.y, 0, "");
+        fzx_sized(_x, "sprocket", _g.x, _g.y, 0, 60, 60, "");
+        fzx_sized(_x, "sprocket", _s.x, _s.y, 0, 120, 120, "");
+        fzx_belt(_x, "belt", _g, _s, "");
+        // (its valve: a follower from the camshaft toward the head, its roller on the cam)
+        const fude_zoom_v2 _seat = { _m * 25.0, 310.0 };
+        const f64 _ul = hypot(_seat.x - _s.x, _seat.y - _s.y);
+        const fude_zoom_v2 _u = { (_seat.x - _s.x) / _ul, (_seat.y - _s.y) / _ul };
+        fzx_sized(_x, "follower", _s.x + 107.0 * _u.x, _s.y + 107.0 * _u.y, atan2(-_u.y, -_u.x) / FZX_DEG, 160, 30, "");
+        // (its cam: the camshaft turns -1/2 as the crank — the side gear turns it the other way —; its lobe on its valve
+        // after the crank's quarter turn (intake), or its three and a half (exhaust))
+        const f64 _lobe = atan2(_u.y, _u.x) / FZX_DEG + FZX_ENGINE_TURN * 0.5 * (_side == 0u ? 90.0 : 630.0);
+        fzx_sized(_x, "cam", _s.x + 0.285 * 40.0 * cos(_lobe * FZX_DEG), _s.y + 0.285 * 40.0 * sin(_lobe * FZX_DEG), _lobe, 80, 80, "");
+    }
+    fzx_word(_x, -360, -180, 16.0, 720.0, FUDE_ZOOM_EXAMPLE_WORD_ENGINE);
+    fzx_title(_x, -360, 680, FUDE_ZOOM_EXAMPLE_ENGINE);
+}
+
+RDE_INTERNAL u32 fzx_motor(fzx* _x, f64 _px, f64 _py, f64 _turn, const c8* _text, const c8* _gear);
+
+// A solenoid engine: a big solenoid (400 across: its plunger's stroke 60) pulling a rod (200) on a hand crank's pin (27
+// round: its plunger out, all the way, with the pin furthest from it — where it is drawn; the crank's axle nearly free,
+// 0.1 N·m, a flywheel's). A cam on the crank's shaft blocks a slotted sensor's beam, under the shaft, for the half turn the
+// pin comes toward the solenoid going clockwise (the pin under the shaft, from 5° after it is furthest): the sensor's C,
+// pulled up and smoothed (10 µF: what flickers as the cam's edge passes the beam left out), through a buffer, a switch
+// (its ignition) and 1k into a TIP120 that switches the coil on 12 V, a diode across it. It starts by itself: its rod's
+// weight lets its pin down into that half; the faster it goes, the later the smoothing lets its coil on and off (100 ms)
+// — a speed it keeps. A panel meter in its supply; a dynamo on its crank's belt its tachometer (its volts on a panel
+// meter); a 74HC161 counting its turns on four LEDs (8 4 2 1); an oscilloscope on the sensor.
+RDE_INTERNAL void fzx_solenoid_engine(fzx* _x) {
+    const f64 _r = 27.0, _rod = 200.0, _tip = 170.0, _cx = _tip + _rod - _r;
+    const u32 _so = fzx_sized(_x, "solenoid", 0, 0, 0, 400, 120, "12V");
+    fzx_sized(_x, "hand crank", _cx, 0, 0, 2.0 * _r / 0.7, 2.0 * _r / 0.7, "0.1");   // (its axle nearly free: 0.1 N·m)
+    fzx_bar(_x, (fude_zoom_v2){ _tip, 0.0 }, (fude_zoom_v2){ _cx + _r, 0.0 }, 30.0);
+
+    const f64 _lobe = 5.0 * FZX_DEG, _cam = 200.0, _e = 0.285 * 0.5 * _cam, _rim = 0.95 * 0.5 * _cam;
+    fzx_sized(_x, "cam", _cx + _e * cos(_lobe), _e * sin(_lobe), _lobe / FZX_DEG, _cam, _cam, "");
+    // (the sensor's beam straight under the shaft, where the cam's edge passes it a quarter turn either side of its lobe)
+    const f64 _beam = sqrt(_rim * _rim - _e * _e);
+    const u32 _sl = fzx_part(_x, "slotted sensor", _cx, -_beam - 9.0, 0, "ITR9608");
+    const fude_zoom_v2 _sa = fzx_pin(_x, _sl, 0), _sk = fzx_pin(_x, _sl, 1), _sc = fzx_pin(_x, _sl, 2), _se = fzx_pin(_x, _sl, 3);
+    const u32 _rl  = fzx_part(_x, "resistor", _sa.x - 40.0, _sa.y, 0, "330");
+    const u32 _vl  = fzx_part(_x, "supply rail", _sa.x - 70.0, _sa.y + 40.0, 0, "5V");
+    fzx_route(_x, _rl, 1, _sl, 0, NULL, 0);
+    fzx_route(_x, _rl, 0, _vl, 0, NULL, 0);
+    const u32 _gk = fzx_part(_x, "ground", _sk.x - 28.0, _sk.y - 35.0, 0, "");
+    fzx_route(_x, _sl, 1, _gk, 0, FZX_VIA({ _sk.x - 28.0, _sk.y }));
+    const u32 _pu  = fzx_part(_x, "resistor", _sc.x + 90.0, _sc.y, 0, "10k");
+    const u32 _vu  = fzx_part(_x, "supply rail", _sc.x + 147.0, _sc.y + 40.0, 0, "5V");
+    fzx_route(_x, _sl, 2, _pu, 0, NULL, 0);
+    fzx_route(_x, _pu, 1, _vu, 0, FZX_VIA({ _sc.x + 147.0, _sc.y }));
+    const u32 _ge = fzx_part(_x, "ground", _se.x + 17.0, _se.y - 35.0, 0, "");
+    fzx_route(_x, _sl, 3, _ge, 0, FZX_VIA({ _se.x + 17.0, _se.y }));
+    // (C smoothed: down to 10 µF)
+    const u32 _db = fzx_part(_x, "electrolytic", _sc.x + 60.0, -335, -90, "10uF");
+    const u32 _gd = fzx_part(_x, "ground", _sc.x + 60.0, -395, 0, "");
+    fzx_route(_x, _pu, 0, _db, 0, NULL, 0);
+    fzx_route(_x, _db, 1, _gd, 0, NULL, 0);
+    // Its tachometer: a belt from its crank to a dynamo (a motor, turned: as many volts as it turns), a panel meter on it.
+    const u32 _gen = fzx_motor(_x, _cx + 230.0, 170.0, 0, "6V 300rpm", "sprocket");
+    fzx_belt(_x, "belt", (fude_zoom_v2){ _cx, 0.0 }, (fude_zoom_v2){ _cx + 230.0, 170.0 }, "");
+    const u32 _tm = fzx_part(_x, "panel meter", _cx + 400.0, 170.0, 0, "20V");
+    fzx_route(_x, _gen, 1, _tm, 0, NULL, 0);
+    fzx_route(_x, _tm, 1, _gen, 0, FZX_VIA({ _cx + 500.0, 170.0 }, { _cx + 500.0, 240.0 }, { _cx + 170.0, 240.0 }, { _cx + 170.0, 170.0 }));
+    // The coil: 12 V through a panel meter into its diode's cathode and on, its low side down to the TIP120, the diode's
+    // anode there too.
+    const u32 _bat = fzx_part(_x, "battery", -700, 0, 0, "12V");
+    const u32 _gb  = fzx_part(_x, "ground", -700, -90, 0, "");
+    fzx_route(_x, _bat, 1, _gb, 0, NULL, 0);
+    const u32 _pm  = fzx_part(_x, "panel meter", -420, 80, 0, "2A");
+    const u32 _d   = fzx_part(_x, "diode", -260, 0, 90, "1N4007");
+    fzx_route(_x, _bat, 0, _pm, 0, FZX_VIA({ -700, 80 }));
+    fzx_route(_x, _pm, 1, _d, 1, FZX_VIA({ -260, 80 }));
+    fzx_route(_x, _d, 1, _so, 0, NULL, 0);
+    const u32 _q  = fzx_part(_x, "NPN", -210, -170, 0, "TIP120");
+    const u32 _gq = fzx_part(_x, "ground", -200, -250, 0, "");
+    fzx_route(_x, _so, 1, _q, 1, NULL, 0);
+    fzx_route(_x, _d, 0, _q, 1, FZX_VIA({ -260, -140 }));
+    fzx_route(_x, _q, 2, _gq, 0, NULL, 0);
+    // (its drive through a switch — its ignition: opened, the coil let go)
+    const u32 _rb = fzx_part(_x, "resistor", -300, -170, 0, "1k");
+    const u32 _sw = fzx_part(_x, "SPST switch", -440, -170, 0, "on");
+    const u32 _bf = fzx_part(_x, "buffer", -560, -170, 0, "");
+    fzx_route(_x, _rb, 1, _q, 0, NULL, 0);
+    fzx_route(_x, _sw, 1, _rb, 0, NULL, 0);
+    fzx_route(_x, _bf, 1, _sw, 0, NULL, 0);
+    // (the sensor's C, from its capacitor, round under everything into the buffer)
+    fzx_route(_x, _db, 0, _bf, 0, FZX_VIA({ -640, -315 }, { -640, -170 }));
+    // Its turns counted: a 74HC161 (enabled, loaded never, cleared never) clocked by the buffer; its Q's down into LEDs.
+    const f64 _qx = -420.0, _qy = -520.0;
+    const u32 _cnt = fzx_part(_x, "74HC161", _qx, _qy, 0, "74HC161");
+    fzx_route(_x, _bf, 1, _cnt, 1u, FZX_VIA({ -520, _qy + 150.0 }, { _qx - 180.0, _qy + 150.0 }, { _qx - 180.0, _qy + 50.0 }));
+    const u32 _cv = fzx_part(_x, "supply rail", _qx + 100.0, _qy + 120.0, 0, "5V");
+    fzx_line(_x, _cnt, 15u, _cv, 0);
+    fzx_route(_x, _cnt, 9u, _cnt, 15u, FZX_VIA({ _qx + 110.0, _qy - 50.0 }, { _qx + 110.0, _qy + 70.0 }));
+    fzx_route(_x, _cnt, 8u, _cnt, 15u, FZX_VIA({ _qx + 120.0, _qy - 70.0 }, { _qx + 120.0, _qy + 70.0 }));
+    const u32 _cr = fzx_part(_x, "supply rail", _qx - 140.0, _qy + 110.0, 0, "5V");
+    fzx_route(_x, _cnt, 0u, _cr, 0, FZX_VIA({ _qx - 140.0, _qy + 70.0 }));
+    const u32 _er = fzx_part(_x, "supply rail", _qx - 160.0, _qy - 30.0, 0, "5V");
+    fzx_route(_x, _cnt, 6u, _er, 0, FZX_VIA({ _qx - 160.0, _qy - 50.0 }));
+    const u32 _cg = fzx_part(_x, "ground", _qx - 100.0, _qy - 130.0, 0, "");
+    fzx_line(_x, _cnt, 7u, _cg, 0);
+    static const u32 _qpin[4] = { 10u, 11u, 12u, 13u };   // (QD, QC, QB, QA: the farthest right the highest)
+    static const c8* const _weight[4] = { "8", "4", "2", "1" };
+    for(u32 _k = 0; _k < 4u; _k++) {
+        const f64 _lx = _qx + 170.0 + 55.0 * (f64)(3u - _k);
+        const fude_zoom_v2 _at = fzx_pin(_x, _cnt, _qpin[_k]);
+        const u32 _r2 = fzx_sized(_x, "resistor", _lx, _qy - 110.0, 90, 50, 14, "330");
+        const u32 _l2 = fzx_sized(_x, "LED", _lx, _qy - 180.0, -90, 50, 22, "green");
+        const u32 _g2 = fzx_sized(_x, "ground", _lx, _qy - 240.0, 0, 24, 24, "");
+        fzx_route(_x, _cnt, _qpin[_k], _r2, 1, FZX_VIA({ _lx, _at.y }));
+        fzx_route(_x, _r2, 0, _l2, 0, NULL, 0);
+        fzx_route(_x, _l2, 1, _g2, 0, NULL, 0);
+        fzx_text(_x, _lx - 4.0, _qy - 268.0, 13.0, 20.0, _weight[_k]);
+    }
+    // The oscilloscope on the sensor (from its capacitor, right).
+    const u32 _scp = fzx_part(_x, "oscilloscope", _sc.x + 330.0, -420, 0, "100ms 2V");
+    const u32 _gsc = fzx_part(_x, "ground", _sc.x + 150.0, -510, 0, "");
+    fzx_route(_x, _db, 0, _scp, 0, FZX_VIA({ _sc.x + 130.0, -315 }, { _sc.x + 130.0, -380 }));
+    fzx_route(_x, _scp, 2, _gsc, 0, FZX_VIA({ _sc.x + 150.0, -460 }));
+    fzx_word(_x, -760, -820, 16.0, 760.0, FUDE_ZOOM_EXAMPLE_WORD_SOLENOID_ENGINE);
+    fzx_title(_x, -760, 360, FUDE_ZOOM_EXAMPLE_SOLENOID_ENGINE);
+}
+
 RDE_INTERNAL void fzx_tie_left(fzx* _x, u32 _o, u32 _pin, f64 _gap, const c8* _volts) {
     const fude_zoom_v2 _p = fzx_pin(_x, _o, _pin);
     const u32 _t = _volts == NULL ? fzx_sized(_x, "ground", _p.x - _gap - 10.0, _p.y, -90.0, 20, 20, "")
@@ -682,14 +1491,112 @@ RDE_INTERNAL void fzx_chaser(fzx* _x) {
 
 // --- mechanisms ----------------------------------------------------------------------------------------------------
 
-RDE_INTERNAL void fzx_crank(fzx* _x) {
-    // Ground 110 (motor at -55, pivot at 55), crank 40, coupler 120, rocker 100 (Grashof: the crank turns round).
-    fzx_part(_x, "drive motor", -55, 0, 0, "30 rpm");
+// A crank and rocker on a motor turning at _rpm: ground 110 (motor at -55, pivot at 55), crank 40, coupler 120, rocker
+// 100 (Grashof: the crank turns round).
+RDE_INTERNAL void fzx_crank_rocker(fzx* _x, const c8* _rpm) {
+    fzx_part(_x, "drive motor", -55, 0, 0, _rpm);
     fzx_part(_x, "fixed pivot", 55, -10, 0, "");
     fzx_sized(_x, "link", -35, 0, 0, 40 + 24, 24, "");
     fzx_sized(_x, "link", (-15 + 51.43) * 0.5, 99.9 * 0.5, atan2(99.9, 66.43) / FZX_DEG, 120 + 24, 24, "");
     fzx_sized(_x, "link", (55 + 51.43) * 0.5, 99.9 * 0.5, atan2(99.9, -3.57) / FZX_DEG, 100 + 24, 24, "");
+}
+
+RDE_INTERNAL void fzx_crank(fzx* _x) {
+    fzx_crank_rocker(_x, "30 rpm");
     fzx_title(_x, -200, 230, FUDE_ZOOM_EXAMPLE_CRANK);
+}
+
+// The crank and rocker with a tracer on its crank's end (a circle) and one on its coupler's middle (its coupler curve: the
+// shape a linkage is chosen for).
+// By hand: a crank and rocker on a hand crank (its handle 21 out: the crank; coupler 120, rocker 100, ground 89 — it turns
+// round), a tracer on its coupler; beside it a pendulum, its weight to take hold of and drag.
+RDE_INTERNAL void fzx_by_hand(fzx* _x) {
+    fzx_part(_x, "hand crank", -55, 0, 0, "");
+    fzx_part(_x, "fixed pivot", 55, -10, 0, "");
+    const f64 _cx = 35.22, _cy = 98.02;   // (where the coupler meets the rocker)
+    fzx_sized(_x, "link", (-34.0 + _cx) * 0.5, _cy * 0.5, atan2(_cy, _cx + 34.0) / FZX_DEG, 120 + 24, 24, "");
+    fzx_sized(_x, "link", (55.0 + _cx) * 0.5, _cy * 0.5, atan2(_cy, _cx - 55.0) / FZX_DEG, 100 + 24, 24, "");
+    fzx_part(_x, "tracer", (-34.0 + _cx) * 0.5, _cy * 0.5, 0, "");
+    fzx_word(_x, -140, -70, 16.0, 220.0, FUDE_ZOOM_EXAMPLE_WORD_TURN_CRANK);
+    // (the pendulum)
+    fzx_part(_x, "fixed pivot", 250, 90, 0, "");
+    fzx_sized(_x, "link", 250, 100 - 60, -90, 144, 24, "");
+    fzx_part(_x, "weight", 250, 100 - 120, 0, "1 kg");
+    fzx_word(_x, 200, -70, 16.0, 180.0, FUDE_ZOOM_EXAMPLE_WORD_DRAG_WEIGHT);
+    fzx_title(_x, -200, 230, FUDE_ZOOM_EXAMPLE_BY_HAND);
+}
+
+RDE_INTERNAL void fzx_coupler_curve(fzx* _x) {
+    fzx_crank_rocker(_x, "20 rpm");
+    fzx_part(_x, "tracer", -15, 0, 0, "");
+    fzx_part(_x, "tracer", (-15 + 51.43) * 0.5, 99.9 * 0.5, 0, "");
+    fzx_title(_x, -200, 230, FUDE_ZOOM_EXAMPLE_COUPLER_CURVE);
+}
+
+// A drive motor (30 rpm) with a small sprocket on it, a chain round it and a sprocket twice as big — half as fast, the same
+// way; under it, the same motor with a crossed belt to a sprocket as big — as fast, the other way.
+RDE_INTERNAL void fzx_belts(fzx* _x) {
+    for(u32 _k = 0; _k < 2u; _k++) {
+        const f64 _y = _k == 0u ? 0.0 : -220.0;
+        fzx_part(_x, "drive motor", -300, _y, 0, "30 rpm");
+        fzx_sized(_x, "sprocket", -300, _y, 0, 60, 60, "");
+        fzx_sized(_x, "sprocket", -50, _y, 0, _k == 0u ? 120 : 60, _k == 0u ? 120 : 60, "");
+        fzx_sized(_x, _k == 0u ? "chain" : "belt", -175, _y, 0, 290, 40, _k == 0u ? "" : "crossed");   // (its ends' middles 250 apart: the two axles)
+    }
+    fzx_title(_x, -360, 160, FUDE_ZOOM_EXAMPLE_BELTS);
+}
+
+// An eccentric cam on a drive motor (15 rpm: its hole, off its middle, on the shaft), a follower over it pointing down —
+// its roller pressed onto the cam, rising and falling its eccentricity either way.
+RDE_INTERNAL void fzx_cam(fzx* _x) {
+    fzx_part(_x, "drive motor", 0, 0, 0, "15 rpm");
+    fzx_sized(_x, "cam", 0.285 * 40.0, 0, 0, 80, 80, "");
+    fzx_sized(_x, "follower", 0, 92, -90, 120, 30, "");
+    fzx_title(_x, -150, 230, FUDE_ZOOM_EXAMPLE_CAM);
+}
+
+// Two ratchet wheels on their axles, a weight on a rope tied to each one's right (pulling it clockwise): the left one's pawl
+// (along its top, its point on its teeth) holds it; the right one, with none, runs back. Dragged round counter-clockwise,
+// the left one clicks past its pawl and stays.
+RDE_INTERNAL void fzx_ratchet(fzx* _x) {
+    for(u32 _k = 0; _k < 2u; _k++) {
+        const f64 _cx = _k == 0u ? -150.0 : 150.0;
+        fzx_sized(_x, "ratchet", _cx, 0, 0, 80, 80, "");
+        if(_k == 0u) {
+            fzx_sized(_x, "pawl", _cx + 34.0, 33, 180, 70, 16, "");   // (its point 33 over the wheel's middle: between its roots and tips)
+        }
+        fzx_sized(_x, "rope", _cx + 36.0, -59, 90, 120, 12, "");
+        fzx_part(_x, "weight", _cx + 36.0, -130, 0, "1 kg");
+    }
+    fzx_word(_x, -260, -190, 16.0, 520.0, FUDE_ZOOM_EXAMPLE_WORD_RATCHET_DRAG);
+    fzx_title(_x, -260, 120, FUDE_ZOOM_EXAMPLE_RATCHET);
+}
+
+// Two weights (1 kg) on springs (stiffness 4: 4 Hz) from fixed pivots: the left one bounces on and on; the right one has a
+// damper (3) under it, to a pivot on the ground (in line with its spring: a shock absorber) — it settles in a bounce.
+RDE_INTERNAL void fzx_damper(fzx* _x) {
+    for(u32 _k = 0; _k < 2u; _k++) {
+        const f64 _cx = _k == 0u ? -150.0 : 150.0;
+        fzx_part(_x, "fixed pivot", _cx, 200, 0, "");
+        fzx_sized(_x, "spring", _cx, 156, 90, 120, 24, "4");   // (its ends 108 apart: the pivot's hole, the weight's middle)
+        fzx_part(_x, "weight", _cx, 102, 0, "1 kg");
+    }
+    // (from the weight's middle down to a pivot's hole under it: 108 long)
+    fzx_sized(_x, "damper", 150, 48, 90, 120, 24, "3");
+    fzx_part(_x, "fixed pivot", 150, -16, 0, "");
+    fzx_title(_x, -230, 300, FUDE_ZOOM_EXAMPLE_DAMPER);
+}
+
+// A worm (60 rpm) under a 30-tooth gear on its own axle (its pitch circle on the worm's): the gear a tooth a turn of it —
+// 2 rpm —, a 10-tooth gear beside it three times as fast; a weight on a rope from the big gear's left, lowered as it turns,
+// never let fall: a gear cannot turn a worm.
+RDE_INTERNAL void fzx_worm(fzx* _x) {
+    fzx_sized(_x, "worm", 0, 0, 0, 120, 40, "60 rpm");
+    fzx_part(_x, "gear 30T", 0, 84, 0, "");
+    fzx_part(_x, "gear 10T", 100, 84, 0, "");
+    fzx_sized(_x, "rope", -72, 15, 90, 140, 12, "");
+    fzx_part(_x, "weight", -72, -65, 0, "1 kg");
+    fzx_title(_x, -150, 230, FUDE_ZOOM_EXAMPLE_WORM);
 }
 
 RDE_INTERNAL void fzx_gear_train(fzx* _x) {
@@ -1128,6 +2035,136 @@ RDE_INTERNAL void fzx_servo_angles(fzx* _x) {
     fzx_title(_x, -460, 470, FUDE_ZOOM_EXAMPLE_SERVO_ANGLES);
 }
 
+// A latch: a battery (12 V), a push button, a 12 V solenoid; its plunger's end pinned to a link whose other end is a
+// slider's on a rail along it — the bolt, drawn back as the button is held. A diode across its coil (its cathode on its
+// plus: the coil's current carried round when the button lets go), or none: the button sparks.
+RDE_INTERNAL void fzx_latch(fzx* _x, f64 _px, f64 _py, b8 _diode) {
+    // (its leads 50 left of its middle, 10 over and under; the button's into the upper from over it, the battery's minus
+    // from under the lower)
+    const u32 _so  = fzx_part(_x, "solenoid", _px, _py, 0, "12V");
+    const u32 _bat = fzx_part(_x, "battery", _px - 300.0, _py, 0, "12V");
+    const u32 _btn = fzx_part(_x, "push button", _px - 200.0, _py + 80.0, 0, "");
+    fzx_limits(_x, _btn, 0, 3, 0, 0, 2);   // (a 3 A button: a 6 mm one's 50 mA would burn on half an ampere)
+    const u32 _gnd = fzx_part(_x, "ground", _px - 340.0, _py - 90.0, 0, "");
+    fzx_route(_x, _bat, 0, _btn, 0, FZX_VIA({ _px - 300.0, _py + 80.0 }));
+    fzx_route(_x, _btn, 1, _so, 0, FZX_VIA({ _px - 50.0, _py + 80.0 }));
+    fzx_route(_x, _so, 1, _bat, 1, FZX_VIA({ _px - 50.0, _py - 70.0 }, { _px - 300.0, _py - 70.0 }));
+    fzx_route(_x, _gnd, 0, _bat, 1, FZX_VIA({ _px - 340.0, _py - 30.0 }));
+    if(_diode) {
+        // (upright left of its leads: its cathode on the plus, its anode on the minus)
+        const u32 _d = fzx_part(_x, "diode", _px - 130.0, _py, 90, "1N4007");
+        fzx_route(_x, _d, 1, _so, 0, FZX_VIA({ _px - 130.0, _py + 45.0 }, { _px - 65.0, _py + 45.0 }, { _px - 65.0, _py + 10.0 }));
+        fzx_route(_x, _d, 0, _so, 1, FZX_VIA({ _px - 130.0, _py - 45.0 }, { _px - 65.0, _py - 45.0 }, { _px - 65.0, _py - 10.0 }));
+    }
+    // (the plunger's end 42.5 along; the link's other hole 126 on, the slider's middle; a rail under it, 50 of travel either
+    // way)
+    fzx_sized(_x, "rail", _px + 188.5, _py, 0, 160, 16, "");
+    fzx_sized(_x, "link", _px + 42.5 + 63.0, _py, 0, 150, 24, "");
+    fzx_part(_x, "slider", _px + 168.5, _py, 0, "");
+}
+
+RDE_INTERNAL void fzx_solenoid(fzx* _x) {
+    fzx_latch(_x, 0, 120, true);
+    fzx_latch(_x, 0, -200, false);
+    fzx_word(_x, -330, -340, 16.0, 380.0, FUDE_ZOOM_EXAMPLE_WORD_NO_DIODE);
+    fzx_title(_x, -330, 300, FUDE_ZOOM_EXAMPLE_SOLENOID);
+}
+
+// A clock (200 Hz) into two D flip-flops clocked together, the first's D the second's /Q, the second's D the first's Q: a
+// ring of four states (00, 10, 11, 01) — Q1, Q2, /Q1, /Q2 into a ULN2003's IN1–IN4, its outputs sinking a 28BYJ-48's
+// coils A–D (COM on 5 V, the ULN2003's COM too: its clamp diodes): two coils at a time, a step on each tick — an arm on
+// its shaft round in ten seconds.
+RDE_INTERNAL void fzx_stepper(fzx* _x) {
+    const u32 _f1  = fzx_part(_x, "D flip-flop", 0, 100, 0, "");
+    const u32 _f2  = fzx_part(_x, "D flip-flop", 0, -60, 0, "");
+    const u32 _clk = fzx_part(_x, "clock", -250, 0, 0, "200Hz");
+    const u32 _uln = fzx_part(_x, "ULN2003", 350, 20, 0, "ULN2003");
+    const u32 _st  = fzx_part(_x, "stepper motor", 650, 20, 0, "28BYJ-48");
+    fzx_sized(_x, "link", 650, 20 + 30, 90, 80, 20, "");   // (its holes 60 apart: one on the shaft, all of it inside the motor's face)
+    const u32 _g1 = fzx_part(_x, "ground", -250, -80, 0, "");
+    const u32 _g2 = fzx_part(_x, "ground", 235, -120, 0, "");
+    const u32 _r1 = fzx_part(_x, "supply rail", 600, -80, 0, "5V");
+    const u32 _r2 = fzx_part(_x, "supply rail", 520, -40, 0, "5V");
+    // D flip-flops: D (−40, 20), CLK (−40, −20), Q (40, 20), /Q (40, −20) about each.
+    fzx_route(_x, _f1, 2, _uln, 0, FZX_VIA({ 200, 120 }, { 200, 90 }));
+    fzx_route(_x, _f2, 2, _uln, 1, FZX_VIA({ 170, -40 }, { 170, 70 }));
+    fzx_route(_x, _f1, 3, _uln, 2, FZX_VIA({ 140, 80 }, { 140, 50 }));
+    fzx_route(_x, _f2, 3, _uln, 3, FZX_VIA({ 220, -80 }, { 220, 30 }));
+    fzx_route(_x, _f1, 0, _f2, 3, FZX_VIA({ -80, 120 }, { -80, -110 }, { 40, -110 }));
+    fzx_route(_x, _f2, 0, _f1, 2, FZX_VIA({ -60, -40 }, { -60, 150 }, { 40, 150 }));
+    fzx_route(_x, _clk, 0, _f1, 1, FZX_VIA({ -250, 80 }));
+    fzx_route(_x, _clk, 0, _f2, 1, FZX_VIA({ -200, 30 }, { -200, -80 }));
+    fzx_route(_x, _clk, 1, _g1, 0, NULL, 0);
+    fzx_route(_x, _uln, 7, _g2, 0, FZX_VIA({ 235, -50 }));
+    // Its outputs (OUT1–OUT4) to the coils A–D; its COM and the motor's on 5 V.
+    fzx_route(_x, _uln, 15, _st, 0, FZX_VIA({ 520, 90 }, { 520, 60 }));
+    fzx_route(_x, _uln, 14, _st, 1, FZX_VIA({ 530, 70 }, { 530, 40 }));
+    fzx_route(_x, _uln, 13, _st, 2, FZX_VIA({ 540, 50 }, { 540, 20 }));
+    fzx_route(_x, _uln, 12, _st, 3, FZX_VIA({ 550, 30 }, { 550, 0 }));
+    fzx_route(_x, _uln, 8, _r1, 0, FZX_VIA({ 470, -50 }, { 470, -110 }, { 600, -110 }));
+    fzx_route(_x, _st, 4, _r2, 0, FZX_VIA({ 560, -20 }, { 560, -60 }, { 520, -60 }));
+    fzx_title(_x, -260, 260, FUDE_ZOOM_EXAMPLE_STEPPER);
+}
+
+// Sensors on shafts. A hand crank on a rotary encoder (turned round: its pins on its right), its common on 5 V: each of
+// A and B through 470 Ω into an LED — lit while its contact is closed, the two in turn as it turns. A hand crank on a pot
+// across 5 V, a panel meter on its wiper: as far round, as many volts. A drive motor's arm through a slotted sensor's
+// slot each turn: its transistor let go — C high —, a T flip-flop toggled, its probe a turn on, a turn off.
+RDE_INTERNAL void fzx_shaft_sensors(fzx* _x) {
+    fzx_part(_x, "hand crank", 0, 0, 0, "");
+    const u32 _en = fzx_part(_x, "rotary encoder", 0, 0, 180, "20");   // (A, C, B up its right: 40 along, 20 under to 20 over)
+    const u32 _rc = fzx_part(_x, "supply rail", 60, 120, 0, "5V");
+    fzx_route(_x, _en, 1, _rc, 0, FZX_VIA({ 60, 0 }));
+    for(u32 _k = 0; _k < 2u; _k++) {
+        const f64 _y = _k == 0u ? -20.0 : 20.0;
+        const u32 _r   = fzx_part(_x, "resistor", 150, _y, 0, "470");
+        const u32 _led = fzx_part(_x, "LED", 250, _y, 0, _k == 0u ? "yellow" : "green");
+        const f64 _gx  = 320.0 + 40.0 * (f64)_k;
+        const u32 _g   = fzx_part(_x, "ground", _gx, _y - 40.0, 0, "");
+        fzx_route(_x, _en, _k == 0u ? 0u : 2u, _r, 0, NULL, 0);
+        fzx_route(_x, _r, 1, _led, 0, NULL, 0);
+        fzx_route(_x, _led, 1, _g, 0, FZX_VIA({ _gx, _y }));
+    }
+    fzx_text(_x, 280, 50, 14.0, 40.0, "B");
+    fzx_text(_x, 280, -70, 14.0, 40.0, "A");
+    // The pot: its ends 30 either side of its middle and 10 under, its wiper 20 over.
+    fzx_part(_x, "hand crank", 450, 0, 0, "");
+    const u32 _pot = fzx_part(_x, "potentiometer", 450, 0, 0, "10k 50%");
+    const u32 _rp  = fzx_part(_x, "supply rail", 340, 20, 0, "5V");
+    const u32 _gp  = fzx_part(_x, "ground", 500, -60, 0, "");
+    const u32 _mt  = fzx_part(_x, "panel meter", 450, 140, 0, "20V");
+    const u32 _gm  = fzx_part(_x, "ground", 560, -60, 0, "");
+    fzx_route(_x, _pot, 0, _rp, 0, FZX_VIA({ 340, -10 }));
+    fzx_route(_x, _pot, 1, _gp, 0, FZX_VIA({ 500, -10 }));
+    fzx_route(_x, _pot, 2, _mt, 0, FZX_VIA({ 450, 60 }, { 350, 60 }, { 350, 140 }));
+    fzx_route(_x, _mt, 1, _gm, 0, FZX_VIA({ 560, 140 }));
+    // The slotted sensor over the motor's shaft, its beam where the arm's far end goes by (120 up): its LED on 5 V through
+    // 330 Ω, its C pulled up through 10k; C the T flip-flop's clock, its T held high by a logic input.
+    fzx_part(_x, "drive motor", 850, 0, 0, "30 rpm");
+    fzx_sized(_x, "link", 850 + 63, 0, 0, 150, 24, "");
+    const u32 _sl = fzx_part(_x, "slotted sensor", 850, 111, 0, "ITR9608");
+    const u32 _rl = fzx_part(_x, "resistor", 760, 121, 0, "330");
+    const u32 _rr = fzx_part(_x, "supply rail", 710, 180, 0, "5V");
+    const u32 _ru = fzx_part(_x, "resistor", 940, 121, 0, "10k");
+    const u32 _rs = fzx_part(_x, "supply rail", 990, 180, 0, "5V");
+    const u32 _gk = fzx_part(_x, "ground", 790, 40, 0, "");
+    const u32 _ge = fzx_part(_x, "ground", 910, 40, 0, "");
+    fzx_route(_x, _sl, 0, _rl, 1, NULL, 0);
+    fzx_route(_x, _rl, 0, _rr, 0, FZX_VIA({ 710, 121 }));
+    fzx_route(_x, _sl, 1, _gk, 0, FZX_VIA({ 790, 101 }));
+    fzx_route(_x, _sl, 3, _ge, 0, FZX_VIA({ 910, 101 }));
+    fzx_route(_x, _sl, 2, _ru, 0, NULL, 0);
+    fzx_route(_x, _ru, 1, _rs, 0, FZX_VIA({ 990, 121 }));
+    const u32 _tf = fzx_part(_x, "T flip-flop", 1100, -60, 0, "");
+    const u32 _hi = fzx_part(_x, "logic input", 1000, -40, 0, "1");
+    const u32 _pr = fzx_part(_x, "logic probe", 1200, -40, 0, "");
+    fzx_route(_x, _sl, 2, _tf, 1, FZX_VIA({ 890, 150 }, { 1045, 150 }, { 1045, -80 }));
+    fzx_route(_x, _hi, 0, _tf, 0, NULL, 0);
+    fzx_route(_x, _tf, 2, _pr, 0, NULL, 0);
+    fzx_word(_x, -60, -110, 16.0, 420.0, FUDE_ZOOM_EXAMPLE_WORD_TURN_CRANK);
+    fzx_title(_x, -60, 280, FUDE_ZOOM_EXAMPLE_SHAFT_SENSORS);
+}
+
 RDE_INTERNAL void fzx_workbench(fzx* _x) {
     void (*const _each[4])(fzx*) = { fzx_counter, fzx_gates, fzx_gears_rack, fzx_pulleys };
     const f64 _at[4][2] = { { -550, 350 }, { -550, -500 }, { 500, 350 }, { 500, -450 } };
@@ -1155,11 +2192,14 @@ u32 fude_zoom_example_build(fude_zoom_scene* _s, u32 _frame, fude_zoom_sim _to_f
     void (*const _build[FUDE_ZOOM_EXAMPLE_COUNT])(fzx*) = {
         fzx_torch, fzx_gates, fzx_flasher, fzx_full_adder, fzx_adder_4, fzx_counter, fzx_adder_chip, fzx_chaser,
         fzx_led_resistor, fzx_resistor_watts, fzx_short_fuse, fzx_cap_polarity, fzx_transistor_size, fzx_ringing,
-        fzx_digit_counter, fzx_matrix_scan, fzx_bar_meter, fzx_panel_meters, fzx_lcd_by_hand,
+        fzx_digit_counter, fzx_matrix_scan, fzx_bar_meter, fzx_panel_meters, fzx_lcd_by_hand, fzx_scope_rc, fzx_light_temp,
+        fzx_decade, fzx_flipflops, fzx_comparator, fzx_thyristors, fzx_power_supply, fzx_light_link, fzx_speaker_tone, fzx_traffic,
+        fzx_piano,
         fzx_crank, fzx_gear_train, fzx_pendulum, fzx_pulleys, fzx_piston, fzx_rack, fzx_gears_rack, fzx_bodies, fzx_gearbox, fzx_machine,
-        fzx_materials, fzx_too_heavy, fzx_motor_torque,
-        fzx_motor_gears, fzx_dynamo, fzx_forward_back, fzx_turn_counter, fzx_shuttle, fzx_servo_tester, fzx_servo_angles, fzx_workbench,
-        fzx_everything,
+        fzx_materials, fzx_too_heavy, fzx_motor_torque, fzx_coupler_curve, fzx_by_hand, fzx_belts, fzx_cam, fzx_ratchet, fzx_damper, fzx_worm,
+        fzx_strandbeest, fzx_engine,
+        fzx_motor_gears, fzx_dynamo, fzx_forward_back, fzx_turn_counter, fzx_shuttle, fzx_servo_tester, fzx_servo_angles,
+        fzx_solenoid, fzx_stepper, fzx_shaft_sensors, fzx_workbench, fzx_everything, fzx_solenoid_engine,
     };
     if(_example >= FUDE_ZOOM_EXAMPLE_COUNT || _s == NULL || _born == NULL) {
         return 0u;

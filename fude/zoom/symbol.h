@@ -50,6 +50,8 @@ typedef enum {
     FUDE_ZOOM_SYMBOL_SOLID  = 4,   // filled with its line's colour (a black dot, a fork bar, an arrowhead)
     FUDE_ZOOM_SYMBOL_DASHED = 8,   // dashed (a boundary, a lifeline)
     FUDE_ZOOM_SYMBOL_TINTED = 16,  // filled with its own colour (its fill: a part's art's — a board's green, a copper pad)
+    FUDE_ZOOM_SYMBOL_MOVES  = 32,  // what moves in it as it plays (a solenoid's plunger): drawn as far along it as the
+                                   // renderer's moved says (render.h)
     FUDE_ZOOM_SYMBOL_NO_LINE = 64, // no line round it: its fill only
     FUDE_ZOOM_SYMBOL_JOIN   = 128, // another ring of the part before it, filled with it: a hole in it (a washer's)
 } FUDE_ZOOM_SYMBOL_PART_;
