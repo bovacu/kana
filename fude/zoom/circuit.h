@@ -381,8 +381,9 @@ typedef struct {
     rde_arr TYPE(u32) cut_vertex;
     rde_arr TYPE(u32) pin_vertex;
     u32     vertices;
-    // Its unknowns in BLOCKS: the nodes a part's pins join (ground not counted) are one — the independent circuits on a
-    // canvas, each solved on its own. Each node's block and slot (the unknowns in block order; ground: none), each
+    // Its unknowns in BLOCKS: the nodes a part's pins join (ground not counted, nor a held node, nor through a pin that
+    // only senses — below) are one — the independent circuits on a canvas, and the corners of one a rail feeds, each
+    // solved on its own. Each node's block and slot (the unknowns in block order; ground: none), each
     // block's first slot and how many; each block's system (sim/sparse.h: shaped by where its parts' stamps write —
     // the joins, as nodes — ordered so that it fills in little, and solved sparse).
     rde_arr TYPE(u32) node_block;
@@ -545,7 +546,7 @@ void fude_zoom_circuit_sound(fude_zoom_circuit* _c, f64 _rate);
 f64  fude_zoom_circuit_sparked(const fude_zoom_circuit_part* _p);
 b8   fude_zoom_circuit_tap(fude_zoom_circuit* _c, u32 _part, i32 _pin, c8* _say, usize _size);
 // An oscilloscope's knob _knob (display.h's) turned a step _way (+1: clockwise, -1) as it plays: its sweep started again
-// when its time a division changes (and the circuit's steps no longer than its samples are apart); what it is set to now
+// when its time a division changes (and the circuit's steps no longer than a 50th of its sweep); what it is set to now
 // into _say ("CH1 VOLTS/DIV 0.5 V"). False: not an oscilloscope's knob.
 b8   fude_zoom_circuit_scope_turn(fude_zoom_circuit* _c, u32 _part, u32 _knob, i32 _way, c8* _say, usize _size);
 // How high Play's tags' letters are (a node's volts, a meter's reading, a logic input's 0 or 1: screen points), for

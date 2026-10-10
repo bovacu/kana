@@ -2484,8 +2484,11 @@ RDE_INTERNAL b8 fzc_lead(const fude_zoom_part* _part, u32 _k, fude_zoom_pin* _ou
     return true;
 }
 
-// Its longest step: a millisecond, finer for what changes faster — a 40th of a source's period, no longer than an
-// oscilloscope's samples are apart (what it shows never straight lines across steps).
+// Its longest step: a millisecond, finer for what changes faster — a 40th of a source's period, a 50th of an
+// oscilloscope's sweep (its samples drawn straight across a step, where the steps follow how its curves bend: 5 steps a
+// division at least — one a sample stepped a piano's quiet scope 40 000 times a second).
+#define FZC_SCOPE_STEPS 50.0   // an oscilloscope's sweep in steps at least
+
 RDE_INTERNAL void fzc_step_most(fude_zoom_circuit* _c) {
     const fude_zoom_circuit_part* _parts = (const fude_zoom_circuit_part*)_c->parts.memory;
     _c->step = 1e-3;
@@ -2496,7 +2499,7 @@ RDE_INTERNAL void fzc_step_most(fude_zoom_circuit* _c) {
             _c->step = fmin(_c->step, fmax(1.0 / (40.0 * _f), 1e-6));
         }
         if(_m == FUDE_ZOOM_MODEL_SCOPE && _parts[_i].value[0] > 0.0) {
-            _c->step = fmin(_c->step, fmax(FUDE_ZOOM_SCOPE_DIVS_X * _parts[_i].value[0] / (f64)FUDE_ZOOM_SCOPE_SAMPLES, 1e-6));
+            _c->step = fmin(_c->step, fmax(FUDE_ZOOM_SCOPE_DIVS_X * _parts[_i].value[0] / FZC_SCOPE_STEPS, 1e-6));
         }
     }
 }

@@ -29,6 +29,7 @@
 #include "drawing/base/theme.h"
 #include "zoom/themes.h"
 #include "zoom/page.h"
+#include "zoom/product.h"
 #include "zoom/smooth.h"
 #include "drawing/widgets/toolbar.h"
 #include "drawing/doc/import.h"
@@ -39,6 +40,11 @@
 #include <string.h>
 
 #define SKETCHING_CONFIG_PATH "./assets/config.rdef"
+
+// The app this build is (zoom/product.h's FUDE_ZOOM_PRODUCT_: 0 Sketching, 1 Notes, 2 Workshop).
+#ifndef SKETCHING_PRODUCT
+#define SKETCHING_PRODUCT FUDE_ZOOM_PRODUCT_SKETCHING
+#endif
 
 // A developer's build (debug, RDE_DEBUG) reads launch arguments (look.h); a
 // release takes none at all (main).
@@ -106,6 +112,7 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //                   after what the first update brings (a --demo-picture) has
 //                   landed, or after a demo drew
 //   --paper-is=K    the canvas's paper: dots, lines, squares or none
+//   --paper-later=K@N         ...at frame N (after a canvas opened at --canvas's frame: its own paper replaced)
 //   --pan=X,Y       the page dragged X, Y (screen units) — before a --zoom, to
 //                   park the camera on a stroke's edge and look from inside it
 //   --demo-erase    lines crossed and erased with each of the three erasers
@@ -123,6 +130,7 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --export=png:PATH or svg:PATH  at frame 20, the view exported there (as Export does; mp4:PATH the zoom video, made over the frames after)
 //   --erase-at=X1,Y1,X2,Y2@N  at frame N, the eraser swept from one point to the other (screen)
 //   --draw-at=X1,Y1,X2,Y2@N   ...the pen drawn instead
+//   --pages=K@N               at frame N, Pages' choice K (0 A4, 1 A5, 2 Letter, 3 square, 4 the endless canvas)
 //   --instruments=K,K...      those instruments out at frame 8 (0 ruler, 1 45° set square, 2 30°/60°, 3 protractor, 4 compass; a kind twice: two)
 //   --instrument-at=K,X,Y,DEG ...and that one put there, turned so
 //   --finger-drag=X1,Y1,X2,Y2,X3,Y3@N  a finger on the instruments from one point through another to a third (frames N on)
@@ -250,6 +258,8 @@ RDE_INTERNAL u32 sketching_export_at    = 20u;    // --export-at: at that frame
 RDE_INTERNAL f32 sketching_erase_line[4];         // --erase-at: from, to (screen)
 RDE_INTERNAL u32 sketching_erase_frame = 0;       // ...at this frame (0: none)
 RDE_INTERNAL FUDE_TOOL_ sketching_erase_tool = FUDE_TOOL_ERASE;   // --draw-at: the pen instead
+RDE_INTERNAL u32 sketching_pages[2] = { 0, 0 };                   // --pages=K@N: Pages' choice K at frame N
+RDE_INTERNAL u32 sketching_paper_later[2] = { 0, 0 };             // --paper-later=K@N: the canvas's paper K (FUDE_PAPER_) at frame N
 RDE_INTERNAL u32 sketching_clear_frame = 0;       // --clear-at: Clear pressed at this frame (0: none)
 RDE_INTERNAL u32 sketching_undo_frames[2][8];     // --undo-at, --redo-at: Undo, Redo pressed at these frames (0: none)
 RDE_INTERNAL c8  sketching_instruments[16];       // --instruments: the kinds brought out
@@ -1021,6 +1031,13 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             if(sscanf(_v, "%f,%f,%f,%f@%u", &sketching_erase_line[0], &sketching_erase_line[1], &sketching_erase_line[2], &sketching_erase_line[3], &sketching_erase_frame) != 5) {
                 sketching_erase_frame = 0;
             }
+        } else if((_v = fude_look_value(_argv[_i], "--paper-later")) != NULL) {
+            sketching_paper_later[0] = strncmp(_v, "lines", 5) == 0 ? FUDE_PAPER_LINES : strncmp(_v, "squares", 7) == 0 ? FUDE_PAPER_SQUARES :
+                                       strncmp(_v, "none", 4) == 0 ? FUDE_PAPER_NONE : FUDE_PAPER_DOTS;
+            const c8* _at = strchr(_v, '@');
+            sketching_paper_later[1] = _at != NULL ? (u32)atoi(_at + 1) : 0u;
+        } else if((_v = fude_look_value(_argv[_i], "--pages")) != NULL) {
+            sscanf(_v, "%u@%u", &sketching_pages[0], &sketching_pages[1]);
         } else if((_v = fude_look_value(_argv[_i], "--export-at")) != NULL) {
             sketching_export_at = (u32)atoi(_v);
         } else if((_v = fude_look_value(_argv[_i], "--export")) != NULL) {
@@ -1073,7 +1090,11 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_app_window(_window);    // its units (dp on Android): before anything reads its size
     fude_text_drop_taught_language();   // a drawing app teaches no language: no fourth (Japanese) in it
     fude_text_set_language(fude_text_default_language());
-    fude_zoom_themes_use();      // the workshop's themes in place of the language apps' (Paper and Night kept)
+    // Which app this build is (docs/product_split.md): Sketching, or a preview of Notes or Workshop (-DSKETCHING_PRODUCT=1, 2).
+    fude_zoom_product_set(SKETCHING_PRODUCT);
+    if(fude_zoom_product_get()->workshop) {
+        fude_zoom_themes_use();  // the workshop's themes in place of the language apps' (Paper and Night kept)
+    }
     camera = rde_camera_create(_window, RDE_CAMERA_TYPE_ORTHOGRAPHIC);
     rde_engine_set_top_overlay_render(sketching_render_top);
     fude_look_args(_argc, _argv);
@@ -1701,6 +1722,12 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
         if(sketching_undo_frames[1][_k] > 0 && sketching_frames == sketching_undo_frames[1][_k]) {
             FUDE_ZOOM_PAGE_KIND.redo(&app);
         }
+    }
+    if(sketching_paper_later[1] > 0u && sketching_frames == sketching_paper_later[1]) {
+        canvas.page.paper = (FUDE_PAPER_)sketching_paper_later[0];
+    }
+    if(sketching_pages[1] > 0u && sketching_frames == sketching_pages[1]) {
+        fude_zoom_page_look_pages(&zoom, sketching_pages[0]);
     }
     if(sketching_erase_frame > 0 && sketching_frames == sketching_erase_frame) {
         fude_toolbar_set_tool(&ui.bar, sketching_erase_tool);

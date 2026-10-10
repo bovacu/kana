@@ -39,6 +39,8 @@
 #include "zoom/handfind.h"
 #include "zoom/symbol.h"
 #include "zoom/display.h"
+#include "zoom/product.h"
+#include "zoom/pages.h"
 
 // ===========================================================================
 // The deep-zoom page: Sketching's, in place of the ink page (extension.h's
@@ -127,21 +129,6 @@ typedef struct {
 #define FUDE_ZOOM_PAGE_LAYER_ROWS 8u // layers listed
 #define FUDE_ZOOM_PAGE_CURVE_NODES FUDE_ZOOM_PATH_NODES   // a curve's points, at most (a path's)
 
-// What a canvas is for (page.c's topics): the bar's tools for it.
-typedef enum {
-    FUDE_ZOOM_TOPIC_GENERAL = 0,   // every tool, as the bar always was
-    FUDE_ZOOM_TOPIC_TECHNICAL,     // plans to measure: sheets, instruments, dimensions, DXF, STL
-    FUDE_ZOOM_TOPIC_WOOD,          // boards, joints, the saw, the cut list
-    FUDE_ZOOM_TOPIC_DIAGRAMS,      // the diagram library, Kanban, areas, arranging
-    FUDE_ZOOM_TOPIC_PDF,           // reading a PDF: its pages, notes, highlights
-    FUDE_ZOOM_TOPIC_ELECTRONICS,   // circuits: parts, boards, wires, simulated (circuit.h)
-    FUDE_ZOOM_TOPIC_MECHANISMS,    // linkages, gears, springs run as rigid bodies (mech.h)
-    FUDE_ZOOM_TOPIC_FLOORPLAN,     // walls, doors, windows, furniture at true size, rooms' areas (plan.h)
-    FUDE_ZOOM_TOPIC_WIRING,        // a house's electrics on its plan (plan.h)
-    FUDE_ZOOM_TOPIC_MATHS,         // graphs of functions, axes, geometry's instruments (plot.h)
-    FUDE_ZOOM_TOPIC_SEWING,        // patterns: pieces, seam allowances, marks, printed at true size
-    FUDE_ZOOM_TOPIC_COUNT
-} FUDE_ZOOM_TOPIC_;
 
 // A wire kept by parts being dragged: hidden while they are, drawn routed to where their pins are going (page.c).
 typedef struct {
@@ -225,6 +212,8 @@ typedef struct fude_zoom_page {
     // protractor; the pen holding one, or drawing along one's edge.
     fude_zoom_instruments instruments;
     fude_zoom_pdfview  pdf;             // a canvas over a PDF: its pages under the ink (pdfview.h; none open: a free canvas)
+    fude_zoom_pages    pages;           // a notebook: its pages one under the other (pages.h; off: the endless canvas)
+    u32                pages_rev;       // (the scene's revision its pages were last made as many as it needs for)
     b8                 instrument_pen;
     b8                 ruled;
     // Measuring (the Instruments' Tape measure and Dimension): which (0 none,
@@ -912,6 +901,8 @@ void fude_zoom_page_look_text(fude_zoom_page* _page, rde_vec_2F _screen, b8 _sti
 void fude_zoom_page_look_numpad(fude_zoom_page* _page, const c8* _text);
 // ...and Export into _path: PNG (0), SVG (1), PDF (2) or DXF (3).
 void fude_zoom_page_look_export(fude_zoom_page* _page, u8 _format, const c8* _path);
+// Pages' choice _choice (pages.h's sizes; FUDE_ZOOM_PAGES_SIZES: the endless canvas), as the Pages tool makes it.
+void fude_zoom_page_look_pages(fude_zoom_page* _page, u32 _choice);
 // A PNG export's view drawn off screen, when one is under way: in the frame's
 // render, before the page's own drawing (the shell's).
 void fude_zoom_page_render_offscreen(fude_zoom_page* _page, rde_window* _window, rde_camera* _camera);

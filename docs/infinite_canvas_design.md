@@ -1137,6 +1137,81 @@ What Borja asked for after 0.1.76: an oscilloscope's knobs dragged, not tapped o
 - **An arrow to nothing.** The arrows on an empty screen pointed at a frame in the searched one by its box — the view it was made for, not what was drawn in it —, so its preview was a speck in an empty picture. Now a frame counts for what is drawn in it (`fude_zoom_nav_drawn`: deeper frames' drawing, not their boxes; no guides, bookmarks, layers' records or hidden things), and its arrow shows it from the deepest frame holding it. The map's whole (`fude_zoom_map_contents`) is the same. `fude_zoom_nav_framing` frames a box however small as it is (only a point is framed as a thousandth of a unit).
 - Tests: the sets (each example's under its own group, every set with something in it, a group's sets together in the groups' order); the crossroads (two cycles of its ten steps, each step's lights, WALK and digit, the beeper heard only while WALK is lit, INH holding it, RST back to 0), the piano (C4, E4, A4 and C5 within 3% from its 555's OUT, each heard; none held, silent; two held, higher than either; the volume down, quieter); the Strandbeest (eight seconds, nothing broken, each foot's path Jansen's size and level along its bottom, the two mirrored), the engine (the camshafts at half the crank's speed, each valve open the most within its stroke), the solenoid engine (it starts by itself, over 10 turns in 8 s, its counter counting each time its sensor is blocked, no part over its limits; switched off, it slows); pins through one point, keyed sprockets and cams, the topmost belt, a tracer leaving the scale as it was; the depth's levels (twelve levels out: one, the drawing's, landed on exactly; a second drawing two levels up: two, the first then both; the outermost kept when there are too many; nothing drawn: the top); an arrow to a frame zoomed into (its drawing, from it, not its box) and the map's whole. The knob's drag on the Mac with the look tool's `--pen-drag`.
 
+## 59. A big circuit as fast as its fast corner (0.1.78)
+
+Borja: *Traffic lights at a crossroads* ran at 3 fps on the tablet, Play 320 ms a frame (drawing 14). Its WALK beeper — a 555 at about 1 kHz on a speaker — stepped the whole circuit (110 parts, 64 nodes, one block: everything on the 9 V rail) some 50 000 times a second of its time. Our solver's doing, not the circuit's; three changes, each for any circuit.
+
+- **Steps by how curves bend.** A step was cut to move a capacitor at most 0.05 V (and 2%): an RC's swing of 3 V took 20 steps a half cycle however exactly the trapezoidal rule follows it. Now what bounds a step is how far its curve BENT — its current's change over the step, as volts (`|Δi|·h/C`), against the same 0.05 V and 2% —, with how far it went bounded far more loosely (0.5 V and 10%, `FZC_STEP_DV_MOST`); a step may grow four times at once (`FZC_STEP_GROW`). A 555's thresholds are still landed on (its predicted crossings), so its pitch is as exact. An oscilloscope no longer holds the steps to its samples' spacing (they are drawn straight across a step, and the steps follow the curves): a 50th of its sweep at most (`FZC_SCOPE_STEPS`) — the piano with its scope quiet took 667 steps a frame for it.
+- **Rails held.** A supply rail was a source behind 1 mΩ, its node an unknown every part on it shared: the whole circuit one block. Now a rail's node is KNOWN, as ground is (`node_held`; two rails of two voltages on one node are a short, solved as before): out of every block, its volts the rail's, what a stamp drives through it put on the other side (`fzc_g`, `fzc_nonlinear`), and the rail's current what the rest on its node take (`fzc_held_currents`) — its limits and its wires' currents as before. A capacitor across two known nodes (decoupling, on a rail) is stepped by backward Euler always and left out of the step's bound: the trapezoidal rule carried its charging spike on, turned round each step, for ever (and the new bound chased it, the time stuck).
+- **Blocks through what senses, and quiet blocks.** A part's pins no longer all join its block: a pin that only SENSES (`part.sense`: a 555's TRIG, THRES and RESET, a logic input, an oscilloscope's probes — read once solved, its stamp a leak) does not. Should a stamp still write across two blocks, they are joined then and there (`couplings`, `reblock`: every block solved again), so a part that does more than it says costs time, never a wrong answer. And a block is left QUIET for a step when nothing in it moved last step (its capacitors' currents and inductors' volts next to none), nothing in it changes by itself (a clock, an AC source, a board's blink: live), and each of its parts is as it was when it was last solved — its KEY, compared bit for bit: its numbers, the state its stamps read (`fzc_state_read`: a 555 only its output — its watch on its thresholds changes every step; a display's, a scope's, a speaker's none), how it is turned, pressed and switched, burnt, its pins' volts but where it senses. A part stepped (a 555's edge) wakes its own block; the logic changing wakes them all.
+- Together: the crossroads beeping in at most about 310 steps a frame, 8 µs each on the Mac where they took 35 (4 blocks, 2 of them quiet each step: the lights' matrix and the digit's); Play 2 to 8 ms a frame on the Mac's debug build where it took 188. The piano 0.5 ms a frame, the RC scope and the solenoid engine well under.
+- Tests: `test_quiet_blocks` — a held rail's current Kirchhoff's (an LED's 3.258 mA), a capacitor across it at rest at once; a switch's circuit left quiet while an RC beside it charges (exactly: 5 (1 − e^(−t/10))), woken by the switch tapped; an oscilloscope's ground on another divider's middle — its leak found writing across, the two blocks one, Kirchhoff kept; the crossroads beeping within 400 steps a frame, blocks quiet, its sound heard. The speaker tone now within 400 steps a frame (it was asserted not to be); the scope's steps a 50th of its sweep; the solenoid engine's counter allowed the one count still in its smoothing's delay. Every example's test as it was (the crossroads' lights, the piano's notes, the spice suite against ngspice).
+
+## 60. Products, and notebooks of pages (0.1.79)
+
+Borja: Sketching does too much to sell as one app — split it: a **note-taking** app and a **hobby-projects** app (and a
+maths one later). The plan is `docs/product_split.md`; two first steps of it here.
+
+- **Products** (`fude/zoom/product.{h,c}`). One engine, an app for each kind of person.
+  - A product says:
+    - which topics it offers (the Topic menu lists only those);
+    - which app tools, Insert entries, instruments and exports it allows. The bar shows a topic's own lists cut to the
+      product's (`fude_zoom_product_keep`, in the topic's order);
+    - whether a project's lasso actions are there (Limits, Make part, Make body);
+    - whether the workshop themes are.
+  - The three products:
+    - **Sketching** is everything, as it was.
+    - **Notes** is General (called "Notes"), PDF study, Maths notebook and Diagrams. It has no boards, joints, sheets,
+      saw, trim, DXF, STL, cut or parts lists, and no examples.
+    - **Workshop** is General (called "Sketch"), Technical, Woodworking, PDF, Electronics, Mechanisms, Floor plans, House
+      wiring and Sewing. It has no diagrams, Kanban or maths.
+  - Mechanics:
+    - The topic enum moved to `product.h`. The tables `page.c` numbers are named there (`FUDE_ZOOM_TOOL_`,
+      `FUDE_ZOOM_INSERT_`, `FUDE_ZOOM_TOOLKIT_`, `FUDE_ZOOM_OUT_`), with a compile-time check that each table is as long
+      as its enum.
+    - A canvas whose topic another app made opens in one of this app's topics (`fude_zoom_product_topic`, in
+      `topic_follow`).
+    - The shell picks its product at build time: `-DSKETCHING_PRODUCT=1` builds Notes and `=2` builds Workshop. The
+      default is Sketching, so the app on the tablet is unchanged.
+    - Previews of Notes and Workshop were built for the Mac only. They are not installed anywhere: their names, icons
+      and package ids are for Borja to choose.
+- **Notebooks** (`fude/zoom/pages.{h,c}`; Notes' flagship, the plan's §4.1). A canvas made a notebook has pages of one
+  size: A4, A5, Letter or square.
+  - **Layout:** the pages hang one under the other at their real size, a unit a millimetre as a PDF's are, 8 mm apart.
+    Each page is an endless canvas inside its edges, zoomed into as deep as any other.
+  - **Growth:** there is always one page more than the last one written on. The last page counts as used for anything
+    drawn on it, in the home frame or zoomed in, in a frame of its own (`fude_zoom_pages_used`, through
+    `fude_zoom_nav_drawn`). So pages come as they are needed and are never asked for.
+  - **View:** the view is kept over the pages, as a PDF's is (`fude_zoom_page_keep_view_over`, now shared by both).
+  - **Paper:** the endless lattice gives way to each page's own paper, the canvas's dots, squares or lines, at its true
+    spacing:
+    - 8 mm ruled, with a red margin line 20 mm in;
+    - 5 mm squared or dotted;
+    - drawn over the page alone, on a desk a shade off the paper, with a shadow.
+  - **Zoom and paper:** at a page's width across the screen its lines are as printed. Going in, finer ones fade in
+    between once they would be 80 points apart (`fude_zoom_pages_spacing`, two thresholds: 10 points out, 40 in), so
+    there is always something to write along. Far out they fade away.
+  - **The Pages tool** (General's and Maths' bar, and Notes'; not Workshop's) offers A4, A5, Letter, Square and Endless:
+    - Endless gives the canvas back, its drawing kept.
+    - A size changes the page size of a notebook.
+    - Pages begin on an empty canvas. A drawn-on one keeps its drawing beside the pages, so this is said instead.
+  - **Export:** PDF on a notebook writes one page each at its true size, through `fude_zoom_export_pdf_pages`. The
+    empty last page is left out. The paper's lines are not in it yet.
+  - **Saving:** a notebook is kept beside its canvas (`<id>.pages`).
+  - Looks: `--pages=K@N` and `--paper-later=K@N`.
+- Tests:
+  - `test_products`:
+    - each app's topics;
+    - Notes' Insert, instruments and exports with nothing of a project's, in the topic's order;
+    - Workshop's without diagrams or maths;
+    - a foreign canvas's topic made one of the app's.
+  - `test_pages`:
+    - the boxes, gap and bounds;
+    - the page a point is on, its gap counted with the page above;
+    - growth by what is drawn on the last page, at home or zoomed in ×4096, but not beside the pages;
+    - the paper's spacing: as printed at a tablet's page width, finer as it goes in, fading far out;
+    - `<id>.pages` kept, a damaged one read as no notebook.
+
 ## 19. A canvas over a PDF (0.1.6)
 
 Insert → PDF (or a PDF among Files): a canvas of its own over it — Kana's `fude_doc_new_canvas` (the PDF copied in as the canvas's own, `notes/<id>.pdf`; the note says so, `FUDE_NOTE_DOCUMENT_OWN`; no paper under it), opened. The page sees it as it opens the canvas and shows the PDF under the ink (`fude/zoom/pdfview.h`); new, the first page's width across the screen, its top at the top.

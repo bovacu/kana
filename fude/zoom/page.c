@@ -494,15 +494,11 @@ RDE_INTERNAL void fude_zoom_page_pdf_first_view(fude_zoom_page* _page) {
     fude_zoom_camera_settle(_s, _half);
 }
 
-// The canvas is as big as its pages: the view kept over them — never further out than
-// all of them fit, never past their edges (what is narrower than the screen, in its middle).
-RDE_INTERNAL void fude_zoom_page_pdf_keep_view(fude_zoom_page* _page) {
-    if(!fude_zoom_pdfview_is_open(&_page->pdf)) {
-        return;
-    }
+// The canvas is as big as its pages (_b, home units: a PDF's, a notebook's): the view kept over them — never further
+// out than all of them fit, never past their edges (what is narrower than the screen, in its middle).
+RDE_INTERNAL void fude_zoom_page_keep_view_over(fude_zoom_page* _page, fude_zoom_box _b) {
     fude_zoom_scene*    _s    = &_page->scene;
     const fude_zoom_v2  _half = fude_zoom_page_half(_page);
-    const fude_zoom_box _b    = fude_zoom_pdfview_bounds(&_page->pdf);
     for(u32 _pass = 0; _pass < 2u; _pass++) {
         const fude_zoom_sim _home = fude_zoom_page_frame_sim(_page, _s->home);
         const fude_zoom_v2  _a    = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _b.min_x, _b.min_y });
@@ -534,6 +530,54 @@ RDE_INTERNAL void fude_zoom_page_pdf_keep_view(fude_zoom_page* _page) {
     }
 }
 
+// --- a notebook's pages (pages.h) ------------------------------------------------------------------
+
+RDE_INTERNAL void fude_zoom_page_pages_path(const fude_zoom_page* _page, c8* _out, usize _size) {
+    c8 _canvas[RDE_MAX_PATH];
+    fude_zoom_page_path(_page->canvas, _canvas, sizeof(_canvas));
+    c8* _dot = strrchr(_canvas, '.');
+    if(_dot != NULL) {
+        *_dot = 0;
+    }
+    snprintf(_out, _size, "%s.pages", _canvas);
+}
+
+RDE_INTERNAL void fude_zoom_page_pages_save(fude_zoom_page* _page) {
+    c8 _path[RDE_MAX_PATH];
+    fude_zoom_page_pages_path(_page, _path, sizeof(_path));
+    fude_zoom_pages_save(&_page->pages, _path);
+}
+
+// Is it a notebook (its pages what the view is kept over: not a PDF's)?
+RDE_INTERNAL b8 fude_zoom_page_paged(const fude_zoom_page* _page) {
+    return _page->pages.on && !fude_zoom_pdfview_is_open(&_page->pdf);
+}
+
+// A notebook's first view: its first page's width across the screen, its top at the top (as a PDF's).
+RDE_INTERNAL void fude_zoom_page_pages_first_view(fude_zoom_page* _page) {
+    fude_zoom_scene*    _s     = &_page->scene;
+    const fude_zoom_v2  _half  = fude_zoom_page_half(_page);
+    const fude_zoom_box _first = fude_zoom_pages_box(&_page->pages, 0u);
+    const f64 _z = _half.x * 2.0 * 0.94 / fmax(_first.max_x - _first.min_x, 1e-9);
+    fude_zoom_camera_look_at(_s, _s->home, (fude_zoom_v2){ 0.0, _first.max_y - (_half.y - 16.0) / _z }, _z);
+    fude_zoom_camera_settle(_s, _half);
+}
+
+// A notebook's view kept over its pages (as a PDF's), and as many pages as it needs once the drawing changed: one past
+// the last written on.
+RDE_INTERNAL void fude_zoom_page_pages_follow(fude_zoom_page* _page) {
+    if(!fude_zoom_page_paged(_page)) {
+        return;
+    }
+    if(_page->scene.revision != _page->pages_rev) {
+        _page->pages_rev = _page->scene.revision;
+        if(fude_zoom_pages_grow(&_page->pages, &_page->scene)) {
+            fude_zoom_page_pages_save(_page);
+        }
+    }
+    fude_zoom_page_keep_view_over(_page, fude_zoom_pages_bounds(&_page->pages));
+}
+
 RDE_INTERNAL void fude_zoom_page_hand_forget(fude_zoom_page* _page);
 
 RDE_INTERNAL void fude_zoom_page_open(fude_zoom_page* _page, u32 _canvas) {
@@ -563,6 +607,13 @@ RDE_INTERNAL void fude_zoom_page_open(fude_zoom_page* _page, u32 _canvas) {
     _page->tools_seen     = _page->scene.history_pushes;
     // A canvas over a PDF (its own, notes.h): its pages under the ink; new, the first one's
     // width across the screen, its top at the top.
+    // A notebook (pages.h: its pages beside it); new to its pages, its first one in view.
+    c8 _pages[RDE_MAX_PATH];
+    fude_zoom_page_pages_path(_page, _pages, sizeof(_pages));
+    if(fude_zoom_pages_load(&_page->pages, _pages) && _r == FUDE_LOAD_MISSING) {
+        fude_zoom_page_pages_first_view(_page);
+    }
+    _page->pages_rev = 0xFFFFFFFFu;
     const fude_note* _note = fude_notes_find(_page->app->notes, _canvas);
     if(_note != NULL && _note->document == FUDE_NOTE_DOCUMENT_OWN) {
         c8 _pdf[RDE_MAX_PATH];
@@ -3010,6 +3061,33 @@ RDE_INTERNAL b8 fude_zoom_page_areas_pdf(fude_zoom_page* _page, fude_bytes* _out
     return fude_zoom_export_pdf_views(_s, fude_theme_active()->page, _views, _halves, _n, _out);
 }
 
+// A notebook as a PDF: a page each, at its true size (a millimetre a millimetre), what is drawn on it at any depth —
+// the last one, kept empty to write on, left out. False: nothing written.
+RDE_INTERNAL b8 fude_zoom_page_pages_pdf(fude_zoom_page* _page, fude_bytes* _out) {
+    const fude_zoom_pages* _p = &_page->pages;
+    u32 _n = _p->count;
+    if(_n > 1u && !fude_zoom_pages_used(_p, &_page->scene, _n - 1u)) {
+        _n--;
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    rde_arr TYPE(fude_zoom_camera) _views_arr  = rde_arr_new(sizeof(fude_zoom_camera), _heap);
+    rde_arr TYPE(fude_zoom_v2)     _halves_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
+    rde_arr_resize(&_views_arr, _n);
+    rde_arr_resize(&_halves_arr, _n);
+    fude_zoom_camera* _views  = (fude_zoom_camera*)_views_arr.memory;
+    fude_zoom_v2*     _halves = (fude_zoom_v2*)_halves_arr.memory;
+    const f64 _pt = 72.0 / 25.4 / FUDE_ZOOM_PAGE_MM_PER_UNIT;   // (a home unit's points)
+    for(u32 _i = 0; _i < _n; _i++) {
+        const fude_zoom_box _b = fude_zoom_pages_box(_p, _i);
+        _views[_i]  = (fude_zoom_camera){ _page->scene.home, { (_b.min_x + _b.max_x) * 0.5, (_b.min_y + _b.max_y) * 0.5 }, _pt };
+        _halves[_i] = (fude_zoom_v2){ (_b.max_x - _b.min_x) * 0.5 * _pt, (_b.max_y - _b.min_y) * 0.5 * _pt };
+    }
+    const b8 _made = _n > 0u && fude_zoom_export_pdf_pages(&_page->scene, _views, _halves, _n, (fude_zoom_v2){ 1.0, 1.0 }, _out);
+    rde_arr_free(&_views_arr);
+    rde_arr_free(&_halves_arr);
+    return _made;
+}
+
 RDE_INTERNAL void fude_zoom_page_export_write(fude_zoom_page* _page, u8 _format, const c8* _path, b8 _share) {
     if(_format == 8u) {
         fude_zoom_page_video_begin(_page, _path, _share);   // (made over the frames to come)
@@ -3019,6 +3097,23 @@ RDE_INTERNAL void fude_zoom_page_export_write(fude_zoom_page* _page, u8 _format,
         // Over a PDF: the PDF itself, with what was drawn on it (pdfview.h).
         if(!fude_zoom_pdfview_export(&_page->pdf, &_page->scene, _page->app->font, _page->app->font_px, _path) ||
            (_share && !rde_mobile_share_file(_path, "application/pdf", _page->app->info->name))) {
+            fude_notice_show(fude_text(FUDE_TEXT_DOC_EXPORT_FAILED));
+        } else if(!_share) {
+            c8 _line[1200];
+            FUDE_TEXTF(_line, FUDE_TEXT_ZOOM_EXPORT_SAVED, FUDE_TS(_path));
+            fude_notice_show(_line);
+        }
+        return;
+    }
+    if(_format == 2u && fude_zoom_page_paged(_page)) {
+        // A notebook: its pages, each at its true size.
+        fude_bytes _b = fude_bytes_new(1u << 16);
+        const b8 _made  = fude_zoom_page_pages_pdf(_page, &_b);
+        const b8 _wrote = _made && fude_bytes_write_and_free(&_b, _path, NULL);
+        if(!_made) {
+            rde_arr_free(&_b);
+        }
+        if(!_wrote || (_share && !rde_mobile_share_file(_path, "application/pdf", _page->app->info->name))) {
             fude_notice_show(fude_text(FUDE_TEXT_DOC_EXPORT_FAILED));
         } else if(!_share) {
             c8 _line[1200];
@@ -5603,7 +5698,74 @@ RDE_INTERNAL b8 fude_zoom_plan_chosen(const fude_app* _app, u32 _index);
 RDE_INTERNAL b8 fude_zoom_plan_selected(const fude_app* _app);
 RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PLAN_CHOICES[5];
 
-RDE_INTERNAL const fude_extension_tool FUDE_ZOOM_BASE_TOOLS[11] = {
+// Pages (pages.h): the canvas a notebook of A4, A5, Letter or square pages — a page's size changed, its drawing where it
+// is —, or the endless canvas again (its drawing kept, its pages gone). Pages begin on an empty canvas: one already drawn
+// on keeps what it has where it is (beside the pages, out of the view kept over them), so it is said instead.
+RDE_INTERNAL b8 fude_zoom_pages_choose(fude_app* _app, u32 _i) {
+    RDE_UNUSED(_app);
+    fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL || !_page->open || fude_zoom_pdfview_is_open(&_page->pdf)) {
+        return false;
+    }
+    fude_zoom_pages* _p = &_page->pages;
+    if(_i >= FUDE_ZOOM_PAGES_SIZES) {
+        if(_p->on) {
+            _p->on = false;
+            fude_zoom_page_pages_save(_page);
+            fude_notice_show(fude_text(FUDE_TEXT_ZOOM_PAGES_OFF));
+        }
+        return false;
+    }
+    if(!_p->on) {
+        fude_zoom_pages _try = *_p;
+        fude_zoom_pages_size(&_try, (u8)_i);
+        const fude_zoom_box _drawn = fude_zoom_nav_drawn(&_page->scene, _page->scene.home, FUDE_ZOOM_NONE);
+        const fude_zoom_box _first = fude_zoom_pages_box(&_try, 0u);
+        if(!fude_zoom_box_is_empty(_drawn) && !(_drawn.min_x >= _first.min_x && _drawn.max_x <= _first.max_x && _drawn.min_y >= _first.min_y && _drawn.max_y <= _first.max_y)) {
+            fude_notice_show(fude_text(FUDE_TEXT_ZOOM_PAGES_DRAWN));
+            return false;
+        }
+        *_p = _try;
+        _p->count = 1u;
+        fude_zoom_page_pages_first_view(_page);
+    } else {
+        fude_zoom_pages_size(_p, (u8)_i);
+    }
+    _page->pages_rev = 0xFFFFFFFFu;   // (as many as it needs, for this size)
+    fude_zoom_page_pages_save(_page);
+    c8 _say[160];
+    FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_PAGES_NOW, FUDE_TS(fude_text(FUDE_TEXT_ZOOM_PAGES_A4 + _i)));
+    fude_notice_show(_say);
+    return false;
+}
+RDE_INTERNAL b8 fude_zoom_pages_chosen(const fude_app* _app, u32 _i) {
+    RDE_UNUSED(_app);
+    const fude_zoom_page* _page = fude_zoom_page_the;
+    if(_page == NULL) {
+        return false;
+    }
+    const fude_zoom_pages* _p = &_page->pages;
+    if(_i >= FUDE_ZOOM_PAGES_SIZES) {
+        return !_p->on;
+    }
+    fude_zoom_pages _k;
+    fude_zoom_pages_init(&_k);
+    fude_zoom_pages_size(&_k, (u8)_i);
+    return _p->on && fabs(_p->w - _k.w) < 1e-9 && fabs(_p->h - _k.h) < 1e-9;
+}
+RDE_INTERNAL b8 fude_zoom_pages_selected(const fude_app* _app) {
+    RDE_UNUSED(_app);
+    return fude_zoom_page_the != NULL && fude_zoom_page_paged(fude_zoom_page_the);
+}
+RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PAGES_CHOICES[FUDE_ZOOM_PAGES_SIZES + 1u] = {
+    { FUDE_TEXT_ZOOM_PAGES_A4,      FUDE_ICON_PAGE,        fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_A5,      FUDE_ICON_PAGE,        fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_LETTER,  FUDE_ICON_PAGE,        fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_SQUARE,  FUDE_ICON_PAPER_NONE,  fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_ENDLESS, FUDE_ICON_PAPER_SQUARES, fude_zoom_pages_choose },
+};
+
+RDE_INTERNAL const fude_extension_tool FUDE_ZOOM_BASE_TOOLS[12] = {
     {
         FUDE_TEXT_ZOOM_SHAPES, FUDE_ICON_SHAPES, NULL, NULL,
         FUDE_ZOOM_SHAPES_CHOICES, sizeof(FUDE_ZOOM_SHAPES_CHOICES) / sizeof(FUDE_ZOOM_SHAPES_CHOICES[0]),
@@ -5657,6 +5819,11 @@ RDE_INTERNAL const fude_extension_tool FUDE_ZOOM_BASE_TOOLS[11] = {
         FUDE_ZOOM_PLAN_CHOICES, 5u,
         fude_zoom_plan_chosen, fude_zoom_plan_selected,
     },
+    {
+        FUDE_TEXT_ZOOM_PAGES, FUDE_ICON_BOOK, NULL, NULL,
+        FUDE_ZOOM_PAGES_CHOICES, FUDE_ZOOM_PAGES_SIZES + 1u,
+        fude_zoom_pages_chosen, fude_zoom_pages_selected,
+    },
 };
 
 // --- topics: the bar's tools for what a canvas is for ---------------------------------------------------
@@ -5669,7 +5836,8 @@ RDE_INTERNAL const fude_extension_tool FUDE_ZOOM_BASE_TOOLS[11] = {
 // frame after it changes (fude_zoom_page_topic_follow).
 
 enum { FUDE_ZOOM_BASE_SHAPES = 0, FUDE_ZOOM_BASE_INSERT, FUDE_ZOOM_BASE_SMOOTHING, FUDE_ZOOM_BASE_FILL, FUDE_ZOOM_BASE_ARRANGE,
-       FUDE_ZOOM_BASE_INSTRUMENTS, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT, FUDE_ZOOM_BASE_CIRCUIT, FUDE_ZOOM_BASE_MOTION, FUDE_ZOOM_BASE_PLAN };
+       FUDE_ZOOM_BASE_INSTRUMENTS, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT, FUDE_ZOOM_BASE_CIRCUIT, FUDE_ZOOM_BASE_MOTION, FUDE_ZOOM_BASE_PLAN,
+       FUDE_ZOOM_BASE_PAGES };
 
 typedef struct {
     u32       text;
@@ -5692,7 +5860,7 @@ typedef struct {
 // 4 Print A4, 5 Print Letter, 6 Cut list, 7 Video, 8 Areas, 9 Sheets, 10 STL, 11 Parts list.
 RDE_INTERNAL const fude_zoom_topic FUDE_ZOOM_TOPICS[FUDE_ZOOM_TOPIC_COUNT] = {
     { FUDE_TEXT_ZOOM_TOPIC_GENERAL, FUDE_ICON_PEN_NIB,
-      { 0, 1, 2, 3, 4, 5, 6, 7 }, 8,
+      { 0, 1, 2, 3, 4, 5, 6, 7, FUDE_ZOOM_BASE_PAGES }, 9,
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 20 }, 16,
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }, 15,
       { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, 12 },
@@ -5737,7 +5905,8 @@ RDE_INTERNAL const fude_zoom_topic FUDE_ZOOM_TOPICS[FUDE_ZOOM_TOPIC_COUNT] = {
       { 11, 10, 0, 13 }, 4,
       { 2, 11, 9, 4, 5, 0 }, 6 },
     { FUDE_TEXT_ZOOM_TOPIC_MATHS, FUDE_ICON_CHART_LINE,
-      { FUDE_ZOOM_BASE_INSERT, FUDE_ZOOM_BASE_INSTRUMENTS, FUDE_ZOOM_BASE_SHAPES, FUDE_ZOOM_BASE_FILL, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT }, 6,
+      { FUDE_ZOOM_BASE_INSERT, FUDE_ZOOM_BASE_INSTRUMENTS, FUDE_ZOOM_BASE_SHAPES, FUDE_ZOOM_BASE_FILL, FUDE_ZOOM_BASE_LAYERS, FUDE_ZOOM_BASE_EXPORT,
+        FUDE_ZOOM_BASE_PAGES }, 7,
       { 18, 2, 3, 14, 0, 1, 7 }, 7,
       { 0, 1, 2, 3, 4, 5, 6, 10, 11, 13 }, 10,
       { 2, 0, 1, 4, 5 }, 5 },
@@ -5754,9 +5923,30 @@ RDE_INTERNAL fude_extension_choice fude_zoom_topic_insert_choices[FUDE_EXTENSION
 RDE_INTERNAL fude_extension_choice fude_zoom_topic_instrument_choices[FUDE_EXTENSION_CHOICES];
 RDE_INTERNAL fude_extension_choice fude_zoom_topic_export_choices[FUDE_EXTENSION_CHOICES];
 RDE_INTERNAL u8 fude_zoom_topic_now = FUDE_ZOOM_TOPIC_GENERAL;   // the one the bar was filled for
+RDE_INTERNAL fude_zoom_topic fude_zoom_topic_bar;                 // ...as the app has it (product.h: the topic's, the app's)
+RDE_INTERNAL u8 fude_zoom_topic_menu[FUDE_ZOOM_TOPIC_COUNT];      // the Topic menu's: the app's topics
+RDE_INTERNAL u32 fude_zoom_topic_menu_count = 0;
+
+// (the tables as product.h numbers them)
+typedef char fude_zoom_page_tables_as_product_h[(sizeof(FUDE_ZOOM_BASE_TOOLS) / sizeof(FUDE_ZOOM_BASE_TOOLS[0]) == FUDE_ZOOM_TOOL_COUNT &&
+                                                 sizeof(FUDE_ZOOM_PICTURE_CHOICES) / sizeof(FUDE_ZOOM_PICTURE_CHOICES[0]) == FUDE_ZOOM_INSERT_COUNT &&
+                                                 sizeof(FUDE_ZOOM_INSTRUMENT_CHOICES) / sizeof(FUDE_ZOOM_INSTRUMENT_CHOICES[0]) == FUDE_ZOOM_TOOLKIT_COUNT &&
+                                                 sizeof(FUDE_ZOOM_EXPORT_CHOICES) / sizeof(FUDE_ZOOM_EXPORT_CHOICES[0]) == FUDE_ZOOM_OUT_COUNT) ? 1 : -1];
 
 RDE_INTERNAL const fude_zoom_topic* fude_zoom_topic_of(void) {
-    return &FUDE_ZOOM_TOPICS[fude_zoom_topic_now < FUDE_ZOOM_TOPIC_COUNT ? fude_zoom_topic_now : 0u];
+    return &fude_zoom_topic_bar;
+}
+
+// A topic's name in this app: General's its own (Notes in Notes, Sketch in Workshop).
+RDE_INTERNAL u32 fude_zoom_topic_name(u8 _topic) {
+    if(_topic == FUDE_ZOOM_TOPIC_GENERAL) {
+        switch(fude_zoom_product_which()) {
+        case FUDE_ZOOM_PRODUCT_NOTES:    return FUDE_TEXT_ZOOM_TOPIC_NOTES;
+        case FUDE_ZOOM_PRODUCT_WORKSHOP: return FUDE_TEXT_ZOOM_TOPIC_SKETCH;
+        default: break;
+        }
+    }
+    return FUDE_ZOOM_TOPICS[_topic < FUDE_ZOOM_TOPIC_COUNT ? _topic : 0u].text;
 }
 
 // A topic's choice: the table's own (its index handed on as the table's).
@@ -5785,9 +5975,10 @@ RDE_INTERNAL b8 fude_zoom_topic_export_choose(fude_app* _app, u32 _i) {
 // last topic's tools left in hand is put down: what the pen was set to do (wires, walls, rooms, a shape, the curve,
 // fill, trim, a measure, text) and the Saw — the pen draws again —, the parts' and My pieces' panels, and the
 // instruments lying out that the new topic does not have (Undo brings them back).
-RDE_INTERNAL b8 fude_zoom_topic_choose(fude_app* _app, u32 _i) {
+RDE_INTERNAL b8 fude_zoom_topic_choose(fude_app* _app, u32 _at) {
     RDE_UNUSED(_app);
     fude_zoom_page* _page = fude_zoom_page_the;
+    const u32 _i = _at < fude_zoom_topic_menu_count ? fude_zoom_topic_menu[_at] : FUDE_ZOOM_TOPIC_COUNT;   // (the menu's: the app's topics)
     if(_page != NULL && _i < FUDE_ZOOM_TOPIC_COUNT && _i != _page->topic) {
         fude_zoom_page_pen_modes_off(_page);
         _page->saw            = false;
@@ -5795,11 +5986,12 @@ RDE_INTERNAL b8 fude_zoom_topic_choose(fude_app* _app, u32 _i) {
         _page->pieces_open    = false;
         _page->pieces_stencil = false;
         const fude_zoom_topic* _to = &FUDE_ZOOM_TOPICS[_i];
+        const u32 _allowed = fude_zoom_product_get()->instruments;
         for(u32 _k = 0; _k < FUDE_ZOOM_INSTRUMENT_MOST; _k++) {
             const fude_zoom_instrument* _t = &_page->instruments.tools[_k];
             b8 _has = false;
             for(u32 _j = 0; _j < _to->instruments_count && !_has; _j++) {
-                _has = _to->instruments[_j] == _t->kind;
+                _has = _to->instruments[_j] == _t->kind && (_allowed >> _to->instruments[_j] & 1u);
             }
             if(_t->shown && !_has) {
                 fude_zoom_instrument_remove(&_page->instruments, _k);
@@ -5811,25 +6003,39 @@ RDE_INTERNAL b8 fude_zoom_topic_choose(fude_app* _app, u32 _i) {
         _page->topic = (u8)_i;
         fude_zoom_page_tools_save(_page);   // (the canvas keeps it)
         c8 _say[200];
-        FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_TOPIC_NOW, FUDE_TS(fude_text(FUDE_ZOOM_TOPICS[_i].text)));
+        FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_TOPIC_NOW, FUDE_TS(fude_text(fude_zoom_topic_name((u8)_i))));
         fude_notice_show(_say);
     }
     return false;
 }
-RDE_INTERNAL b8 fude_zoom_topic_chosen(const fude_app* _app, u32 _i) {
+RDE_INTERNAL b8 fude_zoom_topic_chosen(const fude_app* _app, u32 _at) {
     RDE_UNUSED(_app);
-    return fude_zoom_page_the != NULL && fude_zoom_page_the->topic == _i;
+    return fude_zoom_page_the != NULL && _at < fude_zoom_topic_menu_count && fude_zoom_page_the->topic == fude_zoom_topic_menu[_at];
 }
 RDE_INTERNAL b8 fude_zoom_topic_absent(void) {
     return false;
 }
 
-// The bar's tools filled for topic _topic: Topic first, then its own; the rest left out.
+// The bar's tools filled for topic _topic: Topic first, then its own; the rest left out. The app's (product.h): its
+// topics in the menu, and of the topic's tools and choices those it has.
 RDE_INTERNAL void fude_zoom_topic_fill(u8 _topic) {
-    fude_zoom_topic_now = _topic < FUDE_ZOOM_TOPIC_COUNT ? _topic : FUDE_ZOOM_TOPIC_GENERAL;
+    const fude_zoom_product* _app = fude_zoom_product_get();
+    fude_zoom_topic_now = fude_zoom_product_topic(_topic < FUDE_ZOOM_TOPIC_COUNT ? _topic : FUDE_ZOOM_TOPIC_GENERAL);
+    const fude_zoom_topic* _whole = &FUDE_ZOOM_TOPICS[fude_zoom_topic_now];
+    fude_zoom_topic_bar = *_whole;
+    fude_zoom_topic_bar.text              = fude_zoom_topic_name(fude_zoom_topic_now);
+    fude_zoom_topic_bar.tool_count        = (u8)fude_zoom_product_keep(_whole->tools, _whole->tool_count, _app->tools, fude_zoom_topic_bar.tools);
+    fude_zoom_topic_bar.insert_count      = (u8)fude_zoom_product_keep(_whole->insert, _whole->insert_count, _app->inserts, fude_zoom_topic_bar.insert);
+    fude_zoom_topic_bar.instruments_count = (u8)fude_zoom_product_keep(_whole->instruments, _whole->instruments_count, _app->instruments,
+                                                                       fude_zoom_topic_bar.instruments);
+    fude_zoom_topic_bar.exports_count     = (u8)fude_zoom_product_keep(_whole->exports, _whole->exports_count, _app->exports, fude_zoom_topic_bar.exports);
     const fude_zoom_topic* _t = fude_zoom_topic_of();
+    fude_zoom_topic_menu_count = 0;
     for(u32 _i = 0; _i < FUDE_ZOOM_TOPIC_COUNT; _i++) {
-        FUDE_ZOOM_TOPIC_CHOICES[_i] = (fude_extension_choice){ FUDE_ZOOM_TOPICS[_i].text, FUDE_ZOOM_TOPICS[_i].icon, fude_zoom_topic_choose };
+        if(fude_zoom_product_has_topic((u8)_i)) {
+            FUDE_ZOOM_TOPIC_CHOICES[fude_zoom_topic_menu_count] = (fude_extension_choice){ fude_zoom_topic_name((u8)_i), FUDE_ZOOM_TOPICS[_i].icon, fude_zoom_topic_choose };
+            fude_zoom_topic_menu[fude_zoom_topic_menu_count++] = (u8)_i;
+        }
     }
     for(u32 _i = 0; _i < _t->insert_count; _i++) {
         fude_zoom_topic_insert_choices[_i] = FUDE_ZOOM_PICTURE_CHOICES[_t->insert[_i]];
@@ -5843,7 +6049,7 @@ RDE_INTERNAL void fude_zoom_topic_fill(u8 _topic) {
         fude_zoom_topic_export_choices[_i] = FUDE_ZOOM_EXPORT_CHOICES[_t->exports[_i]];
         fude_zoom_topic_export_choices[_i].press = fude_zoom_topic_export_choose;
     }
-    FUDE_ZOOM_TOOLS[0] = (fude_extension_tool){ FUDE_TEXT_ZOOM_TOPIC, _t->icon, NULL, NULL, FUDE_ZOOM_TOPIC_CHOICES, FUDE_ZOOM_TOPIC_COUNT, fude_zoom_topic_chosen, NULL };
+    FUDE_ZOOM_TOOLS[0] = (fude_extension_tool){ FUDE_TEXT_ZOOM_TOPIC, _t->icon, NULL, NULL, FUDE_ZOOM_TOPIC_CHOICES, fude_zoom_topic_menu_count, fude_zoom_topic_chosen, NULL };
     for(u32 _i = 1; _i < FUDE_EXTENSION_TOOLS; _i++) {
         // (a slot no topic fills: a button of Topic's look the bar leaves out)
         FUDE_ZOOM_TOOLS[_i] = (fude_extension_tool){ FUDE_TEXT_ZOOM_TOPIC, _t->icon, NULL, fude_zoom_topic_absent, NULL, 0u, NULL, NULL };
@@ -5867,6 +6073,7 @@ RDE_INTERNAL void fude_zoom_topic_fill(u8 _topic) {
 }
 
 void fude_zoom_page_topic_follow(fude_zoom_page* _page, fude_ui* _ui) {
+    _page->topic = fude_zoom_product_topic(_page->topic);   // (a canvas from another app: one of this one's)
     if(_page->topic != fude_zoom_topic_now) {
         fude_zoom_topic_fill(_page->topic);
         fude_ui_rebuild_now(_ui);
@@ -10248,7 +10455,7 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
     fude_zoom_page_tools_history(_page);   // (the instruments left changed: a step)
     // Over a PDF: the view kept on its pages; their pieces drawn; a search's first match gone to.
     if(fude_zoom_pdfview_is_open(&_page->pdf)) {
-        fude_zoom_page_pdf_keep_view(_page);
+        fude_zoom_page_keep_view_over(_page, fude_zoom_pdfview_bounds(&_page->pdf));
         fude_zoom_pdfview_update(&_page->pdf, fude_zoom_page_frame_sim(_page, _s->home), fude_zoom_page_half(_page));
         fude_zoom_box _match;
         if(fude_zoom_pdfview_search_wanted(&_page->pdf, &_match)) {
@@ -10259,6 +10466,7 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
             fude_notice_show(_say);
         }
     }
+    fude_zoom_page_pages_follow(_page);   // (a notebook: its view on its pages, as many as it needs)
     // The journal on disk about every second while there is anything new.
     const f64 _now = rde_engine_get_time_now();
     if(!_page->drawing && !_page->erasing && fude_bytes_size(&_s->journal) > 0 && _now - _page->flushed_at >= FUDE_ZOOM_PAGE_FLUSH) {
@@ -10282,8 +10490,116 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
 // FUDE_ZOOM_PAPER_ALIGN), so it runs on through a change of frame — the n that
 // puts its spacing on screen between _min and twice that, and the lattice half
 // as fine fading in over it as the zoom grows, so it never jumps.
+// A notebook's pages (pages.h), under the ink: the desk round them a shade off the paper; each page on screen the
+// paper's colour, a soft shadow under it, and its paper — ruled (its margin line too), squared or dotted — at its true
+// spacing over the page alone, finer lines coming in between as the view goes in, fading out far out.
+#define FUDE_ZOOM_PAGE_PAPER_OUT 10.0   // a notebook's paper: its lines fade out closer than these points apart...
+#define FUDE_ZOOM_PAGE_PAPER_IN  40.0   // ...and finer ones come in past twice these
+
+RDE_INTERNAL void fude_zoom_page_render_pages(fude_zoom_page* _page, fude_zoom_v2 _half) {
+    const fude_zoom_pages* _p = &_page->pages;
+    const fude_theme*      _t = fude_theme_active();
+    rde_color _desk = _t->page;
+    const b8  _dark = (i32)_t->page.r + (i32)_t->page.g + (i32)_t->page.b < 384;
+    _desk.r = (u8)(_dark ? fmin(_t->page.r + 14.0, 255.0) : fmax(_t->page.r - 22.0, 0.0));
+    _desk.g = (u8)(_dark ? fmin(_t->page.g + 14.0, 255.0) : fmax(_t->page.g - 22.0, 0.0));
+    _desk.b = (u8)(_dark ? fmin(_t->page.b + 14.0, 255.0) : fmax(_t->page.b - 18.0, 0.0));
+    rde_rendering_2d_draw_rectangle((rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ (f32)(_half.x * 2.0 + 4.0), (f32)(_half.y * 2.0 + 4.0) }, _desk);
+    const rde_color _shadow = { (u8)(_desk.r * 0.72), (u8)(_desk.g * 0.72), (u8)(_desk.b * 0.72), 255 };   // (the desk's own, darker: opaque)
+    const fude_zoom_sim _home = fude_zoom_page_frame_sim(_page, _page->scene.home);   // a millimetre's place on screen
+    const f64 _z = fude_zoom_sim_scale(_home);
+    if(!(_z > 0.0) || !isfinite(_z)) {
+        return;
+    }
+    const fude_zoom_box _view = fude_zoom_sim_box(fude_zoom_sim_inverse(_home), (fude_zoom_box){ -_half.x, -_half.y, _half.x, _half.y });
+    const u32 _first = fude_zoom_pages_at(_p, (fude_zoom_v2){ 0.0, _view.max_y }), _last = fude_zoom_pages_at(_p, (fude_zoom_v2){ 0.0, _view.min_y });
+    const FUDE_PAPER_ _paper = (FUDE_PAPER_)_page->app->canvas->page.paper;
+    const f64 _true = _paper == FUDE_PAPER_LINES ? FUDE_ZOOM_PAGES_LINES : FUDE_ZOOM_PAGES_GRID;
+    f64 _fade = 1.0;
+    const f64 _s = fude_zoom_pages_spacing(_true, _z, FUDE_ZOOM_PAGE_PAPER_OUT, FUDE_ZOOM_PAGE_PAPER_IN, &_fade);
+    for(u32 _i = _first; _i <= _last && _i < _p->count; _i++) {
+        const fude_zoom_box _b  = fude_zoom_pages_box(_p, _i);
+        const fude_zoom_v2  _lo = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _b.min_x, _b.min_y });
+        const fude_zoom_v2  _hi = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _b.max_x, _b.max_y });
+        // (on the screen, to a little past it: a page far bigger than the screen drawn as its part on it)
+        const f64 _x0 = fmax(_lo.x, -_half.x - 8.0), _x1 = fmin(_hi.x, _half.x + 8.0), _y0 = fmax(_lo.y, -_half.y - 8.0), _y1 = fmin(_hi.y, _half.y + 8.0);
+        if(_x1 <= _x0 || _y1 <= _y0) {
+            continue;
+        }
+        const rde_vec_2F _mid  = { (f32)((_x0 + _x1) * 0.5), (f32)((_y0 + _y1) * 0.5) };
+        const rde_vec_2F _size = { (f32)(_x1 - _x0), (f32)(_y1 - _y0) };
+        rde_rendering_2d_draw_rectangle((rde_vec_2F){ _mid.x + 2.0f, _mid.y - 3.0f }, _size, _shadow);
+        rde_rendering_2d_draw_rectangle(_mid, _size, _t->page);
+        if(_paper == FUDE_PAPER_NONE || _fade <= 0.0 || _z * _s < 1e-9 || _z > 1e12) {
+            continue;   // (blank; too far out to see; too deep for a millimetre's lines to be placed: the page alone)
+        }
+        // Its lines: from its top (ruled: below the margin) and its left, those on screen — each one's strength: the
+        // paper's own lines full, the finer ones between them as far as they have come in (or all faded, far out).
+        const f64 _top  = _b.max_y - (_paper == FUDE_PAPER_LINES ? FUDE_ZOOM_PAGES_MARGIN : 0.0);
+        const f64 _left = _b.min_x;
+        rde_color _ink = _t->page_dots;
+        const f64 _a0 = (f64)_ink.a;
+        const f64 _vy0 = fmax(_view.min_y, _b.min_y), _vy1 = fmin(_view.max_y, _top);
+        const f64 _vx0 = fmax(_view.min_x, _b.min_x), _vx1 = fmin(_view.max_x, _b.max_x);
+        const f64 _k0 = ceil((_top - _vy1) / _s), _k1 = floor((_top - _vy0) / _s);
+        const f64 _j0 = ceil((_vx0 - _left) / _s), _j1 = floor((_vx1 - _left) / _s);
+        if(_k1 - _k0 > 4000.0 || _j1 - _j0 > 4000.0) {
+            continue;
+        }
+        const f64 _ratio = _true / _s;   // (how many of the finest to one of its own)
+        const f64 _edge  = 1e-9 * _true;   // (a line on the page's own edge: left out)
+        for(f64 _k = fmax(_k0, _paper == FUDE_PAPER_LINES ? 0.0 : 1.0); _k <= _k1; _k += 1.0) {
+            const f64 _y = _top - _k * _s;
+            if(_y <= _b.min_y + _edge) {
+                break;
+            }
+            const b8  _own = fmod(_k, _ratio) == 0.0;
+            const f64 _row = _s < _true ? (_own ? 1.0 : _fade) : _fade;
+            const fude_zoom_v2 _ya = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _left, _y });
+            if(_paper == FUDE_PAPER_DOTS) {
+                // (a dot full where its row and its column are the paper's own; else as far as the finer ones have come)
+                for(f64 _j = fmax(_j0, 1.0); _j <= _j1 && _left + _j * _s < _b.max_x - _edge; _j += 1.0) {
+                    const f64 _col = _s < _true ? (fmod(_j, _ratio) == 0.0 ? 1.0 : _fade) : _fade;
+                    _ink.a = (u8)(_a0 * fmin(_row, _col));
+                    if(_ink.a == 0u) {
+                        continue;
+                    }
+                    const fude_zoom_v2 _d = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _left + _j * _s, _y });
+                    rde_rendering_2d_draw_rectangle((rde_vec_2F){ (f32)_d.x, (f32)_d.y }, (rde_vec_2F){ FUDE_CANVAS_GRID_DOT, FUDE_CANVAS_GRID_DOT }, _ink);
+                }
+                continue;
+            }
+            _ink.a = (u8)(_a0 * _row);
+            if(_ink.a > 0u) {
+                fude_draw_line((rde_vec_2F){ (f32)_x0, (f32)_ya.y }, (rde_vec_2F){ (f32)_x1, (f32)_ya.y }, 0.6f, _ink);
+            }
+        }
+        if(_paper == FUDE_PAPER_SQUARES) {
+            for(f64 _j = fmax(_j0, 1.0); _j <= _j1 && _left + _j * _s < _b.max_x - _edge; _j += 1.0) {
+                const b8 _own = fmod(_j, _ratio) == 0.0;
+                _ink.a = (u8)(_a0 * (_s < _true ? (_own ? 1.0 : _fade) : _fade));
+                const fude_zoom_v2 _xa = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _left + _j * _s, _b.max_y });
+                if(_ink.a > 0u) {
+                    fude_draw_line((rde_vec_2F){ (f32)_xa.x, (f32)_y0 }, (rde_vec_2F){ (f32)_xa.x, (f32)_y1 }, 0.6f, _ink);
+                }
+            }
+        }
+        if(_paper == FUDE_PAPER_LINES) {
+            // (its margin line, a faint red, down the page from its top)
+            const fude_zoom_v2 _m = fude_zoom_sim_apply(_home, (fude_zoom_v2){ _left + FUDE_ZOOM_PAGES_MARGIN, _b.max_y });
+            if(_m.x > _x0 && _m.x < _x1) {
+                fude_draw_line((rde_vec_2F){ (f32)_m.x, (f32)_y0 }, (rde_vec_2F){ (f32)_m.x, (f32)_y1 }, 0.6f, (rde_color){ 214, 96, 96, (u8)(110.0 * fmin(_fade * 4.0, 1.0)) });
+            }
+        }
+    }
+}
+
 RDE_INTERNAL void fude_zoom_page_render_paper(fude_zoom_page* _page, rde_window* _window) {
     fude_app*               _app   = _page->app;
+    if(fude_zoom_page_paged(_page)) {
+        fude_zoom_page_render_pages(_page, fude_zoom_page_half(_page));   // (a notebook: its pages' paper, not the endless lattice)
+        return;
+    }
     const fude_zoom_camera* _c     = &_page->scene.camera;
     const FUDE_PAPER_       _paper = (FUDE_PAPER_)_app->canvas->page.paper;
     if(_paper == FUDE_PAPER_NONE) {
@@ -17595,12 +17911,13 @@ void fude_zoom_page_selection_faces(fude_app* _app, const fude_row_def* _row, fu
         }
         const u32 _limits = fude_row_def_find(_row, fude_zoom_page_limits_selection);
         if(_limits != FUDE_ROW_NONE) {
-            _faces[_limits].hidden = (_page->topic != FUDE_ZOOM_TOPIC_ELECTRONICS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) ||
+            _faces[_limits].hidden = !fude_zoom_product_get()->hobby || (_page->topic != FUDE_ZOOM_TOPIC_ELECTRONICS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) ||
                                      fude_zoom_page_limits_lone(_page) == FUDE_ZOOM_NONE;
         }
         const u32 _partb = fude_row_def_find(_row, fude_zoom_page_part_selection);
         if(_partb != FUDE_ROW_NONE) {
-            _faces[_partb].hidden = (_page->topic != FUDE_ZOOM_TOPIC_ELECTRONICS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) || !fude_zoom_page_lasso_logic(_page);
+            _faces[_partb].hidden = !fude_zoom_product_get()->hobby || (_page->topic != FUDE_ZOOM_TOPIC_ELECTRONICS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) ||
+                                    !fude_zoom_page_lasso_logic(_page);
         }
         const u32 _inside = fude_row_def_find(_row, fude_zoom_page_inside_selection);
         if(_inside != FUDE_ROW_NONE) {
@@ -17609,8 +17926,8 @@ void fude_zoom_page_selection_faces(fude_app* _app, const fude_row_def* _row, fu
         const u32 _body = fude_row_def_find(_row, fude_zoom_page_body_selection);
         if(_body != FUDE_ROW_NONE) {
             u32 _bt[1];
-            _faces[_body].hidden = (_page->topic != FUDE_ZOOM_TOPIC_MECHANISMS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) ||
-                                   fude_zoom_page_body_targets(_page, _bt, 1u) == 0u;   // (Mechanisms', and General's)
+            _faces[_body].hidden = !fude_zoom_product_get()->hobby || (_page->topic != FUDE_ZOOM_TOPIC_MECHANISMS && _page->topic != FUDE_ZOOM_TOPIC_GENERAL) ||
+                                   fude_zoom_page_body_targets(_page, _bt, 1u) == 0u;   // (Mechanisms', and General's — a project's app's)
         }
     }
     // A diagram's symbol alone: To curve is Edit text; a line alone, Extend.
@@ -20562,6 +20879,11 @@ b8 fude_zoom_page_ui_hit(const fude_ui* _ui, rde_vec_2F _screen, rde_vec_2F _can
         }
     }
     return false;
+}
+
+void fude_zoom_page_look_pages(fude_zoom_page* _page, u32 _choice) {
+    RDE_UNUSED(_page);
+    fude_zoom_pages_choose(NULL, _choice);
 }
 
 void fude_zoom_page_look_nav(fude_zoom_page* _page, u8 _what) {

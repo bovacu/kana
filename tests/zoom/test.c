@@ -27,6 +27,8 @@
 #include "zoom/circuit.h"
 #include "zoom/mech.h"
 #include "zoom/props.h"
+#include "zoom/product.h"
+#include "zoom/pages.h"
 #include "sim/body.h"
 #include "zoom/calc.h"
 #include "zoom/plot.h"
@@ -7246,7 +7248,7 @@ static void test_big_examples(void) {
 // AN OSCILLOSCOPE (display.h): its text read; its sampling from steps of any length (a ramp's samples on a line); on a
 // 50 Hz sine of 5 V (5 ms a division: two and a half cycles a sweep), triggered rising through its middle — its first
 // sample there, rising, 160 samples a cycle, ±5 V —, or through 2.5 V when told; CH2 a steady 3 V; on steady 1 V alone,
-// sweeping all the same (auto); the circuit's steps no longer than between its samples.
+// sweeping all the same (auto); the circuit's steps no longer than a 50th of its sweep.
 static void test_scope(void) {
     printf("oscilloscope\n");
     fude_zoom_scope sc = fude_zoom_display_scope("1ms 2V");
@@ -7285,7 +7287,7 @@ static void test_scope(void) {
         wire_put(&s, ac, 1, g, 0);
         if(k == 0u) tie(&s, sp, 1, -40.0, 0.0, "3V");
         fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
-        CHECK(c.step <= 0.05 / (f64)FUDE_ZOOM_SCOPE_SAMPLES + 1e-12);
+        CHECK(c.step <= 0.05 / 50.0 + 1e-12);   // (its sweep in 50 steps at least: its samples straight across a step)
         CHECK(run_for(&c, k == 2u ? 0.5 : 0.31));
         const fude_zoom_circuit_part* p = cpart(&c, sp);
         const f32* smp = (const f32*)fude_zoom_circuit_store(&c, p);
@@ -7318,6 +7320,238 @@ static void test_scope(void) {
         fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
     }
 }
+
+// A notebook's pages (pages.h): one under the other at their real size, a millimetre a unit; the page a point is on; one
+// page more than the last one written on — what was drawn on it in the home frame, or zoomed in (a frame of its own);
+// the paper's lines at their true spacing, finer ones fading in as the view goes in, fading out further out than that;
+// kept in <id>.pages.
+static void test_pages(void) {
+    printf("pages\n");
+    fude_zoom_pages p; fude_zoom_pages_init(&p);
+    CHECK(!p.on && p.count == 1u && p.w == 210.0 && p.h == 297.0);
+    fude_zoom_pages_size(&p, FUDE_ZOOM_PAGES_A5);
+    CHECK(p.on && p.w == 148.0 && p.h == 210.0 && p.count == 1u);
+    fude_zoom_box b = fude_zoom_pages_box(&p, 0u);
+    CHECK(b.min_x == -74.0 && b.max_x == 74.0 && b.max_y == 0.0 && b.min_y == -210.0);
+    b = fude_zoom_pages_box(&p, 1u);
+    CHECK(b.max_y == -218.0 && b.min_y == -428.0);
+    p.count = 3u;
+    const fude_zoom_box all = fude_zoom_pages_bounds(&p);
+    CHECK(all.max_y == 0.0 && all.min_y == -2.0 * 218.0 - 210.0 && all.min_x == -74.0);
+    CHECK(fude_zoom_pages_at(&p, (fude_zoom_v2){ 0, -100 }) == 0u && fude_zoom_pages_at(&p, (fude_zoom_v2){ 0, -214 }) == 0u &&   // (the gap: the page above)
+          fude_zoom_pages_at(&p, (fude_zoom_v2){ 30, -300 }) == 1u && fude_zoom_pages_at(&p, (fude_zoom_v2){ 0, -99999 }) == 2u &&
+          fude_zoom_pages_at(&p, (fude_zoom_v2){ 0, 50 }) == 0u);
+    fude_zoom_pages_custom(&p, -1.0, 100.0);   // (no such size: as it was)
+    CHECK(p.w == 148.0);
+    // As many as it needs.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        fude_zoom_pages q; fude_zoom_pages_init(&q); fude_zoom_pages_size(&q, FUDE_ZOOM_PAGES_A4);
+        CHECK(!fude_zoom_pages_grow(&q, &s) && q.count == 1u);
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 0, -150 }, 3.0);
+        line(&s, -50, -150, 50, -150, 1.0, 0.5f);
+        CHECK(fude_zoom_pages_grow(&q, &s) && q.count == 2u && !fude_zoom_pages_grow(&q, &s));
+        // (the second page written on zoomed in: in a frame of its own)
+        const fude_zoom_box p2 = fude_zoom_pages_box(&q, 1u);
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 20, (p2.min_y + p2.max_y) * 0.5 }, 3.0);
+        for(u32 k = 0; k < 12; k++) { fude_zoom_camera_zoom_at(&s, (fude_zoom_v2){ 0, 0 }, 2.0); fude_zoom_camera_settle(&s, (fude_zoom_v2){ 500, 400 }); }
+        CHECK(s.camera.frame != s.home);
+        { const f64 d = 20.0 / s.camera.z; line(&s, s.camera.at.x - d, s.camera.at.y, s.camera.at.x + d, s.camera.at.y, d / 40.0, (f32)(1.0 / s.camera.z)); }
+        CHECK(fude_zoom_pages_used(&q, &s, 1u) && fude_zoom_pages_grow(&q, &s) && q.count == 3u && !fude_zoom_pages_used(&q, &s, 2u));
+        // (beside the pages, not on one: no page more)
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 400, -1000 }, 3.0);
+        line(&s, 380, -1000, 420, -1000, 1.0, 0.5f);
+        CHECK(!fude_zoom_pages_grow(&q, &s) && q.count == 3u);
+        printf("  A4: %u pages after two written on (the second zoomed in ×4096)\n", q.count);
+        fude_zoom_scene_destroy(&s);
+    }
+    // Paper (out 10 points, in 40): 8 mm lines 36 points apart, as a page fills a tablet's width, drawn as they are, at
+    // their full strength; zoomed in 5 times (180 points), every 2 mm (45: the finest an eighth of the way in); far out
+    // (6 points), faded — none at a quarter of 10.
+    f64 fade = 0.0;
+    CHECK(fude_zoom_pages_spacing(8.0, 36.0 / 8.0, 10.0, 40.0, &fade) == 8.0 && fade == 1.0);
+    CHECK(fude_zoom_pages_spacing(8.0, 180.0 / 8.0, 10.0, 40.0, &fade) == 2.0 && fabs(fade - 0.125) < 1e-12);
+    CHECK(fude_zoom_pages_spacing(8.0, 6.0 / 8.0, 10.0, 40.0, &fade) == 8.0 && fabs(fade - (6.0 - 2.5) / 7.5) < 1e-12);
+    CHECK(fude_zoom_pages_spacing(8.0, 2.0 / 8.0, 10.0, 40.0, &fade) == 8.0 && fade == 0.0);
+    CHECK(fude_zoom_pages_spacing(8.0, 1e12, 10.0, 40.0, &fade) * 1e12 < 80.0);   // (deep in: as fine as it needs)
+    // Kept.
+    mkdir("./saves", 0755);
+    remove("./saves/book.pages");
+    fude_zoom_pages r;
+    CHECK(!fude_zoom_pages_load(&r, "./saves/book.pages") && !r.on);
+    p.count = 42u;
+    CHECK(fude_zoom_pages_save(&p, "./saves/book.pages") && fude_zoom_pages_load(&r, "./saves/book.pages"));
+    CHECK(r.on && r.w == 148.0 && r.h == 210.0 && r.count == 42u);
+    FILE* f = fopen("./saves/book.pages", "wb"); if(f) { fputs("not pages", f); fclose(f); }
+    CHECK(!fude_zoom_pages_load(&r, "./saves/book.pages") && !r.on && r.count == 1u);
+}
+
+
+// The apps made from the canvas (product.h): Sketching every topic and choice; Notes writing, PDFs, maths and diagrams —
+// no project's topic, part, joint, saw or cut list; Workshop the projects — no diagrams, Kanban or maths. A canvas from
+// another app opens in one of this one's topics; a topic's choices are the app's of its own, in its order.
+static void test_products(void) {
+    printf("products\n");
+    // (General's lists, as page.c's FUDE_ZOOM_TOPICS has them)
+    static const u8 tools[9] = { 0, 1, 2, 3, 4, 5, 6, 7, FUDE_ZOOM_TOOL_PAGES };
+    static const u8 inserts[16] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 20 };
+    static const u8 instruments[15] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
+    static const u8 exports[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    u8 out[32];
+    const fude_zoom_product* all = fude_zoom_product_of(FUDE_ZOOM_PRODUCT_SKETCHING);
+    CHECK(fude_zoom_product_keep(inserts, 16u, all->inserts, out) == 16u && memcmp(out, inserts, 16u) == 0);
+    CHECK(fude_zoom_product_keep(instruments, 15u, all->instruments, out) == 15u && fude_zoom_product_keep(exports, 12u, all->exports, out) == 12u);
+    fude_zoom_product_set(FUDE_ZOOM_PRODUCT_SKETCHING);
+    for(u8 t = 0; t < FUDE_ZOOM_TOPIC_COUNT; t++) CHECK(fude_zoom_product_has_topic(t) && fude_zoom_product_topic(t) == t);
+
+    fude_zoom_product_set(FUDE_ZOOM_PRODUCT_NOTES);
+    const fude_zoom_product* notes = fude_zoom_product_get();
+    u32 offered = 0;
+    for(u8 t = 0; t < FUDE_ZOOM_TOPIC_COUNT; t++) offered |= fude_zoom_product_has_topic(t) ? 1u << t : 0u;
+    CHECK(offered == ((1u << FUDE_ZOOM_TOPIC_GENERAL) | (1u << FUDE_ZOOM_TOPIC_PDF) | (1u << FUDE_ZOOM_TOPIC_MATHS) | (1u << FUDE_ZOOM_TOPIC_DIAGRAMS)));
+    CHECK(fude_zoom_product_topic(FUDE_ZOOM_TOPIC_ELECTRONICS) == FUDE_ZOOM_TOPIC_GENERAL && fude_zoom_product_topic(FUDE_ZOOM_TOPIC_MATHS) == FUDE_ZOOM_TOPIC_MATHS);
+    const u32 n_in = fude_zoom_product_keep(inserts, 16u, notes->inserts, out);
+    b8 hobby_in = false, text_in = false;
+    for(u32 i = 0; i < n_in; i++) {
+        hobby_in = hobby_in || out[i] == FUDE_ZOOM_INSERT_BOARD || out[i] == FUDE_ZOOM_INSERT_HOLES || out[i] == FUDE_ZOOM_INSERT_FINGERS ||
+                   out[i] == FUDE_ZOOM_INSERT_DOVETAIL || out[i] == FUDE_ZOOM_INSERT_SHEET || out[i] == FUDE_ZOOM_INSERT_EXAMPLES;
+        text_in = text_in || out[i] == FUDE_ZOOM_INSERT_TEXT;
+        if(i > 0u) CHECK(out[i] > out[i - 1u]);   // (in the topic's order)
+    }
+    CHECK(n_in == 10u && !hobby_in && text_in);
+    const u32 n_ins = fude_zoom_product_keep(instruments, 15u, notes->instruments, out);
+    b8 saw = false;
+    for(u32 i = 0; i < n_ins; i++) saw = saw || out[i] == FUDE_ZOOM_TOOLKIT_SAW || out[i] == FUDE_ZOOM_TOOLKIT_TRIM;
+    CHECK(n_ins == 11u && !saw);
+    const u32 n_out = fude_zoom_product_keep(exports, 12u, notes->exports, out);
+    b8 cad = false;
+    for(u32 i = 0; i < n_out; i++) cad = cad || out[i] == FUDE_ZOOM_OUT_DXF || out[i] == FUDE_ZOOM_OUT_STL || out[i] == FUDE_ZOOM_OUT_CUT_LIST || out[i] == FUDE_ZOOM_OUT_PARTS;
+    CHECK(n_out == 7u && !cad && fude_zoom_product_keep(tools, 9u, notes->tools, out) == 9u && !notes->hobby && !notes->workshop);
+    CHECK((notes->tools & ((1u << FUDE_ZOOM_TOOL_CIRCUIT) | (1u << FUDE_ZOOM_TOOL_MOTION) | (1u << FUDE_ZOOM_TOOL_PLAN))) == 0u);
+
+    fude_zoom_product_set(FUDE_ZOOM_PRODUCT_WORKSHOP);
+    const fude_zoom_product* shop = fude_zoom_product_get();
+    CHECK(!fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_MATHS) && !fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) &&
+          fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_ELECTRONICS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_SEWING) &&
+          fude_zoom_product_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) == FUDE_ZOOM_TOPIC_GENERAL);
+    const u32 w_in = fude_zoom_product_keep(inserts, 16u, shop->inserts, out);
+    b8 board = false, examples = false, kanban = false;
+    for(u32 i = 0; i < w_in; i++) {
+        board = board || out[i] == FUDE_ZOOM_INSERT_BOARD;
+        examples = examples || out[i] == FUDE_ZOOM_INSERT_EXAMPLES;
+        kanban = kanban || out[i] == FUDE_ZOOM_INSERT_KANBAN || out[i] == FUDE_ZOOM_INSERT_MERMAID || out[i] == FUDE_ZOOM_INSERT_DIAGRAM;
+    }
+    CHECK(w_in == 13u && board && examples && !kanban && shop->hobby && shop->workshop && fude_zoom_product_keep(tools, 9u, shop->tools, out) == 8u);
+    // (every app's first topic its own; none past the last)
+    for(u8 k = 0; k < FUDE_ZOOM_PRODUCT_COUNT; k++) {
+        fude_zoom_product_set(k);
+        CHECK(fude_zoom_product_has_topic(fude_zoom_product_get()->first) && fude_zoom_product_which() == k);
+    }
+    fude_zoom_product_set(200u);
+    CHECK(fude_zoom_product_which() == FUDE_ZOOM_PRODUCT_SKETCHING);
+    printf("  Notes: Insert %u of General's 16, instruments %u of 15, exports %u of 12; Workshop: Insert %u\n", n_in, n_ins, n_out, w_in);
+}
+
+
+// The solver's shortcuts (circuit.h). RAILS HELD: a rail's node known, its current what the rest draw (Kirchhoff kept); a
+// capacitor straight across one charged at once and then still — not ringing, not holding the steps back. BLOCKS apart
+// through pins that only sense, joined once a stamp is found to write across (an oscilloscope's ground off ground). QUIET
+// blocks: a circuit at rest left as it is while another goes on (an RC still charging, exactly), woken by its switch
+// tapped; the crossroads beeping in a few hundred steps a frame, most of it quiet (its lights still right:
+// test_big_examples).
+static void test_quiet_blocks(void) {
+    printf("quiet blocks\n");
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 300, 30, 10, "5V");
+        const u32 r = part_put(&s, "resistor", 150, 250, 30, 10, "1k");
+        const u32 led = part_put(&s, "LED", 300, 200, 30, 20, "red");
+        const u32 g = part_put(&s, "ground", 450, 100, 20, 20, "");
+        const u32 cap = part_put(&s, "capacitor", 150, 500, 20, 10, "100nF");
+        const u32 g2 = part_put(&s, "ground", 300, 450, 20, 20, "");
+        wire_put(&s, rail, 0, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, g, 0);
+        wire_put(&s, rail, 0, cap, 0); wire_put(&s, cap, 1, g2, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(c.blocks == 1u);   // (the resistor's and the LED's node alone: the rail's held)
+        CHECK(run_for(&c, 0.2) && fabs(c.time - 0.2) < 1e-9);
+        const f64 i_r = cpart(&c, r)->pin_i[0], i_rail = cpart(&c, rail)->pin_i[0], i_cap = cpart(&c, cap)->pin_i[0];
+        printf("  held rail: %.3f mA through the LED, the rail's %.3f mA; the capacitor across it %.1e A\n", i_r * 1e3, i_rail * 1e3, i_cap);
+        CHECK(fabs(fabs(i_r) - fabs(i_rail)) < 1e-9 && fabs(i_r) > 2e-3 && fabs(i_r) < 4e-3 && cpart(&c, led)->shown > 0.2);
+        CHECK(fabs(i_cap) < 1e-9 && kirchhoff_worst(&c) < 1e-9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        // (a switch and an LED on a rail; apart, an RC charging for ever — τ 10 s — so the steps go on)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 300, 30, 10, "5V");
+        const u32 sw = part_put(&s, "SPST switch", 150, 250, 30, 20, "off");
+        const u32 r = part_put(&s, "resistor", 300, 250, 30, 10, "1k");
+        const u32 led = part_put(&s, "LED", 450, 200, 30, 20, "red");
+        const u32 g = part_put(&s, "ground", 600, 100, 20, 20, "");
+        wire_put(&s, rail, 0, sw, 0); wire_put(&s, sw, 1, r, 0); wire_put(&s, r, 1, led, 0); wire_put(&s, led, 1, g, 0);
+        const u32 rail2 = part_put(&s, "supply rail", 0, -300, 30, 10, "5V");
+        const u32 big = part_put(&s, "resistor", 150, -350, 30, 10, "1M");
+        const u32 slow = part_put(&s, "capacitor", 300, -400, 20, 10, "10uF");
+        const u32 g2 = part_put(&s, "ground", 450, -500, 20, 20, "");
+        wire_put(&s, rail2, 0, big, 0); wire_put(&s, big, 1, slow, 0); wire_put(&s, slow, 1, g2, 0);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        CHECK(run_for(&c, 0.5));
+        printf("  at rest: %u blocks, %u left quiet; the LED %.3f\n", c.blocks, c.skipped, cpart(&c, led)->shown);
+        CHECK(c.blocks >= 2u && c.skipped >= 1u && cpart(&c, led)->shown < 0.01);
+        c8 say[32];
+        CHECK(fude_zoom_circuit_tap(&c, cindex(&c, sw), -1, say, sizeof say));
+        CHECK(fude_zoom_circuit_run(&c, 0.01, 400u));
+        const fude_zoom_circuit_part* sc = cpart(&c, slow);
+        const f64 vc = fabs(fude_zoom_circuit_volts(&c, sc->node[0]) - fude_zoom_circuit_volts(&c, sc->node[1]));
+        printf("  switched on: the LED %.3f; the RC %.4f V (%.4f V wanted)\n", cpart(&c, led)->shown, vc, 5.0 * (1.0 - exp(-c.time / 10.0)));
+        CHECK(cpart(&c, led)->shown > 0.2 && fabs(vc - 5.0 * (1.0 - exp(-c.time / 10.0))) < 0.005);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        // (two dividers on a rail, an oscilloscope's CH1 on one's middle and its GND on the other's)
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 rail = part_put(&s, "supply rail", 0, 300, 30, 10, "5V");
+        u32 top[2], bottom[2], gnd[2];
+        for(u32 k = 0; k < 2u; k++) {
+            top[k] = part_put(&s, "resistor", 150, 300 - 300.0 * k, 30, 10, "10k");
+            bottom[k] = part_put(&s, "resistor", 350, 300 - 300.0 * k, 30, 10, k == 0u ? "10k" : "30k");
+            gnd[k] = part_put(&s, "ground", 500, 250 - 300.0 * k, 20, 20, "");
+            wire_put(&s, rail, 0, top[k], 0); wire_put(&s, top[k], 1, bottom[k], 0); wire_put(&s, bottom[k], 1, gnd[k], 0);
+        }
+        const u32 sp = part_put(&s, "oscilloscope", 800, 100, 110, 80, "5ms 2V");
+        wire_put(&s, top[0], 1, sp, 0); wire_put(&s, top[1], 1, sp, 2);
+        fude_zoom_circuit c; fude_zoom_circuit_init(&c); fude_zoom_circuit_build(&c, &s);
+        const u32 blocks_before = c.blocks;
+        CHECK(run_for(&c, 0.05));
+        printf("  an oscilloscope's ground off ground: %u blocks, then %u (%u joins found); Kirchhoff off by %.1e A\n", blocks_before, c.blocks,
+               (u32)rde_arr_length(&c.couplings), kirchhoff_worst(&c));
+        CHECK(blocks_before == 2u && c.blocks == 1u && rde_arr_length(&c.couplings) >= 1u && kirchhoff_worst(&c) < 1e-9);
+        fude_zoom_circuit_destroy(&c); fude_zoom_scene_destroy(&s);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_circuit c;
+        example_open(&s, &c, FUDE_ZOOM_EXAMPLE_TRAFFIC);
+        fude_zoom_circuit_sound(&c, 48000.0);
+        CHECK(run_for(&c, 4.5));   // (step 6: WALK lit, the beeper on)
+        u32 most = 0, skipped = 0, frames = 0;
+        f64 peak = 0.0;
+        for(u32 f = 0; f < 60u; f++) {
+            const f64 end = c.time + 1.0 / 60.0;
+            u32 steps = 0;
+            while(c.time < end - 1e-12 && steps < 2000u) { CHECK(fude_zoom_circuit_advance(&c, end - c.time, 1u, false)); steps++; skipped += c.skipped; }
+            most = steps > most ? steps : most;
+            frames++;
+            const f32* a = (const f32*)c.audio.memory;
+            for(u32 i = 0; i < (u32)rde_arr_length(&c.audio); i++) peak = fmax(peak, fabs((f64)a[i]));
+            rde_arr_clear(&c.audio);
+        }
+        printf("  crossroads beeping: %u blocks, at most %u steps a frame, %.1f blocks quiet a step; its sound's peak %.3f\n", c.blocks, most,
+               (f64)skipped / (f64)(most * frames), peak);
+        CHECK(c.blocks >= 4u && most <= 400u && skipped > most * frames && peak > 0.02);
+        example_close(&s, &c);
+    }
+}
+
 
 // AN OSCILLOSCOPE'S KNOBS (display.h): each channel's volts a division from its text (CH2's its second volts, else CH1's);
 // every knob found anywhere in its cell — its right half turning it clockwise, its left back —, none on its screen or off
@@ -7434,7 +7668,7 @@ static void test_scope_knobs(void) {
     CHECK(fabs(now.volt_div - 1.0) < 1e-12 && fabs(now.volt_div2 - 2.0) < 1e-12 && fabs(now.time_div - 5e-3) < 1e-15);
     const f64 step_was = c.step;
     CHECK(fude_zoom_circuit_scope_turn(&c, at, FUDE_ZOOM_SCOPE_KNOB_TIME, 1, say, sizeof(say)) && strcmp(say, "TIME/DIV 2 ms") == 0);
-    CHECK(cpart(&c, sp)->state[1] == -1.0 && c.step < step_was && c.step <= 0.02 / (f64)FUDE_ZOOM_SCOPE_SAMPLES + 1e-12);
+    CHECK(cpart(&c, sp)->state[1] == -1.0 && c.step < step_was && c.step <= 0.02 / 50.0 + 1e-12);
     CHECK(run_for(&c, 0.2));
     const f32* smp = (const f32*)fude_zoom_circuit_store(&c, cpart(&c, sp));
     u32 rises = 0;
@@ -7977,6 +8211,9 @@ int main(void) {
     test_batch5_parts();
     test_batch5_examples();
     test_big_examples();
+    test_quiet_blocks();
+    test_products();
+    test_pages();
     test_display_examples();
     test_examples_go_wrong();
     test_logic_draw();
