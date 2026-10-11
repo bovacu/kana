@@ -1212,6 +1212,46 @@ maths one later). The plan is `docs/product_split.md`; two first steps of it her
     - the paper's spacing: as printed at a tablet's page width, finer as it goes in, fading far out;
     - `<id>.pages` kept, a damaged one read as no notebook.
 
+## 61. A notebook zoomed out, a page added (0.1.80)
+
+Borja on the tablet: he could not add pages, and could not zoom out past where the notebook opened.
+
+- **Zooming out.** A notebook had taken the PDF canvas's rule: never further out than all its pages fit. An A4 page fits
+  a portrait tablet at the zoom it opens at, so a notebook could not be zoomed out at all, and with one page there was
+  nothing to scroll either. Now a notebook zooms out until its pages are a fifth of the screen's width
+  (`FUDE_ZOOM_PAGE_PAGES_LEAST`; `fude_zoom_page_keep_view_over`'s `_least`). That shows as many pages as fit, in the
+  screen's middle while they are narrower or shorter than it. A PDF's rule is as it was.
+- **Add a page.** The Pages tool's new choice puts a page at the end, even past the empty one, and flies to it. On a
+  canvas without pages it says to choose a size first. The page that comes when the last one is written on is as
+  before.
+
+## 62. InfiNote and InfiniWorkshop (0.1.80)
+
+Borja named the two apps, InfiNote (notes) and InfiniWorkshop (projects), and decided four more things: one-time
+purchase, his canvases go to InfiNote, diagrams and Kanban in both, and our own handwritten-maths recogniser. The record
+is `docs/product_split.md` §9.
+
+- **The apps.** `apps/infinote` and `apps/infiniworkshop` each have:
+  - their own `src/version.h`, which says who they are (name, version, `SKETCHING_PRODUCT`, `SKETCHING_IMPORTS`);
+  - their own words (`tools/strings.py`: `{APP}` their name), `config.rdef`, Android deps, iOS files and an icon. The
+    icons are drawn by `tools/icons/infini_icons.py`, as SVG, then by `tools/icons/svg2png.swift` (1024 px, and the
+    launch screen's, rounded):
+    - InfiNote's: a notebook page with an infinity written across it in a fountain pen's line, thin along the nib and
+      broad across it, with a small one inside its loop;
+    - InfiniWorkshop's: an amber infinity on a blueprint, its right loop a gear and its left loop running circuit
+      traces to their pads.
+- **How they build.** Both build Sketching's shell with their own `src/` ahead of the rest. Their assets are Sketching's
+  shared ones (fonts, the parts' drawings) with theirs over them, put together in `build/<app>-stage/assets/`, named so
+  because the builder gives an app its assets under the folder's own name. `tools/android/build.sh` builds Sketching,
+  InfiNote and InfiniWorkshop in one branch, as `com.rde.<app>`. Sketching stays the developer's build, with
+  everything.
+- **Moving canvases between apps.** Each Android app's files are its own. An app can now open another app's Your data
+  files too (`fude_app_info.imports`; `fude_session_import_filters` offers both kinds). Every app's backup is the same
+  kind of file, so InfiNote, and InfiniWorkshop as well, restores a Sketching backup: export in Sketching, import in
+  the new app.
+- **Diagrams in both.** Workshop's product now has the Diagrams topic and Insert's Mermaid, diagram shapes and Kanban.
+- Tests: `test_products` updated (Workshop with diagrams and Kanban, 16 of General's Insert entries, no maths).
+
 ## 19. A canvas over a PDF (0.1.6)
 
 Insert → PDF (or a PDF among Files): a canvas of its own over it — Kana's `fude_doc_new_canvas` (the PDF copied in as the canvas's own, `notes/<id>.pdf`; the note says so, `FUDE_NOTE_DOCUMENT_OWN`; no paper under it), opened. The page sees it as it opens the canvas and shows the PDF under the ink (`fude/zoom/pdfview.h`); new, the first page's width across the screen, its top at the top.

@@ -46,8 +46,12 @@ fude/zoom/               the deep-zoom canvas (Sketching's): zoom (shared types,
                          export (SVG; PNG through the renderer) ·
                          select (the lasso) · zfile (the canvas's file: Kana's chunks as a log) ·
                          render · page · strings.py
-apps/sketching/          Sketching (a working name): sketching.c · src/ (version.h, text_ids.h) · assets/ ·
+apps/sketching/          Sketching (the developer's build: everything): sketching.c — the shell of the apps made
+                         from it too — · src/ (version.h, text_ids.h) · assets/ (the shared fonts and parts) ·
                          platform/ (ios, android) · tools/strings.py
+apps/infinote/           InfiNote, the notes app (docs/product_split.md): src/ (version.h: name, version, product) ·
+                         assets/ (config.rdef, its words; Sketching's under them at build time) · platform/ · tools/
+apps/infiniworkshop/     InfiniWorkshop, the projects app: as InfiNote
 tests/                   a suite per module group (tests/README.md)
 tools/                   strings/build.py (every app's strings) · icons/bearings.py · mlkit/
 ```

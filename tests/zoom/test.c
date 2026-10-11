@@ -7387,9 +7387,10 @@ static void test_pages(void) {
 }
 
 
-// The apps made from the canvas (product.h): Sketching every topic and choice; Notes writing, PDFs, maths and diagrams —
-// no project's topic, part, joint, saw or cut list; Workshop the projects — no diagrams, Kanban or maths. A canvas from
-// another app opens in one of this one's topics; a topic's choices are the app's of its own, in its order.
+// The apps made from the canvas (product.h): Sketching every topic and choice; Notes (InfiNote) writing, PDFs, maths and
+// diagrams — no project's topic, part, joint, saw or cut list; Workshop (InfiniWorkshop) the projects, with diagrams and
+// Kanban too — no maths. A canvas from another app opens in one of this one's topics; a topic's choices are the app's of
+// its own, in its order.
 static void test_products(void) {
     printf("products\n");
     // (General's lists, as page.c's FUDE_ZOOM_TOPICS has them)
@@ -7431,9 +7432,9 @@ static void test_products(void) {
 
     fude_zoom_product_set(FUDE_ZOOM_PRODUCT_WORKSHOP);
     const fude_zoom_product* shop = fude_zoom_product_get();
-    CHECK(!fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_MATHS) && !fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) &&
+    CHECK(!fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_MATHS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) &&
           fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_ELECTRONICS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_SEWING) &&
-          fude_zoom_product_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) == FUDE_ZOOM_TOPIC_GENERAL);
+          fude_zoom_product_topic(FUDE_ZOOM_TOPIC_MATHS) == FUDE_ZOOM_TOPIC_GENERAL);
     const u32 w_in = fude_zoom_product_keep(inserts, 16u, shop->inserts, out);
     b8 board = false, examples = false, kanban = false;
     for(u32 i = 0; i < w_in; i++) {
@@ -7441,7 +7442,7 @@ static void test_products(void) {
         examples = examples || out[i] == FUDE_ZOOM_INSERT_EXAMPLES;
         kanban = kanban || out[i] == FUDE_ZOOM_INSERT_KANBAN || out[i] == FUDE_ZOOM_INSERT_MERMAID || out[i] == FUDE_ZOOM_INSERT_DIAGRAM;
     }
-    CHECK(w_in == 13u && board && examples && !kanban && shop->hobby && shop->workshop && fude_zoom_product_keep(tools, 9u, shop->tools, out) == 8u);
+    CHECK(w_in == 16u && board && examples && kanban && shop->hobby && shop->workshop && fude_zoom_product_keep(tools, 9u, shop->tools, out) == 8u);
     // (every app's first topic its own; none past the last)
     for(u8 k = 0; k < FUDE_ZOOM_PRODUCT_COUNT; k++) {
         fude_zoom_product_set(k);

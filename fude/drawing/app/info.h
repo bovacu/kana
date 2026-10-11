@@ -36,6 +36,9 @@ typedef struct {
     // letters and digits (Kana: kana/, .kanabackup). An app renamed later sets
     // this to its old one; a name without Latin letters sets one.
     const c8*        id;
+    // Another app's id whose Your data files this one opens too (NULL: none) — an app split from it, taking what was
+    // drawn in it (InfiNote: Sketching's, .sketchingbackup). Every app's backup is the same kind of file (backup.h).
+    const c8*        imports;
     const c8*        version;      // shown, and written into a backup
     const c8*        store_id;     // the App Store's id, for Rate ("": the rating sheet until there is one)
     const c8*        script_font;  // the language's own script, behind the UI font (Kana: Noto Sans JP; NULL: none)

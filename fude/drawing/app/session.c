@@ -455,6 +455,21 @@ RDE_INTERNAL const rde_dialog_filter* fude_session_backup_filter(const fude_app*
     return &_filter;
 }
 
+// ...what an import opens: its own, and the app's it takes from (info.h's imports: InfiNote, Sketching's) — how many.
+RDE_INTERNAL u32 fude_session_import_filters(const fude_app* _app, const rde_dialog_filter** _out) {
+    static rde_dialog_filter _filters[2];
+    static c8                _name[64], _ext[80];
+    _filters[0] = *fude_session_backup_filter(_app);
+    *_out = _filters;
+    if(_app->info->imports == NULL || _app->info->imports[0] == 0) {
+        return 1u;
+    }
+    snprintf(_name, sizeof(_name), "%s backup", _app->info->imports);
+    snprintf(_ext, sizeof(_ext), "%sbackup", _app->info->imports);
+    _filters[1] = (rde_dialog_filter){ _name, _ext };
+    return 2u;
+}
+
 // Once a frame: what Your data asked for.
 RDE_INTERNAL void fude_session_data_update(fude_app* _app) {
     switch(fude_side_take_data_request(_app->ui)) {
@@ -470,7 +485,9 @@ RDE_INTERNAL void fude_session_data_update(fude_app* _app) {
 #endif
         } break;
         case FUDE_SIDE_DATA_IMPORT: {
-            rde_dialog_open_file(_app->window, fude_session_backup_filter(_app), 1, NULL, false, fude_session_on_import_path, _app);
+            const rde_dialog_filter* _filters = NULL;
+            const u32 _count = fude_session_import_filters(_app, &_filters);
+            rde_dialog_open_file(_app->window, _filters, _count, NULL, false, fude_session_on_import_path, _app);
         } break;
         case FUDE_SIDE_DATA_REPLACE: {
             fude_session_save_now(_app, false);   // so what is set aside is what was on screen

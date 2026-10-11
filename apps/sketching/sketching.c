@@ -2,7 +2,9 @@
 
 // ===========================================================================
 // Sketching (a working name): the deep-zoom drawing app — zoom in or out as far
-// as anyone likes and draw at every depth (docs/infinite_canvas_design.md).
+// as anyone likes and draw at every depth (docs/infinite_canvas_design.md). The
+// shell of each app made from it too (docs/product_split.md): InfiNote and
+// InfiniWorkshop build this file with their own src/ (version.h: who they are).
 // The drawing core's shell (fude/drawing: the toolbar, the side panel's
 // canvases, Settings, FAQ & Contact, About) over the deep-zoom page
 // (fude/zoom/page.h) in place of the ink page.
@@ -41,9 +43,13 @@
 
 #define SKETCHING_CONFIG_PATH "./assets/config.rdef"
 
-// The app this build is (zoom/product.h's FUDE_ZOOM_PRODUCT_: 0 Sketching, 1 Notes, 2 Workshop).
+// The app this build is (zoom/product.h's FUDE_ZOOM_PRODUCT_: Sketching, Notes — InfiNote —, Workshop —
+// InfiniWorkshop): its version.h's (apps/<app>/src), else Sketching. And the app whose Your data files it opens too.
 #ifndef SKETCHING_PRODUCT
 #define SKETCHING_PRODUCT FUDE_ZOOM_PRODUCT_SKETCHING
+#endif
+#ifndef SKETCHING_IMPORTS
+#define SKETCHING_IMPORTS NULL
 #endif
 
 // A developer's build (debug, RDE_DEBUG) reads launch arguments (look.h); a
@@ -56,7 +62,7 @@
 #endif
 
 RDE_INTERNAL const fude_app_info SKETCHING_INFO = {
-    .name = SKETCHING_NAME, .version = SKETCHING_VERSION, .store_id = SKETCHING_APP_STORE_ID,
+    .name = SKETCHING_NAME, .imports = SKETCHING_IMPORTS, .version = SKETCHING_VERSION, .store_id = SKETCHING_APP_STORE_ID,
     .script_font = "assets/fonts/NotoSansJP-Names.otf", .credits = FUDE_TEXT_COUNT,
     .licences = { { FUDE_TEXT_LICENCE_FONTS, { "assets/fonts/LICENSE-Roboto.txt", "assets/fonts/LICENSE-NotoSansJP.txt", "assets/fonts/LICENSE-Phosphor.txt" } },
                   { FUDE_TEXT_ZOOM_LICENCE_HAND, { "assets/fonts/LICENSE-Hershey.txt", NULL, NULL } } },   // (Handwriting's letters)
@@ -130,7 +136,7 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --export=png:PATH or svg:PATH  at frame 20, the view exported there (as Export does; mp4:PATH the zoom video, made over the frames after)
 //   --erase-at=X1,Y1,X2,Y2@N  at frame N, the eraser swept from one point to the other (screen)
 //   --draw-at=X1,Y1,X2,Y2@N   ...the pen drawn instead
-//   --pages=K@N               at frame N, Pages' choice K (0 A4, 1 A5, 2 Letter, 3 square, 4 the endless canvas)
+//   --pages=K@N               at frame N, Pages' choice K (0 A4, 1 A5, 2 Letter, 3 square, 4 a page more, 5 the endless canvas)
 //   --instruments=K,K...      those instruments out at frame 8 (0 ruler, 1 45° set square, 2 30°/60°, 3 protractor, 4 compass; a kind twice: two)
 //   --instrument-at=K,X,Y,DEG ...and that one put there, turned so
 //   --finger-drag=X1,Y1,X2,Y2,X3,Y3@N  a finger on the instruments from one point through another to a third (frames N on)
@@ -1090,7 +1096,7 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_app_window(_window);    // its units (dp on Android): before anything reads its size
     fude_text_drop_taught_language();   // a drawing app teaches no language: no fourth (Japanese) in it
     fude_text_set_language(fude_text_default_language());
-    // Which app this build is (docs/product_split.md): Sketching, or a preview of Notes or Workshop (-DSKETCHING_PRODUCT=1, 2).
+    // Which app this build is (docs/product_split.md): Sketching, InfiNote or InfiniWorkshop (its version.h's).
     fude_zoom_product_set(SKETCHING_PRODUCT);
     if(fude_zoom_product_get()->workshop) {
         fude_zoom_themes_use();  // the workshop's themes in place of the language apps' (Paper and Night kept)

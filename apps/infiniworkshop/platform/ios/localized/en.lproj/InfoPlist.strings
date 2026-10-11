@@ -1,0 +1,3 @@
+/* The camera prompt (scanning pages to draw on), in en. UTF-8. */
+"NSCameraUsageDescription" = "InfiniWorkshop scans pages with the camera, so you can draw on them.";
+"CFBundleDisplayName" = "InfiniWorkshop";

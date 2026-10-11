@@ -61,27 +61,43 @@ if [ "$WHAT" = "engine" ]; then
     exit $?
 fi
 
-# Sketching: the drawing core and the deep-zoom canvas (fude/zoom), no study layer.
-# Its Java is the core's (fude/android/java), whose ML Kit classes build against
-# the same pinned libraries as Kana's (apps/sketching/platform/android/deps.lock).
-if [ "$WHAT" = "sketching" ]; then
-    OUT=$K/build/sketching-android
+# Sketching and the apps made from it (docs/product_split.md: InfiNote, InfiniWorkshop): the drawing core and the
+# deep-zoom canvas (fude/zoom), no study layer — Sketching's shell (apps/sketching/sketching.c) built with the app's own
+# src/ (its version.h: its name, version, product). The others' assets: Sketching's shared ones (the fonts, the parts'
+# drawings) with their own over them (config.rdef, their words), put together in build/<app>-stage/assets/ (named so:
+# the builder gives the app its assets under the folder's own name). Their Java is
+# the core's (fude/android/java), whose ML Kit classes build against the same pinned libraries as Kana's
+# (apps/<app>/platform/android/deps.lock).
+if [ "$WHAT" = "sketching" ] || [ "$WHAT" = "infinote" ] || [ "$WHAT" = "infiniworkshop" ]; then
+    case $WHAT in
+        sketching)      NAME="Sketching" ;;
+        infinote)       NAME="InfiNote" ;;
+        infiniworkshop) NAME="InfiniWorkshop" ;;
+    esac
+    ASSETS=$K/apps/$WHAT/assets/
+    if [ "$WHAT" != "sketching" ]; then
+        ASSETS=$K/build/$WHAT-stage/assets/
+        rm -rf $ASSETS && mkdir -p $ASSETS
+        cp -R $K/apps/sketching/assets/. $ASSETS
+        cp -R $K/apps/$WHAT/assets/. $ASSETS
+    fi
+    OUT=$K/build/$WHAT-android
     cd $K
     ~/RDE/builder --project $MODE $ANDROID \
-        --android_app_name=Sketching --android_package_name=com.rde.sketching \
-        --android_icon=$K/apps/sketching/platform/ios/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png \
-        --assets_path=$K/apps/sketching/assets/ \
+        --android_app_name=$NAME --android_package_name=com.rde.$WHAT \
+        --android_icon=$K/apps/$WHAT/platform/ios/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png \
+        --assets_path=$ASSETS \
         --android_java=$K/fude/android/java \
-        --android_deps_file=$K/apps/sketching/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
+        --android_deps_file=$K/apps/$WHAT/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
         --android_internet --android_network_state --android_wake_lock --android_camera \
         $VERSION "$@" \
         apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) $(ls fude/sim/*.c) \
         fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c \
         fude/study/services/mlkit.c fude/study/services/mlkit_android.c \
-        -I$K/fude -I$K/apps/sketching/src -Wall -Wextra \
+        -I$K/fude -I$K/apps/$WHAT/src -Wall -Wextra \
         --output_path=$OUT/
-    APK=$OUT/Sketching.apk
-    if [ "$MODE" = "--release" ]; then APK=$OUT/Sketching-release.apk; fi
+    APK=$OUT/$NAME.apk
+    if [ "$MODE" = "--release" ]; then APK=$OUT/$NAME-release.apk; fi
     cp $OUT/game.apk $APK
     echo "$APK"
     exit 0
@@ -124,7 +140,7 @@ case $WHAT in
     thai)   NAME="Thai";   LANG_SRC=(fude/lang/th/bake.c fude/lang/th/chart.c fude/lang/th/lang.c fude/lang/th/wordsplit.c) ;;
     hindi)  NAME="Hindi";  LANG_SRC=(fude/lang/hi/bake.c fude/lang/hi/chart.c fude/lang/hi/lang.c fude/lang/hi/wordsplit.c) ;;
     arabic) NAME="Arabic"; LANG_SRC=(fude/lang/ar/bake.c fude/lang/ar/chart.c fude/lang/ar/lang.c fude/lang/ar/wordsplit.c) ;;
-    *) echo "usage: zsh tools/android/build.sh engine|kana|hanzi|hangul|thai|hindi|arabic [--release] [builder flags...]" >&2; exit 1 ;;
+    *) echo "usage: zsh tools/android/build.sh engine|sketching|infinote|infiniworkshop|kana|hanzi|hangul|thai|hindi|arabic [--release] [builder flags...]" >&2; exit 1 ;;
 esac
 OUT=$K/build/$WHAT-android
 cd $K

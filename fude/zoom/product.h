@@ -9,10 +9,11 @@
 // PRODUCTS: the apps made from the deep-zoom canvas (docs/product_split.md).
 // One engine; each app offers its own topics (page.h's FUDE_ZOOM_TOPIC_), and in
 // them only its own tools, Insert entries, instruments and exports — what a
-// topic lists, and the app allows (product ∩ topic). Sketching is all of them;
-// Notes is for writing, study and maths; Workshop for projects that work
-// (circuits, mechanisms, plans, wood, sewing). The same canvas file in each: a
-// canvas from another opens, its topic one of this app's if it is not.
+// topic lists, and the app allows (product ∩ topic). Sketching is all of them
+// (the developer's build); Notes — InfiNote — is for writing, study and maths;
+// Workshop — InfiniWorkshop — for projects that work (circuits, mechanisms,
+// plans, wood, sewing); diagrams and Kanban in both. The same canvas file in
+// each: a canvas from another opens, its topic one of this app's if it is not.
 // ===========================================================================
 
 // What a canvas is for (page.c's topics): the bar's tools for it.

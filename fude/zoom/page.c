@@ -494,9 +494,11 @@ RDE_INTERNAL void fude_zoom_page_pdf_first_view(fude_zoom_page* _page) {
     fude_zoom_camera_settle(_s, _half);
 }
 
-// The canvas is as big as its pages (_b, home units: a PDF's, a notebook's): the view kept over them — never further
-// out than all of them fit, never past their edges (what is narrower than the screen, in its middle).
-RDE_INTERNAL void fude_zoom_page_keep_view_over(fude_zoom_page* _page, fude_zoom_box _b) {
+// The canvas is as big as its pages (_b, home units: a PDF's, a notebook's): the view kept over them — never past
+// their edges (what is narrower or shorter than the screen, in its middle), and never further out than all of them fit
+// (a PDF's) or, _least over 0, than their width is _least of the screen's (a notebook's: out over as many pages as
+// that shows — one fits the screen as it opens).
+RDE_INTERNAL void fude_zoom_page_keep_view_over(fude_zoom_page* _page, fude_zoom_box _b, f64 _least) {
     fude_zoom_scene*    _s    = &_page->scene;
     const fude_zoom_v2  _half = fude_zoom_page_half(_page);
     for(u32 _pass = 0; _pass < 2u; _pass++) {
@@ -506,8 +508,13 @@ RDE_INTERNAL void fude_zoom_page_keep_view_over(fude_zoom_page* _page, fude_zoom
         const f64 _x0 = fmin(_a.x, _c.x), _x1 = fmax(_a.x, _c.x), _y0 = fmin(_a.y, _c.y), _y1 = fmax(_a.y, _c.y);
         const f64 _w = _x1 - _x0, _h = _y1 - _y0;
         if(_pass == 0u) {
-            // Further out than all of it fits: in again, round the middle of the screen.
-            if(_w < _half.x * 2.0 - 0.5 && _h < _half.y * 2.0 - 0.5) {
+            // Further out than that: in again, round the middle of the screen.
+            if(_least > 0.0) {
+                if(_w < _half.x * 2.0 * _least - 0.5) {
+                    fude_zoom_camera_zoom_at(_s, (fude_zoom_v2){ 0.0, 0.0 }, _half.x * 2.0 * _least / fmax(_w, 1e-9));
+                    fude_zoom_camera_settle(_s, _half);
+                }
+            } else if(_w < _half.x * 2.0 - 0.5 && _h < _half.y * 2.0 - 0.5) {
                 fude_zoom_camera_zoom_at(_s, (fude_zoom_v2){ 0.0, 0.0 }, fmin(_half.x * 2.0 / fmax(_w, 1e-9), _half.y * 2.0 / fmax(_h, 1e-9)));
                 fude_zoom_camera_settle(_s, _half);
             }
@@ -531,6 +538,8 @@ RDE_INTERNAL void fude_zoom_page_keep_view_over(fude_zoom_page* _page, fude_zoom
 }
 
 // --- a notebook's pages (pages.h) ------------------------------------------------------------------
+
+#define FUDE_ZOOM_PAGE_PAGES_LEAST 0.2   // a notebook zoomed out until its pages are this much of the screen's width
 
 RDE_INTERNAL void fude_zoom_page_pages_path(const fude_zoom_page* _page, c8* _out, usize _size) {
     c8 _canvas[RDE_MAX_PATH];
@@ -575,7 +584,7 @@ RDE_INTERNAL void fude_zoom_page_pages_follow(fude_zoom_page* _page) {
             fude_zoom_page_pages_save(_page);
         }
     }
-    fude_zoom_page_keep_view_over(_page, fude_zoom_pages_bounds(&_page->pages));
+    fude_zoom_page_keep_view_over(_page, fude_zoom_pages_bounds(&_page->pages), FUDE_ZOOM_PAGE_PAGES_LEAST);
 }
 
 RDE_INTERNAL void fude_zoom_page_hand_forget(fude_zoom_page* _page);
@@ -5699,8 +5708,12 @@ RDE_INTERNAL b8 fude_zoom_plan_selected(const fude_app* _app);
 RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PLAN_CHOICES[5];
 
 // Pages (pages.h): the canvas a notebook of A4, A5, Letter or square pages — a page's size changed, its drawing where it
-// is —, or the endless canvas again (its drawing kept, its pages gone). Pages begin on an empty canvas: one already drawn
-// on keeps what it has where it is (beside the pages, out of the view kept over them), so it is said instead.
+// is —, a page more at its end (gone to), or the endless canvas again (its drawing kept, its pages gone). Pages begin on
+// an empty canvas: one already drawn on keeps what it has where it is (beside the pages, out of the view kept over them),
+// so it is said instead. (Its choices: the sizes, then Add a page, then Endless.)
+#define FUDE_ZOOM_PAGES_ADD     FUDE_ZOOM_PAGES_SIZES
+#define FUDE_ZOOM_PAGES_ENDLESS (FUDE_ZOOM_PAGES_SIZES + 1u)
+
 RDE_INTERNAL b8 fude_zoom_pages_choose(fude_app* _app, u32 _i) {
     RDE_UNUSED(_app);
     fude_zoom_page* _page = fude_zoom_page_the;
@@ -5708,6 +5721,25 @@ RDE_INTERNAL b8 fude_zoom_pages_choose(fude_app* _app, u32 _i) {
         return false;
     }
     fude_zoom_pages* _p = &_page->pages;
+    if(_i == FUDE_ZOOM_PAGES_ADD) {
+        if(!_p->on) {
+            fude_notice_show(fude_text(FUDE_TEXT_ZOOM_PAGES_SIZE_FIRST));
+            return false;
+        }
+        if(_p->count < FUDE_ZOOM_PAGES_MOST) {
+            _p->count++;
+            fude_zoom_page_pages_save(_page);
+        }
+        // (gone to: its top at the top, as wide as a page was across the screen as it opened)
+        const fude_zoom_v2  _half = fude_zoom_page_half(_page);
+        const fude_zoom_box _new  = fude_zoom_pages_box(_p, _p->count - 1u);
+        const f64 _z = _half.x * 2.0 * 0.94 / fmax(_new.max_x - _new.min_x, 1e-9);
+        fude_zoom_page_fly(_page, (fude_zoom_camera){ _page->scene.home, { 0.0, _new.max_y - (_half.y - 16.0) / _z }, _z }, true);
+        c8 _say[96];
+        FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_PAGES_ADDED, FUDE_TN(_p->count));
+        fude_notice_show(_say);
+        return false;
+    }
     if(_i >= FUDE_ZOOM_PAGES_SIZES) {
         if(_p->on) {
             _p->on = false;
@@ -5745,6 +5777,9 @@ RDE_INTERNAL b8 fude_zoom_pages_chosen(const fude_app* _app, u32 _i) {
         return false;
     }
     const fude_zoom_pages* _p = &_page->pages;
+    if(_i == FUDE_ZOOM_PAGES_ADD) {
+        return false;
+    }
     if(_i >= FUDE_ZOOM_PAGES_SIZES) {
         return !_p->on;
     }
@@ -5757,11 +5792,12 @@ RDE_INTERNAL b8 fude_zoom_pages_selected(const fude_app* _app) {
     RDE_UNUSED(_app);
     return fude_zoom_page_the != NULL && fude_zoom_page_paged(fude_zoom_page_the);
 }
-RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PAGES_CHOICES[FUDE_ZOOM_PAGES_SIZES + 1u] = {
-    { FUDE_TEXT_ZOOM_PAGES_A4,      FUDE_ICON_PAGE,        fude_zoom_pages_choose },
-    { FUDE_TEXT_ZOOM_PAGES_A5,      FUDE_ICON_PAGE,        fude_zoom_pages_choose },
-    { FUDE_TEXT_ZOOM_PAGES_LETTER,  FUDE_ICON_PAGE,        fude_zoom_pages_choose },
-    { FUDE_TEXT_ZOOM_PAGES_SQUARE,  FUDE_ICON_PAPER_NONE,  fude_zoom_pages_choose },
+RDE_INTERNAL const fude_extension_choice FUDE_ZOOM_PAGES_CHOICES[FUDE_ZOOM_PAGES_SIZES + 2u] = {
+    { FUDE_TEXT_ZOOM_PAGES_A4,      FUDE_ICON_PAGE,          fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_A5,      FUDE_ICON_PAGE,          fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_LETTER,  FUDE_ICON_PAGE,          fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_SQUARE,  FUDE_ICON_PAPER_NONE,    fude_zoom_pages_choose },
+    { FUDE_TEXT_ZOOM_PAGES_ADD,     FUDE_ICON_FILE_ADD,      fude_zoom_pages_choose },
     { FUDE_TEXT_ZOOM_PAGES_ENDLESS, FUDE_ICON_PAPER_SQUARES, fude_zoom_pages_choose },
 };
 
@@ -5821,7 +5857,7 @@ RDE_INTERNAL const fude_extension_tool FUDE_ZOOM_BASE_TOOLS[12] = {
     },
     {
         FUDE_TEXT_ZOOM_PAGES, FUDE_ICON_BOOK, NULL, NULL,
-        FUDE_ZOOM_PAGES_CHOICES, FUDE_ZOOM_PAGES_SIZES + 1u,
+        FUDE_ZOOM_PAGES_CHOICES, FUDE_ZOOM_PAGES_SIZES + 2u,
         fude_zoom_pages_chosen, fude_zoom_pages_selected,
     },
 };
@@ -10455,7 +10491,7 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
     fude_zoom_page_tools_history(_page);   // (the instruments left changed: a step)
     // Over a PDF: the view kept on its pages; their pieces drawn; a search's first match gone to.
     if(fude_zoom_pdfview_is_open(&_page->pdf)) {
-        fude_zoom_page_keep_view_over(_page, fude_zoom_pdfview_bounds(&_page->pdf));
+        fude_zoom_page_keep_view_over(_page, fude_zoom_pdfview_bounds(&_page->pdf), 0.0);
         fude_zoom_pdfview_update(&_page->pdf, fude_zoom_page_frame_sim(_page, _s->home), fude_zoom_page_half(_page));
         fude_zoom_box _match;
         if(fude_zoom_pdfview_search_wanted(&_page->pdf, &_match)) {

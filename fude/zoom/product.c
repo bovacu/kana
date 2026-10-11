@@ -29,15 +29,15 @@ RDE_INTERNAL const fude_zoom_product FZP_PRODUCTS[FUDE_ZOOM_PRODUCT_COUNT] = {
       FZP_BIT(FUDE_ZOOM_OUT_PNG) | FZP_BIT(FUDE_ZOOM_OUT_SVG) | FZP_BIT(FUDE_ZOOM_OUT_PDF) | FZP_BIT(FUDE_ZOOM_OUT_A4) |
           FZP_BIT(FUDE_ZOOM_OUT_LETTER) | FZP_BIT(FUDE_ZOOM_OUT_VIDEO) | FZP_BIT(FUDE_ZOOM_OUT_AREAS),
       false, false },
-    // Workshop: projects that work — circuits, mechanisms, plans, wood, sewing, their PDFs; no diagrams, Kanban or
-    // maths' graphs (Notes').
+    // Workshop: projects that work — circuits, mechanisms, plans, wood, sewing, their PDFs, and diagrams and Kanban to
+    // plan them (Borja: both apps'); no maths' graphs (Notes').
     { FZP_BIT(FUDE_ZOOM_TOPIC_GENERAL) | FZP_BIT(FUDE_ZOOM_TOPIC_TECHNICAL) | FZP_BIT(FUDE_ZOOM_TOPIC_WOOD) | FZP_BIT(FUDE_ZOOM_TOPIC_PDF) |
+          FZP_BIT(FUDE_ZOOM_TOPIC_DIAGRAMS) |
           FZP_BIT(FUDE_ZOOM_TOPIC_ELECTRONICS) | FZP_BIT(FUDE_ZOOM_TOPIC_MECHANISMS) | FZP_BIT(FUDE_ZOOM_TOPIC_FLOORPLAN) |
           FZP_BIT(FUDE_ZOOM_TOPIC_WIRING) | FZP_BIT(FUDE_ZOOM_TOPIC_SEWING),
       FUDE_ZOOM_TOPIC_GENERAL,
       FZP_ALL(FUDE_ZOOM_TOOL_COUNT) & ~FZP_BIT(FUDE_ZOOM_TOOL_PAGES),   // (a notebook's pages: Notes')
-      FZP_ALL(FUDE_ZOOM_INSERT_COUNT) & ~(FZP_BIT(FUDE_ZOOM_INSERT_MERMAID) | FZP_BIT(FUDE_ZOOM_INSERT_DIAGRAM) | FZP_BIT(FUDE_ZOOM_INSERT_KANBAN) |
-                                          FZP_BIT(FUDE_ZOOM_INSERT_MATHS)),
+      FZP_ALL(FUDE_ZOOM_INSERT_COUNT) & ~FZP_BIT(FUDE_ZOOM_INSERT_MATHS),
       FZP_ALL(FUDE_ZOOM_TOOLKIT_COUNT),
       FZP_ALL(FUDE_ZOOM_OUT_COUNT),
       true, true },

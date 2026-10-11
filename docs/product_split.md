@@ -4,7 +4,8 @@ Borja, 2026-10-10: Sketching is big and complete, but it covers so much that it 
 themselves in it at a glance. Split it in two: a **note-taking app** ("Notability, but much better") and a
 **hobby-projects app** (circuits, mechanisms, woodworking, floor plans), and later perhaps a **maths app**. This is the
 plan: who each app is for, what goes in each, how the code divides, what Notes still lacks and how to build it, and an
-order of work. Working names below: **Notes**, **Workshop**, **Maths** (names, prices and store pages are Borja's).
+order of work. The apps are **InfiNote** (Notes below) and **InfiniWorkshop** (Workshop below), as Borja named them on
+2026-10-11 (§9); **Maths** is still a working name.
 
 ---
 
@@ -292,21 +293,43 @@ The opening: Apple's Math Notes is iPad-only, and Android tablets have nothing l
   - always one empty page after the last written;
   - paper at its true spacing, finer as you zoom in;
   - PDF export at true size.
+- **The two apps** (2026-10-11): `apps/infinote` and `apps/infiniworkshop`.
+  - Each has its own `src/version.h` (name, version, product, and the app whose backups it opens), its own strings
+    (`tools/strings.py`, `{APP}` its name), `config.rdef`, Android deps, iOS files and its icon.
+  - Both build Sketching's shell (`apps/sketching/sketching.c`) with their own `src/`. Their assets are Sketching's
+    shared ones with their own over them, put together at build time (`build/<app>-stage/assets/`).
+  - `zsh tools/android/build.sh infinote|infiniworkshop --release` builds them.
+  - Sketching stays the developer's build, with everything in it.
 - **Next for notebooks:**
   - a page number on screen, and a strip of thumbnails to go to, insert, move and delete pages;
   - the paper in the PDF export;
   - per-page templates;
   - a PDF's pages and blank ones in one notebook.
 
-## 9. For Borja to decide
+## 9. Decided (Borja, 2026-10-11)
 
-1. The names, and whether Workshop goes first.
-2. Prices: one-time, subscription, or free with limits.
-3. Which app keeps the canvases on the tablet (the "sketching" save id).
-4. Diagrams and Kanban: Notes only, or both?
-5. Maths graphs in Workshop too?
-6. Handwritten maths: try our own recogniser first, or license MyScript (or try Mathpix's cloud)?
-7. Platforms: Android tablets first, then iPad (Kana's iOS builds show the way)?
+1. **The names:**
+   - **InfiNote**, the notes app: package `com.rde.infinote`, save id `infinote`;
+   - **InfiniWorkshop**, the projects app: `com.rde.infiniworkshop`, `infiniworkshop`.
+2. **Price:** paid once, a one-time purchase (no subscription).
+3. **The canvases on the tablet go to InfiNote.** Android keeps each app's files to itself, so they move over by Your
+   data:
+   - export in Sketching;
+   - import in InfiNote, which opens Sketching's backup files (`fude_app_info.imports`).
+
+   InfiniWorkshop can open them too.
+4. **Diagrams and Kanban are in both apps.**
+5. **Handwritten maths: our own recogniser.** A paid SDK such as MyScript would make the app too expensive to sell.
+   Training data cannot come from MathWriting (non-commercial). We make our own (§4.3): expressions set by our
+   typesetter and drawn by a handwriting synthesiser, plus what users correct.
+
+Still open:
+- whether InfiniWorkshop ships first (the recommendation, §1);
+- maths graphs in InfiniWorkshop;
+- the platforms after Android (iPad);
+- (The icons are done: `tools/icons/infini_icons.py` draws them. InfiNote's is a notebook page with an infinity written
+  across it in a fountain pen's line and a small one inside its loop; InfiniWorkshop's is a blueprint with an amber
+  infinity whose right loop is a gear and whose left loop runs circuit traces.)
 
 ---
 

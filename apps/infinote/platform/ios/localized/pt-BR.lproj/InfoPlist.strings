@@ -1,0 +1,3 @@
+/* The camera prompt (scanning pages to draw on), in pt-BR. UTF-8. */
+"NSCameraUsageDescription" = "O InfiNote digitaliza páginas com a câmera para você desenhar sobre elas.";
+"CFBundleDisplayName" = "InfiNote";
