@@ -31,12 +31,16 @@
 #include "drawing/base/theme.h"
 #include "zoom/themes.h"
 #include "zoom/page.h"
+#include "zoom/home.h"
+#include "drawing/base/crash.h"
+#include "zoom/paper.h"
 #include "zoom/product.h"
 #include "zoom/smooth.h"
 #include "drawing/widgets/toolbar.h"
 #include "drawing/doc/import.h"
 #include "version.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,11 +85,62 @@ RDE_INTERNAL fude_page_input page;
 RDE_INTERNAL fude_ui         ui;
 RDE_INTERNAL fude_app        app;
 RDE_INTERNAL fude_zoom_page  zoom;
+RDE_INTERNAL fude_zoom_home  home;       // the home screen: the canvases as cards (InfiNote's notebooks, InfiniWorkshop's projects)
+RDE_INTERNAL u32             home_cover_seen;   // (the page's covers written: those shown loaded again)
+
+// The home screen's New: a canvas made in the folder it shows, opened — InfiNote's a notebook of A4 pages.
+RDE_INTERNAL void sketching_home_new(fude_app* _app, u32 _folder) {
+    c8 _name[FUDE_NOTE_NAME];
+    fude_notes_new_name(_app->notes, FUDE_NOTE_CANVAS, _name, sizeof(_name));
+    const u32 _id = fude_notes_add(_app->notes, FUDE_NOTE_CANVAS, _folder, _name);
+    if(_id == 0u) {
+        return;
+    }
+    if(SKETCHING_PRODUCT == FUDE_ZOOM_PRODUCT_NOTES) {
+        fude_zoom_page_notebook_next(&zoom, FUDE_ZOOM_PAGES_A4);
+    }
+    fude_notes_open(_app->notes, _id);
+}
+
+// The welcome's first step (InfiniWorkshop): the examples made, the first opened.
+RDE_INTERNAL void sketching_home_first(fude_app* _app) {
+    RDE_UNUSED(_app);
+    fude_zoom_page_look_examples(&zoom, 0u);
+}
+
+// The page's home button.
+RDE_INTERNAL void sketching_open_home(fude_app* _app) {
+    RDE_UNUSED(_app);
+    fude_zoom_home_open(&home);
+}
+
+// The side panel's Tutorial (InfiniWorkshop): the welcome again.
+RDE_INTERNAL void sketching_tutorial(fude_app* _app) {
+    RDE_UNUSED(_app);
+    fude_zoom_home_show_welcome(&home);
+}
 
 // The first launch: brushes keep their size on the screen at any zoom (the
 // research's first idea) — a stroke drawn zoomed in is finer on the canvas.
 RDE_INTERNAL void sketching_first_launch(fude_app* _app) {
     _app->ink->brush_scale = FUDE_INK_BRUSH_SCALE_SCREEN;
+}
+
+// Its own papers (paper.h), after the core's four in the Paper panel.
+RDE_INTERNAL const fude_extension_paper SKETCHING_PAPERS[] = {
+    { FUDE_PAPER_ENGINEERING, FUDE_TEXT_ZOOM_PAPER_ENGINEERING, FUDE_ICON_PAGE_NUMBER },
+    { FUDE_PAPER_ISOMETRIC,   FUDE_TEXT_ZOOM_PAPER_ISOMETRIC,   FUDE_ICON_TRIANGLE },
+    { FUDE_PAPER_HEX,         FUDE_TEXT_ZOOM_PAPER_HEX,         FUDE_ICON_GRAPH },
+    { FUDE_PAPER_POLAR,       FUDE_TEXT_ZOOM_PAPER_POLAR,       FUDE_ICON_TARGET },
+    { FUDE_PAPER_MUSIC,       FUDE_TEXT_ZOOM_PAPER_MUSIC,       FUDE_ICON_SPEAK },
+    { FUDE_PAPER_CORNELL,     FUDE_TEXT_ZOOM_PAPER_CORNELL,     FUDE_ICON_COLUMNS },
+    { FUDE_PAPER_PLANNER,     FUDE_TEXT_ZOOM_PAPER_PLANNER,     FUDE_ICON_LIST_CHECKS },
+};
+
+// A page's layouts (Cornell, To-do) only on a notebook's pages: on the endless canvas they would be ruled lines.
+RDE_INTERNAL b8 sketching_paper_offered(const fude_app* _app, u8 _paper) {
+    RDE_UNUSED(_app);
+    return !fude_zoom_paper_is_page(_paper) || fude_zoom_page_is_notebook(&zoom);
 }
 
 RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
@@ -107,6 +162,10 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
     .ui_restyle      = fude_zoom_page_ui_restyle,
     .ui_hit          = fude_zoom_page_ui_hit,
     .first_launch    = sketching_first_launch,
+    .papers          = SKETCHING_PAPERS,
+    .paper_count     = (u32)(sizeof(SKETCHING_PAPERS) / sizeof(SKETCHING_PAPERS[0])),
+    .paper_offered   = sketching_paper_offered,
+    .tutorial        = SKETCHING_PRODUCT == FUDE_ZOOM_PRODUCT_WORKSHOP ? sketching_tutorial : NULL,
 };
 
 // --- a developer's looks (debug builds only) ------------------------------------------------------
@@ -117,7 +176,7 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --zoom-later=F[@N]  the same a few frames in (at frame N: 6 when left out),
 //                   after what the first update brings (a --demo-picture) has
 //                   landed, or after a demo drew
-//   --paper-is=K    the canvas's paper: dots, lines, squares or none
+//   --paper-is=K    the canvas's paper: dots, lines, squares or none (or its number: canvas.h' FUDE_PAPER_)
 //   --paper-later=K@N         ...at frame N (after a canvas opened at --canvas's frame: its own paper replaced)
 //   --pan=X,Y       the page dragged X, Y (screen units) — before a --zoom, to
 //                   park the camera on a stroke's edge and look from inside it
@@ -142,7 +201,8 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --finger-drag=X1,Y1,X2,Y2,X3,Y3@N  a finger on the instruments from one point through another to a third (frames N on)
 //   --measure=1|2             the pen measures: the tape (1) or a dimension (2) (with --draw-at)
 //   --numpad=TEXT@N           the numpad open at frame N with TEXT in it (on the last line drawn)
-//   --text=X,Y,S,WORDS@N      a text (S 0) or a sticky note (S 1) saying WORDS (| a line break) at frame N
+//   --text=X,Y,S,WORDS@N      a text (S 0) or a sticky note (S 1) saying WORDS (| a line break) at frame N (S 4, 5: left
+//                             being written on the page)
 //   --calibrate               the true size's calibration at frame 10
 //   --mermaid=FILE            a diagram from that file's Mermaid text at frame 15
 //   --arrange=K               everything selected at frame 20, then arranged so (select.h's FUDE_ZOOM_ARRANGE_)
@@ -161,6 +221,9 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --example=E@N             at frame N, example E (examples.h) drawn on the canvas open
 //   --fps                     the frame rate shown at the top right (Settings' Display)
 //   --library=F@N             at frame N, the diagram library's panel open on family F (0 flowchart ... 6 planning)
+//   --strip=N                 at frame N, a notebook's pages strip open
+//   --strip-do=W,I,J@N        at frame N, the strip's page I: held, its buttons up (W 0), carried over place J (1); a page put in
+//                             before I (2), I deleted (3), I made J (4)
 //   --symbol=ID,DX,DY,TEXT@N  at frame N, the symbol ID (symbol.c's ids) put DX, DY from the middle with TEXT ("|" a new line)
 //   --value=ID,TEXT,UNIT,WAY@N  at frame N, the first symbol ID lassoed alone and given TEXT in its UNIT (Value's card)
 //   --slider=I,PERCENT@N  at frame N, Play's slider I set PERCENT of the way along
@@ -183,6 +246,13 @@ RDE_INTERNAL const fude_extension SKETCHING_EXTENSION = {
 //   --piece-put=I@N           at frame N, piece I put in the middle of the view
 //   --stencil=I@N             at frame N, piece I laid as a stencil (an instrument)
 //   --canvas=C@N              at frame N, canvas C opened (its notes.h id), as the side panel opens one
+//   --canvas-new=NAME@N       at frame N, a new canvas so named made and opened
+//   --audio=W,V@N             at frame N: a made-up recording V s long linked to what is there (W 0), its panel (1), the newest
+//                             at V ms (2), the microphone's chip (3); speech: the model downloaded (4), the newest
+//                             transcribed (5), written as text (6), as handwriting (7), Live text on (8)
+//   --audio-import=WAV@N      at frame N, a recording made of that WAV (16 kHz, mono, 16-bit)
+//   --crash-now=N             at frame N, a real crash (its report left; --crash-card: its card shown in a look all the same)
+//   --home=N                  at frame N, the home screen open (--welcome=N: its welcome over it, InfiniWorkshop's)
 //   --pen-tap=X,Y@N           at frame N, the pen down and up at X,Y (the screen's, centre origin, Y up), the tool as it is
 //   --pen-drag=X0,Y0,X1,Y1@N  at frame N, the pen down at X0,Y0, moved to X1,Y1 over ten frames, up
 //   --census=N                at frame N, what is alive on the canvas logged: strokes, shapes by type (line, arc...), texts
@@ -276,7 +346,7 @@ RDE_INTERNAL u32 sketching_finger_frame = 0;
 RDE_INTERNAL u8  sketching_measure = 0;           // --measure: the measuring mode
 RDE_INTERNAL c8  sketching_numpad[64];            // --numpad: its text...
 RDE_INTERNAL u32 sketching_numpad_frame = 0;      // ...and when
-RDE_INTERNAL c8  sketching_texts[4][160];         // --text: each one's argument
+RDE_INTERNAL c8  sketching_texts[8][256];         // --text=X,Y,K,WORDS@FRAME: each one's argument (K: 0 a text, 1 a note, 2 a formula)
 RDE_INTERNAL u32 sketching_text_count = 0;
 RDE_INTERNAL b8  sketching_calibrate  = false;    // --calibrate
 RDE_INTERNAL c8  sketching_mermaid[1024];         // --mermaid: the file
@@ -297,6 +367,9 @@ RDE_INTERNAL u32 sketching_loops = 0;
 RDE_INTERNAL i32 sketching_demo_board = -1;       // --demo-board[=1: two put down, one lassoed; 2: both lassoed; 3: its name and material asked; 4: as 1, walnut and oak][@N: at frame N]
 RDE_INTERNAL u32 sketching_demo_board_at = 10u;
 RDE_INTERNAL u32 sketching_census = 0;
+RDE_INTERNAL u32 sketching_strip = 0;             // --strip=N: a notebook's pages strip open at frame N
+RDE_INTERNAL u32 sketching_strip_do[4][4];        // --strip-do=W,I,J@N (up to four: W, I, J, N)
+RDE_INTERNAL u32 sketching_strip_do_count = 0;
 RDE_INTERNAL i32 sketching_library = -1;          // --library=F@N: the diagram library's panel open on family F at frame N
 RDE_INTERNAL u32 sketching_library_at = 0;
 RDE_INTERNAL c8  sketching_symbols[8][160];       // --symbol=ID,DX,DY,TEXT@N: a symbol put there at frame N (up to eight)
@@ -313,6 +386,15 @@ RDE_INTERNAL u32 sketching_laser_at = 0;            // --laser@N
 RDE_INTERNAL f32 sketching_pen_taps[4][3];          // --pen-tap=X,Y@N (up to four)
 RDE_INTERNAL u32 sketching_pen_tap_count = 0;
 RDE_INTERNAL u32 sketching_canvas[2];               // --canvas=C@N
+RDE_INTERNAL u32 sketching_audio_do[8][3];          // --audio=W,V@N (up to eight: W, V, N)
+RDE_INTERNAL u32 sketching_audio_do_count = 0;
+RDE_INTERNAL u32 sketching_crash_at = 0;            // --crash-now=N: a real crash at frame N (a crash report's whole way)
+RDE_INTERNAL c8  sketching_audio_import[512];      // --audio-import=WAV@N: a recording made of that WAV at frame N
+RDE_INTERNAL u32 sketching_audio_import_at = 0;
+RDE_INTERNAL u32 sketching_home_at = 0;             // --home=N: the home screen open at frame N
+RDE_INTERNAL u32 sketching_welcome_at = 0;          // --welcome=N: ...with its welcome over it (InfiniWorkshop's)
+RDE_INTERNAL c8  sketching_canvas_new[64];          // --canvas-new=NAME@N: a canvas made so named and opened at frame N
+RDE_INTERNAL u32 sketching_canvas_new_at = 0;
 RDE_INTERNAL c8  sketching_keep[64];                // --keep=NAME@N
 RDE_INTERNAL u32 sketching_keep_at = 0;
 RDE_INTERNAL u32 sketching_pieces_at = 0;           // --pieces@N
@@ -387,6 +469,8 @@ RDE_INTERNAL u32 sketching_fit_frame = 0;
 RDE_INTERNAL u32 sketching_demo_sculpt = 0;       // --demo-sculpt[=2|3]: a line, then a bump drawn over its middle with Sculpt on (2: off: a stroke of its own; 3: Nudge pushing its middle up)
 RDE_INTERNAL f64 sketching_holes = 0.0;           // --holes=MM: a 32 mm hole row that long at frame 10
 RDE_INTERNAL u32 sketching_to_curve = 0;          // --to-curve=N: everything lassoed and To curve at frame N
+RDE_INTERNAL u32 sketching_select_all = 0;        // --select-all=N: everything lassoed at frame N (its row as it shows)
+RDE_INTERNAL u32 sketching_formula_at[2] = { 0, 0 };   // --formula-hand=N, --formula-read=N: formulas written by hand / handwriting read, at frame N
 RDE_INTERNAL i32 sketching_nodes = -1;            // --nodes=STEP (with --demo-curve): the path lassoed, 1 a node dragged, 2 one added, 3 one held,
                                                   // 4 one tapped (its handle shown), 5 and its handle dragged out
 RDE_INTERNAL c8  sketching_find[64];              // --find: the words...
@@ -734,7 +818,7 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sscanf(_v, "%u@%u", &sketching_switch_topic[0], &sketching_switch_topic[1]);
         } else if(fude_look_is(_argv[_i], "--demo-smooth")) {
             sketching_demo_smooth = true;
-        } else if((_v = fude_look_value(_argv[_i], "--text")) != NULL && sketching_text_count < 4u) {
+        } else if((_v = fude_look_value(_argv[_i], "--text")) != NULL && sketching_text_count < 8u) {
             snprintf(sketching_texts[sketching_text_count++], sizeof(sketching_texts[0]), "%s", _v);
         } else if((_v = fude_look_value(_argv[_i], "--joint")) != NULL) {
             if(sscanf(_v, "%f,%f,%f,%f@%u", &sketching_joint[0], &sketching_joint[1], &sketching_joint[2], &sketching_joint[3], &sketching_joint_frame) != 5) {
@@ -763,6 +847,13 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
         } else if((_v = fude_look_value(_argv[_i], "--library")) != NULL) {
             sketching_library    = atoi(_v);
             sketching_library_at = strchr(_v, '@') != NULL ? (u32)atoi(strchr(_v, '@') + 1) : 20u;
+        } else if((_v = fude_look_value(_argv[_i], "--strip-do")) != NULL && sketching_strip_do_count < 4u) {
+            u32* _d = sketching_strip_do[sketching_strip_do_count];
+            if(sscanf(_v, "%u,%u,%u@%u", &_d[0], &_d[1], &_d[2], &_d[3]) == 4) {
+                sketching_strip_do_count++;
+            }
+        } else if((_v = fude_look_value(_argv[_i], "--strip")) != NULL) {
+            sketching_strip = (u32)atoi(_v);
         } else if((_v = fude_look_value(_argv[_i], "--symbol")) != NULL && sketching_symbol_count < 8u) {
             const c8* _at = strrchr(_v, '@');
             snprintf(sketching_symbols[sketching_symbol_count], sizeof(sketching_symbols[0]), "%.*s", _at != NULL ? (int)(_at - _v) : (int)strlen(_v), _v);
@@ -794,6 +885,25 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sketching_inside_at = (u32)atoi(_argv[_i] + 9);
         } else if(strncmp(_argv[_i], "--back@", 7) == 0) {
             sketching_back_at = (u32)atoi(_argv[_i] + 7);
+        } else if((_v = fude_look_value(_argv[_i], "--audio-import")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            snprintf(sketching_audio_import, sizeof(sketching_audio_import), "%.*s", _at != NULL ? (int)(_at - _v) : (int)strlen(_v), _v);
+            sketching_audio_import_at = _at != NULL ? (u32)atoi(_at + 1) : 10u;
+        } else if((_v = fude_look_value(_argv[_i], "--audio")) != NULL && sketching_audio_do_count < 8u) {
+            u32* _d = sketching_audio_do[sketching_audio_do_count];
+            if(sscanf(_v, "%u,%u@%u", &_d[0], &_d[1], &_d[2]) == 3) {
+                sketching_audio_do_count++;
+            }
+        } else if((_v = fude_look_value(_argv[_i], "--crash-now")) != NULL) {
+            sketching_crash_at = (u32)atoi(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--home")) != NULL) {
+            sketching_home_at = (u32)atoi(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--welcome")) != NULL) {
+            sketching_welcome_at = (u32)atoi(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--canvas-new")) != NULL) {
+            const c8* _at = strrchr(_v, '@');
+            snprintf(sketching_canvas_new, sizeof(sketching_canvas_new), "%.*s", _at != NULL ? (int)(_at - _v) : (int)strlen(_v), _v);
+            sketching_canvas_new_at = _at != NULL ? (u32)atoi(_at + 1) : 5u;
         } else if((_v = fude_look_value(_argv[_i], "--canvas")) != NULL) {
             sscanf(_v, "%u@%u", &sketching_canvas[0], &sketching_canvas[1]);
         } else if((_v = fude_look_value(_argv[_i], "--pen-tap")) != NULL) {
@@ -982,6 +1092,12 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sketching_saw = true;
         } else if((_v = fude_look_value(_argv[_i], "--holes")) != NULL) {
             sketching_holes = atof(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--formula-hand")) != NULL) {
+            sketching_formula_at[0] = (u32)atoi(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--formula-read")) != NULL) {
+            sketching_formula_at[1] = (u32)atoi(_v);
+        } else if((_v = fude_look_value(_argv[_i], "--select-all")) != NULL) {
+            sketching_select_all = (u32)atoi(_v);
         } else if((_v = fude_look_value(_argv[_i], "--to-curve")) != NULL) {
             sketching_to_curve = (u32)atoi(_v);
         } else if((_v = fude_look_value(_argv[_i], "--nodes")) != NULL) {
@@ -1038,7 +1154,8 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
                 sketching_erase_frame = 0;
             }
         } else if((_v = fude_look_value(_argv[_i], "--paper-later")) != NULL) {
-            sketching_paper_later[0] = strncmp(_v, "lines", 5) == 0 ? FUDE_PAPER_LINES : strncmp(_v, "squares", 7) == 0 ? FUDE_PAPER_SQUARES :
+            sketching_paper_later[0] = _v[0] >= '0' && _v[0] <= '9' && (u32)atoi(_v) < FUDE_PAPER_COUNT ? (u32)atoi(_v) :   // (a number: canvas.h' FUDE_PAPER_)
+                                       strncmp(_v, "lines", 5) == 0 ? FUDE_PAPER_LINES : strncmp(_v, "squares", 7) == 0 ? FUDE_PAPER_SQUARES :
                                        strncmp(_v, "none", 4) == 0 ? FUDE_PAPER_NONE : FUDE_PAPER_DOTS;
             const c8* _at = strchr(_v, '@');
             sketching_paper_later[1] = _at != NULL ? (u32)atoi(_at + 1) : 0u;
@@ -1073,7 +1190,8 @@ RDE_INTERNAL void sketching_looks(i32 _argc, c8** _argv) {
             sketching_stress_add  = fude_look_is(_argv[_i], "--stress-add");
             sketching_stress_seed = (u32)rde_engine_get_time_now() * 2654435761u + 7u;
         } else if((_v = fude_look_value(_argv[_i], "--paper-is")) != NULL) {
-            canvas.page.paper = strcmp(_v, "lines") == 0 ? FUDE_PAPER_LINES : strcmp(_v, "squares") == 0 ? FUDE_PAPER_SQUARES : strcmp(_v, "none") == 0 ? FUDE_PAPER_NONE : FUDE_PAPER_DOTS;
+            canvas.page.paper = _v[0] >= '0' && _v[0] <= '9' && (u32)atoi(_v) < FUDE_PAPER_COUNT ? (FUDE_PAPER_)atoi(_v) :   // (a number: canvas.h' FUDE_PAPER_)
+                                strcmp(_v, "lines") == 0 ? FUDE_PAPER_LINES : strcmp(_v, "squares") == 0 ? FUDE_PAPER_SQUARES : strcmp(_v, "none") == 0 ? FUDE_PAPER_NONE : FUDE_PAPER_DOTS;
         } else if((_v = fude_look_value(_argv[_i], "--pan")) != NULL) {
             f64 _x = 0.0, _y = 0.0;
             sscanf(_v, "%lf,%lf", &_x, &_y);
@@ -1121,6 +1239,25 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
 #endif
     fude_page_init(&page, &app);
     fude_zoom_page_init(&zoom, &app);
+    // The home screen (home.h): the app's only screen, its words the app's own.
+    fude_zoom_home_init(&home, &app);
+    if(SKETCHING_PRODUCT == FUDE_ZOOM_PRODUCT_NOTES) {
+        home.title    = FUDE_TEXT_ZOOM_HOME_NOTEBOOKS;
+        home.new_text = FUDE_TEXT_ZOOM_HOME_NEW_NOTEBOOK;
+    } else if(SKETCHING_PRODUCT == FUDE_ZOOM_PRODUCT_WORKSHOP) {
+        home.title            = FUDE_TEXT_ZOOM_HOME_PROJECTS;
+        home.new_text         = FUDE_TEXT_ZOOM_HOME_NEW_PROJECT;
+        home.welcome_title    = FUDE_TEXT_ZOOM_WELCOME_TITLE;
+        home.welcome_lines[0] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_EXAMPLES;
+        home.welcome_lines[1] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_BUILD;
+        home.welcome_lines[2] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_DRAW;
+        home.welcome_first    = FUDE_TEXT_ZOOM_WELCOME_EXAMPLES;
+        home.on_first         = sketching_home_first;
+    }
+    home.on_new  = sketching_home_new;
+    zoom.on_home = sketching_open_home;
+    app.screens[0]   = (fude_screen_slot){ &FUDE_ZOOM_HOME_SCREEN, &home };
+    app.screen_count = 1u;
     fude_ui_init(&ui, &app);
     if(ui.font != NULL) {
         app.font    = ui.font;
@@ -1130,6 +1267,13 @@ void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     fude_look_start(&app);
     fude_session_load(&app);    // opens the canvas on the deep-zoom page too (the page kind)
     fude_look_loaded(&app);
+    // The apps open on their home screen (the last canvas under it); InfiniWorkshop's welcome over it, once.
+    if(SKETCHING_PRODUCT != FUDE_ZOOM_PRODUCT_SKETCHING && _argc <= 1) {
+        fude_zoom_home_open(&home);
+        if(!(app.cards_read & FUDE_ZOOM_HOME_WELCOMED)) {
+            fude_zoom_home_show_welcome(&home);
+        }
+    }
 #if defined(RDE_DEBUG) || defined(SKETCHING_LOOKS)
     sketching_looks(_argc, _argv);
 #endif
@@ -1148,10 +1292,13 @@ void on_event(rde_window* _window, rde_event* _event) {
     }
     if(_event->type == RDE_EVENT_TYPE_MOBILE_WILL_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND ||
        _event->type == RDE_EVENT_TYPE_MOBILE_TERMINATING) {
+        fude_zoom_page_audio_pause(&zoom);   // (a recording kept as it is: the app may not come back)
         fude_session_save_on_exit(&app);
     }
     if(fude_app_top(&app) == NULL) {
         fude_zoom_page_event(&zoom, _event);
+    } else {
+        fude_app_screen_event(&app, _event);   // (a screen on top: the home screen has the pointer)
     }
 }
 
@@ -1169,6 +1316,10 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
         _pencil_taps = rde_pen_listen_double_tap(window);
     }
 #endif
+    if(zoom.cover_stamp != home_cover_seen) {
+        home_cover_seen = zoom.cover_stamp;
+        fude_zoom_home_forget_cover(&home, zoom.cover_note);   // (a canvas's cover written again: shown afresh)
+    }
     fude_ink_frame_begin(&ink);
     fude_ink_frame_begin(&zoom.capture);
     if(!fude_app_update(&app, _dt)) {
@@ -1236,7 +1387,7 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     for(u32 _i = 0; _i < sketching_text_count; _i++) {
         f32 _x = 0.0f, _y = 0.0f;
         u32 _sticky = 0, _frame = 0;
-        c8  _words[160] = { 0 };
+        c8  _words[1024] = { 0 };
         const c8* _at = strrchr(sketching_texts[_i], '@');
         if(sscanf(sketching_texts[_i], "%f,%f,%u,", &_x, &_y, &_sticky) == 3 && _at != NULL && (u32)atoi(_at + 1) == sketching_frames) {
             const c8* _w = sketching_texts[_i];
@@ -1246,10 +1397,22 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
             }
             if(_w != NULL) {
                 snprintf(_words, sizeof(_words), "%.*s", (int)(_at - _w), _w);
-                for(c8* _c = _words; *_c != 0; _c++) {
+                const b8 _from_file = strncmp(_words, "file:", 5) == 0;
+                if(_from_file) {   // (words the engine's own options would take for one: an = in a formula; a note's table: its line breaks its own)
+                    FILE* _f = fopen(_words + 5, "rb");
+                    const usize _n = _f != NULL ? fread(_words, 1, sizeof(_words) - 1u, _f) : 0u;
+                    _words[_n] = 0;
+                    if(_f != NULL) {
+                        fclose(_f);
+                    }
+                    while(_words[0] != 0 && _words[strlen(_words) - 1u] == '\n') {
+                        _words[strlen(_words) - 1u] = 0;
+                    }
+                }
+                for(c8* _c = _words; *_c != 0 && _sticky != 2u && _sticky != 3u && !_from_file; _c++) {   // (a formula's | its own)
                     if(*_c == '|') { *_c = '\n'; }
                 }
-                fude_zoom_page_look_text(&zoom, (rde_vec_2F){ _x, _y }, _sticky != 0, _words);
+                fude_zoom_page_look_text(&zoom, (rde_vec_2F){ _x, _y }, (u8)_sticky, _words);
             }
         }
         RDE_UNUSED(_frame);
@@ -1387,6 +1550,14 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(sketching_holes > 0.0 && sketching_frames == 10u) {
         fude_zoom_page_look_holes(&zoom, sketching_holes);
     }
+    for(u8 _k = 0; _k < 2u; _k++) {
+        if(sketching_formula_at[_k] > 0u && sketching_frames == sketching_formula_at[_k]) {
+            fude_zoom_page_look_formula(&zoom, _k);
+        }
+    }
+    if(sketching_select_all > 0 && sketching_frames == sketching_select_all) {
+        FUDE_ZOOM_PAGE_KIND.command(&app, FUDE_PAGE_CMD_SELECT_ALL, (rde_vec_2F){ 0.0f, 0.0f });
+    }
     if(sketching_to_curve > 0 && sketching_frames == sketching_to_curve) {
         fude_toolbar_set_tool(&ui.bar, FUDE_TOOL_LASSO);
         fude_zoom_page_look_to_curve(&zoom);
@@ -1434,6 +1605,14 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     if(sketching_fillet_mm >= 0.0 && sketching_frames == sketching_fillet_at) {
         fude_zoom_page_look_fillet(&zoom, sketching_fillet_mm);
     }
+    for(u32 _k = 0; _k < sketching_strip_do_count; _k++) {
+        if(sketching_frames == sketching_strip_do[_k][3]) {
+            fude_zoom_page_look_strip_do(&zoom, (u8)sketching_strip_do[_k][0], sketching_strip_do[_k][1], sketching_strip_do[_k][2]);
+        }
+    }
+    if(sketching_strip > 0u && sketching_frames == sketching_strip) {
+        fude_zoom_page_look_strip(&zoom);
+    }
     if(sketching_library >= 0 && sketching_frames == sketching_library_at) {
         fude_zoom_page_look_library(&zoom, (u8)sketching_library);
     }
@@ -1472,6 +1651,39 @@ RDE_INTERNAL void sketching_update(f32 _dt) {
     }
     if(sketching_back_at > 0u && sketching_frames == sketching_back_at) {
         fude_zoom_page_look_back(&zoom);
+    }
+    if(sketching_audio_import_at > 0u && sketching_frames == sketching_audio_import_at) {
+        fude_zoom_page_look_audio_import(&zoom, sketching_audio_import);
+    }
+    for(u32 _k = 0; _k < sketching_audio_do_count; _k++) {
+        if(sketching_frames == sketching_audio_do[_k][2]) {
+            fude_zoom_page_look_audio(&zoom, (u8)sketching_audio_do[_k][0], sketching_audio_do[_k][1]);
+        }
+    }
+    if(sketching_crash_at > 0u && sketching_frames == sketching_crash_at) {
+        fude_crash_note("a look crashing on purpose");
+        volatile int* _nowhere = NULL;
+        *_nowhere = 1;   // (SIGSEGV)
+    }
+    if(sketching_home_at > 0u && sketching_frames == sketching_home_at) {
+        fude_zoom_page_cover_now(&zoom);
+        fude_zoom_home_open(&home);
+    }
+    if(sketching_welcome_at > 0u && sketching_frames == sketching_welcome_at) {
+        if(home.welcome_title == FUDE_TEXT_COUNT) {   // (Sketching has none: InfiniWorkshop's, to see it)
+            home.welcome_title    = FUDE_TEXT_ZOOM_WELCOME_TITLE;
+            home.welcome_lines[0] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_EXAMPLES;
+            home.welcome_lines[1] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_BUILD;
+            home.welcome_lines[2] = FUDE_TEXT_ZOOM_WELCOME_WORKSHOP_DRAW;
+            home.welcome_first    = FUDE_TEXT_ZOOM_WELCOME_EXAMPLES;
+        }
+        fude_zoom_home_show_welcome(&home);
+    }
+    if(sketching_canvas_new_at > 0u && sketching_frames == sketching_canvas_new_at) {
+        const u32 _id = fude_notes_add(&notes, FUDE_NOTE_CANVAS, 0u, sketching_canvas_new);
+        if(_id != 0u) {
+            notes.open = _id;   // (switched to by the session's next look)
+        }
     }
     if(sketching_canvas[1] > 0u && sketching_frames == sketching_canvas[1]) {
         notes.open = sketching_canvas[0];   // (switched to by the session's next look)
@@ -1809,7 +2021,8 @@ RDE_INTERNAL void sketching_render_top(rde_window* _window, f32 _dt) {
         return;
     }
     rde_rendering_2d_begin_drawing(_window, &camera);
-    fude_notice_render(_window, app.font, app.font_px, fude_app_top(&app) == NULL ? 72.0f : 8.0f + fude_row_height() + 16.0f);
+    fude_zoom_page_render_top(&zoom);   // (the Formula card's preview)
+    fude_notice_render(_window, app.font, app.font_px, fude_app_top(&app) == NULL ? fmaxf(72.0f, fude_zoom_page_notice_above(&zoom)) : 8.0f + fude_row_height() + 16.0f);
     rde_rendering_2d_end_drawing();
 }
 
@@ -1842,6 +2055,7 @@ void on_crash(const c8* _error, const c8* _callstack) {
 
 void end_func(void) {
     fude_session_save_on_exit(&app);
+    fude_zoom_home_destroy(&home);
     fude_zoom_page_destroy(&zoom);
     fude_ui_destroy(&ui);
     fude_lasso_destroy(&lasso);

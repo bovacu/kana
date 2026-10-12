@@ -22,6 +22,8 @@ RDE_INTERNAL const fude_zoom_product FZP_PRODUCTS[FUDE_ZOOM_PRODUCT_COUNT] = {
       FZP_BIT(FUDE_ZOOM_INSERT_PHOTOS) | FZP_BIT(FUDE_ZOOM_INSERT_FILES) | FZP_BIT(FUDE_ZOOM_INSERT_TEXT) | FZP_BIT(FUDE_ZOOM_INSERT_STICKY) |
           FZP_BIT(FUDE_ZOOM_INSERT_MERMAID) | FZP_BIT(FUDE_ZOOM_INSERT_PDF) | FZP_BIT(FUDE_ZOOM_INSERT_DIAGRAM) | FZP_BIT(FUDE_ZOOM_INSERT_KANBAN) |
           FZP_BIT(FUDE_ZOOM_INSERT_AREA) | FZP_BIT(FUDE_ZOOM_INSERT_PIECES) | FZP_BIT(FUDE_ZOOM_INSERT_MATHS),
+          // (formulas — Insert's, the lasso's Formula, Handwriting and Graph on them — hidden for now: Borja, 2026-10-11, until
+          // the handwriting reader is trained on real handwriting, docs/product_split.md §10; Sketching keeps them)
       FZP_BIT(FUDE_ZOOM_TOOLKIT_RULER) | FZP_BIT(FUDE_ZOOM_TOOLKIT_SQUARE_45) | FZP_BIT(FUDE_ZOOM_TOOLKIT_SQUARE_30) |
           FZP_BIT(FUDE_ZOOM_TOOLKIT_PROTRACTOR) | FZP_BIT(FUDE_ZOOM_TOOLKIT_COMPASS) | FZP_BIT(FUDE_ZOOM_TOOLKIT_CIRCLES) |
           FZP_BIT(FUDE_ZOOM_TOOLKIT_ELLIPSES) | FZP_BIT(FUDE_ZOOM_TOOLKIT_FRENCH_CURVE) | FZP_BIT(FUDE_ZOOM_TOOLKIT_STENCIL) |
@@ -29,15 +31,15 @@ RDE_INTERNAL const fude_zoom_product FZP_PRODUCTS[FUDE_ZOOM_PRODUCT_COUNT] = {
       FZP_BIT(FUDE_ZOOM_OUT_PNG) | FZP_BIT(FUDE_ZOOM_OUT_SVG) | FZP_BIT(FUDE_ZOOM_OUT_PDF) | FZP_BIT(FUDE_ZOOM_OUT_A4) |
           FZP_BIT(FUDE_ZOOM_OUT_LETTER) | FZP_BIT(FUDE_ZOOM_OUT_VIDEO) | FZP_BIT(FUDE_ZOOM_OUT_AREAS),
       false, false },
-    // Workshop: projects that work — circuits, mechanisms, plans, wood, sewing, their PDFs, and diagrams and Kanban to
-    // plan them (Borja: both apps'); no maths' graphs (Notes').
+    // Workshop: projects that work — circuits, mechanisms, plans, wood, sewing, their PDFs, diagrams and Kanban to plan
+    // them (Borja: both apps'), and graphs (Borja, 2026-10-11: its Maths topic, called Graphs there); no formulas (Notes').
     { FZP_BIT(FUDE_ZOOM_TOPIC_GENERAL) | FZP_BIT(FUDE_ZOOM_TOPIC_TECHNICAL) | FZP_BIT(FUDE_ZOOM_TOPIC_WOOD) | FZP_BIT(FUDE_ZOOM_TOPIC_PDF) |
-          FZP_BIT(FUDE_ZOOM_TOPIC_DIAGRAMS) |
+          FZP_BIT(FUDE_ZOOM_TOPIC_DIAGRAMS) | FZP_BIT(FUDE_ZOOM_TOPIC_MATHS) |
           FZP_BIT(FUDE_ZOOM_TOPIC_ELECTRONICS) | FZP_BIT(FUDE_ZOOM_TOPIC_MECHANISMS) | FZP_BIT(FUDE_ZOOM_TOPIC_FLOORPLAN) |
           FZP_BIT(FUDE_ZOOM_TOPIC_WIRING) | FZP_BIT(FUDE_ZOOM_TOPIC_SEWING),
       FUDE_ZOOM_TOPIC_GENERAL,
       FZP_ALL(FUDE_ZOOM_TOOL_COUNT) & ~FZP_BIT(FUDE_ZOOM_TOOL_PAGES),   // (a notebook's pages: Notes')
-      FZP_ALL(FUDE_ZOOM_INSERT_COUNT) & ~FZP_BIT(FUDE_ZOOM_INSERT_MATHS),
+      FZP_ALL(FUDE_ZOOM_INSERT_COUNT) & ~FZP_BIT(FUDE_ZOOM_INSERT_FORMULA),
       FZP_ALL(FUDE_ZOOM_TOOLKIT_COUNT),
       FZP_ALL(FUDE_ZOOM_OUT_COUNT),
       true, true },

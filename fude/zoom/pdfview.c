@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/pdfview.h"
+#include "zoom/rich.h"
+#include "zoom/formula.h"
 #include "zoom/fill.h"
 #include "zoom/codec.h"
 #include "drawing/base/theme.h"
@@ -622,7 +624,79 @@ RDE_INTERNAL fude_zoom_box fude_zoom_pdfview_box_through(fude_zoom_sim _sim, fud
     return _out;
 }
 
-b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* _font, f32 _font_px, const c8* _out) {
+// A note's words measured in the app's font (rich.h).
+typedef struct {
+    rde_font* font;
+    f32       font_px;
+} fude_zoom_pdfview_fonts;
+
+RDE_INTERNAL f32 fude_zoom_pdfview_measure(void* _self, const c8* _text, u32 _len, f32 _px, u8 _style) {
+    RDE_UNUSED(_style);
+    const fude_zoom_pdfview_fonts* _f = (const fude_zoom_pdfview_fonts*)_self;
+    c8 _small[512];
+    const u32 _n = _len < sizeof(_small) - 1u ? _len : (u32)sizeof(_small) - 1u;
+    memcpy(_small, _text, _n);
+    _small[_n] = 0;
+    return fude_draw_text_width(_f->font, _f->font_px, _small, _px);
+}
+
+// A text read as a note (rich.h) onto a page: its marks as lines and fills, each run of its words a text. _all: its
+// own units onto the home frame; _kp: a unit of it in page points.
+RDE_INTERNAL void fude_zoom_pdfview_rich(fude_pdf_writer* _w, const fude_zoom_pdfview* _v, u32 _page, fude_zoom_sim _all, f64 _kp, rde_font* _font, f32 _font_px,
+                                         const c8* _words, u32 _len, f64 _size, f64 _width, f64 _pad, rde_color _color) {
+    fude_zoom_pdfview_fonts _fonts = { _font, _font_px };
+    fude_zoom_rich _rich;
+    fude_zoom_rich_init(&_rich);
+    fude_zoom_rich_lay(&_rich, _words, _len, (f32)_width, (f32)_size, 1.3f, fude_zoom_pdfview_measure, &_fonts);
+    #define FZV_AT(_x, _y) fude_zoom_pdfview_to_page(_v, _page, fude_zoom_sim_apply(_all, (fude_zoom_v2){ _pad + (f64)(_x), -_pad - (f64)(_y) }))
+    const f32 _r = (f32)fmax(0.2, _size * _kp * 0.035);
+    rde_color _soft = _color, _ground = _color;
+    _soft.a   = (u8)((u32)_color.a * 35u / 100u);
+    _ground.a = (u8)((u32)_color.a * 10u / 100u);
+    const fude_zoom_rich_mark* _m = (const fude_zoom_rich_mark*)_rich.marks.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_rich.marks); _i++) {
+        const fude_zoom_rich_mark _q = _m[_i];
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_LINE) {
+            const rde_vec_2F _l[2] = { FZV_AT(_q.x0, _q.y0), FZV_AT(_q.x1, _q.y1) };
+            const f32 _rr[2] = { _r, _r };
+            fude_pdf_write_stroke(_w, _l, _rr, 2u, _q.soft ? _soft : _color, false);
+            continue;
+        }
+        const rde_vec_2F _c[5] = { FZV_AT(_q.x0, _q.y0), FZV_AT(_q.x1, _q.y0), FZV_AT(_q.x1, _q.y1), FZV_AT(_q.x0, _q.y1), FZV_AT(_q.x0, _q.y0) };
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_GROUND) {
+            const rde_vec_2F _two[6] = { _c[0], _c[1], _c[2], _c[0], _c[2], _c[3] };
+            fude_pdf_write_fill(_w, _two, 2u, _ground);
+            continue;
+        }
+        const f32 _rr[5] = { _r, _r, _r, _r, _r };
+        fude_pdf_write_stroke(_w, _c, _rr, 5u, _color, false);
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_TICKED) {
+            const f32 _bw = _q.x1 - _q.x0, _bh = _q.y1 - _q.y0;
+            const rde_vec_2F _t[3] = { FZV_AT(_q.x0 + 0.2f * _bw, _q.y0 + 0.52f * _bh), FZV_AT(_q.x0 + 0.42f * _bw, _q.y0 + 0.78f * _bh),
+                                       FZV_AT(_q.x0 + 0.82f * _bw, _q.y0 + 0.22f * _bh) };
+            const f32 _tr[3] = { _r * 1.4f, _r * 1.4f, _r * 1.4f };
+            fude_pdf_write_stroke(_w, _t, _tr, 3u, _color, false);
+        }
+    }
+    const fude_zoom_rich_run* _run = (const fude_zoom_rich_run*)_rich.runs.memory;
+    c8 _row[512];
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_rich.runs); _i++) {
+        const fude_zoom_rich_run _q = _run[_i];
+        const u32 _n = _q.len < sizeof(_row) - 1u ? _q.len : (u32)sizeof(_row) - 1u;
+        memcpy(_row, (_q.style & FUDE_ZOOM_RICH_OWN) ? FUDE_ZOOM_RICH_BULLET : &_words[_q.from], _n);
+        _row[_n] = 0;
+        rde_color _c = (_q.style & FUDE_ZOOM_RICH_LINK) ? (rde_color){ 70, 130, 230, 255 } : _color;
+        if(_q.style & FUDE_ZOOM_RICH_SOFT) {
+            _c.a = (u8)((u32)_c.a * 55u / 100u);
+        }
+        fude_pdf_write_text(_w, _row, FZV_AT(_q.x, _q.y), (f32)(_q.px * _kp), _c);
+    }
+    #undef FZV_AT
+    fude_zoom_rich_free(&_rich);
+}
+
+b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* _font, f32 _font_px, fude_zoom_formulas* _formulas,
+                            const c8* _out) {
     if(!fude_zoom_pdfview_is_open(_v)) {
         return false;
     }
@@ -696,6 +770,39 @@ b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* 
                     }
                     const fude_zoom_sim _all = fude_zoom_sim_compose(_to_home, fude_zoom_object_sim(_o));
                     const f64 _kp  = fude_zoom_sim_scale(_all) / _k;   // a local unit, in page points
+                    const fude_zoom_tex_box* _box = _style == FUDE_ZOOM_TEXT_FORMULA && _formulas != NULL ? fude_zoom_formulas_set(_formulas, _words, _len) : NULL;
+                    if(_box != NULL) {
+                        // A formula: its glyphs' triangles as the canvas draws them (cut finer: a PDF is zoomed into), its rules.
+                        const fude_zoom_sim _em = fude_zoom_sim_compose(_all, (fude_zoom_sim){ _size, 0.0, FUDE_ZOOM_FORMULA_PAD * _size,
+                                                                                              -(FUDE_ZOOM_FORMULA_PAD + _box->height) * _size });
+                        const f64 _upem = (f64)_formulas->font.units_per_em;
+                        const fude_zoom_tex_glyph* _g = (const fude_zoom_tex_glyph*)_box->glyphs.memory;
+                        for(u32 _j = 0; _j < (u32)rde_arr_length(&_box->glyphs); _j++) {
+                            const fude_zoom_v2* _t = NULL;
+                            const u32 _nt = fude_zoom_formulas_mesh(_formulas, _g[_j].glyph, 8.0 * _size * _kp * _g[_j].size, &_t);
+                            const fude_zoom_sim _gs = fude_zoom_sim_compose(_em, (fude_zoom_sim){ _g[_j].size / _upem, 0.0, _g[_j].x, _g[_j].y });
+                            rde_arr_clear(&_tpts);
+                            for(u32 _m = 0; _m < 3u * _nt; _m++) {
+                                const rde_vec_2F _a = fude_zoom_pdfview_to_page(_v, _page, fude_zoom_sim_apply(_gs, _t[_m]));
+                                rde_arr_add(&_tpts, (any)&_a);
+                            }
+                            if(_nt > 0u) {
+                                fude_pdf_write_fill(_w, (const rde_vec_2F*)_tpts.memory, _nt, _color);
+                            }
+                        }
+                        const fude_zoom_tex_rule* _r = (const fude_zoom_tex_rule*)_box->rules.memory;
+                        for(u32 _j = 0; _j < (u32)rde_arr_length(&_box->rules); _j++) {
+                            const fude_zoom_v2 _c[4] = { { _r[_j].x, _r[_j].y }, { _r[_j].x + _r[_j].w, _r[_j].y },
+                                                         { _r[_j].x + _r[_j].w, _r[_j].y + _r[_j].h }, { _r[_j].x, _r[_j].y + _r[_j].h } };
+                            rde_vec_2F _q[4];
+                            for(u32 _m = 0; _m < 4u; _m++) {
+                                _q[_m] = fude_zoom_pdfview_to_page(_v, _page, fude_zoom_sim_apply(_em, _c[_m]));
+                            }
+                            const rde_vec_2F _two[6] = { _q[0], _q[1], _q[2], _q[0], _q[2], _q[3] };
+                            fude_pdf_write_fill(_w, _two, 2u, _color);
+                        }
+                        continue;
+                    }
                     const f64 _pad = _style == FUDE_ZOOM_TEXT_STICKY ? _size * 0.6 : 0.0;
                     if(_style == FUDE_ZOOM_TEXT_STICKY) {
                         const fude_zoom_v2 _c[4] = { { 0.0, 0.0 }, { _tw, 0.0 }, { _tw, -_th }, { 0.0, -_th } };
@@ -705,6 +812,11 @@ b8 fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* 
                         }
                         const rde_vec_2F _two[6] = { _q[0], _q[1], _q[2], _q[0], _q[2], _q[3] };
                         fude_pdf_write_fill(_w, _two, 2u, _o->fill);
+                    }
+                    if(fude_zoom_rich_marked(_words, _len)) {
+                        fude_zoom_pdfview_rich(_w, _v, _page, _all, _kp, _font, _font_px, _words, _len, _size,
+                                               _style == FUDE_ZOOM_TEXT_STICKY ? fmax(_tw - 2.0 * _pad, _size) : 0.0, _pad, _color);
+                        continue;
                     }
                     rde_arr_resize(&_text, (usize)_len + 1u);
                     c8* _tx = (c8*)_text.memory;

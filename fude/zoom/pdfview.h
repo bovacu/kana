@@ -108,7 +108,9 @@ b8   fude_zoom_pdfview_match_box(fude_zoom_pdfview* _v, u32 _i, fude_zoom_box* _
 // bucket left, the shapes, the texts and notes (their lines broken as _font breaks them
 // on the canvas) — on white paper, the theme's ink as the light theme's. What is beside
 // the pages is left out; pictures put on the canvas are not written yet. False when it
-// could not be (pdf.h: no writer here).
-b8   fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* _font, f32 _font_px, const c8* _out);
+// could not be (pdf.h: no writer here). Formulas set with _formulas (NULL: written as their LaTeX).
+struct fude_zoom_formulas;
+b8   fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* _font, f32 _font_px, struct fude_zoom_formulas* _formulas,
+                              const c8* _out);
 
 #endif

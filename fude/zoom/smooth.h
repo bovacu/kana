@@ -40,7 +40,7 @@ typedef enum {
     FUDE_ZOOM_SMOOTH_COUNT
 } FUDE_ZOOM_SMOOTH_;
 
-#define FUDE_ZOOM_SMOOTH_DEFAULT     FUDE_ZOOM_SMOOTH_LOW
+#define FUDE_ZOOM_SMOOTH_DEFAULT     FUDE_ZOOM_SMOOTH_OFF   // (Borja, 2026-10-11: the hand's line as drawn, until smoothing is chosen)
 #define FUDE_ZOOM_SMOOTH_ROPE_LENGTH 22.0    // screen points
 #define FUDE_ZOOM_SMOOTH_CATCH_STEP  2.0     // screen points between the finish line's points
 

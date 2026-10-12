@@ -1,3 +1,4 @@
 /* The camera prompt (scanning pages to draw on), in en. UTF-8. */
 "NSCameraUsageDescription" = "Sketching scans pages with the camera, so you can draw on them.";
 "CFBundleDisplayName" = "Sketching";
+"NSMicrophoneUsageDescription" = "Sketching records what is said while you write, so a tap on your writing plays it back.";

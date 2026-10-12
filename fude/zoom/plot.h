@@ -8,13 +8,26 @@
 
 // ===========================================================================
 // MATHS (Sketching's Maths topic): the diagram library's Maths family — a GRAPH
-// (functions of x drawn on axes), AXES, a NUMBER LINE — drawn from their text:
-// each line a function ("y = sin(x)", "x^2 - 1": calc.h), or its view ("x -5 5",
-// "y -2 2": from and to; without one, x from −10 to 10 and y as the functions
-// go). Their axes, ticks (1, 2 or 5 of a power of ten apart, about ten of them)
-// and grid, and each function's curve (broken where it is not, or leaps off the
-// view: an asymptote), are lines in the symbol's own units; the ticks' numbers,
-// labels where they go.
+// (curves drawn on axes), AXES, a NUMBER LINE — drawn from their text, a line
+// each (numbers as maths writes them: calc.h — 2pi, pi/2, 1e3):
+//   a function of x        "y = sin(x)", "f(x) = x^2 - 1", "x^2 - 1"
+//   a curve of t           "(cos(t), sin(2t))"   (t from 0 to 2π, or "t 0 4pi")
+//   a polar curve          "r = 1 + cos(θ)"      (θ as t)
+//   an equation of x, y    "x^2 + y^2 = 4", "y^2 = x^3 - x", "x = y^2"
+//   an inequality          "y < x^2", "x^2 + y^2 >= 1" (≤ ≥ too): its region
+//                          shaded, its edge dashed when it is not in it
+//   its view               "x -5 5", "y -2 2" (without one: x from −10 to 10
+//                          and y as its functions go; only curves of t and
+//                          equations: round them, a unit as long across as up)
+//   what to mark           "roots", "extrema", "intersections" (its functions')
+//   an area                "area 0 2" (under its first function, shaded; its
+//                          value in the legend)
+// Its axes, ticks (1, 2 or 5 of a power of ten apart, about ten of them) and
+// grid, and each curve (followed finer where it bends; broken where it is
+// not, or leaps: an asymptote; cut at the view's edge), are lines in the
+// symbol's own units; the ticks' numbers, labels where they go. Parts' flags:
+// below 32 the symbol's own (DASHED its grid), 32 + k curve k's (+ 8: dashed),
+// 64 + k a region of curve k's (a polygon, filled faint in its colour).
 // ===========================================================================
 
 typedef struct {
@@ -22,6 +35,7 @@ typedef struct {
     c8           text[48];
     u8           align;       // 0 centred under, 1 right of it (a y tick's: to its left), 2 centred, 3 from it on (a point's), 4 a legend's line (from it on, on its paper)
     u8           curve;       // 0: in its ink; 1 + k: its function k's colour (a curve's part: flags 32 + k)
+    c8           latex[192];  // a legend's line as maths, set (tex.h: x^{2} + y^{2} = 4) — empty: its text as it is
 } fude_zoom_plot_label;
 
 // Is symbol id _id one of the Maths family's (drawn from its text: its text not written in it as it is — a graph's

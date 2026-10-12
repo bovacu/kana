@@ -380,6 +380,8 @@ b8 fude_save_settings(const c8* _path, const fude_settings* _settings) {
     fude_put_f32(&_b, _settings->print_y);
     fude_put_f32(&_b, _settings->kerf_mm);
     fude_put_u8(&_b, _settings->show_fps ? 1u : 0u);
+    fude_put_u8(&_b, _settings->keep_grain ? 1u : 0u);
+    fude_put_u8(&_b, _settings->smooth_chosen ? 1u : 0u);
     fude_chunk_end(&_b, _chunk);
 
     return fude_bytes_write_and_free(&_b, _path, NULL);
@@ -408,6 +410,7 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
     }
 
     fude_settings _s = *_settings;
+    _s.smooth_chosen = false;   // (a file from before it: its smoothing stored, but never chosen by hand — the default's)
 
     while(_r.ok && _r.pos < _r.size) {
         const u32 _tag = fude_get_u32(&_r);
@@ -486,6 +489,10 @@ FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings) {
         }
         const u8 _fps = fude_get_u8(&_c);   // ...the frame rate never shown
         if(_c.ok) { _s.show_fps = _fps != 0u; }
+        const u8 _grain = fude_get_u8(&_c);   // ...parts fitted free to turn
+        if(_c.ok) { _s.keep_grain = _grain != 0u; }
+        const u8 _chosen = fude_get_u8(&_c);   // ...the smoothing stored never chosen by hand
+        if(_c.ok) { _s.smooth_chosen = _chosen != 0u; }
     }
 
     fude_file_free(_data);
@@ -510,5 +517,5 @@ b8 fude_settings_equal(const fude_settings* _a, const fude_settings* _b) {
            _a->smoothing == _b->smoothing && fude_same_f32(_a->eraser_radius, _b->eraser_radius) &&
            _a->units == _b->units && fude_same_f32(_a->true_mm_per_point, _b->true_mm_per_point) &&
            fude_same_f32(_a->print_x, _b->print_x) && fude_same_f32(_a->print_y, _b->print_y) && fude_same_f32(_a->kerf_mm, _b->kerf_mm) &&
-           _a->show_fps == _b->show_fps;
+           _a->show_fps == _b->show_fps && _a->keep_grain == _b->keep_grain && _a->smooth_chosen == _b->smooth_chosen;
 }

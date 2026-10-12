@@ -300,6 +300,30 @@ The opening: Apple's Math Notes is iPad-only, and Android tablets have nothing l
     shared ones with their own over them, put together at build time (`build/<app>-stage/assets/`).
   - `zsh tools/android/build.sh infinote|infiniworkshop --release` builds them.
   - Sketching stays the developer's build, with everything in it.
+- **The LaTeX typesetter, and formulas on the canvas** (0.1.81, infinite_canvas_design.md §63). §4.3's plan is built,
+  with one change: the font is **Noto Sans Math** (OFL) in place of STIX Two Math, because it is already shipped and its
+  MATH table is complete.
+  - `fude/zoom/mathfont.{h,c}` reads the font, `fude/zoom/tex.{h,c}` sets the maths by Appendix G, and
+    `fude/zoom/formula.{h,c}` draws glyphs as cached triangles at nine levels of detail.
+  - In InfiNote (and Sketching), Insert → Formula. The card previews the formula as it is typed.
+  - SVG and PDF exports write the formula's outlines.
+  - About 2,600 lines in all.
+- **Graphs** (0.1.81, §64): equations and inequalities of x and y (shaded regions), curves of t, polar curves, curves
+  followed finely and broken at asymptotes, roots, turning points, crossings and areas marked, and a view fitted
+  round, one unit as long across as up.
+- **Math Notes' first two** (0.1.81, §63): a sum ending in `=` is answered in place, and Graph on the lasso's row
+  puts the held formulas on a graph beside them.
+- **Both ways by hand** (0.1.82, §65):
+  - LaTeX → handwriting: Handwriting on the lasso's row for formulas (`handmath.{h,c}`, with Hershey's maths and Greek
+    sets);
+  - handwriting → LaTeX: our own recogniser, Formula on the row for ink (`mathread.{h,c}`). It reads 93 of 96
+    synthetic handwritten formulas; it needs real handwriting to tune with.
+  - Graph legends are now set as maths. InfiniWorkshop has graphs (its Graphs topic; Borja, 2026-10-11).
+- **Next for maths:**
+  - tune the recogniser on real handwriting (Borja's strokes; a "correct it" loop that keeps what users fix as
+    training data, §4.3);
+  - more symbols in the reader (∏, ∂ limits, matrices) and handwritten maths read as it is written;
+  - numbers you scrub.
 - **Next for notebooks:**
   - a page number on screen, and a strip of thumbnails to go to, insert, move and delete pages;
   - the paper in the PDF export;
@@ -325,11 +349,101 @@ The opening: Apple's Math Notes is iPad-only, and Android tablets have nothing l
 
 Still open:
 - whether InfiniWorkshop ships first (the recommendation, §1);
-- maths graphs in InfiniWorkshop;
 - the platforms after Android (iPad);
 - (The icons are done: `tools/icons/infini_icons.py` draws them. InfiNote's is a notebook page with an infinity written
   across it in a fountain pen's line and a small one inside its loop; InfiniWorkshop's is a blueprint with an amber
   infinity whose right loop is a gear and whose left loop runs circuit traces.)
+
+## 10. Backlog: handwritten maths, on hold (Borja, 2026-10-11)
+
+Borja stopped this until there is real handwriting to train on. Until then, **formulas are hidden from InfiNote and
+InfiniWorkshop**. Notes' product no longer has `FUDE_ZOOM_INSERT_FORMULA`, and the lasso's Formula, Handwriting and
+Graph-from-formula check `fude_zoom_formula_present()`. **Sketching keeps them all** (the developer build). Formulas
+already on a canvas still draw and can be edited by tapping them with the text tool. Graph legends set as maths stay.
+
+**What is built** (infinite_canvas_design.md §63–§65, all tested):
+- the typesetter (`tex`, `mathfont`), formulas on the canvas (`formula`), sums answered and Graph from formulas
+  (`texcalc`);
+- LaTeX → handwriting (`handmath`, Hershey's maths and Greek sets in `tools/hershey/`);
+- the reader, handwriting → LaTeX (`mathread`: $P symbols, segmentation by dynamic programming, layout).
+
+It reads 93 of 96 formulas the app writes by hand itself, but **failed on Borja's first real test**. His `√(b²)` came
+out as `π(k·)`, for three reasons:
+1. a `√` drawn in one stroke with a long bar over everything: its templates had short bars;
+2. the small `²` taken for a dot: the dot rule went by size only, and a dot is also a short stroke;
+3. `b` merged with a `²` that touches it into `k`: touching was penalised as hard as crossing, and should be much
+   weaker.
+
+These strokes, traced from his screenshot, are a ready test (scratch `realtest.c`; to go into `test_mathread`). They
+currently read as `\in ^{2})`.
+
+**Collecting real handwriting (where it stands).** Borja writes samples in InfiNote on ruled paper, one row per item,
+many copies in varied hands. When a row is skipped it is left empty, so the order alone gives the labels.
+- Done on the tablet (2026-10-11, not exported yet): group 1, digits 0–9; group 2, lowercase a–z with ñ (Spanish
+  order; check that w is there).
+- Still to write:
+  3. operators: `+ − × ÷ · ± = ≠ < > ≤ ≥ ≈ → ⇒ ∈ ∞`;
+  4. brackets, half short and half tall in each row: `( ) [ ] { } |`;
+  5. big symbols:
+     - `√` with a short bar;
+     - `√` with a long bar (just the sign);
+     - `∑ ∏ ∫ ∂ ∇`;
+  6. Greek: `α β γ δ ε θ λ μ π ρ σ τ φ ω`;
+  7. capitals A–Z, then `Γ Δ Θ Λ Σ Φ Ψ Ω` (about 6 each);
+  8. 42 formulas, each written twice on its row:
+     1. x² + y² = r²
+     2. a² − b² = (a − b)(a + b)
+     3. 1 over 2
+     4. a + b over c
+     5. x over y + 1 over x
+     6. 1 over 1 + x²
+     7. (1 over 2) over 3
+     8. √2
+     9. √(x + 1)
+     10. √(a² + b²)
+     11. ∛8
+     12. x₁ + x₂
+     13. xᵢ²
+     14. e^(x+1)
+     15. 2ⁿ + 1
+     16. aₙ = aₙ₋₁ + d
+     17. ∑ i=1..n of i
+     18. ∑ k=0..∞ of 1 over k! = e
+     19. ∫ 0..1 of x² dx
+     20. ∫ a..b of f(x) dx
+     21. ∏ i=1..n of i = n!
+     22. lim x→0 of (sin x over x) = 1
+     23. f′(x) = 2x
+     24. dy over dx = 3x²
+     25. ∂f over ∂x
+     26. y = mx + b
+     27. y = sin x + cos x
+     28. log₂ 8 = 3
+     29. ln e = 1
+     30. x = −b ± √(b² − 4ac), all over 2a
+     31. |x − 3| < 5
+     32. 3.14 × 2 = 6.28
+     33. α + β = γ
+     34. θ ≈ 0.5
+     35. x ≤ 2
+     36. x ≠ 0
+     37. f(x) = (x + 1)²
+     38. x ∈ [0, 1]
+     39. {1, 2, 3}
+     40. E = mc²
+     41. F = ma
+     42. n! = n(n − 1)!
+- How the data comes over: ☰ → Settings → Your data → **Export**, saved to Downloads, then `adb pull` from
+  `/sdcard/Download`. The backup keeps every stroke's points and their order, which a screenshot loses.
+
+**Next, when Borja is back:**
+1. A tool that reads the backup and turns it into labelled samples. It cuts each canvas into rows (the paper's lines)
+   and each row into copies by gaps, then gives each copy its label from the row's place in the list.
+2. Templates built from his samples (several per symbol) in place of, or beside, Hershey's.
+3. Tune the segmentation (touching, dots, long root bars) and the layout on his formulas. Measure on a held-out half.
+4. A "correct it" loop: when a reading is fixed in the formula card, keep the strokes and the fix as more samples, on
+   the device.
+5. Then show formulas in InfiNote again.
 
 ---
 

@@ -994,7 +994,156 @@ RDE_INTERNAL b8 fude_zoom_graph_statement(fude_zoom_graph_reader* _r) {
     return fude_zoom_graph_chain(_r);
 }
 
+// --- a mind map (Mermaid's mindmap) ---------------------------------------------------------------
+
+#define FUDE_ZOOM_GRAPH_MIND_DEPTH 64u   // levels deep at most
+
+// A mind map's line's node: its shape and its text (between its shape's brackets, or the whole line). False: a bracket
+// not closed.
+RDE_INTERNAL b8 fude_zoom_graph_mind_node(const c8* _a, const c8* _b, u8* _shape, c8* _label, u32 _cap) {
+    static const struct { const c8* open; const c8* close; u8 shape; } _shapes[] = {
+        { "((", "))", FUDE_ZOOM_NODE_CIRCLE }, { "))", "((", FUDE_ZOOM_NODE_HEXAGON },   // (a bang: Mermaid's own; a hexagon here)
+        { "{{", "}}", FUDE_ZOOM_NODE_HEXAGON }, { ")", "(", FUDE_ZOOM_NODE_ROUND },       // (a cloud)
+        { "(", ")", FUDE_ZOOM_NODE_ROUND }, { "[", "]", FUDE_ZOOM_NODE_RECT },
+    };
+    // (its id: up to the first bracket, no space in it)
+    const c8* _o = _a;
+    while(_o < _b && *_o != '[' && *_o != '(' && *_o != ')' && *_o != '{' && !fude_zoom_graph_space(*_o)) {
+        _o++;
+    }
+    for(u32 _k = 0; _o < _b && *_o != ' ' && _k < sizeof(_shapes) / sizeof(_shapes[0]); _k++) {
+        const u32 _on = (u32)strlen(_shapes[_k].open), _cn = (u32)strlen(_shapes[_k].close);
+        if((u32)(_b - _o) < _on + _cn || memcmp(_o, _shapes[_k].open, _on) != 0) {
+            continue;
+        }
+        if(memcmp(_b - _cn, _shapes[_k].close, _cn) != 0) {
+            return false;
+        }
+        *_shape = _shapes[_k].shape;
+        fude_zoom_graph_text(_label, _cap, _o + _on, _b - _cn);
+        return true;
+    }
+    *_shape = FUDE_ZOOM_NODE_ROUND;   // (text alone: Mermaid's own default, a rounded box here)
+    fude_zoom_graph_text(_label, _cap, _a, _b);
+    return true;
+}
+
+RDE_INTERNAL b8 fude_zoom_graph_parse_mindmap(fude_zoom_graph* _g, const c8* _text, u32 _size, u32* _error_line, u8* _error) {
+    fude_zoom_graph_clear(_g);
+    u32 _parents[FUDE_ZOOM_GRAPH_MIND_DEPTH], _indents[FUDE_ZOOM_GRAPH_MIND_DEPTH];
+    u32 _depth = 0, _line = 0, _count = 0;
+    b8  _header = false, _ok = true;
+    u8  _why = FUDE_ZOOM_MERMAID_OK;
+    const c8* _p = _text != NULL ? _text : "";
+    const c8* _end = _p + (_text != NULL ? _size : 0u);
+    while(_ok && _p < _end) {
+        const c8* _e = _p;
+        while(_e < _end && *_e != '\n') {
+            _e++;
+        }
+        _line++;
+        u32 _indent = 0;
+        const c8* _a = _p;
+        while(_a < _e && (*_a == ' ' || *_a == '\t')) {
+            _indent += *_a == '\t' ? 4u : 1u;
+            _a++;
+        }
+        const c8* _b = _e;
+        while(_b > _a && (fude_zoom_graph_space(_b[-1]) || _b[-1] == '\r')) {
+            _b--;
+        }
+        _p = _e < _end ? _e + 1 : _e;
+        if(_b == _a || (_b - _a >= 2 && _a[0] == '%' && _a[1] == '%')) {
+            continue;   // (empty; a comment)
+        }
+        if(!_header) {
+            _header = _b - _a == 7 && memcmp(_a, "mindmap", 7u) == 0;
+            _ok     = _header;
+            _why    = _header ? FUDE_ZOOM_MERMAID_OK : FUDE_ZOOM_MERMAID_HEADER;
+            continue;
+        }
+        if((_b - _a >= 2 && _a[0] == ':' && _a[1] == ':') || (_b - _a >= 3 && memcmp(_a, ":::", 3u) == 0)) {
+            continue;   // (an icon, a class: how it looks in Mermaid)
+        }
+        // Its parent: the nearest above it less indented.
+        while(_depth > 0u && _indents[_depth - 1u] >= _indent) {
+            _depth--;
+        }
+        if(_depth == 0u && _count > 0u) {
+            _ok  = false;
+            _why = FUDE_ZOOM_MERMAID_NODE;   // (a second root)
+            break;
+        }
+        u8 _shape = FUDE_ZOOM_NODE_ROUND;
+        c8 _label[FUDE_ZOOM_GRAPH_LABEL];
+        if(!fude_zoom_graph_mind_node(_a, _b, &_shape, _label, sizeof(_label))) {
+            _ok  = false;
+            _why = FUDE_ZOOM_MERMAID_SHAPE;
+            break;
+        }
+        c8 _id[FUDE_ZOOM_GRAPH_ID];
+        snprintf(_id, sizeof(_id), "mind%u", _count);
+        const u32 _n = fude_zoom_graph_add_node(_g, _id, _label[0] != 0 ? _label : " ", _shape);
+        if(_n == FUDE_ZOOM_GRAPH_NONE || _depth >= FUDE_ZOOM_GRAPH_MIND_DEPTH) {
+            _ok  = false;
+            _why = FUDE_ZOOM_MERMAID_TOO_BIG;
+            break;
+        }
+        if(_depth > 0u) {
+            const u32 _e2 = fude_zoom_graph_add_edge(_g, _parents[_depth - 1u], _n);
+            if(_e2 == FUDE_ZOOM_GRAPH_NONE) {
+                _ok  = false;
+                _why = FUDE_ZOOM_MERMAID_TOO_BIG;
+                break;
+            }
+            fude_zoom_graph_edge_at(_g, _e2)->head_end = FUDE_ZOOM_EDGE_HEAD_NONE;   // (a branch, not an arrow)
+        }
+        _parents[_depth] = _n;
+        _indents[_depth] = _indent;
+        _depth++;
+        _count++;
+    }
+    if(_ok && (!_header || _count == 0u)) {
+        _ok  = false;
+        _why = _header ? FUDE_ZOOM_MERMAID_NODE : FUDE_ZOOM_MERMAID_HEADER;
+    }
+    if(!_ok) {
+        fude_zoom_graph_clear(_g);
+    } else {
+        _g->direction = FUDE_ZOOM_FLOW_MIND;
+    }
+    if(_error_line != NULL) {
+        *_error_line = _ok ? 0u : _line;
+    }
+    if(_error != NULL) {
+        *_error = _why;
+    }
+    return _ok;
+}
+
+// Is its first line (past blank lines and %% comments) "mindmap"?
+RDE_INTERNAL b8 fude_zoom_graph_is_mindmap(const c8* _text, u32 _size) {
+    const c8* _p = _text != NULL ? _text : "";
+    const c8* _end = _p + (_text != NULL ? _size : 0u);
+    while(_p < _end) {
+        while(_p < _end && (fude_zoom_graph_space(*_p) || *_p == '\n' || *_p == '\r')) {
+            _p++;
+        }
+        if(_end - _p >= 2 && _p[0] == '%' && _p[1] == '%') {
+            while(_p < _end && *_p != '\n') {
+                _p++;
+            }
+            continue;
+        }
+        return _end - _p >= 7 && memcmp(_p, "mindmap", 7u) == 0 && (_end - _p == 7 || fude_zoom_graph_space(_p[7]) || _p[7] == '\n' || _p[7] == '\r');
+    }
+    return false;
+}
+
 b8 fude_zoom_graph_parse_mermaid(fude_zoom_graph* _g, const c8* _text, u32 _size, u32* _error_line, u8* _error) {
+    if(fude_zoom_graph_is_mindmap(_text, _size)) {
+        return fude_zoom_graph_parse_mindmap(_g, _text, _size, _error_line, _error);
+    }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fude_zoom_graph_clear(_g);
     fude_zoom_graph_reader _r;
@@ -2658,7 +2807,138 @@ RDE_INTERNAL void fude_zoom_graph_work_free(fude_zoom_graph_work* _w) {
     if(rde_arr_is_inited(&_w->rules)) rde_arr_free(&_w->rules);
 }
 
+// --- a mind map's layout ---------------------------------------------------------------------------
+
+typedef struct {
+    fude_zoom_graph* g;
+    const u32*       first;   // each node's children: kids[first[n] .. first[n + 1])
+    const u32*       kids;
+    f64*             span;    // how tall each node's branch is
+    f64              level, gap;
+} fude_zoom_graph_mind;
+
+// How tall _n's branch is: its own height, or its children's branches stacked, whichever more.
+RDE_INTERNAL f64 fude_zoom_graph_mind_span(fude_zoom_graph_mind* _m, u32 _n, u32 _depth) {
+    const fude_zoom_graph_node* _node = fude_zoom_graph_node_at(_m->g, _n);
+    f64 _sum = 0.0;
+    for(u32 _k = _m->first[_n]; _k < _m->first[_n + 1u] && _depth < FUDE_ZOOM_GRAPH_MIND_DEPTH; _k++) {
+        _sum += fude_zoom_graph_mind_span(_m, _m->kids[_k], _depth + 1u) + (_k > _m->first[_n] ? _m->gap : 0.0);
+    }
+    _m->span[_n] = fmax(_node->h, _sum);
+    return _m->span[_n];
+}
+
+// _n's children (those in _which, _count of them) stacked down its side _side (1 right, -1 left), centred on it, and
+// theirs after them.
+RDE_INTERNAL void fude_zoom_graph_mind_place(fude_zoom_graph_mind* _m, u32 _n, const u32* _which, u32 _count, f64 _side, u32 _depth) {
+    const fude_zoom_graph_node* _p = fude_zoom_graph_node_at(_m->g, _n);
+    f64 _total = 0.0;
+    for(u32 _i = 0; _i < _count; _i++) {
+        _total += _m->span[_which[_i]] + (_i > 0u ? _m->gap : 0.0);
+    }
+    f64 _y = _p->y - _total * 0.5;
+    for(u32 _i = 0; _i < _count; _i++) {
+        fude_zoom_graph_node* _c = fude_zoom_graph_node_at(_m->g, _which[_i]);
+        _c->x      = _p->x + _side * (_p->w * 0.5 + _m->level + _c->w * 0.5);
+        _c->y      = _y + _m->span[_which[_i]] * 0.5;
+        _c->placed = true;
+        _y += _m->span[_which[_i]] + _m->gap;
+        if(_depth < FUDE_ZOOM_GRAPH_MIND_DEPTH) {
+            fude_zoom_graph_mind_place(_m, _which[_i], &_m->kids[_m->first[_which[_i]]], _m->first[_which[_i] + 1u] - _m->first[_which[_i]], _side, _depth + 1u);
+        }
+    }
+}
+
+RDE_INTERNAL void fude_zoom_graph_layout_mind(fude_zoom_graph* _g, f64 _level, f64 _gap) {
+    const u32 _n = fude_zoom_graph_count(&_g->nodes), _ne = fude_zoom_graph_count(&_g->edges);
+    rde_arr_clear(&_g->bends);
+    if(_n == 0u) {
+        return;
+    }
+    rde_arr _tables = fude_zoom_graph_tables_new();
+    u32* _first = (u32*)fude_zoom_graph_table(&_tables, _n + 1u, sizeof(u32));
+    u32* _kids  = (u32*)fude_zoom_graph_table(&_tables, _ne + 1u, sizeof(u32));
+    f64* _span  = (f64*)fude_zoom_graph_table(&_tables, _n, sizeof(f64));
+    b8*  _child = (b8*)fude_zoom_graph_table(&_tables, _n, sizeof(b8));
+    // Each node's children, in the edges' order.
+    for(u32 _e = 0; _e < _ne; _e++) {
+        const fude_zoom_graph_edge* _ed = fude_zoom_graph_edge_at(_g, _e);
+        if(_ed->from < _n && _ed->to < _n) {
+            _first[_ed->from + 1u]++;
+            _child[_ed->to] = true;
+        }
+    }
+    for(u32 _i = 0; _i < _n; _i++) {
+        _first[_i + 1u] += _first[_i];
+    }
+    {
+        u32* _at = (u32*)fude_zoom_graph_table(&_tables, _n, sizeof(u32));
+        for(u32 _e = 0; _e < _ne; _e++) {
+            const fude_zoom_graph_edge* _ed = fude_zoom_graph_edge_at(_g, _e);
+            if(_ed->from < _n && _ed->to < _n) {
+                _kids[_first[_ed->from] + _at[_ed->from]++] = _ed->to;
+            }
+        }
+    }
+    fude_zoom_graph_mind _m = { _g, _first, _kids, _span, fude_zoom_graph_sane(_level), fude_zoom_graph_sane(_gap) };
+    // Its root (the first node no edge comes to) where it is; its branches shared out.
+    u32 _root = 0;
+    while(_root < _n && _child[_root]) {
+        _root++;
+    }
+    _root = _root < _n ? _root : 0u;
+    fude_zoom_graph_node_at(_g, _root)->placed = true;
+    fude_zoom_graph_mind_span(&_m, _root, 0u);
+    const u32 _count = _first[_root + 1u] - _first[_root];
+    u32* _right = (u32*)fude_zoom_graph_table(&_tables, _count + 1u, sizeof(u32));
+    u32* _left  = (u32*)fude_zoom_graph_table(&_tables, _count + 1u, sizeof(u32));
+    u32 _nr = 0, _nl = 0;
+    f64 _sr = 0.0, _sl = 0.0;
+    for(u32 _k = _first[_root]; _k < _first[_root + 1u]; _k++) {
+        const u32 _c = _kids[_k];
+        if(_sr <= _sl) {
+            _right[_nr++] = _c;
+            _sr += _span[_c] + _m.gap;
+        } else {
+            _left[_nl++] = _c;
+            _sl += _span[_c] + _m.gap;
+        }
+    }
+    fude_zoom_graph_mind_place(&_m, _root, _right, _nr, 1.0, 0u);
+    fude_zoom_graph_mind_place(&_m, _root, _left, _nl, -1.0, 0u);
+    // Each edge a curve out of its parent's side into its child's: three bends along it.
+    for(u32 _e = 0; _e < _ne; _e++) {
+        fude_zoom_graph_edge* _ed = fude_zoom_graph_edge_at(_g, _e);
+        _ed->bend_first = fude_zoom_graph_count(&_g->bends);
+        _ed->bend_count = 0u;
+        _ed->label_x = _ed->label_y = 0.0;
+        if(_ed->from >= _n || _ed->to >= _n) {
+            continue;
+        }
+        const fude_zoom_graph_node* _a = fude_zoom_graph_node_at(_g, _ed->from);
+        const fude_zoom_graph_node* _b = fude_zoom_graph_node_at(_g, _ed->to);
+        const f64 _side = _b->x >= _a->x ? 1.0 : -1.0;
+        const fude_zoom_v2 _p0 = { _a->x + _side * _a->w * 0.5, _a->y }, _p3 = { _b->x - _side * _b->w * 0.5, _b->y };
+        const f64 _pull = fabs(_p3.x - _p0.x) * 0.5;
+        const fude_zoom_v2 _p1 = { _p0.x + _side * _pull, _p0.y }, _p2 = { _p3.x - _side * _pull, _p3.y };
+        for(u32 _i = 1; _i <= 3u; _i++) {
+            const f64 _t = (f64)_i / 4.0, _u = 1.0 - _t;
+            const fude_zoom_v2 _q = { _u * _u * _u * _p0.x + 3.0 * _u * _u * _t * _p1.x + 3.0 * _u * _t * _t * _p2.x + _t * _t * _t * _p3.x,
+                                      _u * _u * _u * _p0.y + 3.0 * _u * _u * _t * _p1.y + 3.0 * _u * _t * _t * _p2.y + _t * _t * _t * _p3.y };
+            rde_arr_add(&_g->bends, (any)&_q);
+            _ed->bend_count++;
+        }
+        _ed->label_x = (_p0.x + _p3.x) * 0.5;
+        _ed->label_y = (_p0.y + _p3.y) * 0.5;
+    }
+    fude_zoom_graph_tables_free(&_tables);
+}
+
 void fude_zoom_graph_layout(fude_zoom_graph* _g, fude_zoom_graph_spacing _sp) {
+    if(_g->direction == FUDE_ZOOM_FLOW_MIND) {
+        fude_zoom_graph_layout_mind(_g, _sp.rank_gap, _sp.node_gap);
+        return;
+    }
     fude_zoom_graph_work _w;
     memset(&_w, 0, sizeof(_w));
     _w.g  = _g;

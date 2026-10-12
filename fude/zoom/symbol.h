@@ -40,6 +40,12 @@ typedef enum {
     FUDE_ZOOM_SYMBOL_FAMILY_WIRING,       // ...house wiring's symbols
     FUDE_ZOOM_SYMBOL_FAMILY_MATHS,        // plot.h's: a graph, axes, a number line (drawn from their text)
     FUDE_ZOOM_SYMBOL_FAMILY_SEWING,       // a pattern's marks: grainline, fold, notches, buttons, darts, labels
+    FUDE_ZOOM_SYMBOL_FAMILY_SHAPES,       // plain shapes: polygons, stars, arcs, clouds, bubbles, block arrows (0.1.85)
+    FUDE_ZOOM_SYMBOL_FAMILY_BRACKETS,     // ( ) [ ] { } ⟨ ⟩ | ‖ ⌊ ⌋ ⌈ ⌉ stretched over what they group, and pairs round a text
+    FUDE_ZOOM_SYMBOL_FAMILY_CHARTS,       // bar, line and pie charts drawn from their data (chart.h)
+    FUDE_ZOOM_SYMBOL_FAMILY_GEOMETRY,     // geometry's marks: angles, equal lengths, parallels, points, segments, a protractor
+    FUDE_ZOOM_SYMBOL_FAMILY_SCIENCE,      // lab glassware, optics, an atom, a cell, DNA
+    FUDE_ZOOM_SYMBOL_FAMILY_STAMPS,       // ✓ ✗ ⚠ ? ! ★ ♥ a bulb… in their own colours
     FUDE_ZOOM_SYMBOL_FAMILIES
 } FUDE_ZOOM_SYMBOL_FAMILY_;
 
@@ -72,6 +78,10 @@ typedef enum {
     FUDE_ZOOM_SYMBOL_TEXT_HEADER,       // in its top band (a Kanban column, a lane, a fragment's label)
     FUDE_ZOOM_SYMBOL_TEXT_LEFT,         // up its left band, (a pool, a swimlane)
     FUDE_ZOOM_SYMBOL_TEXT_CORNER,       // from its top left corner, from the left (an area's name)
+    FUDE_ZOOM_SYMBOL_TEXT_OUT_LEFT,     // beside it on its left, out of it, ending by it (a "{"'s)
+    FUDE_ZOOM_SYMBOL_TEXT_OUT_RIGHT,    // beside it on its right, out of it, from it (a "}"'s)
+    FUDE_ZOOM_SYMBOL_TEXT_ABOVE,        // over it (a brace over a row of things)
+    FUDE_ZOOM_SYMBOL_TEXT_REGIONS,      // its text's parts each in a region of its own, in its middle (a Venn diagram's)
 } FUDE_ZOOM_SYMBOL_TEXT_;
 
 typedef struct {

@@ -6,6 +6,7 @@
 #include "rde.h"
 #include "zoom/scene.h"
 #include "zoom/units.h"
+#include "zoom/tex.h"
 
 // ===========================================================================
 // Drawing a canvas (scene.h) on the screen.
@@ -74,6 +75,17 @@ typedef struct {
     u32         parts_n;     // what the symbol's maker said (its parts drawn)
 } fude_zoom_symbol_geo;
 
+// A graph's lines as plot.h makes them from its text at its size (render.c's: kept while it stands still, not made
+// again each frame — an equation's grid, a curve followed finely, are not quick).
+typedef struct {
+    u64     key;      // its kind's and text's hash
+    f64     hw, hh;
+    u32     used;     // the draw it was last used in
+    rde_arr points;   // fude_zoom_v2
+    rde_arr parts;    // fude_zoom_symbol_part
+    rde_arr labels;   // fude_zoom_plot_label
+} fude_zoom_plot_made;
+
 // A picture on the GPU, made from its payload's bytes (copies share it).
 typedef struct {
     u32          blob;
@@ -92,6 +104,7 @@ typedef struct {
     u64                             cache_budget;
     rde_arr TYPE(fude_zoom_symbol_geo) symbols;   // symbols' geometry, made once (fude_zoom_symbol_geo)
     rde_hash_map                       symbol_of; // its key's hash → its place in symbols
+    rde_arr TYPE(fude_zoom_plot_made)  plots;     // graphs' lines, kept (fude_zoom_plot_made)
     u64                                symbol_points;
     u32                             draws;
     // Scratch.
@@ -105,6 +118,9 @@ typedef struct {
     // Per object, set: not drawn by the canvas (the selection draws it, lifted
     // while dragged: select.h). NULL: everything drawn.
     const rde_arr* lifted;
+    // Per object, set: drawn faint (a recording played: what was written after where it is, audio.h). NULL: none.
+    const rde_arr* faint;
+    u32            skip;   // an object not drawn (FUDE_ZOOM_NONE: none): a text being written on the page draws itself
     b8             no_guides;   // guides not drawn (presenting; a picture of the page)
     // Graphs playing (plot.h): per object, set: drawn as _plot_play says (its time, its sliders); NULL: none.
     const rde_arr*                    plot_mask;
@@ -124,6 +140,15 @@ typedef struct {
     // how lengths are written (units.h).
     rde_font*             font;
     f32                   font_px;
+    // A note's (rich.h): its bold, italic and bold italic letters (NULL: the plain font's), its links' colour; and
+    // its texts' layouts kept, by their words, size and width (FUDE_ZOOM_RENDER_RICH of them at most).
+    rde_font*             font_bold;
+    rde_font*             font_italic;
+    rde_font*             font_bold_italic;
+    rde_color             link_color;
+    rde_hash_map          rich_of;     // u64 → u32: its index in rich
+    rde_arr               rich;        // fude_zoom_render_rich
+    struct fude_zoom_formulas* formulas;   // formulas' font and kept settings (formula.h; NULL: formulas not drawn)
     f64                   mm_per_unit;
     fude_zoom_units_style units;
     // Boards' materials' names (shape.h' FUDE_ZOOM_MATERIAL_ order; NULL: not said).
@@ -144,9 +169,28 @@ void fude_zoom_render_dimension(const fude_zoom_renderer* _r, fude_zoom_v2 _a, f
 void fude_zoom_render_text_in(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, rde_color _color);
 // ...each line from the box's left (_left) instead.
 void fude_zoom_render_text_at(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, b8 _left, rde_color _color);
+// ...each line where _align says.
+typedef enum { FUDE_ZOOM_ALIGN_CENTRE = 0, FUDE_ZOOM_ALIGN_LEFT, FUDE_ZOOM_ALIGN_RIGHT } FUDE_ZOOM_ALIGN_;
+void fude_zoom_render_text_aligned(const fude_zoom_renderer* _r, const c8* _text, u32 _len, fude_zoom_box _box, f64 _px, b8 _top, u8 _align, rde_color _color);
 
 // A guide's colour (shape.h' GUIDE): a cyan that shows on the page's colour.
 rde_color fude_zoom_guide_color(void);
+
+// A formula (formula.h: _r's formulas), its ems on screen through _em (ems, Y up, its baseline's left end at 0), in
+// _ink: each glyph's triangles at the detail its size there asks for, each rule two triangles — too small to see on
+// screen, left out. (Its text objects' drawing, and the Formula card's preview.)
+void fude_zoom_render_formula(fude_zoom_renderer* _r, const fude_zoom_tex_box* _box, fude_zoom_sim _em, rde_color _ink);
+
+// A text's layout as a note (rich.h): its words _text (_len bytes), its letters _size, _width wide (0: its lines as
+// long as they are), in its own units (Y down from its words' top left) — kept until the text changes. NULL: no marks
+// in it (plain lines), or no font.
+const struct fude_zoom_rich* fude_zoom_render_rich(fude_zoom_renderer* _r, const c8* _text, u32 _len, f64 _size, f64 _width);
+// ...its plain lines to a side of its width (rich.h' fude_zoom_rich_lay_aligned: a diagram shape's label).
+const struct fude_zoom_rich* fude_zoom_render_rich_aligned(fude_zoom_renderer* _r, const c8* _text, u32 _len, f64 _size, f64 _width, u8 _align);
+// How wide _len bytes of _text are in a note's style (rich.h' measure: _self the renderer), its letters _px.
+f32 fude_zoom_render_measure(void* _self, const c8* _text, u32 _len, f32 _px, u8 _style);
+// A text object's: its layout (NULL: plain), and its words' top left in its own units (x right, y up: its pad in).
+const struct fude_zoom_rich* fude_zoom_render_rich_of(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_v2* _origin);
 
 void fude_zoom_render_init(fude_zoom_renderer* _r);
 void fude_zoom_render_destroy(fude_zoom_renderer* _r);

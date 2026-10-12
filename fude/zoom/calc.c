@@ -2,6 +2,7 @@
 
 #include "zoom/calc.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -112,6 +113,7 @@ RDE_INTERNAL void fzk_primary(fzk* _k) {
         return;
     }
     if(fzk_take(_k, "x") || fzk_take(_k, "t") || fzk_take(_k, "\xCE\xB8")) {
+        _k->c->uses_x = true;
         fzk_emit(_k, FZK_X, 0.0);
         return;
     }
@@ -187,7 +189,7 @@ RDE_INTERNAL void fzk_expr(fzk* _k) {
     }
 }
 
-b8 fude_zoom_calc_parse(fude_zoom_calc* _c, const c8* _text) {
+RDE_INTERNAL b8 fzk_parse(fude_zoom_calc* _c, const c8* _text, b8 _whole) {
     memset(_c, 0, sizeof(*_c));
     if(_text == NULL) {
         return false;
@@ -198,7 +200,7 @@ b8 fude_zoom_calc_parse(fude_zoom_calc* _c, const c8* _text) {
     _n = _n < sizeof(_line) - 1u ? _n : sizeof(_line) - 1u;
     memcpy(_line, _text, _n);
     _line[_n] = 0;
-    const c8* _eq = strchr(_line, '=');
+    const c8* _eq = _whole ? NULL : strchr(_line, '=');
     c8 _low[256];
     const c8* _from = _eq != NULL ? _eq + 1 : _line;
     usize _m = 0;
@@ -215,6 +217,271 @@ b8 fude_zoom_calc_parse(fude_zoom_calc* _c, const c8* _text) {
         return false;
     }
     return true;
+}
+
+b8 fude_zoom_calc_parse(fude_zoom_calc* _c, const c8* _text) {
+    return fzk_parse(_c, _text, false);
+}
+
+b8 fude_zoom_calc_parse_expr(fude_zoom_calc* _c, const c8* _text) {
+    return fzk_parse(_c, _text, true);
+}
+
+b8 fude_zoom_calc_number(const c8* _text, f64* _value) {
+    fude_zoom_calc _c;
+    if(!fzk_parse(&_c, _text, true) || _c.uses_x || _c.vars != 0u) {
+        return false;
+    }
+    *_value = fude_zoom_calc_at(&_c, 0.0);
+    return isfinite(*_value);
+}
+
+// --- written back ----------------------------------------------------------------------------------
+
+#define FZK_WRITE 384u   // one step's words at most
+
+typedef struct {
+    c8 text[FZK_WRITE];
+    u8 order;   // how tightly it holds: 1 a sum, 2 a product, 3 a sign, 4 a power or a call, 5 a number or a letter
+    b8 number;  // a plain number (2, 0.5: what a letter after it multiplies with nothing between)
+} fzk_piece;
+
+RDE_INTERNAL void fzk_wrap(const fzk_piece* _p, b8 _brackets, c8* _out, usize _size) {
+    snprintf(_out, _size, _brackets ? "(%s)" : "%s", _p->text);
+}
+
+b8 fude_zoom_calc_write(const fude_zoom_calc* _c, c8* _out, usize _size) {
+    static const c8* const _names[] = { [FZK_SIN] = "sin", [FZK_COS] = "cos", [FZK_TAN] = "tan", [FZK_ASIN] = "asin", [FZK_ACOS] = "acos",
+                                        [FZK_ATAN] = "atan", [FZK_SINH] = "sinh", [FZK_COSH] = "cosh", [FZK_TANH] = "tanh", [FZK_SQRT] = "sqrt",
+                                        [FZK_CBRT] = "cbrt", [FZK_ABS] = "abs", [FZK_EXP] = "exp", [FZK_LN] = "ln", [FZK_LOG] = "log",
+                                        [FZK_LOG2] = "log2", [FZK_FLOOR] = "floor", [FZK_CEIL] = "ceil", [FZK_ROUND] = "round", [FZK_SIGN] = "sign" };
+    if(_size == 0) {
+        return false;
+    }
+    _out[0] = 0;
+    fzk_piece* _s = (fzk_piece*)malloc(sizeof(fzk_piece) * FUDE_ZOOM_CALC_STEPS);
+    if(_s == NULL) {
+        return false;
+    }
+    u32 _n = 0;
+    b8 _ok = _c->count > 0u;
+    c8 _a[FZK_WRITE], _b[FZK_WRITE];
+    for(u32 _i = 0; _i < _c->count && _ok; _i++) {
+        const u8 _op = _c->op[_i];
+        if(_op == FZK_NUM || _op == FZK_X || _op == FZK_VAR) {
+            fzk_piece* _p = &_s[_n++];
+            _p->order  = 5u;
+            _p->number = _op == FZK_NUM;
+            if(_op == FZK_X) {
+                snprintf(_p->text, sizeof(_p->text), "x");
+            } else if(_op == FZK_VAR) {
+                snprintf(_p->text, sizeof(_p->text), "%c", (c8)('a' + (u32)_c->value[_i] % 26u));
+            } else if(_c->value[_i] == 3.14159265358979323846) {
+                snprintf(_p->text, sizeof(_p->text), "pi");
+                _p->number = false;
+            } else if(_c->value[_i] == 2.71828182845904523536) {
+                snprintf(_p->text, sizeof(_p->text), "e");
+                _p->number = false;
+            } else {
+                snprintf(_p->text, sizeof(_p->text), "%.12g", _c->value[_i]);
+            }
+            continue;
+        }
+        if(_op >= FZK_ADD && _op <= FZK_MOD) {
+            if(_n < 2u) {
+                _ok = false;
+                break;
+            }
+            fzk_piece* _l = &_s[_n - 2u];
+            const fzk_piece* _r = &_s[_n - 1u];
+            const u8 _order = _op == FZK_ADD || _op == FZK_SUB ? 1u : (_op == FZK_POW ? 4u : 2u);
+            // (the left in brackets when it holds less tightly — a power's even when as tightly: (a^b)^c; the right too,
+            // or as tightly after − / %, which do not turn round)
+            const b8 _lb = _l->order < _order || (_op == FZK_POW && _l->order <= _order);
+            const b8 _rb = _r->order < _order || (_r->order == _order && (_op == FZK_SUB || _op == FZK_DIV || _op == FZK_MOD)) ||
+                           (_op == FZK_POW && _r->order < 4u);
+            fzk_wrap(_l, _lb, _a, sizeof(_a));
+            fzk_wrap(_r, _rb, _b, sizeof(_b));
+            const c8* _sign = _op == FZK_ADD ? " + " : _op == FZK_SUB ? " - " : _op == FZK_DIV ? "/" : _op == FZK_POW ? "^" : _op == FZK_MOD ? " % " : "*";
+            // (a number then a letter, a call or a bracket: side by side — 2x, 3sin(x), 2(x + 1))
+            if(_op == FZK_MUL && _l->number && !_lb && (_rb || (_b[0] >= 'a' && _b[0] <= 'z'))) {
+                _sign = "";
+            }
+            const int _w = snprintf(_l->text, sizeof(_l->text), "%s%s%s", _a, _sign, _b);
+            _ok = _w > 0 && (usize)_w < sizeof(_l->text);
+            _l->order  = _order;
+            _l->number = false;
+            _n--;
+            continue;
+        }
+        if(_n < 1u) {
+            _ok = false;
+            break;
+        }
+        fzk_piece* _p = &_s[_n - 1u];
+        if(_op == FZK_NEG) {
+            fzk_wrap(_p, _p->order < 3u, _a, sizeof(_a));
+            const int _w = snprintf(_p->text, sizeof(_p->text), "-%s", _a);
+            _ok = _w > 0 && (usize)_w < sizeof(_p->text);
+            _p->order = 3u;
+        } else if(_op < sizeof(_names) / sizeof(_names[0]) && _names[_op] != NULL) {
+            snprintf(_a, sizeof(_a), "%s", _p->text);
+            const int _w = snprintf(_p->text, sizeof(_p->text), "%s(%s)", _names[_op], _a);
+            _ok = _w > 0 && (usize)_w < sizeof(_p->text);
+            _p->order = 4u;   // (as a power: sin(x)^2 is read as sin(x^2) — under a power it needs its brackets)
+        } else {
+            _ok = false;
+        }
+        _p->number = false;
+    }
+    _ok = _ok && _n == 1u && strlen(_s[0].text) < _size;
+    if(_ok) {
+        snprintf(_out, _size, "%s", _s[0].text);
+    }
+    free(_s);
+    return _ok;
+}
+
+// A number as LaTeX: 0.5, 12, 1.5 \times 10^{20}.
+RDE_INTERNAL void fzk_latex_number(f64 _v, c8* _out, usize _size) {
+    c8 _t[48];
+    snprintf(_t, sizeof(_t), "%.12g", _v);
+    c8* _e = strchr(_t, 'e');
+    if(_e == NULL) {
+        snprintf(_out, _size, "%s", _t);
+        return;
+    }
+    *_e = 0;
+    const int _exp = atoi(_e + 1);
+    if(strcmp(_t, "1") == 0) {
+        snprintf(_out, _size, "10^{%d}", _exp);
+    } else {
+        snprintf(_out, _size, "%s \\times 10^{%d}", _t, _exp);
+    }
+}
+
+b8 fude_zoom_calc_latex(const fude_zoom_calc* _c, const c8* _x, c8* _out, usize _size) {
+    if(_size == 0) {
+        return false;
+    }
+    _out[0] = 0;
+    // (each piece: its words, how tightly it holds — as calc_write's —, and whether it is a fraction or a plain number)
+    typedef struct { c8 text[FZK_WRITE]; u8 order; b8 number, frac; } fzk_tex;
+    fzk_tex* _s = (fzk_tex*)malloc(sizeof(fzk_tex) * FUDE_ZOOM_CALC_STEPS);
+    if(_s == NULL) {
+        return false;
+    }
+    u32 _n = 0;
+    b8 _ok = _c->count > 0u;
+    c8 _a[FZK_WRITE], _b[FZK_WRITE];
+    #define FZK_BR(_p, _yes, _to) snprintf((_to), sizeof(_to), (_yes) ? "\\left(%s\\right)" : "%s", (_p)->text)
+    for(u32 _i = 0; _i < _c->count && _ok; _i++) {
+        const u8 _op = _c->op[_i];
+        if(_op == FZK_NUM || _op == FZK_X || _op == FZK_VAR) {
+            fzk_tex* _p = &_s[_n++];
+            _p->order  = 5u;
+            _p->number = _op == FZK_NUM;
+            _p->frac   = false;
+            if(_op == FZK_X) {
+                snprintf(_p->text, sizeof(_p->text), "%s", _x);
+            } else if(_op == FZK_VAR) {
+                snprintf(_p->text, sizeof(_p->text), "%c", (c8)('a' + (u32)_c->value[_i] % 26u));
+            } else if(_c->value[_i] == 3.14159265358979323846) {
+                snprintf(_p->text, sizeof(_p->text), "\\pi");
+                _p->number = false;
+            } else if(_c->value[_i] == 2.71828182845904523536) {
+                snprintf(_p->text, sizeof(_p->text), "e");
+                _p->number = false;
+            } else {
+                fzk_latex_number(_c->value[_i], _p->text, sizeof(_p->text));
+                _p->order = strchr(_p->text, '^') != NULL ? 2u : 5u;   // (1.5 \times 10^{20}: a product)
+            }
+            continue;
+        }
+        if(_op >= FZK_ADD && _op <= FZK_MOD) {
+            if(_n < 2u) {
+                _ok = false;
+                break;
+            }
+            fzk_tex* _l = &_s[_n - 2u];
+            const fzk_tex* _r = &_s[_n - 1u];
+            int _w = 0;
+            if(_op == FZK_DIV) {
+                _w = snprintf(_a, sizeof(_a), "\\frac{%s}{%s}", _l->text, _r->text);
+                _l->order = 5u;
+                _l->frac  = true;
+            } else if(_op == FZK_POW) {
+                // (its base in brackets unless a letter or a number: (x + 1)^{2}, (\sin x)^{2}, \left(\frac{1}{2}\right)^{2})
+                FZK_BR(_l, _l->order < 5u || _l->frac, _b);
+                _w = snprintf(_a, sizeof(_a), "%s^{%s}", _b, _r->text);
+                _l->order = 4u;
+                _l->frac  = false;
+            } else {
+                const u8 _order = _op == FZK_ADD || _op == FZK_SUB ? 1u : 2u;
+                const b8 _lb = _l->order < _order;
+                const b8 _rb = _r->order < _order || (_r->order == _order && (_op == FZK_SUB || _op == FZK_MOD));
+                c8 _left[FZK_WRITE];
+                FZK_BR(_l, _lb, _left);
+                FZK_BR(_r, _rb, _b);
+                const c8* _sign = _op == FZK_ADD ? " + " : _op == FZK_SUB ? " - " : _op == FZK_MOD ? " \\operatorname{mod} " : " ";
+                // (a product side by side — 2x, x y, 2\sin x — but two numbers, or a number after something, with a dot)
+                if(_op == FZK_MUL && ((_r->number && !_rb) || (_b[0] >= '0' && _b[0] <= '9'))) {
+                    _sign = " \\cdot ";
+                }
+                _w = snprintf(_a, sizeof(_a), "%s%s%s", _left, _sign, _b);
+                _l->order = _order;
+                _l->frac  = false;
+            }
+            _ok = _w > 0 && (usize)_w < sizeof(_a);
+            snprintf(_l->text, sizeof(_l->text), "%s", _a);
+            _l->number = false;
+            _n--;
+            continue;
+        }
+        if(_n < 1u) {
+            _ok = false;
+            break;
+        }
+        fzk_tex* _p = &_s[_n - 1u];
+        int _w = 0;
+        const b8 _simple = _p->order == 5u && !_p->frac;   // (a letter, a number: \sin x; else \sin\left(…\right))
+        switch(_op) {
+        case FZK_NEG:   FZK_BR(_p, _p->order < 3u, _b); _w = snprintf(_a, sizeof(_a), "-%s", _b); _p->order = 3u; break;
+        case FZK_SQRT:  _w = snprintf(_a, sizeof(_a), "\\sqrt{%s}", _p->text); _p->order = 5u; break;
+        case FZK_CBRT:  _w = snprintf(_a, sizeof(_a), "\\sqrt[3]{%s}", _p->text); _p->order = 5u; break;
+        case FZK_ABS:   _w = snprintf(_a, sizeof(_a), "\\left|%s\\right|", _p->text); _p->order = 5u; break;
+        case FZK_FLOOR: _w = snprintf(_a, sizeof(_a), "\\left\\lfloor %s\\right\\rfloor", _p->text); _p->order = 5u; break;
+        case FZK_CEIL:  _w = snprintf(_a, sizeof(_a), "\\left\\lceil %s\\right\\rceil", _p->text); _p->order = 5u; break;
+        case FZK_EXP:   _w = snprintf(_a, sizeof(_a), "e^{%s}", _p->text); _p->order = 4u; break;
+        default: {
+            static const c8* const _tex[] = { [FZK_SIN] = "\\sin", [FZK_COS] = "\\cos", [FZK_TAN] = "\\tan", [FZK_ASIN] = "\\arcsin",
+                                              [FZK_ACOS] = "\\arccos", [FZK_ATAN] = "\\arctan", [FZK_SINH] = "\\sinh", [FZK_COSH] = "\\cosh",
+                                              [FZK_TANH] = "\\tanh", [FZK_LN] = "\\ln", [FZK_LOG] = "\\log", [FZK_LOG2] = "\\log_{2}",
+                                              [FZK_ROUND] = "\\operatorname{round}", [FZK_SIGN] = "\\operatorname{sign}" };
+            if(_op >= sizeof(_tex) / sizeof(_tex[0]) || _tex[_op] == NULL) {
+                _ok = false;
+                break;
+            }
+            _w = _simple ? snprintf(_a, sizeof(_a), "%s %s", _tex[_op], _p->text) : snprintf(_a, sizeof(_a), "%s\\left(%s\\right)", _tex[_op], _p->text);
+            _p->order = 4u;
+            break;
+        }
+        }
+        if(!_ok) {
+            break;
+        }
+        _ok = _w > 0 && (usize)_w < sizeof(_a);
+        snprintf(_p->text, sizeof(_p->text), "%s", _a);
+        _p->number = false;
+        _p->frac   = false;
+    }
+    #undef FZK_BR
+    _ok = _ok && _n == 1u && strlen(_s[0].text) < _size;
+    if(_ok) {
+        snprintf(_out, _size, "%s", _s[0].text);
+    }
+    free(_s);
+    return _ok;
 }
 
 f64 fude_zoom_calc_at(const fude_zoom_calc* _c, f64 _x) {

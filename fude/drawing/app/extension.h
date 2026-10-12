@@ -26,7 +26,7 @@ struct fude_doc_line;   // doc.h
 
 // A tool of the app's on the toolbar, after Paper (Kana's camera).
 #define FUDE_EXTENSION_TOOLS   12u   // (an app with fewer: its bar as it was)
-#define FUDE_EXTENSION_CHOICES 16u
+#define FUDE_EXTENSION_CHOICES 24u
 
 // One of a tool's choices, in its panel: its name, its icon, and what choosing
 // it does — true: the panel stays open (a toggle among its choices).
@@ -50,6 +50,7 @@ typedef struct {
     u32       choice_count;               // at most FUDE_EXTENSION_CHOICES
     b8      (*chosen)(const struct fude_app* _app, u32 _index);
     b8      (*selected)(const struct fude_app* _app);
+    b8        by_paper;                   // on the bar just above Paper, not with the app's others (a page's size)
 } fude_extension_tool;
 
 // An entry of the side panel's navigation: a button that opens what is the app's.
@@ -93,6 +94,13 @@ typedef struct {
 // A button of the app's in the side panel, over the tutorial's: its words and
 // icon, shown while shown() says so (asked each frame), and what a press does
 // (the panel closes first). Study apps: Set up the voice, while there is none.
+// A paper of the app's own (canvas.h' FUDE_PAPER_ past the core's four), offered in the Paper panel after them.
+typedef struct {
+    u8        paper;   // FUDE_PAPER_
+    u32       text;    // its name: FUDE_TEXT_ id
+    const c8* icon;    // icons.h
+} fude_extension_paper;
+
 typedef struct fude_extension_side_button {
     u32       text;   // FUDE_TEXT_ id
     const c8* icon;   // icons.h
@@ -220,6 +228,12 @@ typedef struct fude_extension {
     // None: pictures are not read (Kana: ML Kit's Japanese text recognition).
     b8 (*picture_read)(const u8* _rgba, u32 _w, u32 _h);
     b8 (*picture_lines)(struct fude_doc_line* _out, u32 _max, u32* _count);
+
+    // Its own papers (the page's: Sketching's isometric, hexagons…), offered after the core's four. None: those four.
+    // Which of them the page open now takes (NULL: all): a page's layout only on a notebook's pages.
+    const fude_extension_paper* papers;
+    u32                         paper_count;
+    b8 (*paper_offered)(const struct fude_app* _app, u8 _paper);
 } fude_extension;
 
 #endif

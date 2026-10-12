@@ -8,6 +8,7 @@
 #include "zoom/scene.h"
 #include "drawing/base/theme.h"
 #include "zoom/units.h"
+#include "zoom/rich.h"
 
 // ===========================================================================
 // What is on screen, out of the app (research §6, Phase 1's: the view):
@@ -36,6 +37,12 @@
 // A text's style handed on (FUDE_ZOOM_TEXT_), with this: each of its lines centred in its box's width (a
 // diagram symbol's, as the screen has it).
 #define FUDE_ZOOM_EXPORT_TEXT_CENTRED 0x80u
+// ...or each against its box's right (a bracket's text, on its left).
+#define FUDE_ZOOM_EXPORT_TEXT_RIGHT   0x40u
+// ...its letters bold, slanted, or both (a note's words: rich.h).
+#define FUDE_ZOOM_EXPORT_TEXT_BOLD    0x20u
+#define FUDE_ZOOM_EXPORT_TEXT_ITALIC  0x10u
+#define FUDE_ZOOM_EXPORT_TEXT_FLAGS   0xF0u   // (these four; the text's style under them)
 
 // What the walk hands on, in the order the renderer draws it: points of the
 // screen (centre origin, Y up, points). Any may be NULL (not wanted).
@@ -60,9 +67,18 @@ typedef struct {
     void (*object)(void* _self, const fude_zoom_scene* _s, u32 _object);
 } fude_zoom_export_sink;
 
+// How a note's words are measured as it is laid out (rich.h): the app's fonts' (render.h' fude_zoom_render_measure,
+// handed its renderer). Until set (or NULL), each letter half its height wide.
+void fude_zoom_export_measure(fude_zoom_rich_measure_fn _fn, void* _self);
+
 // Lengths as the exports write them (a dimension's number, a sheet's rulers): _mm_per_unit millimetres a unit of
 // the home frame, in _units (copied). Until set, none are written.
 void fude_zoom_export_units(f64 _mm_per_unit, const fude_zoom_units_style* _units);
+
+// Formulas (FUDE_ZOOM_TEXT_FORMULA) written as they are drawn — their glyphs' outlines — set with _formulas (the
+// page's: formula.h). Until set (or NULL), written as their LaTeX.
+struct fude_zoom_formulas;
+void fude_zoom_export_formulas(struct fude_zoom_formulas* _formulas);
 
 // Exporting what the lasso holds: from now on only the objects _keep says are
 // walked (a byte an object, _count of them; 1: written — a frame's object kept:
@@ -88,8 +104,11 @@ b8 fude_zoom_export_pdf_views(fude_zoom_scene* _s, rde_color _paper, const fude_
 
 // ...printed to scale (Sketching's sheets): page _i the camera _views[i] sees on a page _halves[i] each way
 // (points: what it shows at its scale), on white in the paper theme's ink, the printer's own error undone
-// (_printer: as fude_zoom_export_tiles). The camera is put back after. False: nothing written.
-b8 fude_zoom_export_pdf_pages(fude_zoom_scene* _s, const fude_zoom_camera* _views, const fude_zoom_v2* _halves, u32 _n, fude_zoom_v2 _printer, fude_bytes* _out);
+// (_printer: as fude_zoom_export_tiles). The camera is put back after. False: nothing written. _papers: NULL, or _n
+// arrays of paper.h' fude_zoom_paper_line (in each camera's frame's units) — page _i's paper, under its ink (a
+// notebook's: fude_zoom_paper_sheet).
+b8 fude_zoom_export_pdf_pages(fude_zoom_scene* _s, const fude_zoom_camera* _views, const fude_zoom_v2* _halves, u32 _n, fude_zoom_v2 _printer,
+                              const rde_arr* _papers, fude_bytes* _out);
 
 // A template printed at its true size (research §2.10, item 8): the view in
 // millimetres (_mm_per_point a screen point) across pages of _page_w_mm by

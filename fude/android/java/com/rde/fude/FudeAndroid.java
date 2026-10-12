@@ -44,6 +44,119 @@ public final class FudeAndroid {
         context  = a.getApplicationContext();
     }
 
+    /**
+     * Crash reports (fude/drawing/base/crash.h): a Java exception nothing catches written to the report (the C side's
+     * header first, then the exception and its stack), then handed on as before (the system ends the app).
+     */
+    public static void crashInstall(byte[] path, byte[] header) {
+        final String where = text(path), head = text(header);
+        final Thread.UncaughtExceptionHandler before = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override public void uncaughtException(Thread t, Throwable e) {
+                try (FileOutputStream out = new FileOutputStream(where)) {
+                    StringBuilder b = new StringBuilder(head);
+                    b.append("What: a Java exception on the thread ").append(t.getName()).append(": ").append(e).append("\nWhere:\n");
+                    for(Throwable c = e; c != null; c = c.getCause()) {
+                        if(c != e) {
+                            b.append("Caused by: ").append(c).append('\n');
+                        }
+                        StackTraceElement[] s = c.getStackTrace();
+                        for(int i = 0; i < s.length && i < 40; i++) {
+                            b.append("  at ").append(s[i]).append('\n');
+                        }
+                    }
+                    out.write(bytes(b.toString()));
+                } catch(Throwable ignored) {
+                    // (no report: the system's own handling still goes on)
+                }
+                if(before != null) {
+                    before.uncaughtException(t, e);
+                }
+            }
+        });
+    }
+
+    /**
+     * A file downloaded on a thread of its own (fude/zoom/fetch.h): into path + ".part" as it comes, renamed when
+     * whole. One at a time; its state polled (fetchState: { state, bytes got, bytes in all }).
+     */
+    static volatile int  fetchStatus = 0;   // 0 idle, 1 running, 2 done, 3 failed
+    static volatile long fetchGot = 0, fetchTotal = 0;
+    static volatile boolean fetchStop = false;
+
+    public static boolean fetchStart(byte[] url, byte[] path) {
+        if(fetchStatus == 1) {
+            return false;
+        }
+        final String from = text(url), to = text(path);
+        fetchStatus = 1;
+        fetchGot    = 0;
+        fetchTotal  = 0;
+        fetchStop   = false;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                File part = new File(to + ".part");
+                try {
+                    java.net.URL u = new java.net.URL(from);
+                    java.net.HttpURLConnection c = null;
+                    // (the redirects followed by hand: a CDN's may change host)
+                    for(int hops = 0; hops < 8; hops++) {
+                        c = (java.net.HttpURLConnection)u.openConnection();
+                        c.setInstanceFollowRedirects(false);
+                        c.setConnectTimeout(20000);
+                        c.setReadTimeout(30000);
+                        int code = c.getResponseCode();
+                        if(code >= 300 && code < 400 && c.getHeaderField("Location") != null) {
+                            u = new java.net.URL(u, c.getHeaderField("Location"));
+                            c.disconnect();
+                            continue;
+                        }
+                        if(code < 200 || code >= 300) {
+                            throw new java.io.IOException("HTTP " + code);
+                        }
+                        break;
+                    }
+                    fetchTotal = c.getContentLengthLong();
+                    File dir = part.getParentFile();
+                    if(dir != null) {
+                        dir.mkdirs();
+                    }
+                    try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part)) {
+                        byte[] buf = new byte[1 << 16];
+                        int n;
+                        while((n = in.read(buf)) > 0) {
+                            if(fetchStop) {
+                                throw new java.io.IOException("stopped");
+                            }
+                            out.write(buf, 0, n);
+                            fetchGot += n;
+                        }
+                    }
+                    c.disconnect();
+                    File dest = new File(to);
+                    dest.delete();
+                    fetchStatus = part.renameTo(dest) ? 2 : 3;
+                } catch(Throwable e) {
+                    Log.w(TAG, "fetch: " + e);
+                    part.delete();
+                    fetchStatus = fetchStop ? 0 : 3;
+                }
+            }
+        }, "FudeFetch").start();
+        return true;
+    }
+
+    public static long[] fetchState() {
+        return new long[] { fetchStatus, fetchGot, fetchTotal };
+    }
+
+    public static void fetchCancel() {
+        fetchStop = true;
+        if(fetchStatus != 1) {
+            fetchStatus = 0;
+        }
+    }
+
     static String text(byte[] utf8) {
         return utf8 != null ? new String(utf8, StandardCharsets.UTF_8) : "";
     }

@@ -105,6 +105,9 @@ void fude_zoom_select_moved(fude_zoom_selection* _sel, rde_vec_2F _screen);
 // say so (screen: over the knob). False: not being turned.
 b8   fude_zoom_select_turning(const fude_zoom_selection* _sel, f64* _degrees, rde_vec_2F* _at);
 void fude_zoom_select_up(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_renderer* _r);
+// What the pen began, let go as if it never had (a second finger made it a pinch): a loop being drawn dropped
+// (nothing taken); a drag, the picks back where they were, nothing done.
+void fude_zoom_select_abort(fude_zoom_selection* _sel, const fude_zoom_scene* _s);
 // Things carried along by the press just taken (a container's contents, page.c: an area's, a Kanban column's): with
 // the selection while the pen is down — lifted, moved with it, in its undo step — after its own picks; and the
 // selection back to its first _n picks once the pen has lifted (fude_zoom_select_keep).

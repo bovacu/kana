@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/session.h"
+#include "drawing/base/crash.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
 #include "drawing/app/page.h"
@@ -209,6 +210,7 @@ RDE_INTERNAL void fude_session_autosave(fude_app* _app) {
 }
 
 void fude_session_save_on_exit(fude_app* _app) {
+    fude_crash_session(false);   // (off the screen: dying now is no crash)
     fude_page_let_go(_app->page);
     fude_session_save_now(_app, false);
     // The app's own page: everything on disk now, whatever the revision says.
@@ -515,6 +517,7 @@ RDE_INTERNAL void fude_session_data_update(fude_app* _app) {
 // --- each frame ---------------------------------------------------------------------------------
 
 void fude_session_update(fude_app* _app) {
+    fude_crash_session(true);   // (on the screen again: marked running, once)
     if(_app->notes->open != fude_session_canvas) {
         fude_session_switch_canvas(_app);   // chosen (or made, or its canvas deleted) in the side panel
     }

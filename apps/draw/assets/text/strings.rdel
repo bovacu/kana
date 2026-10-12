@@ -148,6 +148,10 @@ MONTH_9=Sep
 MONTH_10=Oct
 MONTH_11=Nov
 MONTH_12=Dec
+CRASH_TITLE=Draw closed unexpectedly
+CRASH_TEXT=A short report helps fix it: the app’s version, the device and where it stopped — nothing you wrote or drew. It opens in your email, to read before you send it.
+CRASH_SEND=Send report
+CRASH_LATER=Not now
 
 // Spanish
 ES-ES:
@@ -294,6 +298,10 @@ MONTH_9=sept
 MONTH_10=oct
 MONTH_11=nov
 MONTH_12=dic
+CRASH_TITLE=Draw se cerró de forma inesperada
+CRASH_TEXT=Un informe breve ayuda a arreglarlo: la versión de la app, el dispositivo y dónde se detuvo; nada de lo que escribiste o dibujaste. Se abre en tu correo para que lo leas antes de enviarlo.
+CRASH_SEND=Enviar informe
+CRASH_LATER=Ahora no
 
 // Portuguese (Brazil)
 PT-BR:
@@ -440,6 +448,10 @@ MONTH_9=set
 MONTH_10=out
 MONTH_11=nov
 MONTH_12=dez
+CRASH_TITLE=Draw fechou inesperadamente
+CRASH_TEXT=Um relatório curto ajuda a corrigir: a versão do app, o dispositivo e onde parou — nada do que você escreveu ou desenhou. Ele abre no seu e-mail para você ler antes de enviar.
+CRASH_SEND=Enviar relatório
+CRASH_LATER=Agora não
 
 // Japanese
 JA-JP:
@@ -584,6 +596,10 @@ MONTH_9=9月
 MONTH_10=10月
 MONTH_11=11月
 MONTH_12=12月
+CRASH_TITLE=Draw が予期せず終了しました
+CRASH_TEXT=短いレポートが修正の助けになります。アプリのバージョン、端末、止まった場所だけで、書いたものや描いたものは含まれません。送る前に確認できるよう、メールで開きます。
+CRASH_SEND=レポートを送る
+CRASH_LATER=今はしない
 
 // French
 FR-FR:
@@ -730,3 +746,7 @@ MONTH_9=sept.
 MONTH_10=oct.
 MONTH_11=nov.
 MONTH_12=déc.
+CRASH_TITLE=Draw s’est fermé de façon inattendue
+CRASH_TEXT=Un court rapport aide à corriger le problème : la version de l’app, l’appareil et l’endroit où elle s’est arrêtée — rien de ce que vous avez écrit ou dessiné. Il s’ouvre dans votre e-mail, à lire avant de l’envoyer.
+CRASH_SEND=Envoyer le rapport
+CRASH_LATER=Pas maintenant

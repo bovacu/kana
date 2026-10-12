@@ -82,6 +82,19 @@ if [ "$WHAT" = "sketching" ] || [ "$WHAT" = "infinote" ] || [ "$WHAT" = "infiniw
         cp -R $K/apps/$WHAT/assets/. $ASSETS
     fi
     OUT=$K/build/$WHAT-android
+    # (the microphone: InfiNote's and Sketching's recordings synced to ink; InfiniWorkshop asks for none — and their
+    # speech to text: whisper.cpp, built once by tools/whisper/build.sh)
+    MIC=""
+    LISTEN=()
+    if [ "$WHAT" != "infiniworkshop" ]; then
+        MIC="--android_microphone"
+        WL=$K/build/whisper/android-arm64/lib
+        if [ ! -f $WL/libwhisper.so ]; then zsh $K/tools/whisper/build.sh; fi
+        # (linked to whisper's and ggml's own; the CPU's code, each kind, packed beside them: the app loads the best)
+        LISTEN=(-I$K/build/whisper/include -DFUDE_WHISPER=1 -L$WL -lwhisper -lggml -lggml-base -lc++_shared
+                --android_lib=$WL/libwhisper.so --android_lib=$WL/libggml.so --android_lib=$WL/libggml-base.so)
+        for f in $WL/libggml-cpu-*.so; do LISTEN+=(--android_lib=$f); done
+    fi
     cd $K
     ~/RDE/builder --project $MODE $ANDROID \
         --android_app_name=$NAME --android_package_name=com.rde.$WHAT \
@@ -89,12 +102,12 @@ if [ "$WHAT" = "sketching" ] || [ "$WHAT" = "infinote" ] || [ "$WHAT" = "infiniw
         --assets_path=$ASSETS \
         --android_java=$K/fude/android/java \
         --android_deps_file=$K/apps/$WHAT/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
-        --android_internet --android_network_state --android_wake_lock --android_camera \
+        --android_internet --android_network_state --android_wake_lock --android_camera --android_file_provider $MIC \
         $VERSION "$@" \
         apps/sketching/sketching.c $(ls fude/drawing/*/*.c | grep -v '_android.c$' | grep -v '/android.c$') $(ls fude/zoom/*.c) $(ls fude/sim/*.c) \
         fude/drawing/base/android.c fude/drawing/doc/pdf_android.c fude/drawing/doc/import_android.c \
         fude/study/services/mlkit.c fude/study/services/mlkit_android.c \
-        -I$K/fude -I$K/apps/$WHAT/src -Wall -Wextra \
+        -I$K/fude -I$K/apps/$WHAT/src "${LISTEN[@]}" -Wall -Wextra \
         --output_path=$OUT/
     APK=$OUT/$NAME.apk
     if [ "$MODE" = "--release" ]; then APK=$OUT/$NAME-release.apk; fi
@@ -112,7 +125,7 @@ COMMON=(
     fude/drawing/doc/pdf.c fude/drawing/doc/import.c fude/drawing/doc/library.c fude/drawing/widgets/draw.c \
     fude/drawing/widgets/docbar.c fude/drawing/widgets/filterbar.c fude/drawing/widgets/kit.c \
     fude/drawing/widgets/notice.c fude/drawing/widgets/pagemenu.c fude/drawing/widgets/row.c \
-    fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/toolbar.c \
+    fude/drawing/widgets/scroll.c fude/drawing/widgets/side.c fude/drawing/widgets/crashcard.c fude/drawing/base/crash.c fude/drawing/widgets/toolbar.c \
     fude/study/app/study.c fude/study/app/files.c fude/study/app/look.c fude/study/app/demo.c \
     fude/study/app/verbs.c fude/study/chars/catalog.c fude/study/chars/glyph.c fude/study/chars/kanji.c \
     fude/study/chars/bake.c fude/study/handwriting/guide.c fude/study/handwriting/match.c \
@@ -150,7 +163,7 @@ cd $K
     --assets_path=$K/apps/$WHAT/assets/ \
     --android_java=$K/fude/android/java \
     --android_deps_file=$K/apps/$WHAT/platform/android/deps.lock --android_dep_cache=$K/build/android_deps \
-    --android_internet --android_network_state --android_wake_lock --android_camera \
+    --android_internet --android_network_state --android_wake_lock --android_camera --android_file_provider \
     --android_query_intent=android.intent.action.TTS_SERVICE \
     $VERSION "$@" \
     apps/$WHAT/$WHAT.c apps/$WHAT/src/${WHAT}_app.c $COMMON $LANG_SRC $ANDROID_SRC \

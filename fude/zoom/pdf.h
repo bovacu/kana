@@ -119,6 +119,8 @@ void fude_zoom_pdf_image(fude_zoom_pdf* _pdf, u32 _id, f64 _a, f64 _b, f64 _c, f
 // UTF-8 text in Helvetica, _size points, in _c: its baseline starts at (_x, _y).
 // Leaves the fill colour as it found it.
 void fude_zoom_pdf_text(fude_zoom_pdf* _pdf, f64 _x, f64 _y, f64 _size, rde_color _c, const c8* _utf8);
+// ...in one of its faces: _face 0 Helvetica, 1 bold, 2 oblique, 3 bold oblique (each written only when used).
+void fude_zoom_pdf_text_face(fude_zoom_pdf* _pdf, f64 _x, f64 _y, f64 _size, rde_color _c, const c8* _utf8, u8 _face);
 // How wide that text is at _size points (Helvetica's widths, no kerning).
 f64  fude_zoom_pdf_text_width(f64 _size, const c8* _utf8);
 

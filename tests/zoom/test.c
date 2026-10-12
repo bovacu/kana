@@ -29,10 +29,25 @@
 #include "zoom/props.h"
 #include "zoom/product.h"
 #include "zoom/pages.h"
+#include "zoom/words.h"
+#include "zoom/homelist.h"
+#include "zoom/adpcm.h"
+#include "zoom/audio.h"
+#include "zoom/transcript.h"
+#include "zoom/tex.h"
+#include "zoom/formula.h"
+#include "zoom/texcalc.h"
+#include "zoom/handmath.h"
+#include "zoom/mathread.h"
 #include "sim/body.h"
 #include "zoom/calc.h"
 #include "zoom/plot.h"
 #include "zoom/symbol.h"
+#include "zoom/rich.h"
+#include "zoom/paper.h"
+#include "zoom/chart.h"
+#include "zoom/plot.h"
+#include "drawing/ink/canvas.h"
 #include "zoom/display.h"
 #include "zoom/select.h"
 #include "zoom/render.h"
@@ -1953,6 +1968,34 @@ static void test_layer_moves(void) {
     fude_zoom_scene_destroy(&s);
 }
 
+// A lasso let go when a second finger makes a pinch (0.1.84: with fingers writing, the lasso tool kept the view still):
+// a loop being drawn dropped, nothing taken; a drag dropped, the picks where they were, nothing to undo.
+static void test_select_abort(void) {
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const f64 box[3] = { 20, 10, 0 };
+    const u32 a = fude_zoom_scene_add_shape(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_RECT, box, 3, (rde_color){ 1, 1, 1, 255 }, 1.0f, 0u, 0);
+    fude_zoom_selection sel; fude_zoom_select_init(&sel);
+    fude_zoom_select_down(&sel, &s, NULL, (rde_vec_2F){ 400, 400 });
+    fude_zoom_select_moved(&sel, (rde_vec_2F){ 500, 400 });
+    fude_zoom_select_moved(&sel, (rde_vec_2F){ 500, 500 });
+    CHECK(fude_zoom_select_busy(&sel) && sel.grab == FUDE_ZOOM_GRAB_LOOP);
+    fude_zoom_select_abort(&sel, &s);
+    CHECK(!fude_zoom_select_busy(&sel) && rde_arr_length(&sel.loop) == 0u && !fude_zoom_select_any(&sel));
+    rde_arr_add(&sel.picks, &(fude_zoom_pick){ a });
+    fude_zoom_select_update(&sel, &s);
+    const fude_zoom_place before = fude_zoom_scene_place_of(&s, a);
+    fude_zoom_select_down(&sel, &s, NULL, (rde_vec_2F){ 0, 0 });
+    CHECK(sel.grab == FUDE_ZOOM_GRAB_MOVE);
+    fude_zoom_select_moved(&sel, (rde_vec_2F){ 60, 30 });
+    fude_zoom_select_abort(&sel, &s);
+    const fude_zoom_place after = fude_zoom_scene_place_of(&s, a);
+    CHECK(!fude_zoom_select_busy(&sel) && fude_zoom_select_any(&sel) && after.t.x == before.t.x && after.t.y == before.t.y && !fude_zoom_history_undo(&s));
+    fude_zoom_select_abort(&sel, &s);   // (nothing begun: nothing)
+    CHECK(fude_zoom_select_any(&sel));
+    fude_zoom_select_destroy(&sel);
+    fude_zoom_scene_destroy(&s);
+}
+
 // Driving: the point at a dimension's end moved, and everything with an end or a corner there with it.
 static void test_driving(void) {
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
@@ -2314,10 +2357,18 @@ static void test_sheets(void) {
     const fude_zoom_camera view = fude_zoom_nav_framing(half3, s.root, (fude_zoom_box){ -210, -148.5, 210, 148.5 }, 1.0);
     CHECK(fabs(view.z - 72.0 / 25.4) < 1e-9);
     fude_bytes pdf = fude_bytes_new(4096);
-    CHECK(fude_zoom_export_pdf_pages(&s, &view, &half3, 1u, (fude_zoom_v2){ 0.0, 0.0 }, &pdf));
+    CHECK(fude_zoom_export_pdf_pages(&s, &view, &half3, 1u, (fude_zoom_v2){ 0.0, 0.0 }, NULL, &pdf));
     rde_arr_add(&pdf, &(u8){ 0 });
     CHECK(strstr((const c8*)pdf.memory, "/MediaBox [0 0 1190.55") != NULL && strstr((const c8*)pdf.memory, " 841.88") != NULL);
     CHECK(memcmp(&s.camera, &was, sizeof(was)) == 0);
+    // ...its paper under it: written too (a ruled page's lines), the camera put back still.
+    rde_arr ruled = rde_arr_new(sizeof(fude_zoom_paper_line), NULL);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_LINES, (fude_zoom_box){ -210, -148.5, 210, 148.5 }, 20.0, 8.0, 5.0, 2.0, &ruled) == 36u);
+    fude_bytes pdf_ruled = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf_pages(&s, &view, &half3, 1u, (fude_zoom_v2){ 0.0, 0.0 }, &ruled, &pdf_ruled));
+    CHECK(rde_arr_length(&pdf_ruled) > rde_arr_length(&pdf) && memcmp(&s.camera, &was, sizeof(was)) == 0);
+    rde_arr_free(&pdf_ruled);
+    rde_arr_free(&ruled);
     rde_arr_free(&pdf);
     fude_zoom_export_units(0.0, NULL);
     fude_zoom_scene_destroy(&s);
@@ -2389,6 +2440,620 @@ static void test_pieces(void) {
     fude_zoom_select_clips_free(&clips);
     rde_arr_free(&clips);
     fude_zoom_scene_destroy(&s);
+}
+
+// Charts from data (chart.h): read (a title, categories and their values, series' names, a name with spaces, a
+// percent); a bar chart's bars, solid, each series its colour; a line chart's lines and dots; a pie's slices, its shares
+// adding up; nothing to draw but its axes when it has no data. And the new families: Venn's regions, all in its box.
+static void test_charts(void) {
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), NULL), labels = rde_arr_new(sizeof(fude_zoom_plot_label), NULL);
+    const c8* data = "Sales\nJan 120 80\nFeb: 95, 110\nPine for the back\t30 40\nseries: Shop, Online";
+    CHECK(fude_zoom_plot_is("bar chart") && fude_zoom_chart_is("pie chart") && !fude_zoom_chart_is("graph"));
+    CHECK(fude_zoom_plot_lines("bar chart", data, 160, 110, &pts, &parts, &labels) == 2u);
+    {
+        const fude_zoom_symbol_part* q = (const fude_zoom_symbol_part*)parts.memory;
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        u32 bars[2] = { 0, 0 };
+        b8 inside = true;
+        for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+            if(q[i].flags >= FUDE_ZOOM_CHART_SOLID) bars[(q[i].flags - FUDE_ZOOM_CHART_SOLID) % 2u]++;
+        }
+        for(u32 i = 0; i < (u32)rde_arr_length(&pts); i++) inside = inside && fabs(p[i].x) <= 160.0 && fabs(p[i].y) <= 110.0;
+        CHECK(bars[0] == 3u && bars[1] == 3u && inside);
+        const fude_zoom_plot_label* l = (const fude_zoom_plot_label*)labels.memory;
+        b8 title = false, pine = false, shop = false, online = false;
+        for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) {
+            title  = title  || (strcmp(l[i].text, "Sales") == 0 && l[i].align == 2u);
+            pine   = pine   || (strcmp(l[i].text, "Pine for the back") == 0 && l[i].align == 0u);
+            shop   = shop   || (strcmp(l[i].text, "Shop") == 0 && l[i].align == 4u && l[i].curve == 1u);
+            online = online || (strcmp(l[i].text, "Online") == 0 && l[i].curve == 2u);
+        }
+        CHECK(title && pine && shop && online);
+    }
+    // Lines: a line a series, a dot at each value.
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    CHECK(fude_zoom_plot_lines("line chart", data, 160, 110, &pts, &parts, &labels) == 2u);
+    {
+        const fude_zoom_symbol_part* q = (const fude_zoom_symbol_part*)parts.memory;
+        u32 lines = 0, dots = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+            lines += q[i].flags == 32u || q[i].flags == 33u ? 1u : 0u;
+            dots  += q[i].flags >= FUDE_ZOOM_CHART_SOLID ? 1u : 0u;
+        }
+        CHECK(lines == 2u && dots == 6u);
+    }
+    // A pie: a slice a category, their shares (as said by them) adding up to the whole.
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    CHECK(fude_zoom_plot_lines("pie chart", "Work 8\nSleep 8\nOther 4%\nNothing 0", 140, 120, &pts, &parts, &labels) == 1u);
+    {
+        const fude_zoom_symbol_part* q = (const fude_zoom_symbol_part*)parts.memory;
+        u32 slices = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) slices += q[i].flags >= FUDE_ZOOM_CHART_SOLID ? 1u : 0u;
+        const fude_zoom_plot_label* l = (const fude_zoom_plot_label*)labels.memory;
+        b8 work = false, other = false;
+        for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) {
+            work  = work  || strcmp(l[i].text, "Work 40%") == 0;
+            other = other || strcmp(l[i].text, "Other 20%") == 0;
+        }
+        CHECK(slices == 3u && work && other);
+    }
+    // Nothing but its axes: no data.
+    rde_arr_clear(&pts); rde_arr_clear(&parts); rde_arr_clear(&labels);
+    CHECK(fude_zoom_plot_lines("bar chart", "", 160, 110, &pts, &parts, &labels) == 0u && rde_arr_length(&parts) > 0u);
+    // Venn: its regions' boxes inside it, apart.
+    fude_zoom_box b[8];
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("venn 2"), 120, 75, 3, b, 8) == 3u);
+    CHECK(b[0].max_x < b[1].min_x && b[1].max_x < b[2].min_x && b[0].min_x >= -120.0 && b[2].max_x <= 120.0);
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("venn 3"), 110, 105, 4, b, 8) == 4u);
+    for(u32 i = 0; i < 4u; i++) CHECK(b[i].min_x >= -110.0 && b[i].max_x <= 110.0 && b[i].min_y >= -105.0 && b[i].max_y <= 105.0);
+    // Every new family: something drawn, in its box (a stamp's colours its own).
+    u32 fams[4] = { 0, 0, 0, 0 };
+    for(u32 k = 0; k < fude_zoom_symbol_count(); k++) {
+        const fude_zoom_symbol_info* info = fude_zoom_symbol_info_of(k);
+        const u32 f = info->family == FUDE_ZOOM_SYMBOL_FAMILY_CHARTS ? 0u : info->family == FUDE_ZOOM_SYMBOL_FAMILY_GEOMETRY ? 1u :
+                      info->family == FUDE_ZOOM_SYMBOL_FAMILY_SCIENCE ? 2u : info->family == FUDE_ZOOM_SYMBOL_FAMILY_STAMPS ? 3u : 4u;
+        if(f < 4u) fams[f]++;
+    }
+    CHECK(fams[0] == 3u && fams[1] == 14u && fams[2] == 18u && fams[3] == 12u);
+    fude_zoom_symbol_parts(fude_zoom_symbol_find("check stamp"), 30, 30, 64, &pts, &parts);
+    CHECK(rde_arr_length(&parts) == 1u && ((const fude_zoom_symbol_part*)parts.memory)[0].line.g > 150u && ((const fude_zoom_symbol_part*)parts.memory)[0].width > 0.0f);
+    rde_arr_free(&pts); rde_arr_free(&parts); rde_arr_free(&labels);
+}
+
+// Sketching's own papers (paper.h): each in the view, isometric's three ways meeting in triangles, a honeycomb's sides
+// all alike, polar's rings and rays, engineering's tenth lines heavy, music's staves of five; Cornell's and a planner's
+// page layouts.
+static void test_papers(void) {
+    rde_arr lines = rde_arr_new(sizeof(fude_zoom_paper_line), NULL);
+    const fude_zoom_box view = { -100, -80, 140, 90 };
+    const u8 kinds[5] = { FUDE_PAPER_ISOMETRIC, FUDE_PAPER_HEX, FUDE_PAPER_POLAR, FUDE_PAPER_ENGINEERING, FUDE_PAPER_MUSIC };
+    for(u32 k = 0; k < 5u; k++) {
+        rde_arr_clear(&lines);
+        const u32 n = fude_zoom_paper_lines(kinds[k], view, 20.0, 0.5, 2.0, &lines);
+        CHECK(n > (kinds[k] == FUDE_PAPER_MUSIC ? 3u : 10u) && n == (u32)rde_arr_length(&lines));
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        b8 inside = true;
+        for(u32 i = 0; i < n; i++) {
+            inside = inside && l[i].a.x >= view.min_x - 1e-9 && l[i].a.x <= view.max_x + 1e-9 && l[i].b.y >= view.min_y - 1e-9 && l[i].b.y <= view.max_y + 1e-9 &&
+                     l[i].strength > 0.0f && l[i].strength <= 1.0f;
+        }
+        CHECK(inside);
+    }
+    // Isometric: vertical and 30° either side, its own lines a step apart (through the middle), the finer ones fainter.
+    rde_arr_clear(&lines);
+    fude_zoom_paper_lines(FUDE_PAPER_ISOMETRIC, view, 20.0, 0.25, 2.0, &lines);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        u32 ways[3] = { 0, 0, 0 }, odd = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            const f64 a = atan2(l[i].b.y - l[i].a.y, l[i].b.x - l[i].a.x) * 180.0 / 3.14159265358979323846;
+            const f64 m = fmod(a + 360.0, 180.0);
+            ways[fabs(m - 90.0) < 1e-6 ? 0 : fabs(m - 30.0) < 1e-6 ? 1 : fabs(m - 150.0) < 1e-6 ? 2 : 0] += 1u;
+            CHECK(fabs(m - 90.0) < 1e-6 || fabs(m - 30.0) < 1e-6 || fabs(m - 150.0) < 1e-6);
+            odd += l[i].strength == 0.25f ? 1u : 0u;
+        }
+        CHECK(ways[0] > 5u && ways[1] > 5u && ways[2] > 5u && odd > 0u);
+        // (a vertical through the middle: one of its own)
+        b8 middle = false;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            middle = middle || (fabs(l[i].a.x) < 1e-9 && fabs(l[i].b.x) < 1e-9 && l[i].strength == 1.0f);
+        }
+        CHECK(middle);
+    }
+    // Hexagons: every side as long as a hexagon's radius (those cut by the view's edge shorter).
+    rde_arr_clear(&lines);
+    fude_zoom_paper_lines(FUDE_PAPER_HEX, (fude_zoom_box){ -300, -300, 300, 300 }, 12.0, 0.0, 2.0, &lines);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        u32 whole = 0, longer = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            const f64 len = hypot(l[i].b.x - l[i].a.x, l[i].b.y - l[i].a.y);
+            whole  += fabs(len - 12.0) < 1e-9 ? 1u : 0u;
+            longer += len > 12.0 + 1e-9 ? 1u : 0u;
+        }
+        CHECK(whole > 1000u && longer == 0u);
+        CHECK(rde_arr_length(&lines) < FUDE_ZOOM_PAPER_MOST);
+    }
+    // Polar: its rings' points as far from the middle as a ring's radius; its rays from the middle, every 15°.
+    rde_arr_clear(&lines);
+    fude_zoom_paper_lines(FUDE_PAPER_POLAR, (fude_zoom_box){ 30, 30, 200, 120 }, 20.0, 0.0, 2.0, &lines);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        b8 ok = true;
+        u32 rays = 0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            const f64 ra = hypot(l[i].a.x, l[i].a.y), rb = hypot(l[i].b.x, l[i].b.y);
+            const f64 cross = l[i].a.x * l[i].b.y - l[i].a.y * l[i].b.x;
+            if(fabs(cross) < 1e-6 * ra * rb) {
+                rays++;   // (along a ray)
+                const f64 deg = atan2(l[i].a.y, l[i].a.x) * 180.0 / 3.14159265358979323846;
+                ok = ok && (fabs(fmod(deg + 360.0, 15.0)) < 1e-6 || fabs(fmod(deg + 360.0, 15.0) - 15.0) < 1e-6);
+            } else {
+                // (a chord: each end on a ring, a multiple of the half step out — or on the view's edge, cut there)
+                const fude_zoom_v2 ends[2] = { l[i].a, l[i].b };
+                for(u32 e = 0; e < 2u; e++) {
+                    const f64 r = hypot(ends[e].x, ends[e].y);
+                    const b8 ring = fabs(fmod(r, 10.0)) < 1e-6 || fabs(fmod(r, 10.0) - 10.0) < 1e-6;
+                    const b8 edge = fabs(ends[e].x - 30.0) < 1e-9 || fabs(ends[e].x - 200.0) < 1e-9 || fabs(ends[e].y - 30.0) < 1e-9 || fabs(ends[e].y - 120.0) < 1e-9;
+                    ok = ok && (ring || edge);
+                }
+            }
+        }
+        CHECK(ok && rays >= 2u);   // (30°, 45°: in that corner of the view)
+    }
+    // Engineering at 2 points a unit: a line every 10 units (20 points apart: the finest at least 8), every fifth stronger,
+    // heavy every tenth (200 points apart).
+    rde_arr_clear(&lines);
+    fude_zoom_paper_lines(FUDE_PAPER_ENGINEERING, (fude_zoom_box){ -1, -1, 251, 1 }, 1.0, 0.0, 2.0, &lines);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        u32 vertical = 0, heavy = 0;
+        f32 s10 = 0.0f, s50 = 0.0f;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            if(l[i].a.x != l[i].b.x) {
+                continue;
+            }
+            vertical++;
+            heavy += l[i].heavy ? 1u : 0u;
+            s10 = l[i].a.x == 10.0 ? l[i].strength : s10;
+            s50 = l[i].a.x == 50.0 ? l[i].strength : s50;
+        }
+        CHECK(vertical == 26u && heavy == 3u && s50 > s10 && s10 > 0.0f);   // (0, 100, 200 heavy)
+    }
+    // Music: staves of five a step apart, six steps between; gone when too fine to see.
+    rde_arr_clear(&lines);
+    fude_zoom_paper_lines(FUDE_PAPER_MUSIC, (fude_zoom_box){ 0, -199, 100, 1 }, 2.0, 0.0, 4.0, &lines);
+    CHECK(rde_arr_length(&lines) == 50u && ((const fude_zoom_paper_line*)lines.memory)[1].a.y == -2.0);
+    rde_arr_clear(&lines);
+    CHECK(fude_zoom_paper_lines(FUDE_PAPER_MUSIC, (fude_zoom_box){ 0, -199, 100, 1 }, 2.0, 0.0, 1.0, &lines) == 0u);
+    // Page layouts: Cornell's cue column and summary; a planner's boxes, one a line; neither elsewhere.
+    rde_arr_clear(&lines);
+    const fude_zoom_box page = { 0, 0, 210, 297 };
+    CHECK(fude_zoom_paper_page(FUDE_PAPER_CORNELL, page, 280.0, 8.0, &lines) > 30u);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        b8 cue = false, summary = false;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            cue     = cue || (l[i].heavy && fabs(l[i].a.x - 63.0) < 1e-9 && fabs(l[i].b.x - 63.0) < 1e-9);
+            summary = summary || (l[i].heavy && fabs(l[i].a.y - 59.4) < 1e-9 && fabs(l[i].b.y - 59.4) < 1e-9);
+        }
+        CHECK(cue && summary);
+    }
+    rde_arr_clear(&lines);
+    const u32 planner = fude_zoom_paper_page(FUDE_PAPER_PLANNER, page, 280.0, 8.0, &lines);
+    CHECK(planner > 0u && (planner - 1u) % 5u == 0u);   // (its title's line, then each line and its box's four sides)
+    CHECK(fude_zoom_paper_page(FUDE_PAPER_LINES, page, 280.0, 8.0, &lines) == 0u && fude_zoom_paper_is_page(FUDE_PAPER_CORNELL) && !fude_zoom_paper_is_page(FUDE_PAPER_HEX));
+    // A notebook's page as printed (an A4 from y 0 down): ruled from under its margin, its margin's line last; squares
+    // and dots from its top left, none on its edges; blank; the patterns inside it; engineering's millimetres.
+    const fude_zoom_box a4 = { -105, -297, 105, 0 };
+    rde_arr_clear(&lines);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_LINES, a4, 20.0, 8.0, 5.0, 2.0, &lines) == 36u);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        CHECK(l[0].a.y == -20.0 && l[0].a.x == -105.0 && l[0].b.x == 105.0 && l[34].a.y == -292.0 && l[0].kind == FUDE_ZOOM_PAPER_PLAIN);
+        CHECK(l[35].kind == FUDE_ZOOM_PAPER_MARGIN && l[35].a.x == -85.0 && l[35].b.x == -85.0 && l[35].a.y == 0.0 && l[35].b.y == -297.0);
+    }
+    rde_arr_clear(&lines);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_SQUARES, a4, 20.0, 8.0, 5.0, 2.0, &lines) == 59u + 41u);
+    rde_arr_clear(&lines);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_DOTS, a4, 20.0, 8.0, 5.0, 2.0, &lines) == 59u * 41u);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        b8 dots = true;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            dots = dots && l[i].kind == FUDE_ZOOM_PAPER_DOT && l[i].a.x == l[i].b.x && l[i].a.y == l[i].b.y && l[i].a.x > -105.0 && l[i].a.x < 105.0 &&
+                   l[i].a.y < 0.0 && l[i].a.y > -297.0;
+        }
+        CHECK(dots && l[0].a.x == -100.0 && l[0].a.y == -5.0);
+    }
+    rde_arr_clear(&lines);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_NONE, a4, 20.0, 8.0, 5.0, 2.0, &lines) == 0u);
+    CHECK(fude_zoom_paper_sheet(FUDE_PAPER_LINES, (fude_zoom_box){ 0, 0, 0, 10 }, 20.0, 8.0, 5.0, 2.0, &lines) == 0u);
+    for(u8 paper = FUDE_PAPER_ISOMETRIC; paper < FUDE_PAPER_COUNT; paper++) {
+        rde_arr_clear(&lines);
+        CHECK(fude_zoom_paper_sheet(paper, a4, 20.0, 8.0, 5.0, 2.0, &lines) > 10u);
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        b8 inside = true;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            inside = inside && fmin(l[i].a.x, l[i].b.x) >= -105.0 - 1e-6 && fmax(l[i].a.x, l[i].b.x) <= 105.0 + 1e-6 &&
+                     fmin(l[i].a.y, l[i].b.y) >= -297.0 - 1e-6 && fmax(l[i].a.y, l[i].b.y) <= 1e-6 && l[i].strength > 0.0f;
+        }
+        CHECK(inside);
+    }
+    rde_arr_clear(&lines);
+    fude_zoom_paper_sheet(FUDE_PAPER_ENGINEERING, a4, 20.0, 8.0, 5.0, 2.0, &lines);
+    {
+        const fude_zoom_paper_line* l = (const fude_zoom_paper_line*)lines.memory;
+        u32 down = 0;
+        f32 at_one = 0.0f, at_ten = 0.0f;
+        for(u32 i = 0; i < (u32)rde_arr_length(&lines); i++) {
+            if(l[i].a.x == l[i].b.x) {
+                down++;
+                at_one = l[i].a.x == 1.0 ? l[i].strength : at_one;
+                at_ten = l[i].a.x == 10.0 ? l[i].strength : at_ten;
+            }
+        }
+        CHECK(down == 211u && at_one > 0.0f && at_one < 0.5f && at_ten > 0.9f);   // (a line every millimetre; every tenth strong)
+    }
+    rde_arr_free(&lines);
+}
+
+// A text read as a note (rich.h): a made-up font, each character half its size wide (bold a little wider).
+static f32 rich_measure(void* self, const c8* text, u32 len, f32 px, u8 style) {
+    (void)self;
+    u32 chars = 0;
+    for(u32 i = 0; i < len; i++) {
+        chars += ((u8)text[i] & 0xC0u) != 0x80u ? 1u : 0u;
+    }
+    return (f32)chars * px * ((style & FUDE_ZOOM_RICH_BOLD) ? 0.55f : 0.5f);
+}
+
+static b8 rich_run_is(const fude_zoom_rich* r, const c8* text, u32 k, const c8* words, u8 style) {
+    if(k >= (u32)rde_arr_length(&r->runs)) {
+        return false;
+    }
+    const fude_zoom_rich_run* q = &((const fude_zoom_rich_run*)r->runs.memory)[k];
+    const c8* from = (q->style & FUDE_ZOOM_RICH_OWN) ? FUDE_ZOOM_RICH_BULLET : &text[q->from];
+    return q->len == (u32)strlen(words) && strncmp(from, words, q->len) == 0 && q->style == style;
+}
+
+static u32 rich_marks_of(const fude_zoom_rich* r, u8 kind) {
+    u32 n = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&r->marks); i++) {
+        n += ((const fude_zoom_rich_mark*)r->marks.memory)[i].kind == kind ? 1u : 0u;
+    }
+    return n;
+}
+
+static void test_rich(void) {
+    fude_zoom_rich r;
+    fude_zoom_rich_init(&r);
+    // Plain: nothing marked; maths and snake_case stay as written.
+    CHECK(!fude_zoom_rich_marked("Hello world", 11));
+    CHECK(!fude_zoom_rich_marked("2 * 3 * 4 = 24", 14));
+    CHECK(!fude_zoom_rich_marked("my_var_name and **not closed", 28));
+    CHECK(!fude_zoom_rich_marked("a - b, 2026. was good", 21));
+    CHECK(fude_zoom_rich_marked("**x**", 5) && fude_zoom_rich_marked("- one", 5) && fude_zoom_rich_marked("see https://x.org", 17));
+    CHECK(fude_zoom_rich_marked("# Title", 7) && fude_zoom_rich_marked("[ ] milk", 8) && fude_zoom_rich_marked("| a |", 5));
+    // A heading, then bold and italic in a line.
+    const c8* t1 = "# Title\nSome **bold** and *it* here";
+    fude_zoom_rich_lay(&r, t1, (u32)strlen(t1), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.runs) == 6u);
+    CHECK(rich_run_is(&r, t1, 0, "Title", FUDE_ZOOM_RICH_BOLD) && ((const fude_zoom_rich_run*)r.runs.memory)[0].px == 15.0f);
+    CHECK(rich_run_is(&r, t1, 1, "Some", 0) && rich_run_is(&r, t1, 2, "bold", FUDE_ZOOM_RICH_BOLD) && rich_run_is(&r, t1, 3, "and", 0));
+    CHECK(rich_run_is(&r, t1, 4, "it", FUDE_ZOOM_RICH_ITALIC) && rich_run_is(&r, t1, 5, "here", 0));
+    {
+        const fude_zoom_rich_run* q = (const fude_zoom_rich_run*)r.runs.memory;
+        // (the heading's line as tall as its letters; "Some" one space before "bold": 4 letters + a space)
+        CHECK(fabsf(q[1].y - (15.0f * 1.3f + 10.0f * 0.95f)) < 1e-4f && fabsf(q[2].x - 25.0f) < 1e-4f);
+        CHECK(fabsf(r.h - (15.0f * 1.3f + 13.0f)) < 1e-4f);
+    }
+    // Tasks: their boxes, where a tap ticks them; one done, struck and softer.
+    const c8* t2 = "- [ ] milk\n[x] eggs";
+    fude_zoom_rich_lay(&r, t2, (u32)strlen(t2), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.hits) == 2u && rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_BOX) == 1u && rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_TICKED) == 1u);
+    {
+        const fude_zoom_rich_hit* h = (const fude_zoom_rich_hit*)r.hits.memory;
+        CHECK(h[0].kind == FUDE_ZOOM_RICH_HIT_TASK && h[0].at == 2u && h[1].kind == FUDE_ZOOM_RICH_HIT_DONE && h[1].at == 11u);
+        CHECK(fude_zoom_rich_hit_at(&r, 5.0f, 6.0f, 0.0f) == 0u && fude_zoom_rich_hit_at(&r, 5.0f, 19.0f, 0.0f) == 1u && fude_zoom_rich_hit_at(&r, 80.0f, 6.0f, 0.0f) == FUDE_ZOOM_RICH_NONE);
+    }
+    CHECK(rich_run_is(&r, t2, 0, "milk", 0) && rich_run_is(&r, t2, 1, "eggs", FUDE_ZOOM_RICH_SOFT | FUDE_ZOOM_RICH_STRUCK));
+    CHECK(rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_LINE) == 1u);   // (its strike)
+    c8 tick[32];
+    snprintf(tick, sizeof tick, "%s", t2);
+    CHECK(fude_zoom_rich_tick(tick, (u32)strlen(tick), 2u) && strcmp(tick, "- [x] milk\n[x] eggs") == 0);
+    CHECK(fude_zoom_rich_tick(tick, (u32)strlen(tick), 11u) && strcmp(tick, "- [x] milk\n[ ] eggs") == 0);
+    CHECK(!fude_zoom_rich_tick(tick, (u32)strlen(tick), 0u));
+    // Bullets in levels, numbers as written.
+    const c8* t3 = "- one\n  - two\n1. a\n10. b";
+    fude_zoom_rich_lay(&r, t3, (u32)strlen(t3), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.runs) == 8u);
+    {
+        const fude_zoom_rich_run* q = (const fude_zoom_rich_run*)r.runs.memory;
+        CHECK(rich_run_is(&r, t3, 0, FUDE_ZOOM_RICH_BULLET, FUDE_ZOOM_RICH_OWN) && fabsf(q[0].x - 2.0f) < 1e-4f && fabsf(q[1].x - 11.0f) < 1e-4f);
+        CHECK(rich_run_is(&r, t3, 2, FUDE_ZOOM_RICH_BULLET, FUDE_ZOOM_RICH_OWN) && fabsf(q[2].x - 16.0f) < 1e-4f && fabsf(q[3].x - 25.0f) < 1e-4f);
+        CHECK(rich_run_is(&r, t3, 4, "1.", 0) && rich_run_is(&r, t3, 6, "10.", 0) && rich_run_is(&r, t3, 7, "b", 0) && fabsf(q[7].x - 19.0f) < 1e-4f);
+    }
+    // Wrapping: words to the next line, joined runs; a word longer than a line cut between its letters, none lost.
+    const c8* t4 = "aaaa bbbb cccc";
+    fude_zoom_rich_lay(&r, t4, (u32)strlen(t4), 50.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.runs) == 2u && rich_run_is(&r, t4, 0, "aaaa bbbb", 0) && rich_run_is(&r, t4, 1, "cccc", 0) && fabsf(r.h - 26.0f) < 1e-4f);
+    const c8* t5 = "abcdefghijklmnop";
+    fude_zoom_rich_lay(&r, t5, (u32)strlen(t5), 30.0f, 10.0f, 1.3f, rich_measure, NULL);
+    {
+        u32 letters = 0;
+        for(u32 k = 0; k < (u32)rde_arr_length(&r.runs); k++) {
+            letters += ((const fude_zoom_rich_run*)r.runs.memory)[k].len;
+            CHECK(((const fude_zoom_rich_run*)r.runs.memory)[k].w <= 30.0f + 1e-4f);
+        }
+        CHECK(rde_arr_length(&r.runs) == 3u && letters == 16u && fabsf(r.h - 39.0f) < 1e-4f);
+    }
+    // Links: written as [words](address), and written out (its full stop the sentence's).
+    const c8* t6 = "see [the site](example.com) and https://x.org/a.";
+    fude_zoom_rich_lay(&r, t6, (u32)strlen(t6), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rich_run_is(&r, t6, 1, "the site", FUDE_ZOOM_RICH_LINK) && rich_run_is(&r, t6, 3, "https://x.org/a", FUDE_ZOOM_RICH_LINK) && rich_run_is(&r, t6, 4, ".", 0));
+    CHECK(rde_arr_length(&r.hits) == 2u);
+    {
+        const fude_zoom_rich_hit* h = (const fude_zoom_rich_hit*)r.hits.memory;
+        c8 a[64];
+        fude_zoom_rich_address(t6, h[0].at, h[0].len, a, sizeof a);
+        CHECK(h[0].kind == FUDE_ZOOM_RICH_HIT_LINK && strcmp(a, "https://example.com") == 0);
+        fude_zoom_rich_address(t6, h[1].at, h[1].len, a, sizeof a);
+        CHECK(strcmp(a, "https://x.org/a") == 0);
+        fude_zoom_rich_address("mailto:me@x.org", 0, 15, a, sizeof a);
+        CHECK(strcmp(a, "mailto:me@x.org") == 0);
+    }
+    // Code, struck, and marks left as written when they do not close.
+    const c8* t7 = "`a b` ~~gone~~ **open";
+    fude_zoom_rich_lay(&r, t7, (u32)strlen(t7), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rich_run_is(&r, t7, 0, "a b", FUDE_ZOOM_RICH_CODE) && rich_run_is(&r, t7, 1, "gone", FUDE_ZOOM_RICH_STRUCK) && rich_run_is(&r, t7, 2, "**open", 0));
+    CHECK(rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_GROUND) == 1u && rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_LINE) == 1u);
+    // A table: its header bold on its ground, its columns as wide as their widest cells, the second to the right.
+    const c8* t8 = "| a | bb |\n|---|--:|\n| ccc | d |";
+    fude_zoom_rich_lay(&r, t8, (u32)strlen(t8), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.runs) == 4u && rich_run_is(&r, t8, 0, "a", FUDE_ZOOM_RICH_BOLD) && rich_run_is(&r, t8, 1, "bb", FUDE_ZOOM_RICH_BOLD));
+    CHECK(rich_run_is(&r, t8, 2, "ccc", 0) && rich_run_is(&r, t8, 3, "d", 0));
+    CHECK(rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_GROUND) == 1u && rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_LINE) == 6u);
+    {
+        const fude_zoom_rich_run* q = (const fude_zoom_rich_run*)r.runs.memory;
+        // (columns: 15 + 9 = 24 and 11 + 9 = 20 wide; "d" against the second's right, its room in from it)
+        CHECK(fabsf(r.w - 44.0f) < 1e-3f && fabsf(q[3].x + q[3].w - (44.0f - 4.5f)) < 1e-3f && fabsf(q[2].x - 4.5f) < 1e-3f);
+        CHECK(fabsf(r.h - 2.0f * (13.0f + 4.4f)) < 1e-3f);
+    }
+    // ...narrower than it would be: its cells wrapped, never wider than the room.
+    const c8* t9 = "| one two three | four five six |";
+    fude_zoom_rich_lay(&r, t9, (u32)strlen(t9), 60.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(r.w <= 60.0f + 1e-3f && r.h > 2.0f * 13.0f);
+    // A rule, across what is widest.
+    const c8* t10 = "abcd\n---\nb";
+    fude_zoom_rich_lay(&r, t10, (u32)strlen(t10), 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rich_marks_of(&r, FUDE_ZOOM_RICH_MARK_LINE) == 1u && fabsf(((const fude_zoom_rich_mark*)r.marks.memory)[0].x1 - 20.0f) < 1e-4f);
+    // Nothing at all.
+    fude_zoom_rich_lay(&r, "", 0u, 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+    CHECK(rde_arr_length(&r.runs) == 0u && r.w == 0.0f && r.h == 0.0f);
+    // Marks put in by a tap: wrapped and unwrapped, lines made lists, tasks, numbers, headings and back, a table, a link.
+    {
+        c8 out[512];
+        u32 a = 0, b = 0;
+        CHECK(fude_zoom_rich_format("make it bold", 12, 8, 12, FUDE_ZOOM_RICH_DO_BOLD, out, sizeof out, &a, &b) && strcmp(out, "make it **bold**") == 0 && a == 10u && b == 14u);
+        c8 back[512];
+        CHECK(fude_zoom_rich_format("make it **bold**", 16, 10, 14, FUDE_ZOOM_RICH_DO_BOLD, back, sizeof back, &a, &b) && strcmp(back, "make it bold") == 0 && a == 8u && b == 12u);
+        CHECK(fude_zoom_rich_format("ab", 2, 1, 1, FUDE_ZOOM_RICH_DO_ITALIC, out, sizeof out, &a, &b) && strcmp(out, "a**b") == 0 && a == 2u && b == 2u);
+        CHECK(fude_zoom_rich_format("a **b**", 7, 4, 5, FUDE_ZOOM_RICH_DO_ITALIC, out, sizeof out, &a, &b) && strcmp(out, "a ***b***") == 0);   // (bold's stars not italic's)
+        CHECK(fude_zoom_rich_format("milk\neggs\nbread", 15, 2, 7, FUDE_ZOOM_RICH_DO_BULLETS, out, sizeof out, &a, &b) && strcmp(out, "- milk\n- eggs\nbread") == 0 && a == 4u && b == 11u);
+        CHECK(fude_zoom_rich_format("- milk\n- eggs", 13, 0, 13, FUDE_ZOOM_RICH_DO_BULLETS, out, sizeof out, &a, &b) && strcmp(out, "milk\neggs") == 0);
+        CHECK(fude_zoom_rich_format("- milk\neggs", 11, 0, 11, FUDE_ZOOM_RICH_DO_TASKS, out, sizeof out, &a, &b) && strcmp(out, "- [ ] milk\n- [ ] eggs") == 0);
+        CHECK(fude_zoom_rich_format("- [x] milk\neggs", 15, 0, 15, FUDE_ZOOM_RICH_DO_TASKS, out, sizeof out, &a, &b) && strcmp(out, "- [x] milk\n- [ ] eggs") == 0);
+        CHECK(fude_zoom_rich_format("- [x] milk\n- [ ] eggs", 21, 0, 21, FUDE_ZOOM_RICH_DO_TASKS, out, sizeof out, &a, &b) && strcmp(out, "milk\neggs") == 0);
+        CHECK(fude_zoom_rich_format("  a\nb\nc", 8, 0, 8, FUDE_ZOOM_RICH_DO_NUMBERS, out, sizeof out, &a, &b) && strcmp(out, "  1. a\n2. b\n3. c") == 0);
+        CHECK(fude_zoom_rich_format("1. a\n2. b", 9, 0, 9, FUDE_ZOOM_RICH_DO_NUMBERS, out, sizeof out, &a, &b) && strcmp(out, "a\nb") == 0);
+        const c8* h[4] = { "# Title", "## Title", "### Title", "Title" };
+        const c8* was = "- Title";
+        for(u32 k = 0; k < 4u; k++) {
+            c8 hh[64];
+            CHECK(fude_zoom_rich_format(was, (u32)strlen(was), 3, 3, FUDE_ZOOM_RICH_DO_HEADING, hh, sizeof hh, &a, &b) && strcmp(hh, h[k]) == 0);
+            snprintf(back, sizeof back, "%s", hh);
+            was = back;
+        }
+        CHECK(fude_zoom_rich_format("one\ntwo", 7, 2, 2, FUDE_ZOOM_RICH_DO_TABLE, out, sizeof out, &a, &b) && strcmp(out, "one\n|  |  |\n|---|---|\n|  |  |\ntwo") == 0 && a == 6u);
+        CHECK(fude_zoom_rich_format("see site", 8, 4, 8, FUDE_ZOOM_RICH_DO_LINK, out, sizeof out, &a, &b) && strcmp(out, "see [site](https://)") == 0 && a == 19u && a == b);
+        CHECK(fude_zoom_rich_format("go ", 3, 3, 3, FUDE_ZOOM_RICH_DO_LINK, out, sizeof out, &a, &b) && strcmp(out, "go https://") == 0 && a == 11u);
+        // (each one's output a note again: what it marks read back)
+        CHECK(fude_zoom_rich_marked(out, (u32)strlen(out)));
+        c8 tiny[8];
+        CHECK(!fude_zoom_rich_format("make it bold", 12, 8, 12, FUDE_ZOOM_RICH_DO_BOLD, tiny, sizeof tiny, &a, &b));
+    }
+    // As it is being written (lay_raw): every byte in its runs, its marks faint, a caret's place at each byte and back.
+    {
+        const c8* w = "# Plan\n- [ ] **glue** it\n\n  indented line";
+        const u32 wl = (u32)strlen(w);
+        fude_zoom_rich_lay_raw(&r, w, wl, 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+        const fude_zoom_rich_run* q = (const fude_zoom_rich_run*)r.runs.memory;
+        u32 covered = 0, marks = 0;
+        for(u32 k = 0; k < (u32)rde_arr_length(&r.runs); k++) {
+            covered += q[k].len;
+            marks   += (q[k].style & FUDE_ZOOM_RICH_MARK) ? 1u : 0u;
+        }
+        // (every byte but the line breaks and the spaces between words)
+        u32 spaces = 0;
+        for(u32 i = 0; i < wl; i++) spaces += w[i] == ' ' || w[i] == '\n' ? 1u : 0u;
+        CHECK(rde_arr_length(&r.lines) == 4u && marks >= 3u && covered + spaces >= wl - 1u && covered <= wl);
+        // ("glue" bold, its stars faint)
+        b8 glue = false, stars = false;
+        for(u32 k = 0; k < (u32)rde_arr_length(&r.runs); k++) {
+            glue  = glue  || (q[k].len == 4u && strncmp(&w[q[k].from], "glue", 4) == 0 && (q[k].style & FUDE_ZOOM_RICH_BOLD) && !(q[k].style & FUDE_ZOOM_RICH_MARK));
+            stars = stars || (q[k].len == 2u && strncmp(&w[q[k].from], "**", 2) == 0 && (q[k].style & FUDE_ZOOM_RICH_MARK));
+        }
+        CHECK(glue && stars);
+        // A caret at each byte, and the byte a tap there finds: the same.
+        u32 same = 0, places = 0;
+        f32 lasty = -1.0f;
+        b8 down = true;
+        for(u32 at = 0; at <= wl; at++) {
+            f32 x, y, px;
+            fude_zoom_rich_caret(&r, w, wl, at, rich_measure, NULL, &x, &y, &px);
+            down = down && y >= lasty - 1e-4f;   // (never back up the page)
+            lasty = y;
+            places++;
+            same += fude_zoom_rich_byte_at(&r, w, wl, x + 0.1f, y - px * 0.3f, rich_measure, NULL) == at ? 1u : 0u;
+        }
+        CHECK(down && same == places);
+        // (a tap past a line's end: its end; under everything: the end)
+        f32 x, y, px;
+        fude_zoom_rich_caret(&r, w, wl, 6u, rich_measure, NULL, &x, &y, &px);
+        CHECK(fude_zoom_rich_byte_at(&r, w, wl, x + 500.0f, y - 2.0f, rich_measure, NULL) == 6u);
+        CHECK(fude_zoom_rich_byte_at(&r, w, wl, 0.0f, 1000.0f, rich_measure, NULL) == 26u);      // (its last line's start)
+        CHECK(fude_zoom_rich_byte_at(&r, w, wl, 1000.0f, 1000.0f, rich_measure, NULL) == wl);   // (...its end)
+        // Wrapped: the caret down a row at the word that went on.
+        const c8* v = "aaaa bbbb cccc";
+        fude_zoom_rich_lay_raw(&r, v, 14u, 50.0f, 10.0f, 1.3f, rich_measure, NULL);
+        fude_zoom_rich_caret(&r, v, 14u, 10u, rich_measure, NULL, &x, &y, &px);
+        CHECK(x == 0.0f && fabsf(y - (13.0f + 9.5f)) < 1e-4f);
+        CHECK(fude_zoom_rich_byte_at(&r, v, 14u, 300.0f, 9.0f, rich_measure, NULL) == 9u);
+        // Nothing yet: a caret at its start.
+        fude_zoom_rich_lay_raw(&r, "", 0u, 0.0f, 10.0f, 1.3f, rich_measure, NULL);
+        fude_zoom_rich_caret(&r, "", 0u, 0u, rich_measure, NULL, &x, &y, &px);
+        CHECK(rde_arr_length(&r.lines) == 1u && x == 0.0f && fabsf(y - 9.5f) < 1e-4f && px == 10.0f);
+    }
+    fude_zoom_rich_free(&r);
+    // Exported as drawn: its words without their marks, bold where they are, its boxes and lines; a PDF's bold face.
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const c8* note = "# Plan\n- [x] **glue** it\n| a | b |";
+    fude_zoom_scene_add_text(&s, s.root, (fude_zoom_place){ { -80, 60 }, 0.0, 1.0 }, 12.0, 120.0, 60.0, FUDE_ZOOM_TEXT_STICKY, (rde_color){ 10, 20, 30, 255 },
+                             (rde_color){ 255, 233, 140, 255 }, note, (u32)strlen(note), 0);
+    // (a diagram shape's label too: a Kanban card's)
+    f64 n[FUDE_ZOOM_SHAPE_NUMBERS];
+    const u32 cnt = fude_zoom_symbol_numbers(n, fude_zoom_symbol_find("process"), 60, 35, 10, "**Ship** it\n- [ ] pack");
+    fude_zoom_scene_add_shape_fill(&s, s.root, (fude_zoom_place){ { 100, -60 }, 0.0, 1.0 }, FUDE_ZOOM_SHAPE_SYMBOL, n, cnt, (rde_color){ 1, 2, 3, 255 }, 1.0f, 0,
+                                   (rde_color){ 0, 0, 0, 0 }, 0);
+    fude_bytes svg = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_svg(&s, (fude_zoom_v2){ 200, 150 }, (rde_color){ 255, 255, 255, 255 }, &svg));
+    rde_arr_add(&svg, &(u8){ 0 });
+    {
+        const c8* text = (const c8*)svg.memory;
+        const c8* plan = strstr(text, ">Plan<");
+        const c8* glue = strstr(text, ">glue<");
+        CHECK(plan != NULL && glue != NULL && strstr(text, "**") == NULL && strstr(text, "[x]") == NULL && strstr(text, "| a") == NULL);
+        CHECK(strstr(text, ">a<") != NULL && strstr(text, ">b<") != NULL && strstr(text, "fill=\"#ffe98c\"") != NULL);
+        const c8* t = glue; while(t > text && strncmp(t, "<text", 5) != 0) t--;
+        CHECK(strstr(t, "font-weight=\"bold\"") != NULL && strstr(t, "font-weight=\"bold\"") < glue);
+        const c8* ship = strstr(text, ">Ship<");
+        CHECK(ship != NULL && strstr(text, ">pack<") != NULL && strstr(text, "[ ]") == NULL);
+        t = ship; while(t > text && strncmp(t, "<text", 5) != 0) t--;
+        CHECK(strstr(t, "font-weight=\"bold\"") != NULL && strstr(t, "font-weight=\"bold\"") < ship);
+    }
+    rde_arr_free(&svg);
+    fude_bytes pdf = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf(&s, (fude_zoom_v2){ 200, 150 }, (rde_color){ 255, 255, 255, 255 }, &pdf));
+    rde_arr_add(&pdf, &(u8){ 0 });
+    CHECK(strstr((const c8*)pdf.memory, "/BaseFont /Helvetica-Bold ") != NULL && strstr((const c8*)pdf.memory, "/BaseFont /Helvetica ") != NULL);
+    rde_arr_free(&pdf);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Brackets and plain shapes (0.1.85): each in its box however it is stretched, a brace's curls and an arrow's head as
+// they were, a bracket's text out beside it, a pair's between its two.
+static void test_brackets_shapes(void) {
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), NULL), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), NULL);
+    u32 brackets = 0, shapes = 0, bad = 0;
+    for(u32 k = 0; k < fude_zoom_symbol_count(); k++) {
+        const fude_zoom_symbol_info* info = fude_zoom_symbol_info_of(k);
+        if(info->family != FUDE_ZOOM_SYMBOL_FAMILY_BRACKETS && info->family != FUDE_ZOOM_SYMBOL_FAMILY_SHAPES) {
+            continue;
+        }
+        brackets += info->family == FUDE_ZOOM_SYMBOL_FAMILY_BRACKETS ? 1u : 0u;
+        shapes   += info->family == FUDE_ZOOM_SYMBOL_FAMILY_SHAPES ? 1u : 0u;
+        const f64 stretch[4][2] = { { 1, 1 }, { 1, 12 }, { 9, 1 }, { 0.3, 0.3 } };
+        for(u32 t = 0; t < 4u; t++) {
+            const f64 hw = info->w * 0.5 * stretch[t][0], hh = info->h * 0.5 * stretch[t][1];
+            const u32 np = fude_zoom_symbol_parts(k, hw, hh, 64, &pts, &parts);
+            b8 ok = np > 0u;
+            const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+            for(u32 i = 0; i < (u32)rde_arr_length(&pts); i++) {
+                ok = ok && fabs(p[i].x) <= hw + 1e-6 && fabs(p[i].y) <= hh + 1e-6 && isfinite(p[i].x) && isfinite(p[i].y);
+            }
+            // (no two points in a row the same: a line's turn there has no way)
+            const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+            for(u32 j = 0; j < np; j++) {
+                for(u32 i = 1; i < pa[j].count; i++) {
+                    ok = ok && hypot(p[pa[j].first + i].x - p[pa[j].first + i - 1u].x, p[pa[j].first + i].y - p[pa[j].first + i - 1u].y) > 1e-9;
+                }
+            }
+            if(!ok) {
+                printf("symbol %u (%s) stretched %g x %g: out of its box\n", k, info->id, stretch[t][0], stretch[t][1]);
+                bad++;
+            }
+        }
+    }
+    CHECK(bad == 0u);
+    CHECK(brackets == 22u && shapes == 29u);
+    // A brace's curls: as round, ten times as tall.
+    const u32 brace = fude_zoom_symbol_find("left brace");
+    f64 top[2];
+    for(u32 t = 0; t < 2u; t++) {
+        const f64 hh = t == 0u ? 75.0 : 750.0;
+        fude_zoom_symbol_parts(brace, 15, hh, 64, &pts, &parts);
+        // (its first curl ends where its spine starts down: the first point at its spine's x)
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        u32 i = 0;
+        while(i < (u32)rde_arr_length(&pts) && fabs(p[i].x) > 1e-6) {
+            i++;
+        }
+        top[t] = hh - p[i].y;
+    }
+    CHECK(fabs(top[0] - top[1]) < 1e-6 && top[0] > 5.0);
+    // A parenthesis: its middle at its back, its ends at its front.
+    fude_zoom_symbol_parts(fude_zoom_symbol_find("left parenthesis"), 15, 75, 64, &pts, &parts);
+    {
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        const u32 n = (u32)rde_arr_length(&pts);
+        CHECK(n >= 5u && fabs(p[0].y + p[n - 1u].y) < 1e-6 && fabs(fabs(p[0].y) - 75.0) < 1e-6 && p[0].x > 10.0 && fabs(p[n / 2u].x + 10.5) < 1e-6);
+    }
+    // Their texts: out beside one, over or under a brace, between a pair.
+    fude_zoom_box b[2];
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("left brace"), 15, 75, 1, b, 2) == 1u && b[0].max_x < -15.0 && b[0].min_y == -75.0);
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("right brace"), 15, 75, 1, b, 2) == 1u && b[0].min_x > 15.0);
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("over brace"), 110, 15, 1, b, 2) == 1u && b[0].min_y > 15.0);
+    CHECK(fude_zoom_symbol_text_boxes(fude_zoom_symbol_find("under brace"), 110, 15, 1, b, 2) == 1u && b[0].max_y < -15.0);
+    const u32 parens = fude_zoom_symbol_find("parentheses");
+    CHECK(fude_zoom_symbol_text_boxes(parens, 90, 40, 1, b, 2) == 1u);
+    fude_zoom_symbol_parts(parens, 90, 40, 64, &pts, &parts);
+    {
+        // (its left one's front: the most right of its first part's points)
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+        f64 front = -1e9;
+        for(u32 i = 0; i < pa[0].count; i++) {
+            front = fmax(front, p[pa[0].first + i].x);
+        }
+        CHECK(rde_arr_length(&parts) == 2u && b[0].min_x > front && b[0].max_x < -front);
+    }
+    // Fitted ones reach every side of their box.
+    const c8* fitted[] = { "star", "heart", "pentagon", "curved arrow", "burst" };
+    for(u32 f = 0; f < 5u; f++) {
+        fude_zoom_symbol_parts(fude_zoom_symbol_find(fitted[f]), 50, 30, 64, &pts, &parts);
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        f64 x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+        const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+        for(u32 i = 0; i < pa[0].count; i++) {
+            x0 = fmin(x0, p[i].x); x1 = fmax(x1, p[i].x); y0 = fmin(y0, p[i].y); y1 = fmax(y1, p[i].y);
+        }
+        CHECK(fabs(x0 + 50) < 1e-6 && fabs(x1 - 50) < 1e-6 && fabs(y0 + 30) < 1e-6 && fabs(y1 - 30) < 1e-6);
+    }
+    // A block arrow's head as long as it was, four times as long an arrow.
+    const u32 arrow = fude_zoom_symbol_find("block arrow");
+    f64 head[2];
+    for(u32 t = 0; t < 2u; t++) {
+        const f64 hw = t == 0u ? 75.0 : 300.0;
+        fude_zoom_symbol_parts(arrow, hw, 35, 64, &pts, &parts);
+        head[t] = hw - ((const fude_zoom_v2*)pts.memory)[1].x;
+    }
+    CHECK(fabs(head[0] - head[1]) < 1e-6 && fabs(head[0] - 38.5) < 1e-6);
+    // A ring: its hole joined to it.
+    CHECK(fude_zoom_symbol_parts(fude_zoom_symbol_find("ring"), 48, 48, 64, &pts, &parts) == 2u &&
+          (((const fude_zoom_symbol_part*)parts.memory)[1].flags & FUDE_ZOOM_SYMBOL_JOIN) != 0u);
+    rde_arr_free(&pts);
+    rde_arr_free(&parts);
 }
 
 static void test_symbols(void) {
@@ -3524,6 +4189,161 @@ static void test_plot(void) {
     rde_arr_free(&pts); rde_arr_free(&parts); rde_arr_free(&labels);
 }
 
+// A graph's parts' points back in its view's numbers (plot.c's box: 0.92 and 0.88 of its half sizes).
+static fude_zoom_v2 plot_view_of(fude_zoom_v2 q, f64 hw, f64 hh, f64 x0, f64 x1, f64 y0, f64 y1) {
+    const f64 bx = hw * 0.92, by = hh * 0.88;
+    return (fude_zoom_v2){ x0 + (q.x + bx) / (2.0 * bx) * (x1 - x0), y0 + (q.y + by) / (2.0 * by) * (y1 - y0) };
+}
+
+// How far a graph's curve k's points are from radius r round the origin, at most (its view as given); how many pieces.
+static f64 plot_round(const c8* text, f64 r, f64 x0, f64 x1, f64 y0, f64 y1, u32* pieces) {
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap);
+    fude_zoom_plot_lines("graph", text, 160.0, 110.0, &pts, &parts, NULL);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+    f64 worst = 0.0;
+    u32 n = 0, seen = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+        if(pa[i].flags < 32u || pa[i].flags >= 64u) continue;
+        n++;
+        for(u32 k = 0; k < pa[i].count; k++, seen++) {
+            const fude_zoom_v2 v = plot_view_of(p[pa[i].first + k], 160.0, 110.0, x0, x1, y0, y1);
+            worst = fmax(worst, fabs(hypot(v.x, v.y) - r));
+        }
+    }
+    *pieces = n;
+    rde_arr_free(&pts); rde_arr_free(&parts);
+    return seen > 20u ? worst : 1e9;
+}
+
+// Whether a graph's labels say all of _want (NUL-separated, ending in an empty one).
+static b8 plot_says(const c8* text, const c8* want) {
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap), labels = rde_arr_new(sizeof(fude_zoom_plot_label), heap);
+    fude_zoom_plot_lines("graph", text, 300.0, 220.0, &pts, &parts, &labels);
+    const fude_zoom_plot_label* lb = (const fude_zoom_plot_label*)labels.memory;
+    b8 all = true;
+    for(const c8* w = want; *w != 0; w += strlen(w) + 1u) {
+        b8 found = false;
+        for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) found = found || strcmp(lb[i].text, w) == 0;
+        if(!found) printf("  (not said: %s)\n", w);
+        all = all && found;
+    }
+    rde_arr_free(&pts); rde_arr_free(&parts); rde_arr_free(&labels);
+    return all;
+}
+
+// Its parts' flags counted: curves' (32 + k), dashed ones (+ 8), regions (64 + k).
+static void plot_kinds(const c8* text, u32* curves, u32* dashed, u32* regions) {
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap);
+    fude_zoom_plot_lines("graph", text, 160.0, 110.0, &pts, &parts, NULL);
+    const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+    *curves = *dashed = *regions = 0;
+    for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+        if(pa[i].flags >= 64u) (*regions)++;
+        else if(pa[i].flags >= 32u) { (*curves)++; if((pa[i].flags - 32u) & 8u) (*dashed)++; }
+    }
+    rde_arr_free(&pts); rde_arr_free(&parts);
+}
+
+// Graphs beyond functions of x (0.1.81): numbers as maths writes them; equations of x and y on a grid, their pieces
+// joined; curves of t and polar curves; a view round only those, a unit as long across as up; inequalities' regions,
+// their edges dashed when strict; asymptotes broken; roots, turning points and crossings marked; an area's value; and
+// nothing it is given, however broken, past its memory.
+static void test_plot_curves(void) {
+    printf("plot curves\n");
+    fude_zoom_calc c;
+    f64 v = 0.0;
+    CHECK(fude_zoom_calc_number("2pi", &v) && fabs(v - 2.0 * 3.14159265358979323846) < 1e-12);
+    CHECK(fude_zoom_calc_number("-pi/2", &v) && fabs(v + 1.5707963267948966) < 1e-12 && fude_zoom_calc_number("1e3", &v) && v == 1000.0);
+    CHECK(!fude_zoom_calc_number("x", &v) && !fude_zoom_calc_number("a + 1", &v) && !fude_zoom_calc_number("2 +", &v) && !fude_zoom_calc_number("1/0", &v));
+    CHECK(fude_zoom_calc_parse_expr(&c, "x^2 + y^2") && c.uses_x && c.vars == (1u << ('y' - 'a')));
+    CHECK(!fude_zoom_calc_parse_expr(&c, "y = x"));   // (the whole of it: an = is not maths)
+    CHECK(fude_zoom_calc_parse(&c, "y = 3") && !c.uses_x);
+    // A circle, an equation: its points 2 from the middle, one line round.
+    u32 pieces = 0;
+    f64 off = plot_round("x^2 + y^2 = 4\nx -3 3\ny -3 3", 2.0, -3, 3, -3, 3, &pieces);
+    printf("  x^2 + y^2 = 4: %u piece(s), %.5f off at most\n", pieces, off);
+    CHECK(off < 0.01 && pieces == 1u);
+    off = plot_round("(cos(t), sin(t))\nx -2 2\ny -2 2", 1.0, -2, 2, -2, 2, &pieces);
+    CHECK(off < 1e-9 && pieces == 1u);
+    off = plot_round("r = 2\nx -3 3\ny -3 3", 2.0, -3, 3, -3, 3, &pieces);
+    CHECK(off < 1e-9 && pieces == 1u);
+    off = plot_round("(2cos(t), 2sin(t))\nt 0 pi\nx -3 3\ny -3 3", 2.0, -3, 3, -3, 3, &pieces);   // (half of it: t as given)
+    CHECK(off < 1e-9 && pieces == 1u);
+    // Only an equation: round it, as long across as up — a circle round on the graph.
+    {
+        rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+        rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap);
+        fude_zoom_plot_lines("graph", "x^2 + y^2 = 9", 160.0, 110.0, &pts, &parts, NULL);
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        const fude_zoom_symbol_part* pa = (const fude_zoom_symbol_part*)parts.memory;
+        f64 wx = 0.0, wy = 0.0;
+        for(u32 i = 0; i < (u32)rde_arr_length(&parts); i++) {
+            if(pa[i].flags != 32u) continue;
+            for(u32 k = 0; k < pa[i].count; k++) { wx = fmax(wx, fabs(p[pa[i].first + k].x)); wy = fmax(wy, fabs(p[pa[i].first + k].y)); }
+        }
+        printf("  x^2 + y^2 = 9 fitted: %.2f across, %.2f up\n", wx, wy);
+        CHECK(wy > 50.0 && fabs(wx - wy) < 0.02 * wy);
+        rde_arr_free(&pts); rde_arr_free(&parts);
+    }
+    // Inequalities: their regions; a strict one's edge dashed, the other's not.
+    u32 curves = 0, dashed = 0, regions = 0;
+    plot_kinds("y < x\nx -5 5\ny -5 5", &curves, &dashed, &regions);
+    CHECK(regions >= 10u && curves >= 1u && dashed == curves);
+    plot_kinds("x^2 + y^2 <= 4\nx -5 5\ny -5 5", &curves, &dashed, &regions);
+    CHECK(regions >= 10u && curves == 1u && dashed == 0u);
+    plot_kinds("y = x^2\nx -5 5\ny -5 5", &curves, &dashed, &regions);
+    CHECK(regions == 0u && curves == 1u);
+    // tan(x) from -5 to 5: broken at its four asymptotes — five pieces, none across.
+    plot_kinds("tan(x)\nx -5 5\ny -5 5", &curves, &dashed, &regions);
+    printf("  tan(x): %u pieces\n", curves);
+    CHECK(curves == 5u);
+    // 1/x with y as it goes: two.
+    plot_kinds("1/x\nx -5 5\ny -5 5", &curves, &dashed, &regions);
+    CHECK(curves == 2u);
+    // Marks and the area.
+    CHECK(plot_says("x^2 - 1\nroots\nx -3 3", "(-1, 0)\0(1, 0)\0"));
+    CHECK(plot_says("x^3 - 3x\nextrema\nx -3 3\ny -4 4", "(-1, 2)\0(1, -2)\0"));
+    CHECK(plot_says("y = x\ny = x^2\nintersections\nx -2 2", "(0, 0)\0(1, 1)\0"));
+    CHECK(plot_says("x^2\narea 0 3\nx -1 4", "\xE2\x88\xAB[0, 3] = 9\0"));
+    CHECK(plot_says("sin(x)\nintegral 0 pi\nx -1 4", "\xE2\x88\xAB[0, 3.14] = 2\0"));
+    CHECK(plot_says("(pi, 1)\n(1, 1)\nx -1 4\ny -1 4", "(3.14, 1)\0(1, 1)\0"));   // (a point's numbers as maths writes them)
+    // What a line is: f(x) = …, r = …, a bare equation of x and y, a seventh curve (six kept).
+    CHECK(plot_says("f(x) = 2x\ng ( x ) = 3\nr = 1\nx^2 + y^2 - 1\nx = y^2", "f(x) = 2x\0g ( x ) = 3\0r = 1\0x^2 + y^2 - 1 = 0\0x = y^2\0"));
+    {
+        rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+        rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap);
+        CHECK(fude_zoom_plot_lines("graph", "x\n2x\n3x\n4x\n5x\n6x\n(cos(t), sin(t))", 160.0, 110.0, &pts, &parts, NULL) == 6u);
+        // A thousand graphs of random pieces of maths: whatever they say, drawn inside their box, nothing past memory.
+        static const c8* bits[] = { "x", "y", "t", "r", "=", "<", ">=", "(", ")", ",", "^", "2", "-", "+", "/", "sin", "cos(", "pi", "e",
+                                    "\n", " ", "x ", "y ", "-5", "5", "area", "roots", "extrema", "intersections", "a", "a = 1..3", "θ", "|", "sqrt(" };
+        u32 seed = 12345u;
+        b8 inside = true;
+        for(u32 g = 0; g < 1000u; g++) {
+            c8 text[200] = { 0 };
+            usize n = 0;
+            const u32 count = 1u + (seed % 24u);
+            for(u32 k = 0; k < count; k++) {
+                seed = seed * 1664525u + 1013904223u;
+                const c8* b = bits[(seed >> 8) % (sizeof(bits) / sizeof(bits[0]))];
+                const usize bl = strlen(b);
+                if(n + bl + 1u >= sizeof(text)) break;
+                memcpy(text + n, b, bl);
+                n += bl;
+            }
+            rde_arr_clear(&pts); rde_arr_clear(&parts);
+            fude_zoom_plot_lines("graph", text, 160.0, 110.0, &pts, &parts, NULL);
+            const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+            for(u32 i = 0; i < (u32)rde_arr_length(&pts); i++) inside = inside && fabs(p[i].x) <= 160.0 + 1e-6 && fabs(p[i].y) <= 110.0 + 1e-6;
+        }
+        CHECK(inside);
+        rde_arr_free(&pts); rde_arr_free(&parts);
+    }
+}
+
 // Mechanisms: what hinges where, a motor's speed, gears that touch, a spring's ends; gear trains' speeds.
 static void test_mechanisms(void) {
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
@@ -4066,6 +4886,11 @@ static void test_nest(void) {
     rng = kept;
     // A sheet of 2440 x 1220 and a cabinet's parts: a good share of it used.
     const f64 cab[][2] = { { 720, 560 }, { 720, 560 }, { 764, 560 }, { 764, 560 }, { 720, 764 }, { 700, 300 }, { 700, 300 }, { 700, 300 } };
+    // (three slats 380 × 230 on a 720 × 400 board: one fits lengthwise; turned, all three side by side — 0.1.84)
+    for(u32 i = 0; i < 3; i++) parts[i] = (fude_zoom_nest_part){ 380, 230, false };
+    CHECK(fude_zoom_nest(720, 400, 0.0, parts, 3, out) == 1u);
+    for(u32 i = 0; i < 3; i++) parts[i].can_turn = true;
+    CHECK(fude_zoom_nest(720, 400, 0.0, parts, 3, out) == 3u && nest_ok(720, 400, 0.0, out, 3) && out[0].turned && out[1].turned && out[2].turned);
     for(u32 i = 0; i < 8; i++) parts[i] = (fude_zoom_nest_part){ cab[i][0], cab[i][1], false };
     CHECK(fude_zoom_nest(2440, 1220, 3.2, parts, 8, out) >= 6u && nest_ok(2440, 1220, 3.2, out, 8));
 }
@@ -7325,6 +8150,294 @@ static void test_scope(void) {
 // page more than the last one written on — what was drawn on it in the home frame, or zoomed in (a frame of its own);
 // the paper's lines at their true spacing, finer ones fading in as the view goes in, fading out further out than that;
 // kept in <id>.pages.
+// A canvas's words (words.h): counted and found as Find matches, an excerpt round the first match (cut at whole
+// characters, … where it was), kept and read back; a canvas looked through without being opened, its file untouched.
+static void test_words(void) {
+    printf("words\n");
+    const c8* hay = "Milk and milk\nand MILK, then aaaa";
+    CHECK(fude_zoom_words_count(hay, (u32)strlen(hay), "milk") == 3u && fude_zoom_words_count(hay, (u32)strlen(hay), "aa") == 2u);
+    CHECK(fude_zoom_words_count(hay, (u32)strlen(hay), "") == 0u && fude_zoom_words_count(hay, 4u, "milk") == 1u && fude_zoom_words_count(hay, 3u, "milk") == 0u);
+    CHECK(fude_zoom_words_find(hay, (u32)strlen(hay), "MILK,") == 18u && fude_zoom_words_find(hay, (u32)strlen(hay), "cheese") == FUDE_ZOOM_WORDS_NONE);
+    c8 out[200];
+    CHECK(fude_zoom_words_excerpt(hay, (u32)strlen(hay), "then", 60u, out, sizeof(out)) && strcmp(out, "and MILK, then aaaa") == 0);   // (its line, whole)
+    CHECK(!fude_zoom_words_excerpt(hay, (u32)strlen(hay), "cheese", 60u, out, sizeof(out)) && out[0] == 0);
+    const c8* line = "Una línea muy larga con café, té y más palabras antes de la palabra buscada: tornillos, y muchas más después de ella";
+    CHECK(fude_zoom_words_excerpt(line, (u32)strlen(line), "tornillos", 30u, out, sizeof(out)));
+    CHECK(strncmp(out, "\xE2\x80\xA6", 3) == 0 && strstr(out, "tornillos") != NULL && strcmp(out + strlen(out) - 3u, "\xE2\x80\xA6") == 0);
+    {
+        u32 chars = 0; b8 whole = true;
+        for(u32 i = 0; out[i] != 0; i++) { chars += ((u8)out[i] & 0xC0u) != 0x80u; }
+        for(u32 i = 1; out[i] != 0; i++) { whole = whole && !(((u8)out[i - 1] & 0xC0u) == 0xC0u && ((u8)out[i] & 0xC0u) != 0x80u); }
+        CHECK(chars <= 30u + 2u && whole);
+    }
+    c8 tiny[12];   // (the room it has: whole characters only)
+    CHECK(fude_zoom_words_excerpt(line, (u32)strlen(line), "café", 0u, tiny, sizeof(tiny)) && strlen(tiny) <= 11u);
+    // Kept.
+    mkdir("./saves", 0755);
+    remove("./saves/w.words");
+    rde_arr got = rde_arr_new(sizeof(c8), NULL);
+    u64 size = 7u, left = 9u;
+    CHECK(!fude_zoom_words_load("./saves/w.words", &size, &left, &got) && size == 0u && left == 0u);
+    CHECK(fude_zoom_words_save("./saves/w.words", (1ull << 33) + 5u, 1791763200ull, hay, (u32)strlen(hay)));
+    CHECK(fude_zoom_words_load("./saves/w.words", &size, &left, &got) && size == (1ull << 33) + 5u && left == 1791763200ull && strcmp((const c8*)got.memory, hay) == 0);
+    FILE* f = fopen("./saves/w.words", "wb"); if(f) { fputs("not words", f); fclose(f); }
+    CHECK(!fude_zoom_words_load("./saves/w.words", &size, &left, &got));
+    rde_arr_free(&got);
+    // Looked through: a canvas's text read, its file as it was.
+    {
+        remove("./saves/peek.zoom");
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        fude_zoom_file g;
+        CHECK(fude_zoom_file_open(&g, "./saves/peek.zoom", &s) == FUDE_LOAD_MISSING);
+        fude_zoom_scene_add_text(&s, s.root, (fude_zoom_place){ { 0, 0 }, 0.0, 1.0 }, 12.0, 100.0, 20.0, FUDE_ZOOM_TEXT_PLAIN, (rde_color){ 0, 0, 0, 255 },
+                                 (rde_color){ 0, 0, 0, 0 }, "buy screws", 10u, 0u);
+        CHECK(fude_zoom_file_compact(&g, &s));
+        const u64 was = g.size;
+        fude_zoom_scene_destroy(&s);
+        fude_zoom_scene t; fude_zoom_scene_init(&t, 9);
+        CHECK(fude_zoom_file_peek("./saves/peek.zoom", &t) == FUDE_LOAD_OK);
+        b8 found = false;
+        for(u32 i = 0; i < fude_zoom_scene_object_count(&t); i++) {
+            const c8* w = NULL; u32 n = 0;
+            found = found || (fude_zoom_scene_text(&t, i, NULL, NULL, NULL, NULL, &w, &n) && n == 10u && memcmp(w, "buy screws", 10) == 0);
+        }
+        CHECK(found);
+        fude_zoom_scene_destroy(&t);
+        FILE* z = fopen("./saves/peek.zoom", "rb");
+        long now = -1;
+        if(z) { fseek(z, 0, SEEK_END); now = ftell(z); fclose(z); }
+        CHECK(now == (long)was);
+        fude_zoom_scene u; fude_zoom_scene_init(&u, 9);
+        CHECK(fude_zoom_file_peek("./saves/none.zoom", &u) == FUDE_LOAD_MISSING);
+        fude_zoom_scene_destroy(&u);
+    }
+}
+
+// The home screen's list (homelist.h): a folder's folders first in their order, then its canvases the most recently
+// left first (when the page left them: their words file), the newest made first of those never left; a notebook told
+// by its pages file; a folder's count; the grid's columns.
+static void test_home_list(void) {
+    printf("home list\n");
+    mkdir("./saves", 0755);
+    mkdir("./saves/notes", 0755);
+    fude_notes n; fude_notes_init(&n); fude_notes_load(&n);
+    while(rde_arr_length(&n.notes) > 0u) {   // (from a clean index)
+        fude_notes_remove(&n, ((const fude_note*)n.notes.memory)[0].id);
+        if(rde_arr_length(&n.notes) == 1u && ((const fude_note*)n.notes.memory)[0].kind == FUDE_NOTE_CANVAS) { break; }
+    }
+    const u32 keep = rde_arr_length(&n.notes) > 0u ? ((const fude_note*)n.notes.memory)[0].id : 0u;
+    const u32 a = fude_notes_add(&n, FUDE_NOTE_CANVAS, 0, "Old one");
+    const u32 f = fude_notes_add(&n, FUDE_NOTE_FOLDER, 0, "Projects");
+    const u32 b = fude_notes_add(&n, FUDE_NOTE_CANVAS, 0, "Book");
+    const u32 c = fude_notes_add(&n, FUDE_NOTE_CANVAS, f, "Inside");
+    CHECK(a != 0u && f != 0u && b != 0u && c != 0u);
+    c8 path[RDE_MAX_PATH];
+    fude_zoom_home_side_path(a, "words", path, sizeof(path));
+    CHECK(strstr(path, "notes/") != NULL && strcmp(path + strlen(path) - 6u, ".words") == 0);
+    CHECK(fude_zoom_words_save(path, 0u, 4000000000ull, "x", 1u));   // (left long after the others were made)
+    fude_zoom_home_side_path(b, "pages", path, sizeof(path));
+    fude_zoom_pages p; fude_zoom_pages_init(&p); fude_zoom_pages_size(&p, FUDE_ZOOM_PAGES_A5);
+    CHECK(fude_zoom_pages_save(&p, path));
+    rde_arr cards = rde_arr_new(sizeof(fude_zoom_home_card), NULL);
+    const u32 count = fude_zoom_home_gather(&n, 0u, &cards);
+    const fude_zoom_home_card* k = (const fude_zoom_home_card*)cards.memory;
+    CHECK(count == (keep != 0u ? 4u : 3u));
+    CHECK(k[0].note == f && k[0].kind == FUDE_NOTE_FOLDER && k[0].inside == 1u);
+    CHECK(k[1].note == a && k[1].edited == 4000000000ull && !k[1].notebook);   // (left last: first)
+    CHECK(k[2].note == b && k[2].notebook && k[2].kind == FUDE_NOTE_CANVAS);   // (never left, the newest made)
+    CHECK(fude_zoom_home_gather(&n, f, &cards) == 1u && ((const fude_zoom_home_card*)cards.memory)[0].note == c);
+    CHECK(fude_zoom_home_gather(&n, 999u, &cards) == 0u);
+    rde_arr_free(&cards);
+    fude_notes_destroy(&n);
+    // The grid: as many at least 210 wide as fit, 16 apart; one at the least.
+    CHECK(fude_zoom_home_columns(1232.0f, 210.0f, 16.0f) == 5u && fude_zoom_home_columns(800.0f, 210.0f, 16.0f) == 3u);
+    CHECK(fude_zoom_home_columns(100.0f, 210.0f, 16.0f) == 1u && fude_zoom_home_columns(0.0f, 210.0f, 16.0f) == 1u && fude_zoom_home_columns(436.0f, 210.0f, 16.0f) == 2u);
+}
+
+// Recordings (0.1.93): IMA ADPCM back as it went in, near enough (a tone's error a few per cent of it, silence
+// silent, a block's first sample exact, its tail held when short, full scale never wrapping); a canvas's recordings
+// and links kept, read back, numbered past those there; a recording's length by its file's whole blocks.
+static void test_audio(void) {
+    printf("audio\n");
+    i16 in[FUDE_ZOOM_ADPCM_FRAMES * 4], out[FUDE_ZOOM_ADPCM_FRAMES];
+    u8 block[FUDE_ZOOM_ADPCM_BLOCK];
+    for(u32 i = 0; i < FUDE_ZOOM_ADPCM_FRAMES * 4; i++) {
+        in[i] = (i16)lround(10000.0 * sin(2.0 * 3.14159265358979 * 440.0 * (f64)i / 16000.0));
+    }
+    fude_zoom_adpcm_state st = { 0 };
+    f64 err = 0.0, sig = 0.0;
+    for(u32 b = 0; b < 4u; b++) {
+        fude_zoom_adpcm_encode(&st, &in[b * FUDE_ZOOM_ADPCM_FRAMES], FUDE_ZOOM_ADPCM_FRAMES, block);
+        fude_zoom_adpcm_decode(block, out);
+        CHECK(out[0] == in[b * FUDE_ZOOM_ADPCM_FRAMES]);
+        for(u32 i = (b == 0u ? 64u : 0u); i < FUDE_ZOOM_ADPCM_FRAMES; i++) {   // (the very first block: its step settling)
+            const f64 d = (f64)out[i] - (f64)in[b * FUDE_ZOOM_ADPCM_FRAMES + i];
+            err += d * d;
+            sig += (f64)in[b * FUDE_ZOOM_ADPCM_FRAMES + i] * (f64)in[b * FUDE_ZOOM_ADPCM_FRAMES + i];
+        }
+    }
+    printf("  a 440 Hz tone: signal to error %.1f dB\n", 10.0 * log10(sig / fmax(err, 1e-9)));
+    CHECK(10.0 * log10(sig / fmax(err, 1e-9)) > 24.0);
+    // Silence, silent.
+    i16 quiet[FUDE_ZOOM_ADPCM_FRAMES];
+    memset(quiet, 0, sizeof(quiet));
+    fude_zoom_adpcm_state q = { 0 };
+    fude_zoom_adpcm_encode(&q, quiet, FUDE_ZOOM_ADPCM_FRAMES, block);
+    fude_zoom_adpcm_decode(block, out);
+    i32 most = 0;
+    for(u32 i = 0; i < FUDE_ZOOM_ADPCM_FRAMES; i++) { most = abs(out[i]) > most ? abs(out[i]) : most; }
+    CHECK(most <= 1);
+    // Short: the rest of the block holds the last sample (within a step).
+    for(u32 i = 0; i < 100u; i++) { quiet[i] = (i16)(i * 50); }
+    fude_zoom_adpcm_state h = { 0 };
+    fude_zoom_adpcm_encode(&h, quiet, 100u, block);
+    fude_zoom_adpcm_decode(block, out);
+    CHECK(abs(out[FUDE_ZOOM_ADPCM_FRAMES - 1u] - 4950) < 200);
+    // Full scale, square: clamped, never wrapped round.
+    for(u32 i = 0; i < FUDE_ZOOM_ADPCM_FRAMES; i++) { quiet[i] = (i / 8u) % 2u ? 32767 : -32768; }
+    fude_zoom_adpcm_state f = { 88 };
+    fude_zoom_adpcm_encode(&f, quiet, FUDE_ZOOM_ADPCM_FRAMES, block);
+    fude_zoom_adpcm_decode(block, out);
+    b8 sane = true;
+    for(u32 i = 16u; i < FUDE_ZOOM_ADPCM_FRAMES; i++) { sane = sane && ((quiet[i] > 0) == (out[i] > -16000) || abs(out[i]) < 16000); }
+    CHECK(sane);
+    // A canvas's recordings and links.
+    fude_zoom_audio a; fude_zoom_audio_init(&a);
+    const u32 r1 = fude_zoom_audio_begin(&a, 1791763200ull, FUDE_ZOOM_AUDIO_RATE), r2 = fude_zoom_audio_begin(&a, 1791763900ull, 22050u);
+    CHECK(r1 == 1u && r2 == 2u && fude_zoom_audio_find(&a, 2u)->rate == 22050u && fude_zoom_audio_find(&a, 3u) == NULL);
+    fude_zoom_audio_find(&a, r1)->frames = 160000u;
+    fude_zoom_audio_add_link(&a, (fude_zoom_id)0x700000001ull, r1, 1500u);
+    fude_zoom_audio_add_link(&a, (fude_zoom_id)0x700000002ull, r1, 9000u);
+    fude_zoom_audio_add_link(&a, (fude_zoom_id)0x700000001ull, r2, 5u);   // (linked again: its first kept)
+    fude_zoom_audio_add_link(&a, (fude_zoom_id)0x700000003ull, r2, 42u);
+    u32 num = 0, ms = 0;
+    CHECK(fude_zoom_audio_link_of(&a, (fude_zoom_id)0x700000001ull, &num, &ms) && num == r1 && ms == 1500u);
+    CHECK(!fude_zoom_audio_link_of(&a, (fude_zoom_id)0x700000009ull, &num, &ms));
+    CHECK(fude_zoom_audio_link_count(&a, r1) == 2u && fude_zoom_audio_link_count(&a, r2) == 1u);
+    mkdir("./saves", 0755);
+    CHECK(fude_zoom_audio_save(&a, "./saves/c.audio"));
+    fude_zoom_audio b; fude_zoom_audio_init(&b);
+    CHECK(fude_zoom_audio_load(&b, "./saves/c.audio") && rde_arr_length(&b.recordings) == 2u && rde_arr_length(&b.links) == 3u && b.next == 3u);
+    CHECK(fude_zoom_audio_find(&b, r1)->started == 1791763200ull && fude_zoom_audio_find(&b, r1)->frames == 160000u);
+    CHECK(fude_zoom_audio_link_of(&b, (fude_zoom_id)0x700000002ull, &num, &ms) && num == r1 && ms == 9000u);
+    fude_zoom_audio_remove(&b, r1);   // (its links with it)
+    CHECK(rde_arr_length(&b.recordings) == 1u && rde_arr_length(&b.links) == 1u && !fude_zoom_audio_link_of(&b, (fude_zoom_id)0x700000002ull, &num, &ms));
+    CHECK(fude_zoom_audio_begin(&b, 0u, FUDE_ZOOM_AUDIO_RATE) == 3u);   // (never a number used before)
+    FILE* fp = fopen("./saves/c.audio", "wb"); if(fp) { fputs("not audio", fp); fclose(fp); }
+    CHECK(!fude_zoom_audio_load(&b, "./saves/c.audio") && rde_arr_length(&b.recordings) == 0u && b.next == 1u);
+    CHECK(!fude_zoom_audio_load(&b, "./saves/none.audio"));
+    CHECK(fude_zoom_audio_frames_in(FUDE_ZOOM_ADPCM_BLOCK * 3u + 10u) == 3u * FUDE_ZOOM_ADPCM_FRAMES && fude_zoom_audio_frames_in(0u) == 0u);
+    fude_zoom_audio_free(&a);
+    fude_zoom_audio_free(&b);
+}
+
+// A step's tag (0.1.94: the app's own, page.c's pages added or taken out): kept with it — a step with nothing in it but
+// its tag too —, there again for undo and redo, kept in the file (its journal, and compacted); nothing and no tag: no step.
+// What a recording said (transcript.h, 0.1.95): phrases trimmed, a sound's tag left out; joined, a pause a paragraph;
+// lines no wider than asked, each with its first words' time; its tail for the next piece; kept and read back; a
+// piece cut where it is quietest.
+static void test_transcript(void) {
+    printf("transcript\n");
+    fude_zoom_transcript t; fude_zoom_transcript_init(&t);
+    CHECK(fude_zoom_transcript_add(&t, 0u, 2400u, "  Hoy vamos a ver   "));
+    CHECK(!fude_zoom_transcript_add(&t, 2400u, 3000u, " [BLANK_AUDIO] ") && !fude_zoom_transcript_add(&t, 3000u, 3500u, "(music)") && !fude_zoom_transcript_add(&t, 3500u, 3600u, "  "));
+    CHECK(!fude_zoom_transcript_add(&t, 3600u, 3700u, "\xE2\x99\xAA \xE2\x99\xAA") && !fude_zoom_transcript_add(&t, 0u, 0u, NULL));
+    CHECK(fude_zoom_transcript_add(&t, 2500u, 5000u, "los tornillos de cabeza plana."));
+    CHECK(fude_zoom_transcript_add(&t, 9000u, 12000u, "[pause] Luego, la cola."));   // (words with a tag: kept)
+    CHECK(rde_arr_length(&t.segments) == 3u);
+    rde_arr out = rde_arr_new(sizeof(c8), NULL), lines = rde_arr_new(sizeof(fude_zoom_transcript_line), NULL);
+    fude_zoom_transcript_join(&t, 2000u, &out);
+    CHECK(strcmp((const c8*)out.memory, "Hoy vamos a ver los tornillos de cabeza plana.\n\n[pause] Luego, la cola.") == 0);
+    const u32 n = fude_zoom_transcript_lines(&t, 20u, 2000u, &out, &lines);
+    const fude_zoom_transcript_line* l = (const fude_zoom_transcript_line*)lines.memory;
+    const c8* w = (const c8*)out.memory;
+    printf("  lines:\n%s\n", w);
+    CHECK(strcmp(w, "Hoy vamos a ver los\ntornillos de cabeza\nplana.\n\n[pause] Luego, la\ncola.") == 0);
+    CHECK(n == 6u && l[0].t0_ms == 0u && l[1].t0_ms == 2500u && l[2].t0_ms == 2500u && l[3].len == 0u && l[4].t0_ms == 9000u);
+    CHECK(strncmp(w + l[1].at, "tornillos de cabeza", l[1].len) == 0 && l[1].len == 19u);
+    // (a word longer than a line: on its own)
+    fude_zoom_transcript u; fude_zoom_transcript_init(&u);
+    fude_zoom_transcript_add(&u, 0u, 100u, "a supercalifragilistico b");
+    fude_zoom_transcript_lines(&u, 8u, 2000u, &out, &lines);
+    CHECK(strcmp((const c8*)out.memory, "a\nsupercalifragilistico\nb") == 0);
+    // (characters, not bytes: "plaña" is five)
+    fude_zoom_transcript_clear(&u);
+    fude_zoom_transcript_add(&u, 0u, 100u, "\xC3\xB1\xC3\xB1\xC3\xB1\xC3\xB1 \xC3\xB1\xC3\xB1");
+    fude_zoom_transcript_lines(&u, 7u, 2000u, &out, &lines);
+    CHECK(rde_arr_length(&lines) == 1u);
+    // Its tail, from a word's start.
+    c8 tail[64];
+    fude_zoom_transcript_tail(&t, 12u, tail, sizeof(tail));
+    CHECK(strcmp(tail, "la cola.") == 0);
+    fude_zoom_transcript_tail(&t, 1000u, tail, 10u);
+    CHECK(strlen(tail) == 9u);
+    // Kept and read back.
+    snprintf(t.language, sizeof(t.language), "es");
+    t.done = 192000u;
+    mkdir("./saves", 0755);
+    CHECK(fude_zoom_transcript_save(&t, "./saves/r.text"));
+    fude_zoom_transcript v; fude_zoom_transcript_init(&v);
+    CHECK(fude_zoom_transcript_load(&v, "./saves/r.text") && rde_arr_length(&v.segments) == 3u && strcmp(v.language, "es") == 0 && v.done == 192000u && !v.complete);
+    fude_zoom_transcript_join(&v, 2000u, &out);
+    CHECK(strstr((const c8*)out.memory, "cabeza plana.\n\n[pause]") != NULL);
+    FILE* f = fopen("./saves/r.text", "wb"); if(f) { fputs("not a transcript", f); fclose(f); }
+    CHECK(!fude_zoom_transcript_load(&v, "./saves/r.text") && rde_arr_length(&v.segments) == 0u);
+    // Appended (another piece's phrases after it).
+    fude_zoom_transcript_append(&v, &t);
+    fude_zoom_transcript_append(&v, &t);
+    CHECK(rde_arr_length(&v.segments) == 6u);
+    // Cut where it is quietest near its end: a tone with a gap of silence 1 s before its end.
+    const u32 rate = 16000u, total = rate * 10u;
+    f32* pcm = (f32*)malloc(sizeof(f32) * total);
+    for(u32 i = 0; i < total; i++) { pcm[i] = (i >= rate * 9u - 2000u && i < rate * 9u + 2000u) ? 0.0f : 0.5f * (f32)sin((f64)i * 0.2); }
+    const u32 cut = fude_zoom_transcript_cut(pcm, total, rate, 3000u);
+    CHECK(cut > rate * 9u - 2000u && cut < rate * 9u + 2000u);
+    CHECK(fude_zoom_transcript_cut(pcm, rate * 2u, rate, 3000u) == rate * 2u);   // (shorter than the window: all of it)
+    free(pcm);
+    rde_arr_free(&out); rde_arr_free(&lines);
+    fude_zoom_transcript_free(&t); fude_zoom_transcript_free(&u); fude_zoom_transcript_free(&v);
+}
+
+static void test_history_tags(void) {
+    printf("history tags\n");
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    mkdir("./saves", 0755);
+    remove("./saves/tags.zoom"); remove("./saves/tags.zoom.bak");
+    fude_zoom_file f;
+    CHECK(fude_zoom_file_open(&f, "./saves/tags.zoom", &s) == FUDE_LOAD_MISSING);
+    const u64 pushes = s.history_pushes;
+    fude_zoom_history_push_tagged(&s, s.root, (fude_zoom_box){ 0, 0, 1, 1 }, NULL, 0u, NULL, 0u, NULL, NULL, NULL, 0u, 0u);
+    CHECK(s.history_pushes == pushes && !fude_zoom_history_can_undo(&s));
+    fude_zoom_history_push_tagged(&s, s.root, (fude_zoom_box){ 0, 0, 1, 1 }, NULL, 0u, NULL, 0u, NULL, NULL, NULL, 0u, 0x50470001u);
+    CHECK(fude_zoom_history_can_undo(&s) && fude_zoom_history_next_undo(&s)->tag == 0x50470001u);
+    const u32 st = line(&s, 0, 0, 10, 0, 1.0, 0.5f);   // (a step of its own, untagged)
+    const fude_zoom_place was = fude_zoom_scene_place_of(&s, st);
+    fude_zoom_place now = was;
+    now.t.y -= 305.0;
+    fude_zoom_scene_set_place(&s, st, now);
+    fude_zoom_history_push_tagged(&s, s.root, (fude_zoom_box){ 0, -305, 10, 1 }, NULL, 0u, NULL, 0u, &st, &was, &now, 1u, 0x5047FFFFu);
+    CHECK(s.action_count == 3u && fude_zoom_history_next_undo(&s)->tag == 0x5047FFFFu && (u16)(fude_zoom_history_next_undo(&s)->tag & 0xFFFFu) == (u16)-1);
+    CHECK(fude_zoom_history_undo(&s) && fabs(fude_zoom_scene_place_of(&s, st).t.y - was.t.y) < 1e-9 && fude_zoom_history_next_redo(&s)->tag == 0x5047FFFFu);
+    CHECK(fude_zoom_history_next_undo(&s)->tag == 0u);
+    CHECK(fude_zoom_history_undo(&s) && fude_zoom_history_undo(&s) && fude_zoom_history_next_redo(&s)->tag == 0x50470001u && !fude_zoom_history_can_undo(&s));
+    CHECK(fude_zoom_history_redo(&s) && fude_zoom_history_next_undo(&s)->tag == 0x50470001u);
+    CHECK(fude_zoom_history_redo(&s) && fude_zoom_history_redo(&s) && fabs(fude_zoom_scene_place_of(&s, st).t.y - now.t.y) < 1e-9);
+    // Through the journal...
+    CHECK(fude_zoom_file_flush(&f, &s));
+    fude_zoom_scene t; fude_zoom_scene_init(&t, 7); fude_zoom_file g;
+    CHECK(fude_zoom_file_open(&g, "./saves/tags.zoom", &t) == FUDE_LOAD_OK);
+    CHECK(t.action_count == 3u && fude_zoom_history_next_undo(&t)->tag == 0x5047FFFFu);
+    CHECK(fude_zoom_history_undo(&t) && fude_zoom_history_undo(&t) && fude_zoom_history_next_undo(&t)->tag == 0x50470001u);
+    // ...and written whole.
+    CHECK(fude_zoom_file_compact(&g, &t));
+    fude_zoom_scene u; fude_zoom_scene_init(&u, 7); fude_zoom_file h;
+    CHECK(fude_zoom_file_open(&h, "./saves/tags.zoom", &u) == FUDE_LOAD_OK);
+    CHECK(fude_zoom_history_next_undo(&u)->tag == 0x50470001u && fude_zoom_history_can_redo(&u));
+    fude_zoom_scene_destroy(&s);
+    fude_zoom_scene_destroy(&t);
+    fude_zoom_scene_destroy(&u);
+}
+
 static void test_pages(void) {
     printf("pages\n");
     fude_zoom_pages p; fude_zoom_pages_init(&p);
@@ -7365,6 +8478,69 @@ static void test_pages(void) {
         printf("  A4: %u pages after two written on (the second zoomed in ×4096)\n", q.count);
         fude_zoom_scene_destroy(&s);
     }
+    // Rearranged (0.1.92): a page put in, taken out, moved — what is on them goes with them (a drawing zoomed into
+    // too), a page's things let go when it is; one undo step puts it all back.
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        fude_zoom_pages q; fude_zoom_pages_init(&q); fude_zoom_pages_size(&q, FUDE_ZOOM_PAGES_A4);
+        q.count = 4u;
+        const f64 step = 297.0 + FUDE_ZOOM_PAGES_GAP;
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 0, -150 }, 3.0);
+        u32 on[3];
+        for(u32 k = 0; k < 3u; k++) {
+            on[k] = line(&s, -50, -150 - (f64)k * step, 50, -150 - (f64)k * step, 1.0, 0.5f);
+        }
+        // (page 3 written on zoomed in: a frame of its own)
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 20, -150 - 3.0 * step }, 3.0);
+        for(u32 k = 0; k < 12; k++) { fude_zoom_camera_zoom_at(&s, (fude_zoom_v2){ 0, 0 }, 2.0); fude_zoom_camera_settle(&s, (fude_zoom_v2){ 500, 400 }); }
+        { const f64 d = 20.0 / s.camera.z; line(&s, s.camera.at.x - d, s.camera.at.y, s.camera.at.x + d, s.camera.at.y, d / 40.0, (f32)(1.0 / s.camera.z)); }
+        u32 deep = FUDE_ZOOM_NONE;
+        for(u32 k = 0; k < (u32)rde_arr_length(&s.objects); k++) {
+            const fude_zoom_object* o = fude_zoom_scene_object(&s, k);
+            deep = o->kind == FUDE_ZOOM_KIND_FRAME && o->frame == s.home && (o->flags & FUDE_ZOOM_FLAG_ALIVE) ? k : deep;
+        }
+        fude_zoom_camera_look_at(&s, s.home, (fude_zoom_v2){ 0, -150 }, 3.0);
+        CHECK(deep != FUDE_ZOOM_NONE && fude_zoom_pages_of(&q, &s, deep) == 3u);
+        CHECK(fude_zoom_pages_of(&q, &s, on[0]) == 0u && fude_zoom_pages_of(&q, &s, on[1]) == 1u && fude_zoom_pages_of(&q, &s, on[2]) == 2u);
+        rde_arr died = rde_arr_new(sizeof(u32), NULL), moved = rde_arr_new(sizeof(u32), NULL);
+        rde_arr before = rde_arr_new(sizeof(fude_zoom_place), NULL), after = rde_arr_new(sizeof(fude_zoom_place), NULL);
+        #define PAGES_DO(_do, _i, _j) (rde_arr_clear(&died), rde_arr_clear(&moved), rde_arr_clear(&before), rde_arr_clear(&after), \
+                                       fude_zoom_pages_rearrange(&q, &s, _do, _i, _j, &died, &moved, &before, &after))
+        #define PAGES_KEEP() fude_zoom_history_push_all(&s, s.home, fude_zoom_pages_bounds(&q), (const u32*)died.memory, (u32)rde_arr_length(&died), NULL, 0u, \
+                                                        (const u32*)moved.memory, (const fude_zoom_place*)before.memory, (const fude_zoom_place*)after.memory, (u32)rde_arr_length(&moved))
+        // A page before the second: the second, third and fourth's things a page down.
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_INSERT, 1u, 0u) && q.count == 5u && rde_arr_length(&died) == 0u && rde_arr_length(&moved) == 3u);
+        PAGES_KEEP();
+        CHECK(fude_zoom_pages_of(&q, &s, on[0]) == 0u && fude_zoom_pages_of(&q, &s, on[1]) == 2u && fude_zoom_pages_of(&q, &s, on[2]) == 3u &&
+              fude_zoom_pages_of(&q, &s, deep) == 4u && !fude_zoom_pages_used(&q, &s, 1u));
+        CHECK(fabs(fude_zoom_scene_place_of(&s, on[1]).t.y - (-150.0 - 2.0 * step)) < 1e-6);   // (a line's place: its first point, a page down)
+        CHECK(fude_zoom_history_undo(&s) && fude_zoom_pages_of(&q, &s, on[1]) == 1u && fude_zoom_pages_of(&q, &s, deep) == 3u);
+        q.count = 4u;
+        // The second taken out: its line let go, the third and fourth's up a page.
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_DELETE, 1u, 0u) && q.count == 3u && rde_arr_length(&died) == 1u && ((const u32*)died.memory)[0] == on[1] &&
+              rde_arr_length(&moved) == 2u);
+        PAGES_KEEP();
+        CHECK(!(fude_zoom_scene_object(&s, on[1])->flags & FUDE_ZOOM_FLAG_ALIVE) && fude_zoom_pages_of(&q, &s, on[2]) == 1u && fude_zoom_pages_of(&q, &s, deep) == 2u);
+        CHECK(fude_zoom_history_undo(&s) && (fude_zoom_scene_object(&s, on[1])->flags & FUDE_ZOOM_FLAG_ALIVE));
+        q.count = 4u;
+        CHECK(fude_zoom_pages_of(&q, &s, on[1]) == 1u && fude_zoom_pages_of(&q, &s, on[2]) == 2u && fude_zoom_pages_of(&q, &s, deep) == 3u);
+        // The first made the third: the second and third's up one.
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_MOVE, 0u, 2u) && q.count == 4u && rde_arr_length(&died) == 0u && rde_arr_length(&moved) == 3u);
+        CHECK(fude_zoom_pages_of(&q, &s, on[0]) == 2u && fude_zoom_pages_of(&q, &s, on[1]) == 0u && fude_zoom_pages_of(&q, &s, on[2]) == 1u &&
+              fude_zoom_pages_of(&q, &s, deep) == 3u);
+        // ...and back up: the fourth (the drawing zoomed into) made the first.
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_MOVE, 3u, 0u) && fude_zoom_pages_of(&q, &s, deep) == 0u && fude_zoom_pages_of(&q, &s, on[1]) == 1u &&
+              fude_zoom_pages_of(&q, &s, on[0]) == 3u);
+        // No such page; a notebook's only page taken out: emptied, still one.
+        CHECK(!PAGES_DO(FUDE_ZOOM_PAGES_DELETE, 4u, 0u) && !PAGES_DO(FUDE_ZOOM_PAGES_MOVE, 0u, 9u) && !PAGES_DO(FUDE_ZOOM_PAGES_INSERT, 5u, 0u));
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_INSERT, 4u, 0u) && q.count == 5u && rde_arr_length(&moved) == 0u);   // (at the end)
+        q.count = 1u;
+        CHECK(PAGES_DO(FUDE_ZOOM_PAGES_DELETE, 0u, 0u) && q.count == 1u && rde_arr_length(&died) >= 1u);
+        #undef PAGES_DO
+        #undef PAGES_KEEP
+        rde_arr_free(&died); rde_arr_free(&moved); rde_arr_free(&before); rde_arr_free(&after);
+        fude_zoom_scene_destroy(&s);
+    }
     // Paper (out 10 points, in 40): 8 mm lines 36 points apart, as a page fills a tablet's width, drawn as they are, at
     // their full strength; zoomed in 5 times (180 points), every 2 mm (45: the finest an eighth of the way in); far out
     // (6 points), faded — none at a quarter of 10.
@@ -7384,6 +8560,666 @@ static void test_pages(void) {
     CHECK(r.on && r.w == 148.0 && r.h == 210.0 && r.count == 42u);
     FILE* f = fopen("./saves/book.pages", "wb"); if(f) { fputs("not pages", f); fclose(f); }
     CHECK(!fude_zoom_pages_load(&r, "./saves/book.pages") && !r.on && r.count == 1u);
+}
+
+
+// The maths font (mathfont.h: Noto Sans Math, as the apps ship it) and the typesetter (tex.h).
+static u8* maths_font_bytes(u32* size) {
+    c8 path[1024];
+    snprintf(path, sizeof path, "%s/../sketching/assets/fonts/NotoSansMath-Regular.ttf", FUDE_ROOT);
+    FILE* f = fopen(path, "rb");
+    if(f == NULL) return NULL;
+    fseek(f, 0, SEEK_END); const long n = ftell(f); fseek(f, 0, SEEK_SET);
+    u8* d = (u8*)malloc((size_t)n);
+    *size = (u32)fread(d, 1, (size_t)n, f);
+    fclose(f);
+    return d;
+}
+
+// Its characters' glyphs (the basic plane's and the maths alphabets' past it), advances and boxes; its MATH table's
+// constants, italic corrections, bigger forms and the pieces a taller one is built of; outlines as closed polygons, holes
+// among them (o, B), within their glyph's box; and a damaged font read as none, never past its bytes.
+static void test_maths_font(void) {
+    printf("maths font\n");
+    u32 size = 0;
+    u8* bytes = maths_font_bytes(&size);
+    CHECK(bytes != NULL);
+    if(bytes == NULL) return;
+    fude_zoom_mfont f;
+    CHECK(fude_zoom_mfont_load(&f, bytes, size) && f.units_per_em == 1000u && f.glyphs > 4000u && f.math != 0u);
+    const u32 A = fude_zoom_mfont_glyph(&f, 'A'), xi = fude_zoom_mfont_glyph(&f, 0x1D465), integral = fude_zoom_mfont_glyph(&f, 0x222B);
+    CHECK(A != 0u && xi != 0u && integral != 0u && fude_zoom_mfont_glyph(&f, 0x10FFFF) == 0u);
+    i32 box[4];
+    CHECK(fude_zoom_mfont_box(&f, A, box) && box[2] > box[0] && box[3] > 600 && fude_zoom_mfont_advance(&f, A) > 500);
+    CHECK(!fude_zoom_mfont_box(&f, fude_zoom_mfont_glyph(&f, ' '), box));   // (a space: no outline)
+    const i32 axis = fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_AXIS_HEIGHT), rule = fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_FRACTION_RULE_THICKNESS);
+    const i32 sp = fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_SCRIPT_PERCENT), ssp = fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_SCRIPTSCRIPT_PERCENT);
+    printf("  axis %d, fraction rule %d, scripts %d%% and %d%%, ∫'s italic correction %d\n", axis, rule, sp, ssp, fude_zoom_mfont_italic(&f, integral));
+    CHECK(axis > 200 && axis < 350 && rule > 30 && rule < 120 && sp >= 50 && sp <= 80 && ssp >= 40 && ssp < sp);
+    CHECK(fude_zoom_mfont_italic(&f, integral) > 0 && fude_zoom_mfont_italic(&f, A) == 0);
+    u32 vg[32]; i32 vs[32];
+    const u32 nv = fude_zoom_mfont_variants(&f, fude_zoom_mfont_glyph(&f, '('), true, vg, vs, 32u);
+    b8 growing = nv >= 3u;
+    for(u32 i = 1; i < nv; i++) growing = growing && vs[i] > vs[i - 1u];
+    CHECK(growing);
+    fude_zoom_mfont_part parts[8];
+    const u32 np = fude_zoom_mfont_assembly(&f, fude_zoom_mfont_glyph(&f, '('), true, parts, 8u);
+    b8 extender = false;
+    for(u32 i = 0; i < np; i++) extender = extender || parts[i].extender;
+    CHECK(np >= 2u && extender && fude_zoom_mfont_min_overlap(&f) > 0);
+    CHECK(fude_zoom_mfont_assembly(&f, A, true, parts, 8u) == 0u && fude_zoom_mfont_variants(&f, A, true, vg, vs, 32u) == 0u);
+    // outlines
+    rde_arr pts = rde_arr_new(sizeof(f64), rde_memory_allocator_get_default_std()), ends = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    const u32 o = fude_zoom_mfont_glyph(&f, 'o'), B = fude_zoom_mfont_glyph(&f, 'B');
+    CHECK(fude_zoom_mfont_outline(&f, o, 2.0, &pts, &ends) == 2u);
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_mfont_outline(&f, B, 2.0, &pts, &ends) == 3u);
+    fude_zoom_mfont_box(&f, B, box);
+    b8 inside = rde_arr_length(&pts) > 20u;
+    const f64* p = (const f64*)pts.memory;
+    for(u32 i = 0; i + 1u < (u32)rde_arr_length(&pts); i += 2u) inside = inside && p[i] >= box[0] - 1.0 && p[i] <= box[2] + 1.0 && p[i + 1u] >= box[1] - 1.0 && p[i + 1u] <= box[3] + 1.0;
+    CHECK(inside);
+    // (finer: more points, the same contours)
+    const u32 coarse = (u32)rde_arr_length(&pts);
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_mfont_outline(&f, B, 0.2, &pts, &ends) == 3u && (u32)rde_arr_length(&pts) > coarse);
+    rde_arr_free(&pts); rde_arr_free(&ends);
+    // (a damaged font: none; a short one read as zeros, never past its end)
+    fude_zoom_mfont bad;
+    CHECK(!fude_zoom_mfont_load(&bad, bytes, 40u) && fude_zoom_mfont_glyph(&bad, 'A') == 0u);
+    u8 junk[64]; memset(junk, 0xFF, sizeof junk);
+    CHECK(!fude_zoom_mfont_load(&bad, junk, sizeof junk));
+    free(bytes);
+}
+
+static const fude_zoom_tex_glyph* tex_glyphs(const fude_zoom_tex_box* b) { return (const fude_zoom_tex_glyph*)b->glyphs.memory; }
+static u32 tex_count(const fude_zoom_tex_box* b) { return (u32)rde_arr_length(&b->glyphs); }
+static void tex(const fude_zoom_mfont* f, const c8* s, b8 display, fude_zoom_tex_box* b) { fude_zoom_tex_set(f, s, (u32)strlen(s), display, b); }
+
+// LaTeX set as TeX sets it: TeX's spaces between atoms (an operation's medium, a relation's thick, none for a sign or in
+// scripts); fractions over and under the axis, smaller in text; roots over what they hold; scripts up and down by the
+// font's shifts, apart by its least gap; limits above and below in display, beside in text; brackets grown to what they
+// hold; matrices' rows and columns; the alphabets and primes; what it does not know set as written and counted — and
+// nothing it is given, however broken, past its memory (a thousand random formulas).
+static void test_tex(void) {
+    printf("tex\n");
+    u32 size = 0;
+    u8* bytes = maths_font_bytes(&size);
+    CHECK(bytes != NULL);
+    if(bytes == NULL) return;
+    fude_zoom_mfont f;
+    fude_zoom_mfont_load(&f, bytes, size);
+    const f64 em = 1000.0;
+    #define ADV(cp) (fude_zoom_mfont_advance(&f, fude_zoom_mfont_glyph(&f, (cp))) / em)
+    fude_zoom_tex_box b; fude_zoom_tex_box_init(&b);
+    tex(&f, "x", false, &b);
+    CHECK(tex_count(&b) == 1u && tex_glyphs(&b)[0].glyph == fude_zoom_mfont_glyph(&f, 0x1D465) && fabs(b.width - ADV(0x1D465)) < 1e-9 && b.unknown == 0u);
+    // spaces: a + b (medium either side), a = b (thick), -x (a sign: none), x^{a+b} (scripts: none)
+    tex(&f, "a+b", false, &b);
+    const f64 apb = ADV(0x1D44E) + ADV('+') + ADV(0x1D44F);
+    CHECK(tex_count(&b) == 3u && fabs(b.width - (apb + 2.0 * 4.0 / 18.0)) < 1e-6);
+    tex(&f, "a=b", false, &b);
+    CHECK(fabs(b.width - (ADV(0x1D44E) + ADV('=') + ADV(0x1D44F) + 2.0 * 5.0 / 18.0)) < 1e-6);
+    tex(&f, "-x", false, &b);
+    CHECK(tex_glyphs(&b)[0].glyph == fude_zoom_mfont_glyph(&f, 0x2212) &&
+          fabs(b.width - (ADV(0x2212) + ADV(0x1D465) + fude_zoom_mfont_italic(&f, fude_zoom_mfont_glyph(&f, 0x1D465)) / em)) < 1e-6);   // (the x's slant after it, as TeX adds)
+    tex(&f, "x^{a+b}", false, &b);
+    const fude_zoom_tex_glyph* g = tex_glyphs(&b);
+    CHECK(tex_count(&b) == 4u && fabs(g[1].size - 0.6) < 1e-9 && fabs((g[3].x - g[1].x) - 0.6 * (ADV(0x1D44E) + ADV('+'))) < 1e-6);   // (in a script: no space round +)
+    // scripts
+    tex(&f, "x^2", false, &b);
+    CHECK(tex_count(&b) == 2u && tex_glyphs(&b)[1].y > 0.3 && tex_glyphs(&b)[1].size < 1.0);
+    tex(&f, "x_i", false, &b);
+    CHECK(tex_glyphs(&b)[1].y < -0.1);
+    tex(&f, "x_i^2", false, &b);
+    g = tex_glyphs(&b);
+    {
+        i32 sup_box[4], sub_box[4];
+        fude_zoom_mfont_box(&f, g[1].glyph, sub_box); fude_zoom_mfont_box(&f, g[2].glyph, sup_box);
+        const u32 sup = g[1].y > g[2].y ? 1u : 2u, sub = 3u - sup;
+        fude_zoom_mfont_box(&f, g[sup].glyph, sup_box); fude_zoom_mfont_box(&f, g[sub].glyph, sub_box);
+        const f64 gap = (g[sup].y + sup_box[1] / em * g[sup].size) - (g[sub].y + sub_box[3] / em * g[sub].size);
+        CHECK(gap >= fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_SUB_SUPERSCRIPT_GAP_MIN) / em - 1e-9);
+    }
+    // fractions: one rule on the axis, the numerator over it, the denominator under; in text smaller
+    tex(&f, "\\frac{a}{b}", true, &b);
+    const f64 axis = fude_zoom_mfont_constant(&f, FUDE_ZOOM_MATH_AXIS_HEIGHT) / em;
+    const fude_zoom_tex_rule* r = (const fude_zoom_tex_rule*)b.rules.memory;
+    CHECK(rde_arr_length(&b.rules) == 1u && fabs(r[0].y + r[0].h * 0.5 - axis) < 1e-9 && tex_glyphs(&b)[0].y > axis && tex_glyphs(&b)[1].y < axis);
+    const f64 display_h = b.height + b.depth;
+    tex(&f, "\\frac{a}{b}", false, &b);
+    CHECK(b.height + b.depth < display_h && tex_glyphs(&b)[0].size < 1.0);
+    tex(&f, "\\binom{n}{k}", true, &b);
+    CHECK(rde_arr_length(&b.rules) == 0u && tex_count(&b) == 4u);   // (no rule; two parentheses)
+    // roots: a rule over what it holds, the sign as tall
+    tex(&f, "\\sqrt{x}", true, &b);
+    r = (const fude_zoom_tex_rule*)b.rules.memory;
+    CHECK(rde_arr_length(&b.rules) == 1u && r[0].y > 0.4 && b.height > r[0].y + r[0].h - 1e-9);
+    tex(&f, "\\sqrt{\\frac{a}{b}}", true, &b);
+    CHECK(tex_glyphs(&b)[0].glyph != fude_zoom_mfont_glyph(&f, 0x221A));   // (a bigger form)
+    tex(&f, "\\sqrt[3]{x}", true, &b);
+    CHECK(tex_count(&b) == 3u && tex_glyphs(&b)[0].size < 0.6);   // (its degree, scriptscript)
+    // limits: above and below in display, beside in text; an integral's beside even in display
+    tex(&f, "\\sum_{i=1}^{n} i", true, &b);
+    g = tex_glyphs(&b);
+    {
+        const fude_zoom_tex_glyph* sum = &g[0];
+        b8 above = false, below = false;
+        for(u32 i = 1; i < tex_count(&b); i++) { above = above || (g[i].size < 1.0 && g[i].y > 0.5); below = below || (g[i].size < 1.0 && g[i].y < -0.5); }
+        CHECK(above && below && sum->size == 1.0);
+    }
+    tex(&f, "\\sum_{i=1}^{n} i", false, &b);
+    g = tex_glyphs(&b);
+    CHECK(g[1].x > ADV(0x2211) * 0.9);   // (n beside it)
+    tex(&f, "\\int_0^1", true, &b);
+    g = tex_glyphs(&b);
+    CHECK(tex_count(&b) == 3u && g[1].x > 0.0 && g[2].x > 0.0 && g[0].glyph != fude_zoom_mfont_glyph(&f, 0x222B));   // (its display form; limits beside)
+    tex(&f, "\\lim_{x \\to 0} x", true, &b);
+    CHECK(tex_glyphs(&b)[3].y < -0.3);   // (x → 0 under lim)
+    // brackets grown to what they hold
+    tex(&f, "\\left( \\frac{a}{b} \\right)", true, &b);
+    g = tex_glyphs(&b);
+    CHECK(g[0].glyph != fude_zoom_mfont_glyph(&f, '(') && b.height + b.depth > display_h * 0.9);
+    tex(&f, "\\left( \\sum_{k=1}^{n} \\frac{a_k}{b_k} \\begin{matrix} 1 \\\\ 2 \\\\ 3 \\\\ 4 \\\\ 5 \\\\ 6 \\end{matrix} \\right)", true, &b);
+    CHECK(b.height + b.depth > 5.0 && b.unknown == 0u);   // (past its biggest form: built of its pieces)
+    // matrices: 2 × 2, its rows apart, its columns apart
+    tex(&f, "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", true, &b);
+    g = tex_glyphs(&b);
+    {
+        f64 ya = 0, yc = 0, xa = 0, xb = 0;
+        for(u32 i = 0; i < tex_count(&b); i++) {
+            if(g[i].glyph == fude_zoom_mfont_glyph(&f, 0x1D44E)) { ya = g[i].y; xa = g[i].x; }
+            if(g[i].glyph == fude_zoom_mfont_glyph(&f, 0x1D44F)) { xb = g[i].x; }
+            if(g[i].glyph == fude_zoom_mfont_glyph(&f, 0x1D450)) { yc = g[i].y; }
+        }
+        CHECK(tex_count(&b) == 6u && ya - yc > 1.0 && xb - xa > 0.8 && b.unknown == 0u);
+    }
+    tex(&f, "\\begin{aligned} x &= 1 \\\\ y &= 2 \\end{aligned}", true, &b);
+    CHECK(tex_count(&b) == 6u && b.unknown == 0u);
+    tex(&f, "f(x) = \\begin{cases} 1 & x > 0 \\\\ 0 & \\text{else} \\end{cases}", true, &b);
+    CHECK(b.unknown == 0u && tex_count(&b) > 12u);
+    // alphabets, Greek, primes
+    tex(&f, "\\mathbb{R} \\mathcal{L} \\mathbf{v} \\alpha \\Gamma f'", true, &b);
+    g = tex_glyphs(&b);
+    CHECK(g[0].glyph == fude_zoom_mfont_glyph(&f, 0x211D) && g[1].glyph == fude_zoom_mfont_glyph(&f, 0x2112) && g[2].glyph == fude_zoom_mfont_glyph(&f, 0x1D42F) &&
+          g[3].glyph == fude_zoom_mfont_glyph(&f, 0x1D6FC) && g[4].glyph == fude_zoom_mfont_glyph(&f, 0x393) && g[6].glyph == fude_zoom_mfont_glyph(&f, 0x2032));
+    tex(&f, "\\text{if } x", true, &b);
+    CHECK(tex_glyphs(&b)[0].glyph == fude_zoom_mfont_glyph(&f, 'i') && tex_count(&b) == 3u);
+    tex(&f, "\\not= \\not\\in", true, &b);
+    CHECK(tex_glyphs(&b)[0].glyph == fude_zoom_mfont_glyph(&f, 0x2260) && tex_glyphs(&b)[1].glyph == fude_zoom_mfont_glyph(&f, 0x2209));
+    // what it does not know: set as written, counted
+    tex(&f, "\\foo + x", true, &b);
+    CHECK(b.unknown == 1u && tex_count(&b) >= 6u);
+    tex(&f, "{x", true, &b);
+    CHECK(b.unknown >= 1u && tex_count(&b) == 1u);
+    tex(&f, "x}}", true, &b);
+    CHECK(b.unknown >= 1u && tex_count(&b) == 1u);
+    tex(&f, "", true, &b);
+    CHECK(tex_count(&b) == 0u && b.width == 0.0);
+    // a thousand random formulas: never past its memory, its box always finite
+    static const c8* const bits[] = { "x", "^", "_", "{", "}", "\\frac", "\\sqrt", "[", "]", "\\left(", "\\right)", "\\begin{pmatrix}", "\\end{pmatrix}", "&", "\\\\",
+                                      "\\sum", "\\int", "\\hat", "\\text{a b}", "\\mathbb", "'", "+", "=", "\\alpha", "\\left.", "\\right|", "\\overbrace", "\\big(", "1", " " };
+    b8 finite = true;
+    for(u32 k = 0; k < 1000u; k++) {
+        c8 s[256]; u32 n = 0;
+        const u32 parts = 1u + rnd() % 24u;
+        for(u32 i = 0; i < parts && n + 24u < sizeof s; i++) { const c8* bit = bits[rnd() % (sizeof(bits) / sizeof(bits[0]))]; const usize l = strlen(bit); memcpy(s + n, bit, l); n += (u32)l; }
+        s[n] = 0;
+        fude_zoom_tex_set(&f, s, n, (k & 1u) != 0u, &b);
+        finite = finite && isfinite(b.width) && isfinite(b.height) && isfinite(b.depth) && b.width < 1000.0 && b.height < 1000.0;
+    }
+    CHECK(finite);
+    #undef ADV
+    fude_zoom_tex_box_free(&b);
+    free(bytes);
+}
+
+// A random sum as people write them (_depth deep at most), appended to _out at *_n.
+static void random_sum(u32* seed, u32 depth, c8* out, usize* n, usize size) {
+    #define RS_PUT(str) do { const c8* s_ = (str); const usize l_ = strlen(s_); if(*n + l_ + 1u < size) { memcpy(out + *n, s_, l_); *n += l_; } } while(0)
+    *seed = *seed * 1664525u + 1013904223u;
+    const u32 r = (*seed >> 8) % (depth == 0u ? 5u : 11u);
+    static const c8* atoms[] = { "x", "2", "0.5", "pi", "a" };
+    static const c8* ops[] = { " + ", " - ", "*", "/", "^" };
+    static const c8* calls[] = { "sin(", "sqrt(", "abs(", "ln(" };
+    if(r < 5u) {
+        RS_PUT(atoms[r]);
+    } else if(r < 8u) {
+        random_sum(seed, depth - 1u, out, n, size);
+        *seed = *seed * 1664525u + 1013904223u;
+        RS_PUT(ops[(*seed >> 8) % 5u]);
+        RS_PUT("(");
+        random_sum(seed, depth - 1u, out, n, size);
+        RS_PUT(")");
+    } else if(r == 8u) {
+        RS_PUT("-(");
+        random_sum(seed, depth - 1u, out, n, size);
+        RS_PUT(")");
+    } else if(r == 9u) {
+        *seed = *seed * 1664525u + 1013904223u;
+        RS_PUT(calls[(*seed >> 8) % 4u]);
+        random_sum(seed, depth - 1u, out, n, size);
+        RS_PUT(")");
+    } else {
+        RS_PUT("3");
+        random_sum(seed, depth - 1u, out, n, size);   // (side by side: 3x, 3sin(x), 3(…))
+    }
+    #undef RS_PUT
+}
+
+// LaTeX worked out (texcalc.h): fractions, roots with degrees, powers, \cdot and \times, \pi, functions and \left( \right)
+// as calc's words; what calc does not know refused; a sum ending in "=" answered, short; and a formula so answered set
+// with its answer after it.
+static void test_texcalc(void) {
+    printf("texcalc\n");
+    c8 out[256];
+    #define TC(tex, want) do { const b8 ok_ = fude_zoom_texcalc((tex), (u32)strlen(tex), out, sizeof out); if(!ok_ || strcmp(out, (want)) != 0) printf("  %s -> %s (want %s)\n", (tex), ok_ ? out : "(refused)", (want)); CHECK(ok_ && strcmp(out, (want)) == 0); } while(0)
+    TC("\\frac{3}{4}", "((3)/(4))");
+    TC("x^{2} + 1", "x^(2) + 1");
+    TC("2^3", "2^(3)");
+    TC("\\sqrt{2}", "sqrt(2)");
+    TC("\\sqrt[3]{8}", "((8)^(1/(3)))");
+    TC("3 \\cdot 4 \\times 5 \\div 6", "3 * 4 * 5 / 6");
+    TC("\\sin x + \\cos(\\pi)", "sin  x + cos (pi)");
+    TC("\\left( 1 + 2 \\right)^{2}", "( 1 + 2 )^(2)");
+    TC("y = \\sqrt{x}", "y = sqrt(x)");
+    TC("y \\le x^2", "y <= x^(2)");
+    TC("\\left. x \\right|", " x |");
+    #undef TC
+    const c8* refused[] = { "\\infty", "x_1", "n!", "\\sum_{i=1}^{n} i", "a \\\\ b", "\\frac{1}{", "{x", "x}", "\\alpha", "f'(x)" };
+    for(u32 i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+        CHECK(!fude_zoom_texcalc(refused[i], (u32)strlen(refused[i]), out, sizeof out));
+    }
+    CHECK(!fude_zoom_texcalc("\\frac{1}{2}", 11u, out, 8u));   // (no room: refused, nothing past it)
+    #define TA(tex, want) do { const b8 ok_ = fude_zoom_texcalc_answer((tex), (u32)strlen(tex), out, sizeof out); if(!ok_ || strcmp(out, (want)) != 0) printf("  %s -> %s (want %s)\n", (tex), ok_ ? out : "(none)", (want)); CHECK(ok_ && strcmp(out, (want)) == 0); } while(0)
+    TA("\\frac{3}{4} + 2^3 =", "8.75");
+    TA("1/3 =", "0.3333333333");
+    TA("\\sqrt{2} =  ", "1.414213562");
+    TA("\\sqrt[3]{27} - 5 =", "-2");
+    TA("\\sin(\\pi) =", "0");
+    TA("0.1 + 0.2 =", "0.3");
+    TA("2\\pi =", "6.283185307");
+    TA("10^{20} =", "1e+20");
+    #undef TA
+    // Tidied for a graph: as few brackets as its order needs, each side of its relation.
+    #define TT(tex, want) do { const b8 ok_ = fude_zoom_texcalc_tidy((tex), (u32)strlen(tex), out, sizeof out); if(!ok_ || strcmp(out, (want)) != 0) printf("  %s -> %s (want %s)\n", (tex), ok_ ? out : "(refused)", (want)); CHECK(ok_ && strcmp(out, (want)) == 0); } while(0)
+    TT("y = \\frac{x^{2}}{4} - 1", "y = x^2/4 - 1");
+    TT("x^{2} + y^{2} = 9", "x^2 + y^2 = 9");
+    TT("y = 2\\sin(3x)", "y = 2sin(3x)");
+    TT("y = -\\left(x + 1\\right)^{2}", "y = -(x + 1)^2");
+    TT("y \\le \\frac{\\pi}{2}", "y <= pi/2");
+    TT("y = \\frac{1}{x + 1}", "y = 1/(x + 1)");
+    TT("y = \\frac{a - b}{c d}", "y = (a - b)/(c*d)");
+    TT("y = 2^{-x}", "y = 2^(-x)");
+    TT("y = (2^{x})^{3}", "y = (2^x)^3");
+    TT("y = 1 - (x - 1)", "y = 1 - (x - 1)");
+    TT("r = 1 + \\cos(\\theta)", "r = 1 + cos(x)");
+    TT("\\sqrt[3]{x}", "x^(1/3)");
+    #undef TT
+    // (written back, read again: the same everywhere — a thousand random sums)
+    {
+        u32 seed = 77u, same = 0, tried = 0;
+        for(u32 g = 0; g < 1000u; g++) {
+            c8 text[512];
+            usize n = 0;
+            random_sum(&seed, 4u, text, &n, sizeof text);
+            text[n] = 0;
+            fude_zoom_calc c1, c2;
+            if(!fude_zoom_calc_parse_expr(&c1, text)) { printf("  %s: not read\n", text); continue; }
+            c8 back[512];
+            tried++;
+            if(!fude_zoom_calc_write(&c1, back, sizeof back) || !fude_zoom_calc_parse_expr(&c2, back)) { printf("  %s -> %s: not read again\n", text, back); continue; }
+            f64 vars[26]; for(u32 i = 0; i < 26u; i++) vars[i] = 0.7 + 0.1 * i;
+            b8 ok = c1.count == c2.count;
+            for(u32 i = 0; i < 5u; i++) {
+                const f64 x = -2.3 + 1.1 * i, v1 = fude_zoom_calc_at_with(&c1, x, vars), v2 = fude_zoom_calc_at_with(&c2, x, vars);
+                ok = ok && ((isnan(v1) && isnan(v2)) || v1 == v2 || fabs(v1 - v2) <= 1e-9 * fmax(1.0, fabs(v1)));
+            }
+            if(!ok) printf("  %s -> %s: not the same\n", text, back);
+            same += ok ? 1u : 0u;
+        }
+        printf("  %u of %u random sums the same written back\n", same, tried);
+        CHECK(tried == 1000u && same == tried);
+    }
+    const c8* unanswered[] = { "x + 1 =", "1 + 1", "a = 1 + 1 =", "1 / 0 =", "=", "\\infty =", "y < 2 =" };
+    for(u32 i = 0; i < sizeof(unanswered) / sizeof(unanswered[0]); i++) {
+        CHECK(!fude_zoom_texcalc_answer(unanswered[i], (u32)strlen(unanswered[i]), out, sizeof out));
+    }
+    // calc's words as LaTeX (a graph's legend): fractions, powers, calls, brackets only where its order needs them.
+    #define TL(src, xname, want) do { fude_zoom_calc c_; const b8 ok_ = fude_zoom_calc_parse_expr(&c_, (src)) && fude_zoom_calc_latex(&c_, (xname), out, sizeof out); if(!ok_ || strcmp(out, (want)) != 0) printf("  %s -> %s (want %s)\n", (src), ok_ ? out : "(refused)", (want)); CHECK(ok_ && strcmp(out, (want)) == 0); } while(0)
+    TL("x^2/4 - 1", "x", "\\frac{x^{2}}{4} - 1");
+    TL("2sin(3x)", "x", "2 \\sin\\left(3 x\\right)");
+    TL("sqrt(abs(x))", "x", "\\sqrt{\\left|x\\right|}");
+    TL("-(x + 1)^2", "x", "-\\left(x + 1\\right)^{2}");
+    TL("2*3", "x", "2 \\cdot 3");
+    TL("(sin(x))^2", "x", "\\left(\\sin x\\right)^{2}");
+    TL("exp(-x)", "x", "e^{-x}");
+    TL("1 + cos(t)", "\\theta", "1 + \\cos \\theta");
+    TL("x pi / 2", "x", "\\frac{x \\pi}{2}");
+    TL("1.5e20 x", "x", "1.5 \\times 10^{20} x");
+    TL("a - (b - c)", "x", "a - \\left(b - c\\right)");
+    TL("(1/2)^x", "x", "\\left(\\frac{1}{2}\\right)^{x}");
+    #undef TL
+    // A graph's legend: each line's LaTeX.
+    {
+        rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+        rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), parts = rde_arr_new(sizeof(fude_zoom_symbol_part), heap), labels = rde_arr_new(sizeof(fude_zoom_plot_label), heap);
+        fude_zoom_plot_lines("graph", "x^2 + y^2 = 4\nr = 1 + cos(θ)\n(cos(t), sin(t))\ny >= x\nf(x) = x/2\nx^2 - 1\na = 2\narea 0 1", 300.0, 220.0, &pts, &parts, &labels);
+        const c8* want[] = { "x^{2} + y^{2} = 4", "r = 1 + \\cos \\theta", "\\left(\\cos t, \\sin t\\right)", "y \\ge x", "f(x) = \\frac{x}{2}", "y = x^{2} - 1",
+                             "a = 2", "\\int_{0}^{1} y \\, dx = 0" };
+        const fude_zoom_plot_label* lb = (const fude_zoom_plot_label*)labels.memory;
+        for(u32 w = 0; w < sizeof(want) / sizeof(want[0]); w++) {
+            b8 found = false;
+            for(u32 i = 0; i < (u32)rde_arr_length(&labels); i++) found = found || (lb[i].align == 4u && strncmp(lb[i].latex, want[w], strlen(want[w])) == 0);
+            if(!found) printf("  legend lacks %s\n", want[w]);
+            CHECK(found);
+        }
+        rde_arr_free(&pts); rde_arr_free(&parts); rde_arr_free(&labels);
+    }
+    // Set with its answer: "2 + 2 =" as "2 + 2 = 4" — its glyphs one more than without it.
+    c8 path[1024];
+    snprintf(path, sizeof path, "%s/../sketching/assets/fonts/NotoSansMath-Regular.ttf", FUDE_ROOT);
+    fude_zoom_formulas f;
+    fude_zoom_formulas_init(&f);
+    if(fude_zoom_formulas_load(&f, path)) {
+        const u32 plain = tex_count(fude_zoom_formulas_set(&f, "2 + 2", 5u));
+        const fude_zoom_tex_box* answered = fude_zoom_formulas_set(&f, "2 + 2 =", 7u);
+        CHECK(plain == 3u && tex_count(answered) == 5u);
+        const u32 open = tex_count(fude_zoom_formulas_set(&f, "x + 2 =", 7u));   // (not a sum: as written)
+        CHECK(open == 4u);
+        // Every random sum's LaTeX set with nothing unknown in it, in text style as a legend is.
+        u32 seed = 991u, clean = 0;
+        for(u32 g = 0; g < 1000u; g++) {
+            c8 text[512], tex[512];
+            usize n = 0;
+            random_sum(&seed, 4u, text, &n, sizeof text);
+            text[n] = 0;
+            fude_zoom_calc c;
+            if(!fude_zoom_calc_parse_expr(&c, text) || !fude_zoom_calc_latex(&c, "x", tex, sizeof tex)) { printf("  %s: no LaTeX\n", text); continue; }
+            const fude_zoom_tex_box* set = fude_zoom_formulas_set_as(&f, tex, (u32)strlen(tex), false);
+            if(set != NULL && set->unknown == 0u && tex_count(set) > 0u) clean++;
+            else printf("  %s -> %s: %u unknown\n", text, tex, set != NULL ? set->unknown : 99u);
+        }
+        CHECK(clean == 1000u);
+    } else {
+        CHECK(false);
+    }
+    fude_zoom_formulas_free(&f);
+}
+
+// Formulas written by hand (handmath.h): the shapes known (a maths alphabet's letter as its plain one, the thick Hershey
+// ones single strokes), a font's glyphs' characters read back (a bigger bracket a bracket), and formulas written out —
+// every glyph a shape, every point near the set formula's box, the same seed the same strokes.
+static void test_handmath(void) {
+    printf("handmath\n");
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), ends = rde_arr_new(sizeof(u32), heap);
+    const u32* cps = NULL;
+    CHECK(fude_zoom_handmath_symbols(&cps) >= 170u && cps != NULL);
+    for(u32 i = 1; i < fude_zoom_handmath_symbols(&cps); i++) CHECK(cps[i] > cps[i - 1u]);   // (in order)
+    CHECK(fude_zoom_handmath_base(0x1D465u) == 'x' && fude_zoom_handmath_base(0x1D6FCu) == 0x03B1u && fude_zoom_handmath_base(0x210Eu) == 'h' &&
+          fude_zoom_handmath_base(0x1D7D0u) == '2' && fude_zoom_handmath_base(0x211Du) == 'R' && fude_zoom_handmath_base('+') == '+');
+    CHECK(fude_zoom_handmath_shape('x', &pts, &ends) >= 1u);
+    const u32 xs = (u32)rde_arr_length(&pts);
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_handmath_shape(0x1D465u, &pts, &ends) >= 1u && (u32)rde_arr_length(&pts) == xs);   // (𝑥 as x)
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_handmath_shape(0x2211u, &pts, &ends) == 1u);   // (∑ one stroke, not Hershey's six)
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_handmath_shape(0x222Cu, &pts, &ends) == 2u);   // (∬ two ∫s)
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    CHECK(fude_zoom_handmath_shape(0x4E00u, &pts, &ends) == 0u && rde_arr_length(&pts) == 0u);
+    u32 size = 0;
+    u8* bytes = maths_font_bytes(&size);
+    CHECK(bytes != NULL);
+    if(bytes == NULL) return;
+    fude_zoom_mfont f;
+    fude_zoom_mfont_load(&f, bytes, size);
+    fude_zoom_handmath_chars chars;
+    fude_zoom_handmath_chars_init(&chars);
+    fude_zoom_handmath_chars_read(&chars, &f);
+    CHECK(fude_zoom_handmath_char(&chars, fude_zoom_mfont_glyph(&f, 0x1D465u)) == 'x' && fude_zoom_handmath_char(&chars, fude_zoom_mfont_glyph(&f, 0x2211u)) == 0x2211u);
+    u32 vg[16]; i32 vs[16];
+    const u32 nv = fude_zoom_mfont_variants(&f, fude_zoom_mfont_glyph(&f, '('), true, vg, vs, 16u);
+    CHECK(nv >= 2u && fude_zoom_handmath_char(&chars, vg[nv - 1u]) == '(');
+    static const c8* formulas[] = { "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}", "\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}", "\\int_0^1 e^{-x^2}\\,dx",
+                                    "\\left( \\frac{a}{b} \\right)^{2}", "\\vec{F} = m\\vec{a}", "\\forall x \\in \\mathbb{R} : x^2 \\ge 0", "\\alpha\\beta\\gamma \\Delta\\Omega",
+                                    "\\oint_C \\nabla \\times \\vec{E} \\cdot d\\vec{l}", "\\{ x : x \\notin \\emptyset \\}", "f'(x) \\approx \\frac{f(x+h)-f(x)}{h}",
+                                    "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", "\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1" };
+    fude_zoom_tex_box b; fude_zoom_tex_box_init(&b);
+    u32 missing_all = 0;
+    for(u32 k = 0; k < sizeof(formulas) / sizeof(formulas[0]); k++) {
+        fude_zoom_tex_set(&f, formulas[k], (u32)strlen(formulas[k]), true, &b);
+        rde_arr_clear(&pts); rde_arr_clear(&ends);
+        u32 missing = 0;
+        const u32 n = fude_zoom_handmath_write(&chars, &f, &b, 40.0, 7u, &pts, &ends, &missing);
+        CHECK(n > 0u && rde_arr_length(&ends) == n && ((const u32*)ends.memory)[n - 1u] == (u32)rde_arr_length(&pts));
+        const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+        b8 inside = true;
+        for(u32 i = 0; i < (u32)rde_arr_length(&pts); i++) {
+            inside = inside && p[i].x > -0.3 * 40.0 && p[i].x < (b.width + 0.3) * 40.0 && p[i].y > -(b.depth + 0.3) * 40.0 && p[i].y < (b.height + 0.3) * 40.0;
+        }
+        if(missing > 0u || !inside) printf("  %s: %u missing, %s\n", formulas[k], missing, inside ? "inside" : "outside");
+        CHECK(inside);
+        missing_all += missing;
+    }
+    CHECK(missing_all == 0u);
+    // (seeded: the same strokes again; another seed, other ones)
+    fude_zoom_tex_set(&f, "x^2 + y^2", 9u, true, &b);
+    rde_arr again = rde_arr_new(sizeof(fude_zoom_v2), heap), again_ends = rde_arr_new(sizeof(u32), heap);
+    rde_arr_clear(&pts); rde_arr_clear(&ends);
+    fude_zoom_handmath_write(&chars, &f, &b, 40.0, 3u, &pts, &ends, NULL);
+    fude_zoom_handmath_write(&chars, &f, &b, 40.0, 3u, &again, &again_ends, NULL);
+    CHECK(rde_arr_length(&pts) == rde_arr_length(&again) && memcmp(pts.memory, again.memory, sizeof(fude_zoom_v2) * rde_arr_length(&pts)) == 0);
+    rde_arr_clear(&again); rde_arr_clear(&again_ends);
+    fude_zoom_handmath_write(&chars, &f, &b, 40.0, 4u, &again, &again_ends, NULL);
+    CHECK(rde_arr_length(&pts) == rde_arr_length(&again) && memcmp(pts.memory, again.memory, sizeof(fude_zoom_v2) * rde_arr_length(&pts)) != 0);
+    rde_arr_free(&again); rde_arr_free(&again_ends);
+    fude_zoom_tex_box_free(&b);
+    fude_zoom_handmath_chars_free(&chars);
+    rde_arr_free(&pts); rde_arr_free(&ends);
+    free(bytes);
+}
+
+// Handwritten maths read (mathread.h): each known symbol's own shape read as itself; formulas written out by hand
+// (handmath.h, three hands each) read back as they were set — nine in ten at least —, their layout too (fractions,
+// roots, scripts, limits, functions); nothing read from nothing; and a thousand scribbles read without going past memory.
+static void test_mathread(void) {
+    printf("mathread\n");
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), ends = rde_arr_new(sizeof(u32), heap);
+    c8 out[1024];
+    CHECK(!fude_zoom_mathread(NULL, NULL, 0u, out, sizeof out, NULL));
+    // (the shapes themselves)
+    static const u32 own[] = { '0', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'd', 'e', 'f', 'g', 'h', 'k', 'm', 'n', 'p', 'q', 'r', 't', 'y',
+                               '+', '=', '<', '>', 0x2211u, 0x222Bu, 0x221Eu, 0x03B1u, 0x03B2u, 0x03C0u, 0x03B8u };
+    u32 known = 0;
+    for(u32 i = 0; i < sizeof(own) / sizeof(own[0]); i++) {
+        rde_arr_clear(&pts); rde_arr_clear(&ends);
+        const u32 n = fude_zoom_handmath_shape(own[i], &pts, &ends);
+        f64 d = 0.0;
+        const u32 got = fude_zoom_mathread_symbol((const fude_zoom_v2*)pts.memory, (const u32*)ends.memory, n, &d);
+        if(got != own[i]) printf("  U+%04X read as U+%04X (%.2f)\n", own[i], got, d);
+        known += got == own[i] ? 1u : 0u;
+    }
+    CHECK(known == sizeof(own) / sizeof(own[0]));
+    // (formulas written by hand, read back)
+    u32 size = 0;
+    u8* bytes = maths_font_bytes(&size);
+    CHECK(bytes != NULL);
+    if(bytes == NULL) return;
+    fude_zoom_mfont f;
+    fude_zoom_mfont_load(&f, bytes, size);
+    fude_zoom_handmath_chars chars;
+    fude_zoom_handmath_chars_init(&chars);
+    fude_zoom_handmath_chars_read(&chars, &f);
+    static const c8* set[] = { "a+b=c", "x^{2}+y^{2}=1", "\\frac{1}{2}", "\\sqrt{x+1}", "2x-3=7", "\\frac{a+b}{c}", "x_{1}+x_{2}", "e^{x}", "\\int_{0}^{1}x",
+                               "\\alpha+\\beta", "y=\\sin x", "f(x)=x^{2}", "3\\times 4", "\\frac{dy}{dx}=2x", "a^{2}-b^{2}=(a-b)(a+b)", "\\pi r^{2}",
+                               "\\lambda\\le\\mu", "\\Delta x\\neq 0", "x^{2}-5x+6=0", "\\frac{x}{y}+\\frac{1}{x}", "2^{n}+1", "y=mx+b", "(a+b)^{2}", "\\frac{\\pi}{4}",
+                               "3a-2b=c", "\\theta+\\phi", "F=ma", "E=mc^{2}", "\\Delta y", "a\\cdot b", "x\\ge 1", "\\frac{1}{1+x^{2}}" };
+    fude_zoom_tex_box b; fude_zoom_tex_box_init(&b);
+    u32 right = 0, all = 0;
+    for(u32 k = 0; k < sizeof(set) / sizeof(set[0]); k++) {
+        fude_zoom_tex_set(&f, set[k], (u32)strlen(set[k]), false, &b);
+        for(u32 seed = 0; seed < 3u; seed++) {
+            rde_arr_clear(&pts); rde_arr_clear(&ends);
+            const u32 n = fude_zoom_handmath_write(&chars, &f, &b, 40.0, seed * 7u + 1u, &pts, &ends, NULL);
+            u32 syms = 0;
+            fude_zoom_mathread((const fude_zoom_v2*)pts.memory, (const u32*)ends.memory, n, out, sizeof out, &syms);
+            c8 a[256], g[1024];
+            usize ai = 0, gi = 0;
+            for(const c8* q = set[k]; *q; q++) if(*q != ' ') a[ai++] = *q;
+            for(const c8* q = out; *q; q++) if(*q != ' ') g[gi++] = *q;
+            a[ai] = 0; g[gi] = 0;
+            all++;
+            if(strcmp(a, g) == 0) right++;
+            else if(seed == 0u) printf("  %s read as %s\n", set[k], out);
+        }
+    }
+    printf("  %u of %u formulas written by hand read back\n", right, all);
+    CHECK(right * 10u >= all * 9u);
+    fude_zoom_tex_box_free(&b);
+    // (Borja's first real formula, √(b²), its strokes traced from his screenshot, 2026-10-11: what it reads now, printed —
+    // not checked until the reader is trained on his handwriting: docs/product_split.md §10)
+    {
+        static const f64 real[][2] = { { 655, 1432 }, { 661, 1444 }, { 668, 1455 }, { 671, 1420 }, { 674, 1380 }, { 677, 1340 }, { 679, 1322 }, { 700, 1321 },
+                                       { 740, 1321 }, { 780, 1320 }, { 815, 1318 }, { 838, 1317 }, { 840, 1320 },                                       // √
+                                       { 742, 1350 }, { 732, 1365 }, { 724, 1385 }, { 723, 1400 }, { 727, 1418 }, { 735, 1430 }, { 745, 1437 },             // (
+                                       { 766, 1352 }, { 766, 1370 }, { 765, 1390 }, { 764, 1418 }, { 764, 1405 }, { 770, 1393 }, { 785, 1388 }, { 795, 1398 },
+                                       { 794, 1410 }, { 785, 1417 }, { 766, 1418 },                                                                       // b
+                                       { 803, 1357 }, { 810, 1350 }, { 818, 1350 }, { 822, 1358 }, { 818, 1368 }, { 806, 1383 }, { 815, 1384 }, { 824, 1384 }, // 2
+                                       { 840, 1348 }, { 850, 1360 }, { 857, 1378 }, { 858, 1395 }, { 852, 1415 }, { 845, 1428 }, { 838, 1437 } };           // )
+        static const u32 real_ends[5] = { 13, 20, 31, 39, 46 };
+        fude_zoom_v2 rp[46];
+        for(u32 i = 0; i < 46u; i++) rp[i] = (fude_zoom_v2){ real[i][0], 2000.0 - real[i][1] };
+        fude_zoom_mathread(rp, real_ends, 5u, out, sizeof out, NULL);
+        printf("  Borja's first, \\sqrt{(b^{2})}, reads as %s (not checked yet)\n", out);
+    }
+    // (scribbles)
+    u32 seed = 4242u;
+    b8 bounded = true;
+    for(u32 g = 0; g < 1000u; g++) {
+        rde_arr_clear(&pts); rde_arr_clear(&ends);
+        seed = seed * 1664525u + 1013904223u;
+        const u32 strokes = 1u + (seed >> 8) % 40u;
+        for(u32 s = 0; s < strokes; s++) {
+            seed = seed * 1664525u + 1013904223u;
+            const u32 n = 1u + (seed >> 8) % 30u;
+            for(u32 i = 0; i < n; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                const fude_zoom_v2 v = { (f64)((seed >> 8) % 1000u) * 0.3, (f64)((seed >> 4) % 700u) * 0.3 };
+                rde_arr_add(&pts, &v);
+            }
+            const u32 e = (u32)rde_arr_length(&pts);
+            rde_arr_add(&ends, &e);
+        }
+        out[0] = 0;
+        fude_zoom_mathread((const fude_zoom_v2*)pts.memory, (const u32*)ends.memory, strokes, out, sizeof out, NULL);
+        bounded = bounded && strlen(out) < sizeof out;
+    }
+    CHECK(bounded);
+    fude_zoom_handmath_chars_free(&chars);
+    rde_arr_free(&pts); rde_arr_free(&ends);
+    free(bytes);
+}
+
+// Shoelace: a ring's signed area (counter-clockwise positive).
+static f64 ring_area(const fude_zoom_v2* p, u32 n) {
+    f64 a = 0.0;
+    for(u32 i = 0; i < n; i++) a += p[i].x * p[(i + 1u) % n].y - p[(i + 1u) % n].x * p[i].y;
+    return 0.5 * a;
+}
+
+// Formulas on the canvas (formula.h): no font read, nothing set and nothing drawn; a formula set once and kept by its
+// words; its box its setting's with the pad round it; a glyph's outline as one ring (its contours joined: an o's hole
+// a hole, filled even-odd) or a ring a contour (a cutter's), and its triangles as much area as its ink, cut finer the
+// bigger it is on screen, kept; exports writing a formula as its glyphs' outlines — as its LaTeX with no font.
+static void test_formulas(void) {
+    printf("formulas\n");
+    c8 path[1024];
+    snprintf(path, sizeof path, "%s/../sketching/assets/fonts/NotoSansMath-Regular.ttf", FUDE_ROOT);
+    fude_zoom_formulas f;
+    fude_zoom_formulas_init(&f);
+    const fude_zoom_v2* t = NULL;
+    CHECK(!fude_zoom_formulas_load(&f, "./no/such/font.ttf") && fude_zoom_formulas_set(&f, "x", 1u) == NULL);
+    CHECK(fude_zoom_formulas_mesh(&f, 5u, 20.0, &t) == 0u && t == NULL);
+    CHECK(fude_zoom_formulas_load(&f, path) && f.ready);
+    const fude_zoom_tex_box* a = fude_zoom_formulas_set(&f, "x^2", 3u);
+    CHECK(a != NULL && tex_count(a) == 2u && rde_arr_length(&f.boxes) == 1u);
+    CHECK(fude_zoom_formulas_set(&f, "x^2", 3u) == a && rde_arr_length(&f.boxes) == 1u);   // (kept: not set again)
+    const fude_zoom_tex_box* b = fude_zoom_formulas_set(&f, "\\frac{1}{2}", 11u);
+    CHECK(b != NULL && rde_arr_length(&b->rules) == 1u && rde_arr_length(&f.boxes) == 2u);
+    f64 w = 0.0, h = 0.0;
+    fude_zoom_formulas_size(b, 10.0, &w, &h);
+    CHECK(fabs(w - (b->width + 2.0 * FUDE_ZOOM_FORMULA_PAD) * 10.0) < 1e-9 && fabs(h - (b->height + b->depth + 2.0 * FUDE_ZOOM_FORMULA_PAD) * 10.0) < 1e-9);
+    CHECK(h > 20.0 && w > 5.0);   // (a fraction: two lines' height)
+    fude_zoom_formulas_size(NULL, 10.0, &w, &h);   // (no font: an em, padded)
+    CHECK(fabs(w - 12.4) < 1e-9 && fabs(h - 12.4) < 1e-9);
+    // outlines
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), heap), rings = rde_arr_new(sizeof(u32), heap);
+    const u32 o = fude_zoom_mfont_glyph(&f.font, 'o'), B = fude_zoom_mfont_glyph(&f.font, 'B');
+    const u32 apart = fude_zoom_formulas_outline(&f, o, 0.5, true, &pts, &rings);
+    CHECK(apart > 20u && rde_arr_length(&rings) == apart);
+    const fude_zoom_v2* p = (const fude_zoom_v2*)pts.memory;
+    const u32* r = (const u32*)rings.memory;
+    u32 inner = 0;
+    while(inner < apart && r[inner] == 0u) inner++;
+    CHECK(inner < apart && r[apart - 1u] == 1u);
+    const f64 outer_a = ring_area(p, inner), inner_a = ring_area(p + inner, apart - inner);
+    const f64 ink = fabs(outer_a + inner_a);
+    CHECK(outer_a * inner_a < 0.0 && ink > 0.2 * fabs(outer_a) && ink < fabs(outer_a));   // (the hole wound the other way)
+    rde_arr_clear(&pts); rde_arr_clear(&rings);
+    CHECK(fude_zoom_formulas_outline(&f, o, 0.5, false, &pts, &rings) == apart + 2u);   // (each contour closed on its start)
+    b8 one = true;
+    for(u32 i = 0; i < (u32)rde_arr_length(&rings); i++) one = one && ((const u32*)rings.memory)[i] == 0u;
+    CHECK(one);
+    rde_arr_clear(&pts); rde_arr_clear(&rings);
+    const u32 b_apart = fude_zoom_formulas_outline(&f, B, 0.5, true, &pts, &rings);
+    rde_arr_clear(&pts);
+    CHECK(fude_zoom_formulas_outline(&f, B, 0.5, false, &pts, NULL) == b_apart + 4u);   // (three closed, one back along the joins)
+    // triangles: an o's ink (its hole left out), finer the bigger, kept
+    const u32 fine = fude_zoom_formulas_mesh(&f, o, 1000.0, &t);
+    const fude_zoom_v2* kept = t;
+    f64 area = 0.0;
+    for(u32 i = 0; i < fine; i++) area += fabs(ring_area(&t[3u * i], 3u));
+    printf("  o: %u triangles at 1000 points, area %.0f against its outline's %.0f\n", fine, area, ink);
+    CHECK(fine > 20u && fabs(area - ink) < 0.02 * ink);
+    const u32 coarse = fude_zoom_formulas_mesh(&f, o, 12.0, &t);
+    CHECK(coarse > 4u && coarse < fine);
+    CHECK(fude_zoom_formulas_mesh(&f, o, 1000.0, &t) == fine && t == kept);
+    CHECK(fude_zoom_formulas_mesh(&f, fude_zoom_mfont_glyph(&f.font, ' '), 100.0, &t) == 0u);   // (a space: nothing)
+    rde_arr_free(&pts); rde_arr_free(&rings);
+    // exports: its glyphs (x, =, the fraction's 1 and 2: four paths, its rule a fifth), never its words
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    const c8* words = "x = \\frac{1}{2}";
+    const fude_zoom_tex_box* set = fude_zoom_formulas_set(&f, words, (u32)strlen(words));
+    fude_zoom_formulas_size(set, 20.0, &w, &h);
+    const u32 glyphs = tex_count(set), rules = (u32)rde_arr_length(&set->rules);
+    fude_zoom_scene_add_text(&s, s.root, (fude_zoom_place){ { -50, 30 }, 0.0, 1.0 }, 20.0, w, h, FUDE_ZOOM_TEXT_FORMULA, (rde_color){ 10, 20, 30, 255 },
+                             (rde_color){ 0, 0, 0, 0 }, words, (u32)strlen(words), 0);
+    for(u32 pass = 0; pass < 2u; pass++) {
+        fude_zoom_export_formulas(pass == 0u ? &f : NULL);
+        fude_bytes svg = fude_bytes_new(4096);
+        CHECK(fude_zoom_export_svg(&s, (fude_zoom_v2){ 200, 150 }, (rde_color){ 255, 255, 255, 255 }, &svg));
+        rde_arr_add(&svg, &(u8){ 0 });
+        const c8* text = (const c8*)svg.memory;
+        u32 paths = 0; for(const c8* q = text; (q = strstr(q, "<path")) != NULL; q++) paths++;
+        if(pass == 0u) {
+            CHECK(glyphs == 4u && rules == 1u && paths == glyphs + rules && strstr(text, "frac") == NULL && strstr(text, "fill=\"#0a141e\"") != NULL);
+        } else {
+            CHECK(paths == 0u && strstr(text, "frac") != NULL);   // (no font: its words)
+        }
+        rde_arr_free(&svg);
+    }
+    fude_zoom_export_formulas(&f);
+    fude_bytes pdf = fude_bytes_new(4096);
+    CHECK(fude_zoom_export_pdf(&s, (fude_zoom_v2){ 200, 150 }, (rde_color){ 255, 255, 255, 255 }, &pdf) && rde_arr_length(&pdf) > 500u);
+    rde_arr_free(&pdf);
+    fude_zoom_export_formulas(NULL);
+    fude_zoom_scene_destroy(&s);
+    fude_zoom_formulas_free(&f);
+    CHECK(!f.ready && f.bytes == NULL);
 }
 
 
@@ -7432,9 +9268,12 @@ static void test_products(void) {
 
     fude_zoom_product_set(FUDE_ZOOM_PRODUCT_WORKSHOP);
     const fude_zoom_product* shop = fude_zoom_product_get();
-    CHECK(!fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_MATHS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) &&
+    // (graphs too — its Maths topic, called Graphs —, but no formulas)
+    CHECK(fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_MATHS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_DIAGRAMS) &&
           fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_ELECTRONICS) && fude_zoom_product_has_topic(FUDE_ZOOM_TOPIC_SEWING) &&
-          fude_zoom_product_topic(FUDE_ZOOM_TOPIC_MATHS) == FUDE_ZOOM_TOPIC_GENERAL);
+          fude_zoom_product_topic(FUDE_ZOOM_TOPIC_MATHS) == FUDE_ZOOM_TOPIC_MATHS);
+    CHECK((shop->inserts & (1u << FUDE_ZOOM_INSERT_MATHS)) != 0u && (shop->inserts & (1u << FUDE_ZOOM_INSERT_FORMULA)) == 0u);
+    CHECK((notes->inserts & (1u << FUDE_ZOOM_INSERT_FORMULA)) == 0u);   // (hidden for now: the handwriting reader first)
     const u32 w_in = fude_zoom_product_keep(inserts, 16u, shop->inserts, out);
     b8 board = false, examples = false, kanban = false;
     for(u32 i = 0; i < w_in; i++) {
@@ -8173,6 +10012,7 @@ int main(void) {
     test_layers();
     test_connectors();
     test_layer_moves();
+    test_select_abort();
     test_driving();
     test_boards();
     test_paths();
@@ -8180,6 +10020,10 @@ int main(void) {
     test_video_yuv();
     test_hand_lines();
     test_symbols();
+    test_brackets_shapes();
+    test_rich();
+    test_papers();
+    test_charts();
     test_map();
     test_sheets();
     test_pieces();
@@ -8214,7 +10058,18 @@ int main(void) {
     test_big_examples();
     test_quiet_blocks();
     test_products();
+    test_maths_font();
+    test_tex();
+    test_formulas();
+    test_texcalc();
+    test_handmath();
+    test_mathread();
     test_pages();
+    test_history_tags();
+    test_transcript();
+    test_words();
+    test_home_list();
+    test_audio();
     test_display_examples();
     test_examples_go_wrong();
     test_logic_draw();
@@ -8225,6 +10080,7 @@ int main(void) {
     test_calc();
     test_drawn_bodies();
     test_plot();
+    test_plot_curves();
     test_repeat();
     test_dims();
     test_stl();

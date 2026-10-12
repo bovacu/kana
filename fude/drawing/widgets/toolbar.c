@@ -135,13 +135,21 @@ void fude_toolbar_refresh(fude_toolbar* _toolbar) {
 
     // The paper panel shows the page's own paper chosen: it follows the canvas
     // open. Paper shows it too.
-    static const c8* const _paper_icons[FUDE_PAPER_COUNT] = { FUDE_ICON_PAPER_DOTS, FUDE_ICON_PAPER_SQUARES, FUDE_ICON_PAPER_LINES, FUDE_ICON_PAPER_NONE };
+    static const c8* const _paper_icons[FUDE_PAPER_CORE] = { FUDE_ICON_PAPER_DOTS, FUDE_ICON_PAPER_SQUARES, FUDE_ICON_PAPER_LINES, FUDE_ICON_PAPER_NONE };
     const FUDE_PAPER_ _now = _app->canvas->page.paper;
     for(u32 _i = 0; _i < FUDE_PAPER_COUNT; _i++) {
+        if(_toolbar->paper_choices[_i] == NULL) {
+            continue;   // (not this app's)
+        }
         if((FUDE_PAPER_)_i == _now) { fude_kit_button_selected(_toolbar->paper_choices[_i]); }
         else                        { fude_kit_button_quiet(_toolbar->paper_choices[_i]); }
     }
-    fude_kit_icon(_toolbar->paper, _paper_icons[(u32)_now < FUDE_PAPER_COUNT ? (u32)_now : 0u], FUDE_KIT_ICON_ONLY, FUDE_TOOLBAR_TOOL_ICON_PX);
+    const c8* _now_icon = _paper_icons[(u32)_now < FUDE_PAPER_CORE ? (u32)_now : 0u];
+    const fude_extension* _paper_ext = fude_app_ext(_app);
+    for(u32 _i = 0; _paper_ext != NULL && _i < _paper_ext->paper_count; _i++) {
+        _now_icon = _paper_ext->papers[_i].paper == (u8)_now ? _paper_ext->papers[_i].icon : _now_icon;
+    }
+    fude_kit_icon(_toolbar->paper, _now_icon, FUDE_KIT_ICON_ONLY, FUDE_TOOLBAR_TOOL_ICON_PX);
     if(_toolbar->paper_open) { fude_kit_button_selected(_toolbar->paper); }
     else                     { fude_kit_button_quiet(_toolbar->paper); }
     _toolbar->_paper_shown = _now;
@@ -240,19 +248,43 @@ RDE_INTERNAL void fude_toolbar_place_palette(fude_toolbar* _toolbar) {
     }
 }
 
-// The paper panel: its choices in a row, beside the Paper button.
+// The paper panel: its choices in a row beside the Paper button — in rows under it when there are more than the screen
+// has room for across (an app's own papers after the core's).
 RDE_INTERNAL void fude_toolbar_place_paper(fude_toolbar* _toolbar) {
-    const f32        _n    = (f32)FUDE_PAPER_COUNT;
+    // In the order they read: dots, lines, squares, nothing; then the app's, in its order.
+    FUDE_PAPER_ _order[FUDE_PAPER_COUNT] = { FUDE_PAPER_DOTS, FUDE_PAPER_LINES, FUDE_PAPER_SQUARES, FUDE_PAPER_NONE };
+    u32 _count = FUDE_PAPER_CORE;
+    const fude_extension* _ext = fude_app_ext(_toolbar->app);
+    for(u32 _i = 0; _ext != NULL && _i < _ext->paper_count && _count < FUDE_PAPER_COUNT; _i++) {
+        const u8 _paper = _ext->papers[_i].paper;
+        if(_paper >= FUDE_PAPER_COUNT || _toolbar->paper_choices[_paper] == NULL) {
+            continue;
+        }
+        // (one the page open now does not take: not offered)
+        const b8 _offered = _ext->paper_offered == NULL || _ext->paper_offered(_toolbar->app, _paper);
+        rde_ui_node_set_active(rde_ui_button_as_node(_toolbar->paper_choices[_paper]), _offered);
+        if(_offered) {
+            _order[_count++] = (FUDE_PAPER_)_paper;
+        }
+    }
+    const rde_vec_2F _screen = fude_kit_screen_size(_toolbar->app->window);
+    const f32  _room = _screen.x - 2.0f * FUDE_KIT_SCREEN_EDGE - (_toolbar->vertical ? _toolbar->panel_size.x + FUDE_KIT_SCREEN_EDGE : 0.0f);
+    u32        _per  = (u32)fmaxf(1.0f, floorf((_room - 2.0f * FUDE_TOOLBAR_PADDING + FUDE_TOOLBAR_SPACING) / (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING)));
+    _per = _per < _count ? _per : _count;
+    _per = _per < 6u || _count <= 6u ? _per : 6u;   // (six across at most: the rest in rows, a block to choose from)
+    const u32 _rows = (_count + _per - 1u) / _per;
+    _per = (_count + _rows - 1u) / _rows;   // (the rows evened out)
+    const f32  _n    = (f32)_per;
     const rde_vec_2F _size = { _n * FUDE_TOOLBAR_CHOICE_W + (_n - 1.0f) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING,
-                               FUDE_TOOLBAR_CHOICE_H + 2.0f * FUDE_TOOLBAR_PADDING };
+                               (f32)_rows * FUDE_TOOLBAR_CHOICE_H + (f32)(_rows - 1u) * FUDE_TOOLBAR_SPACING + 2.0f * FUDE_TOOLBAR_PADDING };
     _toolbar->paper_center = fude_toolbar_beside(_toolbar, fude_toolbar_center_of(_toolbar->paper), _size);
     _toolbar->paper_size   = _size;
     fude_kit_place_at(rde_ui_image_as_node(_toolbar->paper_panel), _toolbar->paper_center, _size);
-    // In the order they read: dots, lines, squares, nothing.
-    static const FUDE_PAPER_ _order[FUDE_PAPER_COUNT] = { FUDE_PAPER_DOTS, FUDE_PAPER_LINES, FUDE_PAPER_SQUARES, FUDE_PAPER_NONE };
-    for(u32 _i = 0; _i < FUDE_PAPER_COUNT; _i++) {
-        fude_kit_place(rde_ui_button_as_node(_toolbar->paper_choices[_order[_i]]),
-                       (rde_vec_2F){ FUDE_TOOLBAR_PADDING + (f32)_i * (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING) + FUDE_TOOLBAR_CHOICE_W * 0.5f, _size.y * 0.5f },
+    for(u32 _c = 0; _c < _count; _c++) {
+        const u32 _r = _c / _per, _i = _c % _per;
+        fude_kit_place(rde_ui_button_as_node(_toolbar->paper_choices[_order[_c]]),
+                       (rde_vec_2F){ FUDE_TOOLBAR_PADDING + (f32)_i * (FUDE_TOOLBAR_CHOICE_W + FUDE_TOOLBAR_SPACING) + FUDE_TOOLBAR_CHOICE_W * 0.5f,
+                                     _size.y - FUDE_TOOLBAR_PADDING - (f32)_r * (FUDE_TOOLBAR_CHOICE_H + FUDE_TOOLBAR_SPACING) - FUDE_TOOLBAR_CHOICE_H * 0.5f },
                        (rde_vec_2F){ FUDE_TOOLBAR_CHOICE_W, FUDE_TOOLBAR_CHOICE_H });
     }
 }
@@ -307,7 +339,7 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
     // A separator is a hairline across the bar, with room either side of it.
     const rde_vec_2F _sep  = _v ? (rde_vec_2F){ FUDE_TOOLBAR_BUTTON_W * 0.55f, FUDE_TOOLBAR_SEPARATOR } : (rde_vec_2F){ FUDE_TOOLBAR_SEPARATOR, FUDE_TOOLBAR_BUTTON_H * 0.55f };
     const rde_vec_2F _tool = { FUDE_TOOLBAR_BUTTON_W, FUDE_TOOLBAR_BUTTON_H };
-    struct { rde_ui_node* node; rde_vec_2F size; } _items[] = {
+    struct fude_toolbar_item { rde_ui_node* node; rde_vec_2F size; } _items[] = {
         { rde_ui_button_as_node(_toolbar->undo),         _tool },
         { rde_ui_button_as_node(_toolbar->redo),         _tool },
         { rde_ui_image_as_node(_toolbar->separators[0]), _sep },
@@ -375,6 +407,23 @@ void fude_toolbar_layout(fude_toolbar* _toolbar) {
             continue;
         }
         _items[_count++] = _items[_i];
+    }
+    // An app's tool that goes by Paper (a page's size beside its paper): just above it, not with the app's others.
+    for(u32 _t = 0; _t < FUDE_EXTENSION_TOOLS; _t++) {
+        if(_toolbar->tools[_t] == NULL || !_shown[_t] || !_ext->tools[_t].by_paper) {
+            continue;
+        }
+        const rde_ui_node* _tn = rde_ui_button_as_node(_toolbar->tools[_t]);
+        u32 _from = _count, _to = _count;
+        for(u32 _i = 0; _i < _count; _i++) {
+            _from = _items[_i].node == _tn ? _i : _from;
+            _to   = _items[_i].node == rde_ui_button_as_node(_toolbar->paper) ? _i : _to;
+        }
+        if(_from < _count && _to < _from) {
+            const struct fude_toolbar_item _keep = _items[_from];
+            memmove(&_items[_to + 1u], &_items[_to], sizeof(_items[0]) * (_from - _to));
+            _items[_to] = _keep;
+        }
     }
 
     // The slider runs along the bar; its thumb has to be wider than its track.
@@ -822,6 +871,11 @@ void fude_toolbar_restyle(fude_toolbar* _toolbar) {
     for(u32 _i = 0; _i < sizeof(_tools) / sizeof(_tools[0]); _i++) {
         fude_kit_restyle_quiet(_tools[_i]);
     }
+    for(u32 _i = FUDE_PAPER_CORE; _i < FUDE_PAPER_COUNT; _i++) {
+        if(_toolbar->paper_choices[_i] != NULL) {
+            fude_kit_restyle_quiet(_toolbar->paper_choices[_i]);   // (the app's own papers)
+        }
+    }
     for(u32 _t = 0; _t < FUDE_EXTENSION_TOOLS; _t++) {
         if(_toolbar->tools[_t] != NULL) {
             fude_kit_restyle_quiet(_toolbar->tools[_t]);
@@ -975,12 +1029,26 @@ void fude_toolbar_create(fude_toolbar* _toolbar, rde_ui_node* _root, fude_app* _
     rde_ui_node_set_blocks_input(rde_ui_image_as_node(_toolbar->paper_panel), true);
     rde_ui_node_set_gesture_exclusive(rde_ui_image_as_node(_toolbar->paper_panel), true);
     rde_ui_node_add_child(_root, rde_ui_image_as_node(_toolbar->paper_panel));
-    static const FUDE_TEXT_ _names[FUDE_PAPER_COUNT] = { FUDE_TEXT_PAPER_DOTS, FUDE_TEXT_PAPER_SQUARES, FUDE_TEXT_PAPER_LINES, FUDE_TEXT_PAPER_NONE };   // FUDE_PAPER_ order
-    static const c8* const  _icons[FUDE_PAPER_COUNT] = { FUDE_ICON_PAPER_DOTS, FUDE_ICON_PAPER_SQUARES, FUDE_ICON_PAPER_LINES, FUDE_ICON_PAPER_NONE };
+    static const FUDE_TEXT_ _names[FUDE_PAPER_CORE] = { FUDE_TEXT_PAPER_DOTS, FUDE_TEXT_PAPER_SQUARES, FUDE_TEXT_PAPER_LINES, FUDE_TEXT_PAPER_NONE };   // FUDE_PAPER_ order
+    static const c8* const  _icons[FUDE_PAPER_CORE] = { FUDE_ICON_PAPER_DOTS, FUDE_ICON_PAPER_SQUARES, FUDE_ICON_PAPER_LINES, FUDE_ICON_PAPER_NONE };
     for(u32 _i = 0; _i < FUDE_PAPER_COUNT; _i++) {
         _toolbar->paper_refs[_i]    = (fude_toolbar_ref){ _toolbar, _i };
+        _toolbar->paper_choices[_i] = NULL;
+    }
+    for(u32 _i = 0; _i < FUDE_PAPER_CORE; _i++) {
         _toolbar->paper_choices[_i] = fude_kit_button(rde_ui_image_as_node(_toolbar->paper_panel), fude_text(_names[_i]), fude_toolbar_on_paper_choice, &_toolbar->paper_refs[_i]);
         fude_kit_icon(_toolbar->paper_choices[_i], _icons[_i], FUDE_KIT_ICON_ABOVE, 18.0f);
+    }
+    // ...and the app's own (extension.h).
+    const fude_extension* _paper_ext = fude_app_ext(_app);
+    for(u32 _i = 0; _paper_ext != NULL && _i < _paper_ext->paper_count; _i++) {
+        const fude_extension_paper* _e = &_paper_ext->papers[_i];
+        if(_e->paper < FUDE_PAPER_CORE || _e->paper >= FUDE_PAPER_COUNT || _toolbar->paper_choices[_e->paper] != NULL) {
+            continue;
+        }
+        _toolbar->paper_choices[_e->paper] = fude_kit_button(rde_ui_image_as_node(_toolbar->paper_panel), fude_text((FUDE_TEXT_)_e->text), fude_toolbar_on_paper_choice,
+                                                             &_toolbar->paper_refs[_e->paper]);
+        fude_kit_icon(_toolbar->paper_choices[_e->paper], _e->icon, FUDE_KIT_ICON_ABOVE, 18.0f);
     }
 
     // The first time: on the right edge (the left, right to left), vertically centred.

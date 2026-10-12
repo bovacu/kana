@@ -1252,6 +1252,619 @@ is `docs/product_split.md` §9.
 - **Diagrams in both.** Workshop's product now has the Diagrams topic and Insert's Mermaid, diagram shapes and Kanban.
 - Tests: `test_products` updated (Workshop with diagrams and Kanban, 16 of General's Insert entries, no maths).
 
+## 63. Formulas: LaTeX set on the canvas (0.1.81)
+
+The first half of `docs/product_split.md` §4.3: a formula typed as LaTeX, set the way TeX sets it, and drawn as sharp
+at any zoom as a stroke. It needs no web view, no MathJax and no service, only our code and one font.
+
+- **The font** (`fude/zoom/mathfont.h`). Noto Sans Math (OFL, `apps/sketching/assets/fonts/NotoSansMath-Regular.ttf`,
+  about 590 KB) is read directly. The reader takes:
+  - from TrueType: cmap formats 4 and 12, loca, hmtx, and glyf outlines (simple and composite; quadratic contours
+    flattened to a tolerance in font units);
+  - from the OpenType MATH table: its 56 constants, italic corrections, accent attachment points, each glyph's larger
+    variants, and the parts a stretched glyph is assembled from (extenders and connector overlaps).
+  It reads nothing past the file's bytes: a damaged font reads as no font.
+- **The typesetter** (`fude/zoom/tex.h`). It parses LaTeX's maths (the list is in the header) and lays it out by The
+  TeXbook's Appendix G:
+  - the eight atom classes and their spacing table (some spaces dropped in script styles), with Bin turned to Ord where
+    TeX does;
+  - the four styles, cramped or not;
+  - scripts (rule 18), limits above and below in display style (beside the symbol in text style), fractions, radicals
+    with degrees;
+  - `\left…\right` delimiters grown by rule 19 (the 0.901 factor and the 0.5 em shortfall), using the font's variants
+    first and then its assemblies;
+  - matrices and `cases`/`aligned` centred on the axis, and accents placed by their ink.
+  Its output is a box of positioned glyphs and rules, in ems with Y up. Commands it does not know are set upright as
+  typed and counted (`unknown`).
+- **On the canvas** (`fude/zoom/formula.h`). A formula is a text object with the new style `FUDE_ZOOM_TEXT_FORMULA`;
+  its words are the LaTeX. The page keeps a `fude_zoom_formulas` holding:
+  - the font;
+  - each formula's setting, keyed by an FNV hash of its words (up to 512);
+  - each glyph's triangles at one of nine levels of detail. The tolerance runs from 64 font units down by a quarter
+    each level, and the coarsest level within a third of a screen point is the one used.
+  A glyph's contours are joined into one even-odd polygon and triangulated by `fill.h`, so an o's hole stays a hole.
+  `fude_zoom_render_formula` draws the triangles and the rules. The object's box is the setting's ink plus a 0.12 em
+  pad (`fude_zoom_formulas_size`). A returned box is good only until the next formula is set, because the kept ones
+  live in a growing array.
+- **Insert → Formula** (InfiNote and Sketching only; Workshop's product leaves it out; General, PDF and Maths topics).
+  It is a third mode of the text tool (`text_tool` 3). Tapping a formula with the text tool edits it, as with a text.
+  The card is taller for a formula. The space between its field and its buttons shows the formula set live as it is
+  typed (`fude_zoom_page_render_top`, from the shell's top overlay), with a line under it when some commands are
+  unknown. An empty field shows an example (`ZOOM_FORMULA_HINT`; no braces, because strings use ICU placeholders). A
+  new formula's em is 24 points on screen. The Insert tool's choices went from 16 to 24
+  (`FUDE_EXTENSION_CHOICES`; the panel wraps into rows).
+- **Exports.**
+  - SVG, PDF and print: each glyph is the same joined outline, written as a fill (`fude_zoom_walk_formula`; a cutter
+    gets each contour as its own path), at 0.02 points' tolerance so a PDF can be zoomed into. Each rule is a box.
+  - A PDF canvas written back (`fude_zoom_pdfview_export`): the cached triangles, eight times finer.
+  - PNG and video: these use the renderer, so they already include formulas.
+  - `fude_zoom_export_formulas` hands the exports the page's formulas. Without them, a formula is written as its
+    LaTeX.
+- A bug found by the tests: `rde_hash_map_update_entry` only updates keys already there, so neither cache kept
+  anything and every formula was set again every frame. Both caches now `add` first.
+- Looks: `--text=X,Y,K,WORDS@N` takes K 2 (a formula) and 3 (the formula card left open). `WORDS` may be
+  `file:PATH`, because the engine would read an `=` in an argument as one of its own options.
+- Tests: `test_formulas`:
+  - no font, so nothing is set;
+  - the setting is cached by its words;
+  - box sizes;
+  - outlines joined and apart;
+  - an o's triangles cover its ink's area within 2 % and get finer as it grows;
+  - SVG exports write five paths for `x = \frac{1}{2}` (four glyphs and a rule) and the words when there is no font;
+  - a PDF is written.
+
+The zoom, spice and mech suites now also build `formula.c`, `texcalc.c`, `tex.c` and `mathfont.c`, because `export.c`
+needs them.
+
+- **Formulas worked out** (`fude/zoom/texcalc.h`). LaTeX's maths becomes calc's words:
+  - `\frac` becomes (a)/(b);
+  - `\sqrt[n]{a}` becomes (a)^(1/(n));
+  - `^{…}`, `\cdot`, `\times`, `\div`, `\pi` and the usual functions become calc's;
+  - `\left`, `\right` and `\big` disappear, and `\le`/`\ge` become `<=`/`>=`.
+  Anything calc lacks (`\infty`, subscripts, `!`, `\sum`) is refused. Two features use it:
+  - **A sum ending in `=` is answered.** `fude_zoom_formulas_set` sets "\frac{3}{4} + 2^{3} =" as "… = 8.75" (up to
+    10 figures; below 10⁻¹³ shows as 0, so sin π is 0). A formula with a variable in it, or already an equation, is
+    left as written.
+  - **Graph on the lasso's row** (the multi-purpose button's face when formulas are held and no plain text). The held
+    formulas, up to six, go onto a new graph to the right of them, in one undo step. Their lines are tidied by
+    `fude_zoom_texcalc_tidy`: each side of the relation is parsed and written back by calc's new
+    `fude_zoom_calc_write`, with only the brackets precedence needs. So "y = \frac{x^{2}}{4} - 1" becomes
+    "y = x^2/4 - 1". A call under a power keeps its brackets, because calc reads sin(x)^2 as sin(x²). When nothing can
+    be drawn, the app says so (`ZOOM_GRAPH_NOTHING`).
+- Looks: `--select-all=N` (the lasso round everything, its row as it shows); `--to-curve=N` presses the row's button.
+- Tests: `test_texcalc`:
+  - 11 conversions, 10 refusals, and no room;
+  - 8 answers and 7 non-answers;
+  - 12 tidied lines;
+  - 1000 random sums written back and read again to the same steps and values;
+  - an answered formula has two more glyphs than the plain one.
+
+## 64. Graphs: equations, curves of t, regions, marks (0.1.81)
+
+The Maths family's graph (`fude/zoom/plot.h`) drew functions of x. It now draws most of what a maths notebook asks
+for. Each line of its text is one of:
+
+| Line | Drawn as |
+|---|---|
+| `y = sin(x)`, `f(x) = x^2 - 1`, `x^2 - 1` | a function of x |
+| `(cos(t), sin(2t))` | a curve of t (t from 0 to 2π, or `t 0 4pi`) |
+| `r = 1 + cos(θ)` | a polar curve (`r = 2` alone, when nothing uses an r, is a circle) |
+| `x^2 + y^2 = 4`, `y^2 = x^3 - x`, `x = y^2`, `x^2 + y^2 - 1` | an equation of x and y |
+| `y < x^2`, `x^2 + y^2 >= 1` (also ≤ ≥) | an inequality: its region shaded, its edge dashed when strict |
+| `roots`, `extrema`, `intersections` | marks on its functions, with their coordinates |
+| `area 0 2` (or `integral 0 pi`) | the area under its first function, shaded; `∫[0, 2] = …` in the legend |
+
+Views take any number maths writes (`x -2pi 2pi`; `calc.h`'s new `fude_zoom_calc_number`).
+
+- **How a line is read.** The rules are checked in order:
+  1. a variable (`a = 2`, `a = 0..5`);
+  2. a view;
+  3. a mark word, or an area;
+  4. a pair: two numbers make a point (`(pi, 1)` too), anything else a curve of t;
+  5. a relation outside brackets. `y =` or `f(x) =` makes a function, `r =` a polar curve, anything else an equation
+     (f − g against 0) with its relation;
+  6. no relation: a function, or an equation `= 0` if it uses y.
+  `calc.h` gained `fude_zoom_calc_parse_expr` (the whole text, an `=` not skipped) and `uses_x`. Equations treat y
+  as calc's variable y.
+- **Followed finely** (`fzl_trace`). A curve of one number (x, t or θ) starts with 400 samples. Each stretch is halved,
+  up to 10 times and within a budget of 24,000 samples, while any of these holds:
+  - its middle is further from the chord than 0.0008 of the box;
+  - the chord is longer than 8 % of the box;
+  - one end is missing (so √x reaches 0 exactly).
+  At the finest level, a leap across the view is an asymptote and is not drawn. Every stretch is clipped to the view
+  (Liang–Barsky). tan(x) from −5 to 5 comes out in five pieces.
+- **Equations** (`fzl_implicit`). Marching squares on a grid 144 cells across the view's longer side:
+  - each crossing is found on its edge with five Illinois steps, always from the edge's lower end, so both cells get
+    the same point;
+  - a crossing where |f − g| stays large is a pole (1/x's) and is dropped;
+  - saddles are paired by the cell's middle;
+  - the pieces are joined through their shared edges into whole lines, so the circle above is one part.
+  An inequality's region uses the same grid: a run of whole cells is one box, and a boundary cell's polygon comes from
+  its corners in the region and its crossings.
+- **The view round them.** A graph of only curves of t, polar curves and equations fits the view around them: their
+  samples, and for equations the cells a coarse 64² grid finds crossing over ±10, then ±100, then ±1. It then makes one
+  unit as long across as up, so a circle is round. A graph with any function of x keeps the old rule.
+- **Marks** (only on functions of x): a root is a sign change over 800 samples, bisected, and kept only if the value
+  there is near zero (so 1/x's pole is not a root); a turning point is golden-section refined; a crossing is a root of
+  f − g. An area is Simpson's rule over 2000 intervals. Labels try above-right, below-right, above-left and below-left
+  of their dot, avoiding the legend and other labels, and are left out when no spot is free. The renderer now draws the
+  legend's paper and lines after the other labels.
+- **Parts' flags.** Below 32: the symbol's own. 32 + k: curve k, with + 8 for dashed. 64 + k: curve k's region, a
+  polygon the renderer triangulates and fills at alpha 56, and exports write as a fill. SVG fills now carry their
+  real alpha instead of a fixed 0.5.
+- **Kept, not remade.** The renderer keeps a graph's lines by its kind, text and size (`fude_zoom_plot_made`, 24 of
+  them, the one longest unseen dropped first) and only remakes them while the graph plays. Before, every graph was
+  remade every frame.
+- Tests: `test_plot_curves`:
+  - numbers;
+  - a circle as an equation, as a curve of t, as `r = 2`, and half of one (t to π), each within 0.01 of its radius and
+    in one piece;
+  - a fitted circle round on screen;
+  - regions and dashes;
+  - tan's five pieces and 1/x's two;
+  - roots, turning points, crossings, two areas (∫x² from 0 to 3 = 9; ∫sin from 0 to π = 2) and points' numbers;
+  - what each kind of line is read as;
+  - a seventh curve dropped;
+  - a thousand graphs of random pieces under ASan, every point inside its box.
+
+## 65. Maths by hand both ways; legends set; graphs in InfiniWorkshop (0.1.82)
+
+Borja, on the tablet: a graph's legend showed `x^2 + y^2 = 4` as typed, not as maths. He also said yes to graphs in
+InfiniWorkshop and asked to start on the rest of the LaTeX plan.
+
+- **Legends set as maths.**
+  - `calc.h`'s new `fude_zoom_calc_latex` writes a parsed expression as LaTeX, with brackets only where precedence
+    needs them: `\frac`, `^{…}`, `\sqrt`, `\sin x` (or `\sin\left(…\right)`), `\left|…\right|`, `\pi`. The variable is
+    written `x`, `t` or `\theta`.
+  - Each legend line carries it (`fude_zoom_plot_label.latex`): functions, curves of t, polar curves, equations
+    (`\le`/`\ge`), the area as `\int_{a}^{b} y \, dx = v`, and variables.
+  - The renderer sets each line in text style (`fude_zoom_formulas_set_as`, cached apart from display style) at 1.25×
+    the label height. Rows are stacked by their real heights, since a fraction is taller than a line of words. SVG and
+    PDF exports write the same.
+- **Formula edges antialiased.** A 2D draw has no MSAA, so a stem thinner than a pixel could fall between pixel
+  centres and vanish (`+` read as `−` in a small legend). Each glyph contour, and each rule's outline, now gets a
+  0.3-point `rde_rendering_2d_draw_stroke` over the fill; that stroke has its own one-pixel alpha fringe. The glyph
+  cache keeps contours next to triangles (`fude_zoom_formula_mesh`, `fude_zoom_formulas_rings`).
+- **Graphs in InfiniWorkshop:** its product now has the Maths topic, named **Graphs** there
+  (`fude_zoom_topic_name`), and the graph library. Formulas stay InfiNote's.
+- **LaTeX → handwriting** (`fude/zoom/handmath.{h,c}`; the lasso's **Handwriting** on formulas, one undo step):
+  - **Shapes.** Each set glyph gets its character's shape from the Hershey maths and Greek sets, 180 symbols
+    (`fude/zoom/hand_maths.h`, generated by `tools/hershey/hand_maths.py` from the `.jhf` files beside it). About a
+    hundred more are hand-drawn specs in `handmath.c`: accents, arrows, set and logic signs, ⌊⌋ ⟨⟩, ∅ ≈ ∬ ∮. Hershey's
+    "thick" multi-stroke ∑ ∏ ∫ ∇ E M W [ ] are replaced by single-stroke hand forms.
+  - **Characters.** A glyph's character comes from the font's cmap read back. Each symbol's bigger variants and
+    assembly pieces map to it, and maths alphabets map to plain letters (`fude_zoom_handmath_base`: 𝑥→x, ℝ→R). A tall
+    bracket's stacked pieces merge into one shape.
+  - **Writing.** Each shape is fitted into its glyph's ink box with a small seeded slant, size and offset. Strokes are
+    smoothed by Catmull-Rom, but corners sharper than 60° stay corners; overshoot had bowed an E's spine off its bar.
+    Glyphs and rules go down in a hand's order, left to right, so a fraction's bar comes before its parts.
+- **Handwriting → LaTeX** (`fude/zoom/mathread.{h,c}`; the lasso's **Formula** on ink, InfiNote and Sketching only;
+  the strokes become a formula as tall as they were; nothing read: `ZOOM_FORMULA_NOT_READ`). Our own recogniser
+  (§9.5), on the device:
+  1. **Symbols.** The strokes are cut into one-, two- or three-stroke symbols by dynamic programming over the writing
+     order. Each group's cost is its match distance plus 0.9 a symbol. Cutting between strokes that cross or touch
+     costs extra, and so does cutting two flat strokes stacked like `=`. Joining strokes that neither meet nor lie
+     flat under or over each other (`≤`'s line) costs extra too. A dot is always a symbol of its own.
+  2. **Classification.** $P (Vatavu, Anthony & Wobbrock 2012) matches a 32-point cloud against the same shapes
+     handwriting uses. Each axis is scaled on its own, but nothing gets thicker than a third of its size, plus an
+     aspect term. So a hand's `=` matches, while `−`/`|` and `o`/`0` stay apart.
+  3. **By place and size.** A dot over a stem makes `i` (`j`), and under one `!`. A lone dot at mid height is `⋅`.
+     `1` is `|` when tall and `l` just before a letter (lim, ln, log). Letters shaped like their capitals are capitals
+     when tall. `x` between two digits on one baseline is `×`. A short high tick is a prime.
+  4. **Layout.**
+     - Fraction bars come first, widest first: a minus with things over and under it. A root's separate bar merges
+       into its sign, and the root takes what is under it. A sum's or integral's limits come next.
+     - Then the line runs left to right. A script is raised or lowered against a small letter's measure, not a tall
+       one's, because a root's cramped scripts sit lower.
+     - An operator can't start a script, and can continue one only when more of that script follows it. Letter runs
+       like `sin`, `log`, `lim` become commands.
+  - Tested on formulas the handwriting module writes, three hands each: 93 of 96 read back exactly. Real handwriting
+    needs Borja's strokes to tune with.
+- Looks: `--formula-hand=N`, `--formula-read=N` (select all, then the row action).
+- Tests:
+  - `test_texcalc` gained 12 calc→LaTeX cases, a legend's LaTeX for every kind of line, and 1000 random sums whose
+    LaTeX sets with nothing unknown;
+  - `test_handmath`: shapes, characters (a bracket's variant read back), 12 formulas with every glyph shaped and every
+    point near the box, seeding;
+  - `test_mathread`: 35 symbols' own shapes read as themselves, 96 handwritten formulas at 90% or better, 1000
+    scribbles under ASan;
+  - `test_products`: Workshop with graphs, without formulas.
+
+## 66. Turned parts, the lasso's pinch, sticky notes resized, brackets and shapes (0.1.84–0.1.85)
+
+Borja, on the tablet: parts fell off the board that would fit turned; with the lasso and finger writing on, two
+fingers neither zoomed nor moved; the brush's smoothing should start off; sticky notes only scaled; their context menu
+had no Edit. Then the first two of seven points he agreed on: brackets you drag to size, and more shapes.
+
+- **Cut fitting turns parts** (`nest.c`, `fude_zoom_page_fit`). Each part may be placed turned a quarter. MDF and
+  melamine have no grain, so their parts always may. Other materials' parts may unless Settings' new **Fitting parts
+  into a board** says **Keep the grain** (`fude_settings.keep_grain`, saved after `show_fps`; the default turns them).
+  The fit's message says how many turned across the grain.
+- **Two fingers over the lasso.** With finger writing on, a second finger within `FUDE_ZOOM_PAGE_TWO_FINGER` of the
+  first made a pinch for every tool but the lasso: the lasso's loop or drag had already begun. The finger's touch-down
+  now sets `stroke_began` too, and the takeover calls the new `fude_zoom_select_abort`: a loop is dropped, a drag put
+  back where it was.
+- **Smoothing starts off** (`FUDE_ZOOM_SMOOTH_DEFAULT`). A level saved before 0.1.84 was never chosen, since it was
+  the old default. So a new saved flag, `smooth_chosen`, is set only when someone picks a level; until then the
+  default applies.
+- **Sticky notes stretch.** Their side handles (`fude_zoom_page_stretchable`) now take sticky notes. A side moves its
+  edge, and the note is made again at its new width and height with its text wrapped again (one undo step). It never
+  gets narrower than five letters, or shorter than its lines.
+- **Edit** in the context menu, and on the lasso's row when it holds one text, opens a text's or a symbol's card
+  (`fude_zoom_page_context_editable`).
+- **Brackets** (the library's **Brackets** tab, a new family): ( ) [ ] { } ⟨ ⟩ | ‖ ⌊ ⌋ ⌈ ⌉ on their own, a brace over
+  or under a row, and six pairs round a text.
+  - **Shape.** Each is drawn across from its back to its open side (`fzs_bracket`).
+    - A parenthesis is a sixth of a circle as wide as it is, so the taller it is the flatter it gets, as a typeset one.
+    - A brace's curls keep their size however long it gets.
+    - A pair's brackets are as wide as its height asks, never over a third of it, and its text goes between them.
+  - **Text.** A single bracket's text goes out beside it, against it: left of a `{`, right of a `}`, over or under a
+    brace across. These are the symbol text places `OUT_LEFT`, `OUT_RIGHT` and `ABOVE`. The renderer's new
+    `fude_zoom_render_text_aligned` sets right-aligned text, and so does the exports' `FUDE_ZOOM_EXPORT_TEXT_RIGHT`.
+  - All of them stretch by their sides as any symbol does.
+- **Shapes** (the library's **Shapes** tab, first): rectangle, rounded rectangle, circle, diamond, parallelogram,
+  trapezoid, triangle, right triangle, pentagon, hexagon, octagon, star, burst, cross, heart, cloud, speech and thought
+  bubbles, arc, pie, ring (its hole a `JOIN` part), cylinder, cube, block and double arrows, curved arrow and chevron.
+  - Stars, the pentagon, the heart and the curved arrow are fitted to fill their box (`fzs_fit`).
+  - A parallelogram's slant, a block arrow's head and a chevron's point keep their size as the shape grows longer.
+  - A speech bubble's text goes in its body, a cube's on its front.
+- **The library's tabs** have a display order of their own (`FUDE_ZOOM_PAGE_LIBRARY_ORDER`): Shapes, Brackets, then
+  the rest. Families are appended to the enum, because a kept piece stores its families' bits. Brackets are also in
+  the maths panel.
+- **More connector ends:** dotted line, dotted arrow, open arrows both ends, dots both ends, bars both ends, and a dot
+  to an arrow.
+- Tests:
+  - `test_brackets_shapes`: all 49 new symbols stay in their box when stretched 12× tall, 9× wide or shrunk, with no
+    point repeated. A brace's curl is the same at ten times the height, and a block arrow's head at four times the
+    length. The fitted shapes touch all four sides. Text boxes lie beside, over, under or between their brackets. A
+    ring's hole is joined.
+  - The nest test fits 3 slats on a board where only 1 fits unturned. `test_select_abort` covers the lasso. The save
+    test covers `keep_grain` and `smooth_chosen`, including files saved before them.
+
+## 67. Notes read as notes: tasks, tables, styles and links (0.1.86)
+
+Points 3 and 6 of the seven Borja agreed: checkboxes you tick and tables (3), and rich text with links in texts,
+sticky notes and the other labels (6). Both read a text's marks, so one layout does both: `fude/zoom/rich.{h,c}`.
+
+- **What a text can mark** (Markdown's, as people already write it):
+  - **Lines:**
+    - `#`, `##`, `###` headings;
+    - `-`, `*`, `+` or `•` bullets, two spaces in a level deeper;
+    - `1.` or `1)` numbered lines, written as typed (never renumbered);
+    - `[ ]` and `[x]` tasks, after a bullet too;
+    - `|`-rows as a table: a row of `---` under the first makes it a header, and its colons set each column's side;
+    - `---` as a rule.
+  - **Inside a line:** `**bold**`, `*italic*` or `_italic_`, `~~struck~~`, `` `code` ``, `[words](address)`, and
+    addresses written out (`https://…`, `http://…`, `www.…`).
+  - **Left as written:** an underscore inside a word (snake_case), `2 * 3 * 4`, and any mark that never closes.
+- **The layout** (`fude_zoom_rich_lay`) works in the text's own units, Y down. It gives:
+  - **runs** of words of one style each;
+  - **marks:** a task's box (ticked or not), a table's lines, a rule, a link's underline, a strike, and the ground
+    behind code and a header;
+  - **hits:** where a tap ticks a task or follows a link.
+
+  Letters are measured by the caller, so the tests use a made-up font. Words wrap at spaces, and a word wider than a
+  line is cut between its letters, never cut short. Table columns are as wide as their widest cells and shrink alike
+  when there's no room, wrapping their words.
+- **Drawn** (`render.c`):
+  - Texts with no marks are drawn as they always were (`fude_zoom_rich_marked`).
+  - Texts with marks are laid out once and kept, keyed by their words, size and width, 256 at most.
+  - Bold, italic and bold italic use Roboto's own faces (`assets/fonts/Roboto-*.ttf`, Apache 2.0). They load the
+    first time the page is drawn, falling back to the app's script fonts. Links take the theme's accent.
+- **Sizes.** A plain text is as wide and tall as its layout (its marks aren't counted). A sticky note keeps its width,
+  even after its sides were stretched (editing no longer resets it), and is as tall as its layout.
+- **Taps:**
+  - A pen stroke that starts on a task's box ticks or unticks it and draws nothing, so ticking it by hand works.
+  - A one-finger tap does the same, or opens a link.
+  - With the text tool, a tap on a box ticks it and a tap on the words edits them.
+  - Each tick is one undo step (`fude_zoom_page_retext`).
+  - The long-press menu has **Open link** (the link under the press, else the note's first).
+- **Shapes' labels** (a Kanban card's checklist, a process's link) are read the same way, middle-aligned
+  (`fude_zoom_rich_lay_aligned`). A tap ticks their tasks too, through the shape's own text commit. A class's
+  compartments stay plain.
+- **The text card** has a row of marks over Cancel and Save, for texts and sticky notes (`fude_zoom_rich_format`):
+  - **B** and **I** wrap the selection (or take the marks off again);
+  - **H** cycles the lines through `#`, `##`, `###` and plain;
+  - lists, numbers and tasks switch the lines they touch, and back off when they all already are;
+  - the table button puts a 2 × 2 table after the line, its first cell ready to type in;
+  - **Link** makes the selection a link's words, its address to type, or starts `https://`.
+- **Exports:**
+  - SVG and PDF write each run as its own text, bold and italic included: SVG's `font-weight` and `font-style`, the
+    PDF's Helvetica faces (`fude_zoom_pdf_text_face`).
+  - Marks become lines and boxes. DXF gets the words and lines.
+  - The annotated PDF does the same.
+  - Measuring uses the app's fonts (`fude_zoom_export_measure`).
+- Tests:
+  - `test_rich`: what is marked and what isn't; headings, styles and spacing; tasks, their hits and ticking; bullets in
+    levels; numbers; wrapping and cut words; links and their addresses; code, struck and unclosed marks; a table's
+    header, columns, sides and wrapping; a rule.
+  - The format buttons: wrap and unwrap, lists, tasks keeping their ticks, numbers, the heading cycle, the table, the
+    link, and an output too small.
+  - The SVG and PDF export of a sticky note and a shape's label: no marks written, bold where bold.
+
+## 68. More papers: graph, isometric, hexagons, polar, music, Cornell, to-do (0.1.86)
+
+Point 4 of the seven: paper templates.
+
+- **The papers** (`canvas.h` `FUDE_PAPER_` values 4 to 10, after the core's four, so saved files keep their values):
+  - **Graph:** a line every step, stronger every fifth, heavy every tenth. Its steps are tens of each other (1 mm,
+    1 cm, 10 cm on a page), and each line is as strong as the gap to the next line as strong is wide on screen, so
+    nothing jumps when the zoom crosses a ten.
+  - **Isometric:** lines three ways, 60° apart (vertical, and 30° either side of level), making equilateral triangles.
+    Finer ones fade in as dots and squares do.
+  - **Hexagons:** a honeycomb, pointed at the top. A finer honeycomb isn't inside the coarser one, so one fades out as
+    the other comes in.
+  - **Polar:** rings round the middle (the canvas's origin, or the page's middle), and rays every 15°, those of 45°
+    stronger.
+  - **Music:** staves of five lines, 2 mm apart on a page, six steps between staves.
+  - **Cornell** and **To-do** are page layouts. Cornell has a cue column on the left (30%), ruled notes and a summary
+    at the foot (20%). To-do has a title line, then a box to tick on each ruled line. On the endless canvas both are
+    ruled lines.
+- **Geometry:** `fude/zoom/paper.{h,c}` gives each paper's lines in a view, with strengths, cut to the view. Rings are
+  chords about 12 points long on screen, only over the angles the view takes in. It is capped at
+  `FUDE_ZOOM_PAPER_MOST` lines. `fude_zoom_paper_page` lays out the two page layouts.
+- **Drawn** (`page.c`):
+  - On the endless canvas, round its origin, with the squares' spacing.
+  - On a notebook's pages, round each page's middle at true size (music from under the top margin), fading far out
+    like the other papers.
+  - Lines that run on from the one before (a ring's chords) are one stroke, in the ink laid solidly on the paper's
+    colour, so their joins don't show as dashes.
+  - Faint lines are drawn finer.
+- **Offered by the app** (`fude_extension.papers`). The Paper panel lists the core's four, then the app's own, in rows
+  of up to six. Other apps (Kana, the Draw app) keep the four.
+- Looks: `--paper-is` and `--paper-later` take a paper's number.
+- Tests: `test_papers`:
+  - every paper's lines stay in the view;
+  - isometric's three directions, with its own lines through the middle;
+  - every whole hexagon side as long as the radius;
+  - polar's chords on rings or cut at the view's edge, and its rays every 15°;
+  - graph paper's lines, strengths and heavy tenths;
+  - music's staves of five, gone when too fine;
+  - Cornell's cue column and summary, and To-do's box on every line.
+
+## 69. Mind maps, Venn diagrams, charts, geometry, science and stamps (0.1.86)
+
+Point 5 of the seven: new diagram families.
+
+- **Mind maps from text.** Mermaid's `mindmap` (`graph.c`) is read the same way, through Insert → Mermaid:
+  - Each line is a node, and its parent is the nearest line above it that is less indented. There is one root; a
+    second root is an error on its line.
+  - Shapes: text alone, `[a]`, `(a)`, `((a))`, `))a((`, `)a(` and `{{a}}`. `::icon` and `:::class` lines are read
+    past.
+  - The direction is `FUDE_ZOOM_FLOW_MIND`, so `fude_zoom_graph_layout` lays it out as a mind map. The root stays
+    where it is. Its first branches are shared out right and left, each to the side with less so far, in their order.
+    Each branch grows outward as a tree, each node in the middle of its children. Each edge curves out of its
+    parent's side into its child's, its bends along a cubic.
+  - The importer draws it as it draws a flowchart: shapes, words, plain lines.
+- **Venn diagrams** (Shapes): two and three sets, their circles unfilled. Their text's parts (split by `---`) go one a
+  region, each circle's own part and then the middle. This uses a new text place, `REGIONS`: like a class's parts but
+  centred, with no lines between them.
+- **Charts from data** (Charts: bar, line, pie), drawn from their text by `fude/zoom/chart.{h,c}`:
+  - A first line with no number is the title.
+  - Then `category value [value…]` lines: a colon, comma or tab may stand between them; a name may have spaces; a
+    `%` is read past.
+  - `series: A, B` names the series.
+  - `plot.c` hands the chart ids to it, so the renderer and the exports draw charts as they draw graphs. Bars, slices
+    and dots are a new part flag, `128 + k`, filled solid in series k's colour.
+  - Value ticks go up in steps of 1, 2 or 5 of a power of ten, starting at 0 when every value is above it.
+  - The legend sits in the top right, clear of the bars.
+  - A pie's labels go outward from each slice: from it on the right, ending by it on the left.
+  - The library previews fill bars and slices too.
+- **Geometry** (14): angle and right-angle marks; one, two or three equal-length ticks; one or two parallel marks
+  (the lasso turns a mark onto what it marks); a point, a segment, a ray, a line, a vector; a circle with its radius;
+  a protractor.
+- **Science** (18): beaker, flask, round flask, test tube, measuring cylinder, funnel, burner (its flame coloured),
+  convex and concave lenses (tinted glass), flat and curved mirrors, prism, light source, atom, benzene ring, cell,
+  DNA, thermometer.
+- **Stamps** (12), in their own colours, with thick strokes where a pen would write them: done ✓, wrong ✗, warning
+  ⚠, question ?, important !, information ⓘ, star, heart, idea (a bulb), flag, pin and clock. A part's own fill,
+  line colour and width are set with `fzs_tint`. The library previews draw wide parts as one stroke.
+- **Tabs** in order: Shapes, Stamps, Brackets, Charts, Geometry, Science, then the rest. All six are in the diagrams
+  panel. Geometry and Charts are in the maths panel too.
+- Tests:
+  - `test_mindmap` (graph suite): reading, shapes, indentation, the second-root and unclosed-bracket errors, a
+    flowchart still a flowchart; the layout's sides, gaps, centring, curves and no overlaps.
+  - `test_charts`: reading (title, names with spaces, percents, series), bars, lines and dots, a pie's shares, no
+    data; Venn's region boxes; every new family's count; a stamp's own colour and width.
+
+## 70. A notebook's pages: numbers, a chip, a strip (0.1.86)
+
+Point 7 of the seven: notebook navigation.
+
+- **Page numbers.** Each page's number sits softly at its foot, once the page is big enough on screen to read it.
+- **The chip.** In a notebook, the bottom-left row (Bookmarks, Find, Map) gets a chip after Map, "3 / 12": the page
+  the view's middle is on, of how many there are. The depth chip moves after it. The row is laid out again when a
+  canvas becomes a notebook or stops being one.
+- **The strip.** Tapping the chip opens a strip over that row, as wide as the screen leaves it clear of the toolbar:
+  - It holds a picture of each page, its number under it, and the page you're on outlined in the accent colour.
+  - Dragging scrolls it, a tap on a page flies there (the whole page, framed), and × or Back closes it.
+  - It opens scrolled so the current page is in the middle.
+- **Pictures.** Pages are drawn off screen, one a frame, those in view first (`fude_zoom_page_strip_draw`).
+  - Up to `FUDE_ZOOM_PAGE_STRIP_PICS` (24) are kept; when it needs a new one, the one seen longest ago goes.
+  - A change to the canvas draws them again.
+  - Pages half past the strip's ends show only their part inside it, cut from their picture.
+  - They are let go when the canvas closes or the app goes to the background.
+- Look: `--strip=N` opens it at frame N.
+
+## 71. Links tapped with the pen; papers each canvas takes; Pages by Paper (0.1.87–0.1.89)
+
+Borja, on the tablet: tapping a sticky note's link with the pen edited the note (text tool) or selected it (lasso);
+Cornell and To-do looked like Lines; the Pages button belongs by Paper.
+
+- **Links.**
+  - With the text tool or the lasso, a tap on a note's link opens it; a tap elsewhere in the note still edits or
+    selects it.
+  - With the pen or the marker, going down on a link waits (`link_pending`). Let go where it went down and it opens.
+    Moved past `FUDE_ZOOM_PAGE_LINK_SLOP`, it is a stroke after all, begun where the pen went down.
+  - A second finger turning the touch into a pinch drops it.
+- **Papers each canvas takes.** `fude_extension.paper_offered` asks which of the app's papers the page open now takes.
+  Cornell and To-do are offered only on a notebook's pages. A canvas made endless while one of them is its paper
+  falls back to Lines, so the Paper button shows what is drawn.
+- **Pages by Paper.** A tool of the app's own can sit just above Paper on the bar (`fude_extension_tool.by_paper`), not
+  with the app's others. Pages does, between Page/Screen and Paper.
+
+## 72. Texts and sticky notes written on the page (0.1.90)
+
+Borja: the text card's popup broke the flow. A text or a sticky note is now written where it was tapped, the keyboard
+up, its format bar over it.
+
+- **The field.** A hidden `rde_ui_text_editor` (`inline_field`) holds the keyboard and the words. It sits off the screen;
+  the page draws them. `text_field` points at it while a text is written, at the card's field otherwise, so the format
+  buttons, saving and the card's other kinds (formulas, labels, symbols) work as before.
+- **What is drawn.** `fude_zoom_rich_lay_raw` lays every byte out, marks too: a line's own (`#`, `-`, `1.`, `[ ]`, `|`)
+  as written, a span's (`**`, `*`, `~~`, backticks, `[`…`](…)`) faint, the words styled as they will be. So the caret
+  has a place at every byte (`fude_zoom_rich_caret`, `fude_zoom_rich_byte_at`). The text itself is skipped by the
+  renderer (`renderer.skip`) while it is written; once saved it is drawn as a note again: boxes, bullets, tables.
+- **Touching it.** Inside it, the pen or a finger puts the caret; a drag selects. Outside it, a touch saves it and does
+  nothing else. Done, Back, another tool or the canvas closing save it too. Another text opened saves this one first.
+- **The bar.** Bold, italic, heading, bullets, numbers, tasks, table, link (the card's), then cut, copy, paste
+  (the hidden field has no menu of its own) and Done. Over the text, under it where there is no room, clear of the
+  toolbar (`fude_zoom_page_clear_of_bar`).
+- **The keyboard.** The view moves up as far as the keyboard would cover the caret.
+- **The bar's own touches (0.1.91).** A pen's press on the bar reached the page as a touch off the text (pen presses
+  are not marked handled by the UI, as the mouse's are), which saved the text and hid the bar before its button could
+  fire. `fude_zoom_page_ui_hit` now counts the bar's rectangle (`inline_bar_at`, `inline_bar_size`).
+
+## 73. Home screens, a welcome, notebooks' pages moved, Find through every canvas (0.1.92)
+
+Borja: InfiniWorkshop needs a home screen of projects and first-run guidance; InfiNote a notebook home screen with
+covers, search across all notebooks, the strip's pages inserted, moved and deleted, and the paper in the PDF export.
+
+- **Paper in the PDF.** `fude_zoom_paper_sheet` (paper.c) gives a page's whole paper at its true spacing as printed:
+  the core's four too (ruled under its margin with the margin's line, squares and dots from its top left), the
+  patterns round its middle, engineering's lines a millimetre apart. A line's `kind` says plain, margin (a faint red)
+  or dot. `fude_zoom_export_pdf_pages` takes a page's lines (`_papers`) and draws them under its ink, hairlines in the
+  paper theme's ink laid solid on the page. The strip's pictures and the covers draw the same sheet.
+- **Pages rearranged.** `fude_zoom_pages_rearrange` (pages.c): a blank page put in before page *i*, page *i* deleted,
+  page *i* moved to *j*. Each live thing in the home frame is on the page its box's middle is over (a frame by its
+  drawing: `fude_zoom_pages_of`); everything on the pages after moves with them (`set_place`), a deleted page's things
+  die; one `history_push_all` step. Things already erased stay where they are: undo is a stack, so they can only come
+  back once this step is undone. The count is not in the history (an undone insert leaves a blank page at the end).
+- **The strip.** A page held still 0.45 s lifts; dragged, the others close up round where it would go, and the strip
+  scrolls at its ends; let go elsewhere, it moves there. Let go where it was, its buttons show over the strip: Add
+  before, Add after, Delete page (a notice says how to bring it back).
+- **Find through every canvas.** words.c: each canvas's words (texts, notes, labels, boards' names and the
+  handwriting read on it) kept beside it, `<id>.words`, with the size its file had and when it was left — written
+  as the canvas is left. A canvas without them, or whose file grew since (the app stopped while it was open), is read
+  without being opened (`fude_zoom_file_peek`: never writes, not even a torn end's repair) and its words kept then.
+  New words to find look through the others a few a frame (6 ms); a panel where the strip goes lists those holding
+  them, most matches first, each with the line of its first match (`fude_zoom_words_excerpt`, cut at whole
+  characters). A tap opens it and finds the words there; the others are looked through again from it. Notices sit
+  over the page's bottom panels (`fude_zoom_page_notice_above`).
+- **Covers.** The page draws its canvas's cover (`<id>.cover.png`, 320 px across): a notebook's first page with its
+  paper, else the view. It is drawn 4 s after the drawing changed with nothing being drawn, or at once when the home
+  screen opens, and read back the frame after (as the PNG export is).
+- **The home screen** (home.c, its list in homelist.c): a `fude_screen`, Sketching's shell's only one (events go to
+  it while it is up). Cards in a grid at least 210 points wide each: folders first, then canvases most recently left
+  first; a cover, the name, Notebook or PDF and when it was edited; the one open ringed. A tap opens it or goes into
+  the folder; a card held shows Rename and Delete (the side panel's card for it). Back leaves a folder, else goes back
+  to the canvas; New makes a canvas in the folder shown — InfiNote's a notebook of A4 pages
+  (`fude_zoom_page_notebook_next`). InfiNote and InfiniWorkshop open on it; the page has a Home button beside the side
+  panel's.
+- **The welcome** (InfiniWorkshop): over the home screen at the first launch (`FUDE_ZOOM_HOME_WELCOMED` in
+  `cards_read`), and from the side panel's Tutorial. Three steps (the examples and Play, Insert's circuit and mechanism
+  parts, the endless canvas), then See the examples (they are made and the first opened) or New project.
+- **Icons.** `tools/icons/phosphor_subset.py` cuts every app's two Phosphor fonts down to what icons.h names (home,
+  microphone, record, stop, waveform, bug and send added). 0.1.92's cut recalculated the glyphs' boxes tight while
+  their left side bearings stayed 0, and every icon drew left of its place; 0.1.93's keeps Phosphor's boxes (each
+  icon's whole frame), so the 138 icons there before are byte for byte as they were.
+
+## 74. Audio synced to ink, and crash reports (0.1.93)
+
+Borja: the audio synced to ink, in full, and a crash report system for these apps and Kana's.
+
+- **Recordings** (adpcm.c, audio.c, voice.c): speech at 16 kHz, mono, as IMA ADPCM blocks of 256 bytes (505
+  samples, 36 dB over a tone: a quarter of 16-bit's bytes, about 29 MB an hour). `<canvas>.rec<n>` is only ever added
+  to and synced every 2 s, so the app stopping loses a moment at most; its length is then its whole blocks.
+  `<canvas>.audio` lists the recordings (number, start, rate, length) and the links: an object's id, the recording,
+  when the object was begun into it (a stroke: when the pen went down).
+- **Recording.** The microphone's chip (the bottom left row; not in InfiniWorkshop) asks for the permission the first
+  time and starts; while it runs it shows Stop and the time in red. Each undo step that makes things links what it
+  made. The app going to the background stops it (and keeps it). Android's manifest gets `--android_microphone`
+  (InfiNote, Sketching); iOS's Info.plist the microphone's reason in every language.
+- **Playing.** The recordings' chip opens their panel (where the strip goes): newest first, each one's date and length,
+  a Delete asked twice; under them −15 s, play or pause, +15 s, a bar to drag and Replay ink. The player decodes the
+  blocks it needs and keeps 0.3 s queued in an `rde_audio_stream`; where it is is what was pushed less what is still
+  queued; a pause or a jump closes the stream and opens it again there. With Replay ink, what the recording linked
+  past where it is is drawn faint (the renderer's `faint`: its own colour at 22 %). With the panel up, a tap on linked
+  ink (a finger, or the pen let go where it went down — a drag still writes) plays from 1.5 s before it was written.
+- **Crash reports** (crash.c, crashcard.c; every app, installed by `fude_app_start`). Native signals (SIGSEGV, SIGBUS,
+  SIGFPE, SIGILL, SIGABRT, SIGTRAP) on a stack of their own: the handler writes `<save>crash_report.txt` with only
+  open/write/close — the app, its version, the device, the signal and its address, the frames (walked from the
+  machine's state the signal hands over: its pc, then the frame pointers' chain; Android's unwinder when that finds
+  little), each frame's library, offset and symbol, and the last 24 things the app noted (`fude_crash_note`: no names)
+  — then the handler there before it (the engine's: Android's tombstone) is given the crash. On Android a Java
+  exception nothing caught is written there too (`FudeAndroid.crashInstall`). `<save>crash_running` is there while the
+  app is on screen (removed by `fude_session_save_on_exit`, made again by `fude_session_update`): there at the next
+  start with no report, the app ended on screen — on Android only when its exit reason is a crash, an ANR, memory or a
+  signal. The next launch's card (not in looks unless `--crash-card`) offers Send report — an email to the support
+  address with the report in it (cut at a whole character to what a mailto: link carries), read before it goes — or
+  Not now; either way it is gone. Every build adds `--android_file_provider` (sharing needed it and had none).
+- **Tests.** The crash suite forks a child that aborts and checks its report (who, what, frames, the last notes only)
+  and that the handler before it was given the crash; a second run of the program finds a death with no report.
+- **A page added, undone (0.1.94).** A history step can carry a tag of the app's own (`fude_zoom_action.tag`, written
+  at the end of its record: older files read none), and a step with nothing in it but its tag is kept
+  (`fude_zoom_history_push_tagged`). A notebook's page steps carry how many pages they added or took out ('PG' and
+  the change); undone, that many go (or come back) — Add a page, Add before and after, Delete page — then as many as
+  what is written on needs. The strip opens with no page held (its buttons were up over the first page).
+
+## 75. Speech to text: a recording written out as text or handwriting (0.1.95)
+
+Borja: once recorded, the replay panel should offer to write it as text or as handwriting — live and from
+recordings both.
+
+- **Why on the device.** Android reads a recorded file only from API 33 (`EXTRA_AUDIO_SOURCE`); the tablet is Android
+  12 (a Galaxy Tab S6 Lite), and the system recogniser cannot share the microphone with a recording either. So
+  whisper.cpp (MIT) with OpenAI's Whisper base model (MIT): the same everywhere, offline, phrases with their times.
+- **Built.** `tools/whisper/build.sh` clones the pinned release (v1.9.5) into `build/` and builds static libraries
+  for the Mac (arm64) and Android (arm64-v8a, plain ARMv8: the Exynos 9611 has no dot product, no half-float
+  arithmetic — none of either in the libraries; 0.1.96 adds them for the CPUs that have them, §76). InfiNote and Sketching link them and are built with
+  `-DFUDE_WHISPER`; InfiniWorkshop is not. RDE's builder now passes a project's `-L` paths on the Mac and Android
+  links too (only iOS's did).
+- **The model** (`ggml-base-q5_1.bin`, 59,707,625 bytes) is downloaded the first time it is wanted, asked first
+  (its size, then a second press), into `<save>models/` (fetch.h: Android's HttpURLConnection on a thread of its own,
+  Apple's NSURLSession; a `.part` renamed when whole). A model there but not read is deleted, to be downloaded again.
+- **Reading** (listen.c): one piece at a time on a thread of its own, at most 28 s (whisper's window), each cut at
+  its quietest tenth of a second in its last 3 s so no word is cut (`fude_zoom_transcript_cut`). The first piece finds
+  the language; the rest are read in it, each told the words before it. Three threads (two while recording).
+- **What it said** (transcript.c): phrases with their times into the recording, sounds' tags (`[BLANK_AUDIO]`, `(music)`,
+  ♪) left out, kept as `<canvas>.rec<n>.text` piece by piece (a transcript cut short goes on where it was left).
+- **The panel.** Each recording's row: Transcribe (Download 57 MB? the first time), then Transcribing with how far,
+  then As text and As handwriting (or No speech found), then Delete. Live text in its head reads the recording being
+  made a piece at a time (10 s or more said), its last words shown over the bottom row a while; stopped, the rest is
+  read too.
+- **Written out**, under what is already in view (else at its top), in the pen's colour, one undo step: As text one
+  text, lines of 48 characters, a pause of 2 s a paragraph, linked to when it began; As handwriting (hand.h) lines of
+  36, each line's strokes linked to when its words were said — Replay ink shows them come as they were spoken.
+- **Tested** on the Mac with a natural Spanish voice (`say -v Mónica`, 28 s): Spanish found (0.965), two pieces, seven
+  phrases, near every word right. (A novelty voice, Flo, was heard as English: the model, not the code.)
+
+## 76. Speech to text: each CPU's own instructions, and how far a reading is (0.1.96)
+
+Borja: did you add the instructions for the devices that accept them? And the transcribing percentage goes from 0%
+straight to done — can we know how far it is?
+
+- **Each CPU's code.** whisper.cpp is now built for Android as shared libraries with `GGML_BACKEND_DL` and
+  `GGML_CPU_ALL_VARIANTS`: one `libggml-cpu-android_*.so` per ARM generation — seven: plain ARMv8.0; ARMv8.2 with the
+  dot product, and with half-float arithmetic too; ARMv8.6 adding int8 matrices; ARMv9.0 with SVE2; ARMv9.2 with SVE
+  and SME, and with SVE2 too. As the model is first
+  loaded, listen.c finds the folder the app's libraries are in (`dladdr` on libwhisper.so) and
+  `ggml_backend_load_all_from_path` scores each variant against the CPU, loading the best it can run. The tablet
+  (Exynos 9611, ARMv8.0) loads `armv8.0_1`; a newer phone the dot-product or int8 one, several times faster. The Mac
+  library is built for ARMv8.2 with the dot product (every Apple Silicon has it). No loadable variant: the reading
+  says it cannot be done (`FUDE_LISTEN_CANNOT`), the model kept.
+- **Packed.** RDE's builder takes `--android_lib=<file.so>` (once a file), copied into the APK beside libmain.so;
+  `-lc++_shared` packs libc++_shared.so, as before. libmain.so is 2.6 MB now, whisper out of it.
+  Tried on the tablet first (a command-line reader pushed there): 28 s of Spanish read in 19.8 s on three threads,
+  Spanish found, near every word right.
+- **How far.** Whisper's own progress is window by window — and a piece (28 s at most) is one window, so it said 0
+  then done. Now listen.c follows a window's two parts: its encoding (the same cost every window, timed and taken as
+  the next one's guess; shown as time against that guess, never past 95% of its share), then its writing, token by
+  token (`logits_filter_callback`: the last time token written so far says how far into the window the words are).
+  The encoding's share of a piece's time is measured too (a first guess of 40%, then half old, half new). The shown
+  number never goes back within a piece and is never 100% till the piece is done; a recording's row shows the pieces
+  done and the one being read, of the whole. On the Mac, 2% → 13% → 88% → done.
+
 ## 19. A canvas over a PDF (0.1.6)
 
 Insert → PDF (or a PDF among Files): a canvas of its own over it — Kana's `fude_doc_new_canvas` (the PDF copied in as the canvas's own, `notes/<id>.pdf`; the note says so, `FUDE_NOTE_DOCUMENT_OWN`; no paper under it), opened. The page sees it as it opens the canvas and shows the PDF under the ink (`fude/zoom/pdfview.h`); new, the first page's width across the screen, its top at the top.

@@ -62,6 +62,7 @@ struct fude_zoom_pdf {
     fude_zoom_pdf_state                 state;
     b8                                  open;      // inside a page
     b8                                  text;      // Helvetica is used
+    b8                                  faces[4];  // ...which of its faces (fude_zoom_pdf_text_face)
     b8                                  full;      // outgrew the limit: finish fails
     b8                                  fill_alpha[256];     // the alphas fills have used (each an ExtGState)
     b8                                  stroke_alpha[256];
@@ -614,15 +615,22 @@ RDE_INTERNAL u8 fude_zoom_pdf_winansi(u32 _cp) {
 }
 
 void fude_zoom_pdf_text(fude_zoom_pdf* _pdf, f64 _x, f64 _y, f64 _size, rde_color _c, const c8* _utf8) {
+    fude_zoom_pdf_text_face(_pdf, _x, _y, _size, _c, _utf8, 0u);
+}
+
+void fude_zoom_pdf_text_face(fude_zoom_pdf* _pdf, f64 _x, f64 _y, f64 _size, rde_color _c, const c8* _utf8, u8 _face) {
     if(_pdf == NULL || !_pdf->open || _utf8 == NULL || _utf8[0] == '\0' || !isfinite(_size) || _size <= 0.0) {
         return;
     }
-    _pdf->text = true;
+    _face = _face < 4u ? _face : 0u;
+    _pdf->text         = true;
+    _pdf->faces[_face] = true;
     fude_zoom_pdf_save(_pdf);
     fude_zoom_pdf_fill_color(_pdf, _c);
     c8  _buf[512];
     u32 _len = 0;
     memcpy(_buf, "BT\n/F1 ", 7u);
+    _buf[5] = (c8)('1' + _face);
     _len = 7u;
     _len += fude_zoom_pdf_real(_size, FUDE_ZOOM_PDF_PLACES, _buf + _len);
     memcpy(_buf + _len, " Tf\n", 4u);
@@ -702,7 +710,11 @@ b8 fude_zoom_pdf_finish(fude_zoom_pdf* _pdf, fude_bytes* _out) {
     }
     // Numbering: 1 catalog, 2 pages, 3 resources, then what they refer to.
     u32       _next  = 4u;
-    const u32 _font  = _pdf->text ? _next++ : 0u;
+    // Each face of Helvetica used, an object (F1 the plain one: fude_zoom_pdf_text's).
+    u32 _face_obj[4] = { 0u, 0u, 0u, 0u };
+    for(u32 _i = 0; _i < 4u; _i++) {
+        _face_obj[_i] = _pdf->faces[_i] ? _next++ : 0u;
+    }
     const u32 _state = _next;
     _next += _states;
     const u32 _image = _next;
@@ -759,14 +771,23 @@ b8 fude_zoom_pdf_finish(fude_zoom_pdf* _pdf, fude_bytes* _out) {
         }
         fude_zoom_pdf_put(_out, " >>");
     }
-    if(_font != 0u) {
-        fude_zoom_pdf_put(_out, "\n/Font << /F1 %u 0 R >>", (unsigned)_font);
+    if(_pdf->text) {
+        fude_zoom_pdf_put(_out, "\n/Font <<");
+        for(u32 _i = 0; _i < 4u; _i++) {
+            if(_face_obj[_i] != 0u) {
+                fude_zoom_pdf_put(_out, " /F%u %u 0 R", (unsigned)(_i + 1u), (unsigned)_face_obj[_i]);
+            }
+        }
+        fude_zoom_pdf_put(_out, " >>");
     }
     fude_zoom_pdf_put(_out, " >>\nendobj\n");
 
-    if(_font != 0u) {
-        fude_zoom_pdf_object(_out, _base, _offsets, _font);
-        fude_zoom_pdf_put(_out, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n");
+    static const c8* const _faces[4] = { "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique" };
+    for(u32 _i = 0; _i < 4u; _i++) {
+        if(_face_obj[_i] != 0u) {
+            fude_zoom_pdf_object(_out, _base, _offsets, _face_obj[_i]);
+            fude_zoom_pdf_put(_out, "<< /Type /Font /Subtype /Type1 /BaseFont /%s /Encoding /WinAnsiEncoding >>\nendobj\n", _faces[_i]);
+        }
     }
 
     u32 _n = _state;

@@ -25,6 +25,8 @@
     <key>CFBundleDisplayName</key>
     <string>InfiNote</string>
     <!-- The document camera (the core's import: pages scanned to draw on). -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>InfiNote records what is said while you write, so a tap on your writing plays it back.</string>
     <key>NSCameraUsageDescription</key>
     <string>InfiNote scans pages with the camera, so you can draw on them.</string>
     <key>CFBundleDevelopmentRegion</key>

@@ -65,6 +65,9 @@ typedef struct {
 // Loads the canvas at _path into _s (fresh from fude_zoom_scene_init). On
 // MISSING the scene is left as it was (empty) and the first save writes the file.
 FUDE_LOAD_ fude_zoom_file_open(fude_zoom_file* _f, const c8* _path, fude_zoom_scene* _s);
+// ...only read, never written (a canvas looked through without being opened: Find's words, words.h): a torn end
+// left as it is, a damaged file not set aside. OK or RECOVERED (a torn end: what was whole read); else nothing.
+FUDE_LOAD_ fude_zoom_file_peek(const c8* _path, fude_zoom_scene* _s);
 // The journal appended (and synced), then a checkpoint if one is due, then a
 // compaction if one is due. Nothing to do: true at once. The scene's journal is
 // emptied once it is safe on disk.

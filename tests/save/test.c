@@ -218,6 +218,10 @@ int main(void) {
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
         CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.show_fps);
         s.show_fps = false;
+        s.keep_grain = true; s.smooth_chosen = true;                                                 // fitting's grain, smoothing chosen by hand: saved too
+        CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK); CHECK(fude_settings_equal(&s, &t) && t.keep_grain && t.smooth_chosen);
+        s.keep_grain = false; s.smooth_chosen = false;
 
         u8 buf[64]; u32 n = 0;
         P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');
@@ -240,6 +244,8 @@ int main(void) {
         CHECK(fude_load_settings(set, &er) == FUDE_LOAD_OK && er.eraser_radius == 7.0f);
         fude_settings pr = s; pr.print_x = 1.01f; pr.print_y = 0.99f;                                 // from before the printer's check: as it was
         CHECK(fude_load_settings(set, &pr) == FUDE_LOAD_OK && pr.print_x == 1.01f && pr.print_y == 0.99f);
+        fude_settings sc = s; sc.smooth_chosen = true; sc.keep_grain = true;                          // from before them: the smoothing never chosen (its
+        CHECK(fude_load_settings(set, &sc) == FUDE_LOAD_OK && !sc.smooth_chosen && sc.keep_grain);    // default: off); the grain as it was
 
         // An out-of-range theme (a newer build's) keeps the current one.
         n = 0;

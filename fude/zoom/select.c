@@ -499,6 +499,20 @@ void fude_zoom_select_up(fude_zoom_selection* _sel, fude_zoom_scene* _s, const f
     fude_zoom_select_commit(_sel, _s);
 }
 
+void fude_zoom_select_abort(fude_zoom_selection* _sel, const fude_zoom_scene* _s) {
+    if(_sel->grab == FUDE_ZOOM_GRAB_NONE) {
+        return;
+    }
+    if(_sel->grab == FUDE_ZOOM_GRAB_LOOP) {
+        rde_arr_clear(&_sel->loop);
+    } else {
+        fude_zoom_select_unlift(_sel);   // (the drag only ever shown: the picks never left their places)
+    }
+    _sel->grab = FUDE_ZOOM_GRAB_NONE;
+    _sel->drag = fude_zoom_sim_identity();
+    fude_zoom_select_update(_sel, _s);
+}
+
 // Where the pen lifted, the canvas takes it back: each pick's place moved by the drag (seen in its own frame's
 // units), one undo step.
 RDE_INTERNAL void fude_zoom_select_commit(fude_zoom_selection* _sel, fude_zoom_scene* _s) {

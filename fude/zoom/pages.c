@@ -95,6 +95,78 @@ b8 fude_zoom_pages_grow(fude_zoom_pages* _p, const fude_zoom_scene* _s) {
     return _grew;
 }
 
+u32 fude_zoom_pages_of(const fude_zoom_pages* _p, const fude_zoom_scene* _s, u32 _object) {
+    const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
+    if(!(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || (_o->flags & FUDE_ZOOM_FLAG_GARBAGE) || _o->frame != _s->home || _o->kind == FUDE_ZOOM_KIND_LAYER ||
+       _p->count == 0u) {
+        return FUDE_ZOOM_NONE;
+    }
+    fude_zoom_box _box = _o->box;
+    if(_o->kind == FUDE_ZOOM_KIND_FRAME && _o->child != FUDE_ZOOM_NONE) {
+        // (what was drawn in it, where it is in the home frame — not the view it was made for)
+        const fude_zoom_box _in = fude_zoom_nav_drawn(_s, _o->child, FUDE_ZOOM_NONE);
+        if(!fude_zoom_box_is_empty(_in)) {
+            _box = fude_zoom_sim_box(fude_zoom_sim_from_xform(fude_zoom_scene_frame(_s, _o->child)->xf), _in);
+        }
+    }
+    return fude_zoom_pages_at(_p, (fude_zoom_v2){ (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 });
+}
+
+b8 fude_zoom_pages_rearrange(fude_zoom_pages* _p, fude_zoom_scene* _s, u8 _do, u32 _i, u32 _j, rde_arr* _died, rde_arr* _moved, rde_arr* _before, rde_arr* _after) {
+    if(!_p->on || _p->count == 0u || (_do == FUDE_ZOOM_PAGES_INSERT ? _i > _p->count || _p->count >= FUDE_ZOOM_PAGES_MOST : _i >= _p->count) ||
+       (_do == FUDE_ZOOM_PAGES_MOVE && _j >= _p->count) || _do > FUDE_ZOOM_PAGES_MOVE) {
+        return false;
+    }
+    const f64 _step = _p->h + FUDE_ZOOM_PAGES_GAP;
+    // (each one's page first, the pages it is measured against as they were: then each moved — or let go — at once)
+    const u32 _n = (u32)rde_arr_length(&_s->objects);
+    for(u32 _k = 0; _k < _n; _k++) {
+        const u32 _from = fude_zoom_pages_of(_p, _s, _k);
+        if(_from == FUDE_ZOOM_NONE) {
+            continue;
+        }
+        u32 _to = _from;
+        if(_do == FUDE_ZOOM_PAGES_INSERT) {
+            _to = _from >= _i ? _from + 1u : _from;
+        } else if(_do == FUDE_ZOOM_PAGES_DELETE) {
+            _to = _from == _i ? FUDE_ZOOM_NONE : _from > _i ? _from - 1u : _from;
+        } else if(_from == _i) {
+            _to = _j;
+        } else if(_i < _j && _from > _i && _from <= _j) {
+            _to = _from - 1u;
+        } else if(_j < _i && _from >= _j && _from < _i) {
+            _to = _from + 1u;
+        }
+        if(_to == FUDE_ZOOM_NONE) {
+            rde_arr_add(_died, (any)&_k);
+            continue;
+        }
+        if(_to != _from) {
+            const fude_zoom_place _was = fude_zoom_scene_place_of(_s, _k);
+            fude_zoom_place _now = _was;
+            _now.t.y -= ((f64)_to - (f64)_from) * _step;
+            rde_arr_add(_moved, (any)&_k);
+            rde_arr_add(_before, (any)&_was);
+            rde_arr_add(_after, (any)&_now);
+        }
+    }
+    const u32* _dead = (const u32*)_died->memory;
+    for(u32 _k = 0; _k < (u32)rde_arr_length(_died); _k++) {
+        fude_zoom_scene_set_alive(_s, _dead[_k], false);
+    }
+    const u32* _m = (const u32*)_moved->memory;
+    const fude_zoom_place* _a = (const fude_zoom_place*)_after->memory;
+    for(u32 _k = 0; _k < (u32)rde_arr_length(_moved); _k++) {
+        fude_zoom_scene_set_place(_s, _m[_k], _a[_k]);
+    }
+    if(_do == FUDE_ZOOM_PAGES_INSERT) {
+        _p->count++;
+    } else if(_do == FUDE_ZOOM_PAGES_DELETE && _p->count > 1u) {
+        _p->count--;
+    }
+    return true;
+}
+
 f64 fude_zoom_pages_spacing(f64 _true, f64 _z, f64 _out, f64 _in, f64* _fade) {
     const f64 _screen = _true * _z;
     if(_screen < _out) {

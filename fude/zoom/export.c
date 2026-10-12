@@ -9,6 +9,8 @@
 #include "zoom/dxf.h"
 #include "zoom/pdf.h"
 #include "zoom/cut.h"
+#include "zoom/formula.h"
+#include "zoom/paper.h"
 #include "drawing/base/theme.h"
 
 #include <math.h>
@@ -55,6 +57,36 @@ void fude_zoom_export_units(f64 _mm_per_unit, const fude_zoom_units_style* _unit
         fude_zoom_export_style = *_units;
     }
 }
+
+// The formulas set as the page sets them (fude_zoom_export_formulas; NULL: written as their LaTeX).
+static fude_zoom_formulas* fude_zoom_export_maths = NULL;
+
+// How a note's words are measured (fude_zoom_export_measure): the app's fonts', else a guess.
+RDE_INTERNAL fude_zoom_rich_measure_fn fude_zoom_export_measure_fn   = NULL;
+RDE_INTERNAL void*                     fude_zoom_export_measure_self = NULL;
+
+void fude_zoom_export_measure(fude_zoom_rich_measure_fn _fn, void* _self) {
+    fude_zoom_export_measure_fn   = _fn;
+    fude_zoom_export_measure_self = _self;
+}
+
+// ...each letter half its height wide (a bold one a little more).
+RDE_INTERNAL f32 fude_zoom_export_guess(void* _self, const c8* _text, u32 _len, f32 _px, u8 _style) {
+    RDE_UNUSED(_self);
+    u32 _letters = 0;
+    for(u32 _i = 0; _i < _len; _i++) {
+        _letters += ((u8)_text[_i] & 0xC0u) != 0x80u ? 1u : 0u;
+    }
+    return (f32)_letters * _px * ((_style & FUDE_ZOOM_RICH_BOLD) ? 0.55f : 0.5f);
+}
+
+void fude_zoom_export_formulas(struct fude_zoom_formulas* _formulas) {
+    fude_zoom_export_maths = _formulas;
+}
+
+RDE_INTERNAL void fude_zoom_walk_tex(fude_zoom_walk_state* _w, const fude_zoom_tex_box* _box, fude_zoom_sim _em, rde_color _ink);
+RDE_INTERNAL void fude_zoom_walk_rich_marks(fude_zoom_walk_state* _w, const fude_zoom_rich* _rich, const c8* _text, fude_zoom_sim _at, f64 _size, rde_color _ink);
+RDE_INTERNAL void fude_zoom_walk_rich_lay(fude_zoom_rich* _rich, const c8* _text, u32 _len, f64 _width, f64 _size, u8 _align);
 
 RDE_INTERNAL rde_color fude_zoom_walk_resolve(const fude_zoom_walk_state* _w, rde_color _c) {
     if(_c.a == 1u && _c.r == 255u && _c.g == 254u && _c.b == 253u) {
@@ -172,15 +204,59 @@ RDE_INTERNAL void fude_zoom_walk_symbol(fude_zoom_walk_state* _w, u32 _object, f
         const fude_zoom_symbol_part* _qp = (const fude_zoom_symbol_part*)_qa.memory;
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_qa); _i++) {
             const u8 _fl = _qp[_i].flags;
-            rde_color _c = _fl >= 32u ? _curve[(_fl - 32u) % 6u] : _line;
-            if(_fl & FUDE_ZOOM_SYMBOL_DASHED) {
+            if(_fl >= 64u) {
+                // (a region an inequality holds, an area under a curve: its colour, faint, filled; a chart's bar or
+                // slice, 128 + k: solid)
+                rde_color _c = _fl >= 128u ? _curve[(_fl - 128u) % 6u] : _curve[(_fl - 64u) % 6u];
+                _c.a = _fl >= 128u ? 255u : 56u;
+                if(_w->sink->fill != NULL && _qp[_i].count >= 3u) {
+                    rde_arr_clear(&_w->rings);
+                    u32* _ring = (u32*)rde_arr_add_n(&_w->rings, _qp[_i].count);
+                    memset(_ring, 0, sizeof(u32) * _qp[_i].count);
+                    _w->sink->fill(_w->sink->self, &_q[_qp[_i].first], _ring, _qp[_i].count, _c);
+                }
+                continue;
+            }
+            rde_color _c = _fl >= 32u ? _curve[((_fl - 32u) & 7u) % 6u] : _line;
+            if(_fl < 32u && (_fl & FUDE_ZOOM_SYMBOL_DASHED)) {
                 _c.a = (u8)((u32)_c.a * 30u / 100u);
             }
             _w->sink->shape(_w->sink->self, &_q[_qp[_i].first], _qp[_i].count, false, _fl >= 32u ? fmax(_radius * 1.3, 0.6) : fmax(_radius * 0.6, 0.25), _c, (rde_color){ 0, 0, 0, 0 });
         }
         const f64 _lpx = fude_zoom_plot_label_height(_info->id, _n[1], _n[2]) * _k;
         const fude_zoom_plot_label* _lb = (const fude_zoom_plot_label*)_pl.memory;
+        // (its legend as the renderer sets it: each line maths in text style, stacked down from where its first is)
+        f64 _row_y = 0.0, _row_x = 0.0;
+        b8 _first_row = true;
+        for(u32 _i = 0; _i < (u32)rde_arr_length(&_pl) && _lpx >= 3.0; _i++) {
+            if(_lb[_i].align != 4u) {
+                continue;
+            }
+            const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, _lb[_i].at);
+            if(_first_row) {
+                _row_x = _at.x;
+                _row_y = _at.y + _lpx * 0.55;
+                _first_row = false;
+            }
+            const f64 _em = _lpx * 1.25;
+            const fude_zoom_tex_box* _box = fude_zoom_export_maths != NULL && _lb[_i].latex[0] != 0 ?
+                                            fude_zoom_formulas_set_as(fude_zoom_export_maths, _lb[_i].latex, (u32)strlen(_lb[_i].latex), false) : NULL;
+            const f64 _up = fmax(_lpx * 0.72, _box != NULL ? _box->height * _em : 0.0), _down = fmax(_lpx * 0.25, _box != NULL ? _box->depth * _em : 0.0);
+            const f64 _base = _row_y - _up;
+            const rde_color _c = _lb[_i].curve > 0u ? _curve[(_lb[_i].curve - 1u) % 6u] : _line;
+            if(_box != NULL) {
+                fude_zoom_walk_tex(_w, _box, (fude_zoom_sim){ _em, 0.0, _row_x, _base }, _c);
+            } else if(_w->sink->text != NULL) {
+                const c8* const _lines[1] = { _lb[_i].text };
+                _w->sink->text(_w->sink->self, (fude_zoom_v2){ _row_x, _base + _lpx * 0.75 }, _lpx, _lpx * 0.6 * (f64)strlen(_lb[_i].text), _lpx * 1.3, 0u, _c,
+                               (rde_color){ 0, 0, 0, 0 }, _lines, 1u);
+            }
+            _row_y = _base - _down - _lpx * 0.3;
+        }
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_pl) && _w->sink->text != NULL && _lpx >= 3.0; _i++) {
+            if(_lb[_i].align == 4u) {
+                continue;   // (the legend: above)
+            }
             const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, _lb[_i].at);
             const f64 _tw = _lpx * 0.6 * (f64)strlen(_lb[_i].text);
             const fude_zoom_v2 _tl = { _lb[_i].align == 1u ? _at.x - _tw : (_lb[_i].align >= 3u ? _at.x : _at.x - _tw * 0.5), _lb[_i].align == 0u ? _at.y + _lpx * 0.3 : _at.y + _lpx * 0.6 };
@@ -194,9 +270,10 @@ RDE_INTERNAL void fude_zoom_walk_symbol(fude_zoom_walk_state* _w, u32 _object, f
     u32 _from[8], _len[8];
     const u32 _split = fude_zoom_symbol_text_split(_text, _from, _len, 8u);
     fude_zoom_box _boxes[8];
-    const b8  _parts_text = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS;
+    const b8  _parts_text = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS || _info->place == FUDE_ZOOM_SYMBOL_TEXT_REGIONS;   // (a part each in its box)
+    const b8  _classes    = _info->place == FUDE_ZOOM_SYMBOL_TEXT_PARTS;   // (compartments: lines between, the rest from the top left)
     const u32 _nb = fude_zoom_symbol_text_boxes((u32)_n[0], _n[1], _n[2], _parts_text ? _split : 1u, _boxes, 8u);
-    if(_parts_text && _info->boxes != 4u && _w->sink->shape != NULL) {
+    if(_classes && _info->boxes != 4u && _w->sink->shape != NULL) {
         for(u32 _i = 1; _i < _nb; _i++) {
             const fude_zoom_v2 _l[2] = { fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_n[1], _boxes[_i].max_y }), fude_zoom_sim_apply(_all, (fude_zoom_v2){ _n[1], _boxes[_i].max_y }) };
             _w->sink->shape(_w->sink->self, _l, 2u, false, _radius, _line, (rde_color){ 0, 0, 0, 0 });
@@ -211,6 +288,17 @@ RDE_INTERNAL void fude_zoom_walk_symbol(fude_zoom_walk_state* _w, u32 _object, f
             const u32 _l = _parts_text ? _len[_b] : (u32)strlen(_text);
             memcpy(_part, &_text[_parts_text ? _from[_b] : 0u], _l);
             _part[_l] = 0;
+            // A label with marks (rich.h): as the screen has it, in its box's middle.
+            if(!_classes && fude_zoom_rich_marked(_part, (u32)strlen(_part)) && _k > 0.0) {
+                const u8 _side = _info->place == FUDE_ZOOM_SYMBOL_TEXT_OUT_RIGHT || _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER ? 0u :
+                                 _info->place == FUDE_ZOOM_SYMBOL_TEXT_OUT_LEFT ? 2u : 1u;
+                fude_zoom_rich _rich;
+                fude_zoom_walk_rich_lay(&_rich, _part, (u32)strlen(_part), (_box.max_x - _box.min_x) / _k, _n[3], _side);
+                const f64 _down = _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER ? 0.0 : fmax(((_box.max_y - _box.min_y) - (f64)_rich.h * _k) * 0.5, 0.0);
+                fude_zoom_walk_rich_marks(_w, &_rich, _part, (fude_zoom_sim){ _k, 0.0, _box.min_x, _box.max_y - _down }, _n[3], _line);
+                fude_zoom_rich_free(&_rich);
+                continue;
+            }
             // Its lines: its own breaks, and as many words as fit the box (an average letter half its height wide).
             const u32 _most = (u32)fmax(2.0, (_box.max_x - _box.min_x) / (0.5 * _px));
             const c8* _lines[24];
@@ -242,10 +330,12 @@ RDE_INTERNAL void fude_zoom_walk_symbol(fude_zoom_walk_state* _w, u32 _object, f
                 continue;
             }
             const f64 _tall = _px * 1.3 * (f64)_count_l;
-            const f64 _top  = (_parts_text && _b > 0u) || _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER ? _box.max_y : (_box.min_y + _box.max_y) * 0.5 + _tall * 0.5;
-            const b8 _from_left = (_parts_text && _b > 0u) || _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER;   // (as the screen: a class's members, an area's name)
+            const f64 _top  = (_classes && _b > 0u) || _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER ? _box.max_y : (_box.min_y + _box.max_y) * 0.5 + _tall * 0.5;
+            // (as the screen: a class's members, an area's name from the left; a bracket's against it)
+            const b8 _from_left = (_classes && _b > 0u) || _info->place == FUDE_ZOOM_SYMBOL_TEXT_CORNER || _info->place == FUDE_ZOOM_SYMBOL_TEXT_OUT_RIGHT;
+            const u8 _align = _from_left ? 0u : _info->place == FUDE_ZOOM_SYMBOL_TEXT_OUT_LEFT ? FUDE_ZOOM_EXPORT_TEXT_RIGHT : FUDE_ZOOM_EXPORT_TEXT_CENTRED;
             _w->sink->text(_w->sink->self, (fude_zoom_v2){ _box.min_x, _top }, _px, _box.max_x - _box.min_x, _tall,
-                           (u8)(FUDE_ZOOM_TEXT_PLAIN | (_from_left ? 0u : FUDE_ZOOM_EXPORT_TEXT_CENTRED)), _line, (rde_color){ 0, 0, 0, 0 },
+                           (u8)(FUDE_ZOOM_TEXT_PLAIN | _align), _line, (rde_color){ 0, 0, 0, 0 },
                            _lines, _count_l);
         }
     }
@@ -618,9 +708,140 @@ RDE_INTERNAL void fude_zoom_walk_image(fude_zoom_walk_state* _w, u32 _object, fu
 }
 
 #define FUDE_ZOOM_EXPORT_LINES 64u
+#define FUDE_ZOOM_EXPORT_GLYPH  0.02   // a formula's glyphs' curves no further out than this many points (a PDF zoomed into)
+
+// A set formula's glyphs and rules, its ems on the screen through _em: each glyph its outline filled (a cutter's: each
+// contour a path), each rule a box.
+RDE_INTERNAL void fude_zoom_walk_tex(fude_zoom_walk_state* _w, const fude_zoom_tex_box* _box, fude_zoom_sim _em, rde_color _ink) {
+    fude_zoom_formulas* _f = fude_zoom_export_maths;
+    if(_f == NULL || _w->sink->fill == NULL) {
+        return;
+    }
+    const f64           _px   = fude_zoom_sim_scale(_em);
+    const f64           _upem = (f64)_f->font.units_per_em;
+    const fude_zoom_tex_glyph* _g = (const fude_zoom_tex_glyph*)_box->glyphs.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_box->glyphs); _i++) {
+        const f64 _gpx = _px * _g[_i].size;
+        if(_gpx < FUDE_ZOOM_SVG_SPECK) {
+            continue;
+        }
+        rde_arr_clear(&_w->pts);
+        rde_arr_clear(&_w->rings);
+        const u32 _n = fude_zoom_formulas_outline(_f, _g[_i].glyph, fmax(FUDE_ZOOM_EXPORT_GLYPH * _upem / _gpx, 0.25), _w->sink->cutting, &_w->pts,
+                                                  &_w->rings);
+        if(_n < 3u) {
+            continue;
+        }
+        const fude_zoom_sim _to = fude_zoom_sim_compose(_em, (fude_zoom_sim){ _g[_i].size / _upem, 0.0, _g[_i].x, _g[_i].y });
+        fude_zoom_v2* _p = (fude_zoom_v2*)_w->pts.memory;
+        for(u32 _k = 0; _k < _n; _k++) {
+            _p[_k] = fude_zoom_sim_apply(_to, _p[_k]);
+        }
+        _w->sink->fill(_w->sink->self, _p, (const u32*)_w->rings.memory, _n, _ink);
+    }
+    const fude_zoom_tex_rule* _r = (const fude_zoom_tex_rule*)_box->rules.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_box->rules); _i++) {
+        const fude_zoom_v2 _q[4] = {
+            fude_zoom_sim_apply(_em, (fude_zoom_v2){ _r[_i].x, _r[_i].y }),
+            fude_zoom_sim_apply(_em, (fude_zoom_v2){ _r[_i].x + _r[_i].w, _r[_i].y }),
+            fude_zoom_sim_apply(_em, (fude_zoom_v2){ _r[_i].x + _r[_i].w, _r[_i].y + _r[_i].h }),
+            fude_zoom_sim_apply(_em, (fude_zoom_v2){ _r[_i].x, _r[_i].y + _r[_i].h }),
+        };
+        const u32 _rings[4] = { 0, 0, 0, 0 };
+        _w->sink->fill(_w->sink->self, _q, _rings, 4u, _ink);
+    }
+}
+
+// A formula as the renderer draws it (render.c). False: no font to set it with (written as its words, then).
+RDE_INTERNAL b8 fude_zoom_walk_formula(fude_zoom_walk_state* _w, const fude_zoom_object* _o, fude_zoom_sim _all, f64 _size, const c8* _text, u32 _len) {
+    fude_zoom_formulas*      _f   = fude_zoom_export_maths;
+    const fude_zoom_tex_box* _box = _f != NULL ? fude_zoom_formulas_set(_f, _text, _len) : NULL;
+    if(_box == NULL) {
+        return false;
+    }
+    const fude_zoom_sim _em = fude_zoom_sim_compose(_all, (fude_zoom_sim){ _size, 0.0, FUDE_ZOOM_FORMULA_PAD * _size,
+                                                                          -(FUDE_ZOOM_FORMULA_PAD + _box->height) * _size });
+    fude_zoom_walk_tex(_w, _box, _em, fude_zoom_walk_resolve(_w, _o->color));
+    return true;
+}
 
 // A text's lines: its own breaks, and a note's words wrapped to its width — by
 // an average letter's width (an export has no font to measure with).
+// A note's layout (rich.h) written: its marks as lines and boxes, each run of its words a text of its own (bold,
+// italic; a link in the links' blue, a task done softer). _at: its units (Y down from its words' top left, its Y
+// turned up) onto the screen; _size its letters' size in its units.
+RDE_INTERNAL void fude_zoom_walk_rich_marks(fude_zoom_walk_state* _w, const fude_zoom_rich* _rich, const c8* _text, fude_zoom_sim _at, f64 _size, rde_color _ink) {
+    const f64 _k  = fude_zoom_sim_scale(_at);
+    const f64 _lw = fmax(0.25, _k * _size * 0.035);
+    rde_color _soft = _ink, _ground = _ink;
+    _soft.a   = (u8)((u32)_ink.a * 35u / 100u);
+    _ground.a = (u8)((u32)_ink.a * 10u / 100u);
+    const rde_color _none = { 0, 0, 0, 0 };
+    #define FZW_AT(_x, _y) fude_zoom_sim_apply(_at, (fude_zoom_v2){ (f64)(_x), -(f64)(_y) })
+    const fude_zoom_rich_mark* _m = (const fude_zoom_rich_mark*)_rich->marks.memory;
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_rich->marks) && _w->sink->shape != NULL; _i++) {
+        const fude_zoom_rich_mark _q = _m[_i];
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_LINE) {
+            const fude_zoom_v2 _l[2] = { FZW_AT(_q.x0, _q.y0), FZW_AT(_q.x1, _q.y1) };
+            _w->sink->shape(_w->sink->self, _l, 2u, false, _lw, _q.soft ? _soft : _ink, _none);
+            continue;
+        }
+        const fude_zoom_v2 _box[4] = { FZW_AT(_q.x0, _q.y0), FZW_AT(_q.x1, _q.y0), FZW_AT(_q.x1, _q.y1), FZW_AT(_q.x0, _q.y1) };
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_GROUND) {
+            _w->sink->shape(_w->sink->self, _box, 4u, true, 0.0, _none, _ground);
+            continue;
+        }
+        _w->sink->shape(_w->sink->self, _box, 4u, true, _lw, _ink, _none);
+        if(_q.kind == FUDE_ZOOM_RICH_MARK_TICKED) {
+            const f32 _bw = _q.x1 - _q.x0, _bh = _q.y1 - _q.y0;
+            const fude_zoom_v2 _tick[3] = { FZW_AT(_q.x0 + 0.2f * _bw, _q.y0 + 0.52f * _bh), FZW_AT(_q.x0 + 0.42f * _bw, _q.y0 + 0.78f * _bh),
+                                            FZW_AT(_q.x0 + 0.82f * _bw, _q.y0 + 0.22f * _bh) };
+            _w->sink->shape(_w->sink->self, _tick, 3u, false, _lw * 1.4, _ink, _none);
+        }
+    }
+    const fude_zoom_rich_run* _run = (const fude_zoom_rich_run*)_rich->runs.memory;
+    c8 _words[512];
+    for(u32 _i = 0; _i < (u32)rde_arr_length(&_rich->runs); _i++) {
+        const fude_zoom_rich_run _q = _run[_i];
+        const f64 _px = (f64)_q.px * _k;
+        const u32 _n  = _q.len < sizeof(_words) - 1u ? _q.len : (u32)sizeof(_words) - 1u;
+        memcpy(_words, (_q.style & FUDE_ZOOM_RICH_OWN) ? FUDE_ZOOM_RICH_BULLET : &_text[_q.from], _n);
+        _words[_n] = 0;
+        rde_color _c = (_q.style & FUDE_ZOOM_RICH_LINK) ? (rde_color){ 70, 130, 230, 255 } : _ink;
+        if(_q.style & FUDE_ZOOM_RICH_SOFT) {
+            _c.a = (u8)((u32)_c.a * 55u / 100u);
+        }
+        const u8 _flags = (u8)(((_q.style & FUDE_ZOOM_RICH_BOLD) ? FUDE_ZOOM_EXPORT_TEXT_BOLD : 0u) | ((_q.style & FUDE_ZOOM_RICH_ITALIC) ? FUDE_ZOOM_EXPORT_TEXT_ITALIC : 0u));
+        const fude_zoom_v2 _base = FZW_AT(_q.x, _q.y);
+        const c8* const _line[1] = { _words };
+        _w->sink->text(_w->sink->self, (fude_zoom_v2){ _base.x, _base.y + _px * 0.95 }, _px, (f64)_q.w * _k, _px * 1.3, (u8)(FUDE_ZOOM_TEXT_PLAIN | _flags), _c, _none, _line, 1u);
+    }
+    #undef FZW_AT
+}
+
+// _text (_len bytes) laid out as a note (rich.h): _width wide (0: as long as its lines are), its letters _size, its
+// plain lines to the side _align says, measured as the app measures (fude_zoom_export_measure). Freed by the caller.
+RDE_INTERNAL void fude_zoom_walk_rich_lay(fude_zoom_rich* _rich, const c8* _text, u32 _len, f64 _width, f64 _size, u8 _align) {
+    fude_zoom_rich_init(_rich);
+    fude_zoom_rich_lay_aligned(_rich, _text, _len, (f32)_width, (f32)_size, 1.3f, _align,
+                               fude_zoom_export_measure_fn != NULL ? fude_zoom_export_measure_fn : fude_zoom_export_guess, fude_zoom_export_measure_self);
+}
+
+// A text read as a note (rich.h), as the screen has it: a sticky note's paper, then its marks and words.
+RDE_INTERNAL void fude_zoom_walk_rich(fude_zoom_walk_state* _w, const fude_zoom_object* _o, fude_zoom_sim _all, u8 _style, f64 _size, f64 _tw, f64 _th,
+                                      const c8* _text, u32 _len) {
+    const f64       _k   = fude_zoom_sim_scale(_all);
+    const rde_color _ink = fude_zoom_walk_resolve(_w, _o->color);
+    const f64       _pad = _style == FUDE_ZOOM_TEXT_STICKY ? _size * 0.6 : 0.0;
+    if(_style == FUDE_ZOOM_TEXT_STICKY) {
+        _w->sink->text(_w->sink->self, fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 }), _size * _k, _tw * _k, _th * _k, FUDE_ZOOM_TEXT_STICKY, _ink, _o->fill, NULL, 0u);
+    }
+    fude_zoom_rich _rich;
+    fude_zoom_walk_rich_lay(&_rich, _text, _len, _style == FUDE_ZOOM_TEXT_STICKY ? fmax(_tw - 2.0 * _pad, _size) : 0.0, _size, 0u);
+    fude_zoom_walk_rich_marks(_w, &_rich, _text, fude_zoom_sim_compose(_all, (fude_zoom_sim){ 1.0, 0.0, _pad, -_pad }), _size, _ink);
+    fude_zoom_rich_free(&_rich);
+}
+
 RDE_INTERNAL void fude_zoom_walk_text(fude_zoom_walk_state* _w, u32 _object, fude_zoom_sim _to) {
     f64 _size = 0.0, _tw = 0.0, _th = 0.0;
     u8  _style = 0;
@@ -631,6 +852,13 @@ RDE_INTERNAL void fude_zoom_walk_text(fude_zoom_walk_state* _w, u32 _object, fud
     }
     const fude_zoom_object* _o   = fude_zoom_scene_object(_w->s, _object);
     const fude_zoom_sim     _all = fude_zoom_sim_compose(_to, fude_zoom_object_sim(_o));
+    if(_style == FUDE_ZOOM_TEXT_FORMULA && fude_zoom_walk_formula(_w, _o, _all, _size, _text, _len)) {
+        return;
+    }
+    if((_style == FUDE_ZOOM_TEXT_PLAIN || _style == FUDE_ZOOM_TEXT_STICKY) && fude_zoom_rich_marked(_text, _len)) {
+        fude_zoom_walk_rich(_w, _o, _all, _style, _size, _tw, _th, _text, _len);
+        return;
+    }
     const f64               _k   = fude_zoom_sim_scale(_all);
     const f64               _px  = _size * _k;
     const u32 _most = _style == FUDE_ZOOM_TEXT_STICKY ? (u32)fmax(4.0, (_tw * _k - 1.2 * _px) / (0.5 * _px)) : 100000u;
@@ -908,7 +1136,11 @@ RDE_INTERNAL void fude_zoom_svg_fill(void* _self, const fude_zoom_v2* _p, const 
     for(u32 _i = 0; _i < _outline; _i++) {
         fude_zoom_svg_point(_w, _i == 0 ? "M" : " L", _p[_i]);
     }
-    fude_zoom_svg_put(_w, " Z\" fill=\"%s\" fill-rule=\"evenodd\"%s%s/>\n", _col, _mask, _c.a < 255u ? " fill-opacity=\"0.5\"" : "");
+    c8 _opacity[32] = "";
+    if(_c.a < 255u) {
+        snprintf(_opacity, sizeof _opacity, " fill-opacity=\"%.3f\"", (f64)_c.a / 255.0);
+    }
+    fude_zoom_svg_put(_w, " Z\" fill=\"%s\" fill-rule=\"evenodd\"%s%s/>\n", _col, _mask, _opacity);
 }
 
 // A picture: itself, inside, placed by its transform (the SVG's Y runs down).
@@ -931,8 +1163,9 @@ RDE_INTERNAL void fude_zoom_svg_image(void* _self, const u8* _bytes, u32 _size, 
 RDE_INTERNAL void fude_zoom_svg_text(void* _self, fude_zoom_v2 _tl, f64 _px, f64 _w, f64 _h, u8 _style, rde_color _ink, rde_color _paper, const c8* const* _lines, u32 _count) {
     fude_zoom_svg* _sw = (fude_zoom_svg*)_self;
     c8 _col[16];
-    const b8  _centred = (_style & FUDE_ZOOM_EXPORT_TEXT_CENTRED) != 0u;
-    _style = (u8)(_style & ~FUDE_ZOOM_EXPORT_TEXT_CENTRED);
+    const b8  _centred = (_style & FUDE_ZOOM_EXPORT_TEXT_CENTRED) != 0u, _right = (_style & FUDE_ZOOM_EXPORT_TEXT_RIGHT) != 0u;
+    const b8  _bold = (_style & FUDE_ZOOM_EXPORT_TEXT_BOLD) != 0u, _italic = (_style & FUDE_ZOOM_EXPORT_TEXT_ITALIC) != 0u;
+    _style = (u8)(_style & ~FUDE_ZOOM_EXPORT_TEXT_FLAGS);
     const f64 _pad = _style == FUDE_ZOOM_TEXT_STICKY ? 0.6 * _px : 0.0;
     if(_style == FUDE_ZOOM_TEXT_STICKY) {
         fude_zoom_svg_color(_col, sizeof _col, _paper);
@@ -940,9 +1173,10 @@ RDE_INTERNAL void fude_zoom_svg_text(void* _self, fude_zoom_v2 _tl, f64 _px, f64
     }
     fude_zoom_svg_color(_col, sizeof _col, _ink);
     for(u32 _i = 0; _i < _count; _i++) {
-        fude_zoom_svg_put(_sw, "<text x=\"%.2f\" y=\"%.2f\"%s font-family=\"sans-serif\" font-size=\"%.2f\" fill=\"%s\">",
-                          (_centred ? _tl.x + _w * 0.5 : _tl.x + _pad) + _sw->half.x, _sw->half.y - _tl.y + _pad + _px * 0.95 + (f64)_i * _px * 1.3,
-                          _centred ? " text-anchor=\"middle\"" : "", _px, _col);
+        fude_zoom_svg_put(_sw, "<text x=\"%.2f\" y=\"%.2f\"%s%s%s font-family=\"sans-serif\" font-size=\"%.2f\" fill=\"%s\">",
+                          (_centred ? _tl.x + _w * 0.5 : _right ? _tl.x + _w : _tl.x + _pad) + _sw->half.x, _sw->half.y - _tl.y + _pad + _px * 0.95 + (f64)_i * _px * 1.3,
+                          _centred ? " text-anchor=\"middle\"" : _right ? " text-anchor=\"end\"" : "", _bold ? " font-weight=\"bold\"" : "",
+                          _italic ? " font-style=\"italic\"" : "", _px, _col);
         for(const c8* _c = _lines[_i]; *_c != 0; _c++) {
             if(*_c == '<')      { fude_zoom_svg_put(_sw, "&lt;"); }
             else if(*_c == '>') { fude_zoom_svg_put(_sw, "&gt;"); }
@@ -1106,8 +1340,9 @@ RDE_INTERNAL void fude_zoom_pdfw_image(void* _self, const u8* _bytes, u32 _size,
 // A text: a note's paper, then each line in Helvetica (the PDF's own font: near enough to the app's).
 RDE_INTERNAL void fude_zoom_pdfw_text(void* _self, fude_zoom_v2 _tl, f64 _px, f64 _w, f64 _h, u8 _style, rde_color _ink, rde_color _paper, const c8* const* _lines, u32 _count) {
     fude_zoom_pdfw* _pw = (fude_zoom_pdfw*)_self;
-    const b8  _centred = (_style & FUDE_ZOOM_EXPORT_TEXT_CENTRED) != 0u;
-    _style = (u8)(_style & ~FUDE_ZOOM_EXPORT_TEXT_CENTRED);
+    const b8  _centred = (_style & FUDE_ZOOM_EXPORT_TEXT_CENTRED) != 0u, _right = (_style & FUDE_ZOOM_EXPORT_TEXT_RIGHT) != 0u;
+    const u8  _face = (u8)(((_style & FUDE_ZOOM_EXPORT_TEXT_BOLD) ? 1u : 0u) + ((_style & FUDE_ZOOM_EXPORT_TEXT_ITALIC) ? 2u : 0u));
+    _style = (u8)(_style & ~FUDE_ZOOM_EXPORT_TEXT_FLAGS);
     const f64 _x = _tl.x + _pw->half.x, _y = _tl.y + _pw->half.y;
     const f64 _pad = _style == FUDE_ZOOM_TEXT_STICKY ? 0.6 * _px : 0.0;
     if(_style == FUDE_ZOOM_TEXT_STICKY) {
@@ -1116,8 +1351,8 @@ RDE_INTERNAL void fude_zoom_pdfw_text(void* _self, fude_zoom_v2 _tl, f64 _px, f6
         fude_zoom_pdf_fill(_pw->pdf, false);
     }
     for(u32 _i = 0; _i < _count; _i++) {
-        const f64 _lx = _centred ? _x + (_w - fude_zoom_pdf_text_width(_px, _lines[_i])) * 0.5 : _x + _pad;
-        fude_zoom_pdf_text(_pw->pdf, _lx, _y - _pad - _px * 0.95 - (f64)_i * _px * 1.3, _px, _ink, _lines[_i]);
+        const f64 _lx = _centred ? _x + (_w - fude_zoom_pdf_text_width(_px, _lines[_i])) * 0.5 : _right ? _x + _w - fude_zoom_pdf_text_width(_px, _lines[_i]) : _x + _pad;
+        fude_zoom_pdf_text_face(_pw->pdf, _lx, _y - _pad - _px * 0.95 - (f64)_i * _px * 1.3, _px, _ink, _lines[_i], _face);
     }
 }
 
@@ -1179,7 +1414,42 @@ b8 fude_zoom_export_pdf_views(fude_zoom_scene* _s, rde_color _paper, const fude_
     return _ok;
 }
 
-b8 fude_zoom_export_pdf_pages(fude_zoom_scene* _s, const fude_zoom_camera* _views, const fude_zoom_v2* _halves, u32 _n, fude_zoom_v2 _printer, fude_bytes* _out) {
+// A page's paper (paper.h' lines, in the camera's frame's units) under its ink: the paper theme's ink laid solid on its
+// page, as strongly as each says (the margin's line a faint red); hairlines, its own lines a little heavier, dots round.
+#define FUDE_ZOOM_PDFW_PAPER_LINE  0.45   // points
+#define FUDE_ZOOM_PDFW_PAPER_FAINT 0.3
+#define FUDE_ZOOM_PDFW_PAPER_HEAVY 0.8
+#define FUDE_ZOOM_PDFW_PAPER_DOT   0.6    // a dot's radius
+
+RDE_INTERNAL void fude_zoom_pdfw_paper(fude_zoom_pdfw* _w, const fude_zoom_camera* _view, const rde_arr* _lines, const fude_theme* _theme) {
+    const fude_zoom_paper_line* _l = (const fude_zoom_paper_line*)_lines->memory;
+    const u32 _n = (u32)rde_arr_length(_lines);
+    const rde_color _paper = _theme->page;
+    fude_zoom_pdf_line_style(_w->pdf, 1u, 1u);
+    for(u32 _i = 0; _i < _n; _i++) {
+        const rde_color _ink = _l[_i].kind == FUDE_ZOOM_PAPER_MARGIN ? (rde_color){ 214, 96, 96, 110 } : _theme->page_dots;
+        const f32 _k = (f32)_ink.a / 255.0f * _l[_i].strength;
+        const rde_color _c = { (u8)((f32)_paper.r + ((f32)_ink.r - (f32)_paper.r) * _k), (u8)((f32)_paper.g + ((f32)_ink.g - (f32)_paper.g) * _k),
+                               (u8)((f32)_paper.b + ((f32)_ink.b - (f32)_paper.b) * _k), 255 };
+        const fude_zoom_v2 _p[2] = { { (_l[_i].a.x - _view->at.x) * _view->z, (_l[_i].a.y - _view->at.y) * _view->z },
+                                     { (_l[_i].b.x - _view->at.x) * _view->z, (_l[_i].b.y - _view->at.y) * _view->z } };
+        if(!(_k > 0.0f)) {
+            continue;
+        }
+        if(_l[_i].kind == FUDE_ZOOM_PAPER_DOT) {
+            fude_zoom_pdf_fill_color(_w->pdf, _c);
+            fude_zoom_pdfw_dot(_w, _p[0], FUDE_ZOOM_PDFW_PAPER_DOT);
+            continue;
+        }
+        fude_zoom_pdf_stroke_color(_w->pdf, _c);
+        fude_zoom_pdf_line_width(_w->pdf, _l[_i].heavy ? FUDE_ZOOM_PDFW_PAPER_HEAVY : _l[_i].strength < 0.5f ? FUDE_ZOOM_PDFW_PAPER_FAINT : FUDE_ZOOM_PDFW_PAPER_LINE);
+        fude_zoom_pdfw_path(_w, _p, 2u, false);
+        fude_zoom_pdf_stroke(_w->pdf);
+    }
+}
+
+b8 fude_zoom_export_pdf_pages(fude_zoom_scene* _s, const fude_zoom_camera* _views, const fude_zoom_v2* _halves, u32 _n, fude_zoom_v2 _printer,
+                              const rde_arr* _papers, fude_bytes* _out) {
     if(_n == 0u) {
         return false;
     }
@@ -1209,6 +1479,9 @@ b8 fude_zoom_export_pdf_pages(fude_zoom_scene* _s, const fude_zoom_camera* _view
         fude_zoom_pdf_save(_w.pdf);
         if(_fx != 1.0 || _fy != 1.0) {
             fude_zoom_pdf_transform(_w.pdf, _fx, 0.0, 0.0, _fy, _pw * 0.5 * (1.0 - _fx), _ph * 0.5 * (1.0 - _fy));
+        }
+        if(_papers != NULL) {
+            fude_zoom_pdfw_paper(&_w, &_views[_i], &_papers[_i], _paper_theme);
         }
         fude_zoom_export_walk_as(_s, _w.half, &_sink, _paper_theme);
         fude_zoom_pdf_restore(_w.pdf);
@@ -1313,7 +1586,7 @@ RDE_INTERNAL void fude_zoom_cut_text(void* _self, fude_zoom_v2 _tl, f64 _px, f64
     RDE_UNUSED(_w); RDE_UNUSED(_h); RDE_UNUSED(_paper);
     fude_zoom_cut* _cw    = (fude_zoom_cut*)_self;
     const u32      _layer = fude_zoom_cut_layer(_cw, _ink);
-    const f64      _pad   = (_style & ~FUDE_ZOOM_EXPORT_TEXT_CENTRED) == FUDE_ZOOM_TEXT_STICKY ? 0.6 * _px : 0.0;
+    const f64      _pad   = (_style & ~FUDE_ZOOM_EXPORT_TEXT_FLAGS) == FUDE_ZOOM_TEXT_STICKY ? 0.6 * _px : 0.0;
     for(u32 _i = 0; _i < _count; _i++) {
         fude_zoom_dxf_text(_cw->dxf, _layer, (_tl.x + _pad) * _cw->mm, (_tl.y - _pad - _px * 0.95 - (f64)_i * _px * 1.3) * _cw->mm, _px * 0.7 * _cw->mm, 0.0, _lines[_i]);
     }

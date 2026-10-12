@@ -164,3 +164,9 @@ for i, (en, es, pt, fr) in enumerate([('Jan','ene','jan','janv.'),('Feb','feb','
                                       ('May','may','mai','mai'),('Jun','jun','jun','juin'),('Jul','jul','jul','juil.'),('Aug','ago','ago','août'),
                                       ('Sep','sept','set','sept.'),('Oct','oct','out','oct.'),('Nov','nov','nov','nov.'),('Dec','dic','dez','déc.')]):
     t('MONTH_%d' % (i + 1), en, es, pt, '%d月' % (i + 1), fr)
+
+# The crash card (0.1.93: crashcard.h): the last session's crash report, asked about.
+t('CRASH_TITLE', '{APP} closed unexpectedly', '{APP} se cerró de forma inesperada', '{APP} fechou inesperadamente', '{APP} が予期せず終了しました', '{APP} s’est fermé de façon inattendue')
+t('CRASH_TEXT', 'A short report helps fix it: the app’s version, the device and where it stopped — nothing you wrote or drew. It opens in your email, to read before you send it.', 'Un informe breve ayuda a arreglarlo: la versión de la app, el dispositivo y dónde se detuvo; nada de lo que escribiste o dibujaste. Se abre en tu correo para que lo leas antes de enviarlo.', 'Um relatório curto ajuda a corrigir: a versão do app, o dispositivo e onde parou — nada do que você escreveu ou desenhou. Ele abre no seu e-mail para você ler antes de enviar.', '短いレポートが修正の助けになります。アプリのバージョン、端末、止まった場所だけで、書いたものや描いたものは含まれません。送る前に確認できるよう、メールで開きます。', 'Un court rapport aide à corriger le problème : la version de l’app, l’appareil et l’endroit où elle s’est arrêtée — rien de ce que vous avez écrit ou dessiné. Il s’ouvre dans votre e-mail, à lire avant de l’envoyer.')
+t('CRASH_SEND', 'Send report', 'Enviar informe', 'Enviar relatório', 'レポートを送る', 'Envoyer le rapport')
+t('CRASH_LATER', 'Not now', 'Ahora no', 'Agora não', '今はしない', 'Pas maintenant')

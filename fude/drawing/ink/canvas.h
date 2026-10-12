@@ -77,8 +77,17 @@ typedef enum {
     FUDE_PAPER_SQUARES,
     FUDE_PAPER_LINES,
     FUDE_PAPER_NONE,
+    // An app's own beyond the core's four (extension.h' papers; another app draws them as dots).
+    FUDE_PAPER_ISOMETRIC,     // lines three ways, 60° apart: triangles (drawing things in 3D)
+    FUDE_PAPER_HEX,           // hexagons
+    FUDE_PAPER_POLAR,         // rings round the middle and rays every 15°
+    FUDE_PAPER_ENGINEERING,   // squares, every fifth line strong (graph paper)
+    FUDE_PAPER_MUSIC,         // staves of five lines
+    FUDE_PAPER_CORNELL,       // a page: a cue column, its notes ruled, a summary at its foot (else lines)
+    FUDE_PAPER_PLANNER,       // a page: a title, a box to tick on each line (else lines)
     FUDE_PAPER_COUNT
 } FUDE_PAPER_;
+#define FUDE_PAPER_CORE 4u   // the core's own: dots, squares, lines, none
 
 // A document's page turned by the learner (doc.h): which, and how far — quarter
 // turns clockwise, over the turn the PDF gives it.

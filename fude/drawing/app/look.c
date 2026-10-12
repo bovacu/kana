@@ -76,6 +76,19 @@ void fude_look_perf_note(void (*_note)(struct fude_app* _app, c8* _out, usize _s
     fude_look.perf_note = _note;
 }
 
+b8 fude_look_given(void) {
+    return fude_look.argc > 1;
+}
+
+b8 fude_look_has(const c8* _flag) {
+    for(i32 _i = 1; _i < fude_look.argc; _i++) {
+        if(fude_look_is(fude_look.argv[_i], _flag)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void fude_look_args(i32 _argc, c8** _argv) {
     fude_look.argc = _argc;
     fude_look.argv = _argv;

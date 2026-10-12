@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/app.h"
+#include "drawing/base/crash.h"
 #include "drawing/app/ui.h"
 #include "drawing/app/page.h"
 #include "drawing/base/text.h"
@@ -30,6 +31,9 @@ void fude_app_start(fude_app* _app) {
     fude_android_init();   // the apps' Java (android.h): found on this, the engine's, thread
 #endif
     fude_save_set_folder(fude_app_id(_app));
+    // Crash reports (crash.h): its handlers, this session marked running — and what the last one left, asked about.
+    fude_crash_install(fude_save_dir(), _app->info != NULL && _app->info->name != NULL ? _app->info->name : "app",
+                       _app->info != NULL && _app->info->version != NULL ? _app->info->version : "");
     if(_app->info != NULL && _app->info->name != NULL) {
         rde_window_set_title(_app->window, _app->info->name);   // a computer's window: the app's name
     }

@@ -1,3 +1,4 @@
 /* The camera prompt (scanning pages to draw on), in es. UTF-8. */
 "NSCameraUsageDescription" = "InfiNote escanea páginas con la cámara para que puedas dibujar sobre ellas.";
 "CFBundleDisplayName" = "InfiNote";
+"NSMicrophoneUsageDescription" = "InfiNote graba lo que se dice mientras escribes, para que un toque en lo escrito lo vuelva a reproducir.";

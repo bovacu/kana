@@ -1524,9 +1524,9 @@ RDE_INTERNAL void fude_zoom_history_drop_oldest(fude_zoom_scene* _s, u32 _n) {
 
 // The action appended, as it is (its flags are already what it did).
 RDE_INTERNAL void fude_zoom_history_append(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
-                                           const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count) {
+                                           const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count, u32 _tag) {
     fude_zoom_history_drop_redo(_s);
-    fude_zoom_action _a = { .frame = _frame, .box = _box };
+    fude_zoom_action _a = { .frame = _frame, .box = _box, .tag = _tag };
     _a.type  = _died_count == 0 ? FUDE_ZOOM_ACTION_BORN : (_born_count == 0 ? FUDE_ZOOM_ACTION_DIED : FUDE_ZOOM_ACTION_REPLACED);
     _a.first = fude_zoom_len(&_s->targets);
     _a.count = _died_count;
@@ -1566,12 +1566,12 @@ RDE_INTERNAL void fude_zoom_history_append(fude_zoom_scene* _s, u32 _frame, fude
     _s->history_bytes += _a.bytes;
 }
 
-void fude_zoom_history_push_all(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
-                                const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count) {
-    if(_died_count == 0 && _born_count == 0 && _moved_count == 0) {
+void fude_zoom_history_push_tagged(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
+                                   const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count, u32 _tag) {
+    if(_died_count == 0 && _born_count == 0 && _moved_count == 0 && _tag == 0u) {
         return;
     }
-    fude_zoom_history_append(_s, _frame, _box, _died, _died_count, _born, _born_count, _moved, _before, _after, _moved_count);
+    fude_zoom_history_append(_s, _frame, _box, _died, _died_count, _born, _born_count, _moved, _before, _after, _moved_count, _tag);
     if(!_s->replaying) {
         u32 _at;
         fude_zoom_journal_op_begin(_s, FUDE_ZOOM_OP_PUSH, &_at);
@@ -1587,6 +1587,11 @@ void fude_zoom_history_push_all(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _
     }
     fude_zoom_history_drop_oldest(_s, _drop);
     _s->revision++;
+}
+
+void fude_zoom_history_push_all(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
+                                const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count) {
+    fude_zoom_history_push_tagged(_s, _frame, _box, _died, _died_count, _born, _born_count, _moved, _before, _after, _moved_count, 0u);
 }
 
 void fude_zoom_history_push(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count) {
@@ -1765,6 +1770,7 @@ void fude_zoom_put_action(const fude_zoom_scene* _s, fude_bytes* _b, u32 _action
         fude_zoom_put_place(_b, fude_zoom_places(_s)[_a->place_first + _i * 2u]);
         fude_zoom_put_place(_b, fude_zoom_places(_s)[_a->place_first + _i * 2u + 1u]);
     }
+    fude_put_u32(_b, _a->tag);   // (0.1.94: at the record's end — read only where it is there)
 }
 
 b8 fude_zoom_get_frame(fude_zoom_scene* _s, fude_reader* _r) {
@@ -1931,10 +1937,11 @@ b8 fude_zoom_get_action(fude_zoom_scene* _s, fude_reader* _r) {
             }
         }
     }
+    const u32 _tag   = _ok && fude_reader_has(_r, 4u) ? fude_get_u32(_r) : 0u;   // (a step kept before 0.1.94: none)
     const u32 _frame = fude_zoom_scene_find_frame(_s, _frame_id);
     if(_ok && _frame != FUDE_ZOOM_NONE) {
         fude_zoom_history_append(_s, _frame, _box, fude_zoom_u32s(&_died), fude_zoom_len(&_died), fude_zoom_u32s(&_born), fude_zoom_len(&_born),
-                                 fude_zoom_u32s(&_moved), (const fude_zoom_place*)_before.memory, (const fude_zoom_place*)_after.memory, fude_zoom_len(&_moved));
+                                 fude_zoom_u32s(&_moved), (const fude_zoom_place*)_before.memory, (const fude_zoom_place*)_after.memory, fude_zoom_len(&_moved), _tag);
     }
     rde_arr_free(&_died);
     rde_arr_free(&_born);

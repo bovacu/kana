@@ -52,6 +52,10 @@ b8        fude_look_is(const c8* _arg, const c8* _flag);
 u32       fude_look_shot_frame(void);
 // --rtl: the UI laid out right to left whatever the language.
 b8        fude_look_rtl(void);
+// Is a look running (arguments given): what would cover its shots (the crash card) left out.
+b8        fude_look_given(void);
+// Was _flag given (the crash card's --crash-card: shown in a look all the same)?
+b8        fude_look_has(const c8* _flag);
 // --perf's summary: what the app adds to its line (Kana: the camera's frames).
 void      fude_look_perf_note(void (*_note)(struct fude_app* _app, c8* _out, usize _size));
 

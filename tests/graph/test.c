@@ -870,6 +870,59 @@ static void test_layout_random(void) {
     CHECK(no_overlaps(&G) && routes_ok(&G));
 }
 
+// A mind map (Mermaid's mindmap): its tree read by indentation, its shapes, its lines skipped; one root; laid out round
+// it, both ways, each node beside its parent and in the middle of its children, nothing overlapping; its edges curves.
+static void test_mindmap(void) {
+    const char* text =
+        "%% a plan\n"
+        "mindmap\n"
+        "  root((Shelf))\n"
+        "    Wood\n"
+        "      ::icon(fa fa-tree)\n"
+        "      Oak\n"
+        "      Pine\n"
+        "    Tools[Tools]\n"
+        "      Saw\n"
+        "    Finish{{Finish}}\n"
+        "    Cost)Cost(\n"
+        "      Wood\n"
+        "      Screws\n";
+    CHECK(parse(text));
+    CHECK(G.direction == FUDE_ZOOM_FLOW_MIND && nodes(&G) == 10u && edges(&G) == 9u);
+    const fude_zoom_graph_node* root = fude_zoom_graph_node_at(&G, 0);
+    CHECK(strcmp(root->label, "Shelf") == 0 && root->shape == FUDE_ZOOM_NODE_CIRCLE);
+    CHECK(strcmp(fude_zoom_graph_node_at(&G, 4)->label, "Tools") == 0 && fude_zoom_graph_node_at(&G, 4)->shape == FUDE_ZOOM_NODE_RECT);
+    CHECK(fude_zoom_graph_node_at(&G, 6)->shape == FUDE_ZOOM_NODE_HEXAGON && strcmp(fude_zoom_graph_node_at(&G, 7)->label, "Cost") == 0);
+    CHECK(fude_zoom_graph_node_at(&G, 1)->shape == FUDE_ZOOM_NODE_ROUND && strcmp(fude_zoom_graph_node_at(&G, 1)->label, "Wood") == 0);
+    // (Oak and Pine under Wood; the second Wood its own node, under Cost; no heads)
+    CHECK(edge(&G, 1)->from == 1u && edge(&G, 1)->to == 2u && edge(&G, 2)->from == 1u && edge(&G, 7)->from == 7u && edge(&G, 7)->to == 8u);
+    for(u32 k = 0; k < edges(&G); k++) CHECK(edge(&G, k)->head_end == FUDE_ZOOM_EDGE_HEAD_NONE);
+    // Laid out: the root where it was, two branches each side, each child beside its parent, nothing overlapping.
+    for(u32 i = 0; i < nodes(&G); i++) { fude_zoom_graph_node_at(&G, i)->w = 60.0 + 10.0 * (f64)(i % 3u); fude_zoom_graph_node_at(&G, i)->h = 24.0; }
+    fude_zoom_graph_layout(&G, (fude_zoom_graph_spacing){ 40.0, 12.0, 0.0, 0.0 });
+    CHECK(root->x == 0.0 && root->y == 0.0);
+    u32 right = 0, left = 0;
+    for(u32 k = 0; k < edges(&G); k++) {
+        const fude_zoom_graph_node* a = fude_zoom_graph_node_at(&G, edge(&G, k)->from);
+        const fude_zoom_graph_node* b = fude_zoom_graph_node_at(&G, edge(&G, k)->to);
+        const f64 side = b->x > a->x ? 1.0 : -1.0;
+        CHECK(fabs(fabs(b->x - a->x) - (a->w * 0.5 + 40.0 + b->w * 0.5)) < 1e-9);
+        if(edge(&G, k)->from == 0u) { right += side > 0.0 ? 1u : 0u; left += side < 0.0 ? 1u : 0u; }
+        else CHECK((b->x - root->x) * side > 0.0);   // (a branch keeps to its side)
+        CHECK(edge(&G, k)->bend_count == 3u);
+    }
+    CHECK(right == 2u && left == 2u);
+    CHECK(no_overlaps(&G) && routes_ok(&G));
+    // (a parent in the middle of its children: Wood between Oak and Pine)
+    CHECK(fabs(fude_zoom_graph_node_at(&G, 1)->y - (fude_zoom_graph_node_at(&G, 2)->y + fude_zoom_graph_node_at(&G, 3)->y) * 0.5) < 1e-9);
+    // Not read: a second root; a bracket not closed; nothing after the header.
+    CHECK(!parse("mindmap\n  A\n    B\n  C\n") && err_why == FUDE_ZOOM_MERMAID_NODE && err_line == 4u && nodes(&G) == 0u);
+    CHECK(!parse("mindmap\n  A\n    B[open\n") && err_why == FUDE_ZOOM_MERMAID_SHAPE && err_line == 3u);
+    CHECK(!parse("mindmap\n") && err_why == FUDE_ZOOM_MERMAID_NODE);
+    // (a flowchart still a flowchart)
+    CHECK(parse("flowchart LR\n  A --> B\n") && G.direction == FUDE_ZOOM_FLOW_LR);
+}
+
 int main(void) {
     fude_zoom_graph_init(&G);
     test_header();
@@ -888,6 +941,7 @@ int main(void) {
     test_layout_pinned();
     test_layout_stable();
     test_layout_random();
+    test_mindmap();
     fude_zoom_graph_destroy(&G);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

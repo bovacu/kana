@@ -60,7 +60,10 @@
 //           u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0: never chosen),
 //           f32 eraser_radius, u8 units, f32 true_mm_per_point, f32 print_x,
 //           print_y, f32 kerf_mm, u8 show_fps (Sketching's: the frame rate drawn
-//           at the top right; 1 on)
+//           at the top right; 1 on), u8 keep_grain (Sketching's fitting: 1 parts'
+//           grain kept along the board's; 0 they may turn a quarter), u8
+//           smooth_chosen (1: the smoothing above was chosen; before it, or 0:
+//           never — the default, off, whatever is stored)
 //           (new fields go at the END: an older file just ends sooner; one from
 //           before the hand is a pen user's: the pen writes)
 // ===========================================================================
@@ -103,6 +106,8 @@ RDE_STRUCT {
     f32        print_x, print_y;  // Sketching's printer: how long a printed millimetre comes out, across and down (0: never checked)
     f32        kerf_mm;           // Sketching's saw: how wide its cut is, millimetres (0: never set — 3)
     b8         show_fps;          // Sketching's: the frame rate drawn at the top right
+    b8         keep_grain;        // Sketching's fitting parts into a board: their grain kept along its (else they may turn a quarter)
+    b8         smooth_chosen;     // Sketching's smoothing chosen by hand (else its default: off — a file from before it saved one anyway)
 } fude_settings;
 
 // The folder saves live in, created if missing, ending in '/'. iOS: the app's

@@ -1150,6 +1150,732 @@ RDE_INTERNAL void fzs_pattern_label(fude_zoom_sym* _s) {
     fude_zoom_sym_rect(_s, -1, -1, 1, 1, FUDE_ZOOM_SYMBOL_DASHED);
 }
 
+// Plain shapes (0.1.85).
+
+// A closed shape of _n points in any units (pairs), stretched to fill the box (its own widest and tallest at its sides).
+RDE_INTERNAL void fzs_fit(fude_zoom_sym* _s, const f64* _xy, u32 _n, u8 _flags) {
+    f64 _x0 = 1e30, _y0 = 1e30, _x1 = -1e30, _y1 = -1e30;
+    for(u32 _i = 0; _i < _n; _i++) {
+        _x0 = fmin(_x0, _xy[2u * _i]); _x1 = fmax(_x1, _xy[2u * _i]);
+        _y0 = fmin(_y0, _xy[2u * _i + 1u]); _y1 = fmax(_y1, _xy[2u * _i + 1u]);
+    }
+    if(!(_x1 > _x0) || !(_y1 > _y0)) {
+        return;
+    }
+    fude_zoom_sym_begin(_s);
+    for(u32 _i = 0; _i < _n; _i++) {
+        fude_zoom_sym_uv(_s, -1.0 + 2.0 * (_xy[2u * _i] - _x0) / (_x1 - _x0), -1.0 + 2.0 * (_xy[2u * _i + 1u] - _y0) / (_y1 - _y0));
+    }
+    fude_zoom_sym_end(_s, _flags);
+}
+
+// A star of _n points (_inner: its notches' radius, its points' 1; 1: a polygon of _n sides), the first point up,
+// filling the box.
+RDE_INTERNAL void fzs_star_of(fude_zoom_sym* _s, u32 _n, f64 _inner) {
+    f64 _xy[2u * 2u * 24u];
+    const u32 _m = _inner < 1.0 ? 2u * _n : _n;
+    for(u32 _i = 0; _i < _m && _i < 48u; _i++) {
+        const f64 _a = FUDE_ZOOM_SYMBOL_PI * 0.5 + 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / (f64)_m;
+        const f64 _r = _inner < 1.0 && (_i & 1u) ? _inner : 1.0;
+        _xy[2u * _i] = cos(_a) * _r;
+        _xy[2u * _i + 1u] = sin(_a) * _r;
+    }
+    fzs_fit(_s, _xy, _m, FZS_OUT);
+}
+
+RDE_INTERNAL void fzs_rectangle(fude_zoom_sym* _s)  { fude_zoom_sym_rect(_s, -1, -1, 1, 1, FZS_OUT); }
+RDE_INTERNAL void fzs_round_rect(fude_zoom_sym* _s) { fude_zoom_sym_rounded(_s, -_s->hw, -_s->hh, _s->hw, _s->hh, FZS_R(_s) * 0.3, FZS_OUT); }
+RDE_INTERNAL void fzs_circle(fude_zoom_sym* _s)     { fude_zoom_sym_ellipse(_s, 0, 0, _s->hw, _s->hh, FZS_OUT); }
+RDE_INTERNAL void fzs_parallelogram(fude_zoom_sym* _s) {
+    const f64 _k = fmin(0.5, _s->hh / _s->hw * 0.5);   // (its slant the same however wide)
+    const f64 _d[8] = { -1, -1, 1 - _k, -1, 1, 1, -1 + _k, 1 };
+    fude_zoom_sym_poly(_s, _d, 4u, FZS_OUT);
+}
+RDE_INTERNAL void fzs_trapezoid(fude_zoom_sym* _s) {
+    const f64 _k = fmin(0.5, _s->hh / _s->hw * 0.5);
+    const f64 _d[8] = { -1, -1, 1, -1, 1 - _k, 1, -1 + _k, 1 };
+    fude_zoom_sym_poly(_s, _d, 4u, FZS_OUT);
+}
+RDE_INTERNAL void fzs_right_triangle(fude_zoom_sym* _s) { const f64 _d[6] = { -1, -1, 1, -1, -1, 1 }; fude_zoom_sym_poly(_s, _d, 3u, FZS_OUT); }
+RDE_INTERNAL void fzs_pentagon(fude_zoom_sym* _s)   { fzs_star_of(_s, 5u, 1.0); }
+RDE_INTERNAL void fzs_octagon(fude_zoom_sym* _s)    { fude_zoom_sym_regular(_s, 8u, FUDE_ZOOM_SYMBOL_PI / 8.0, FZS_OUT); }
+RDE_INTERNAL void fzs_star(fude_zoom_sym* _s)       { fzs_star_of(_s, 5u, 0.382); }
+RDE_INTERNAL void fzs_burst(fude_zoom_sym* _s)      { fzs_star_of(_s, 12u, 0.74); }
+RDE_INTERNAL void fzs_cross(fude_zoom_sym* _s) {
+    const f64 _t = 0.34;
+    const f64 _d[24] = { -_t, 1, _t, 1, _t, _t, 1, _t, 1, -_t, _t, -_t, _t, -1, -_t, -1, -_t, -_t, -1, -_t, -1, _t, -_t, _t };
+    fude_zoom_sym_poly(_s, _d, 12u, FZS_OUT);
+}
+RDE_INTERNAL void fzs_heart(fude_zoom_sym* _s) {
+    // The classic curve: x = 16 sin³t, y = 13 cos t − 5 cos 2t − 2 cos 3t − cos 4t.
+    f64 _xy[2u * 64u];
+    for(u32 _i = 0; _i < 64u; _i++) {
+        const f64 _t = 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 64.0, _sn = sin(_t);
+        _xy[2u * _i] = 16.0 * _sn * _sn * _sn;
+        _xy[2u * _i + 1u] = 13.0 * cos(_t) - 5.0 * cos(2.0 * _t) - 2.0 * cos(3.0 * _t) - cos(4.0 * _t);
+    }
+    fzs_fit(_s, _xy, 64u, FZS_OUT);
+}
+// A speech bubble: a rounded body over its tail, down from its left (its text in its body).
+#define FZS_BUBBLE_FOOT 0.45   // (its body's bottom, as v)
+RDE_INTERNAL void fzs_speech(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw, _h = _s->hh, _yb = -_h * FZS_BUBBLE_FOOT;
+    const f64 _r = fmin(_w, (_h - _yb) * 0.5) * 0.45, _q = FUDE_ZOOM_SYMBOL_PI * 0.5;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_arc_pts(_s, _w - _r, _yb + _r, _r, _r, -_q, 0.0);
+    fude_zoom_sym_arc_pts(_s, _w - _r, _h - _r, _r, _r, 0.0, _q);
+    fude_zoom_sym_arc_pts(_s, -_w + _r, _h - _r, _r, _r, _q, 2.0 * _q);
+    fude_zoom_sym_arc_pts(_s, -_w + _r, _yb + _r, _r, _r, 2.0 * _q, 3.0 * _q);
+    fude_zoom_sym_pt(_s, -_w * 0.45, _yb);
+    fude_zoom_sym_pt(_s, -_w * 0.62, -_h);
+    fude_zoom_sym_pt(_s, -_w * 0.12, _yb);
+    fude_zoom_sym_end(_s, FZS_OUT);
+}
+// A thought bubble: a cloud of scallops over two little rounds.
+RDE_INTERNAL void fzs_thought(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw, _h = _s->hh, _cy = _h * 0.22, _ry = _h * 0.78;
+    fude_zoom_sym_begin(_s);
+    const u32 _k = 9u * 12u;
+    for(u32 _i = 0; _i < _k; _i++) {
+        const f64 _a = 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / (f64)_k;
+        const f64 _f = 0.86 + 0.14 * fabs(sin(_a * 4.5));
+        fude_zoom_sym_pt(_s, cos(_a) * _w * _f, _cy + sin(_a) * _ry * _f);
+    }
+    fude_zoom_sym_end(_s, FZS_OUT);
+    const f64 _m = FZS_R(_s);
+    fude_zoom_sym_ellipse(_s, -_w * 0.5, -_h * 0.72, _m * 0.13, _m * 0.13, FZS_OUT);
+    fude_zoom_sym_ellipse(_s, -_w * 0.7, -_h * 0.92, _m * 0.08, _m * 0.08, FZS_OUT);
+}
+RDE_INTERNAL void fzs_arc(fude_zoom_sym* _s) {
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_arc_pts(_s, 0.0, -_s->hh, _s->hw, 2.0 * _s->hh, 0.0, FUDE_ZOOM_SYMBOL_PI);
+    fude_zoom_sym_end(_s, 0u);
+}
+RDE_INTERNAL void fzs_pie(fude_zoom_sym* _s) {
+    // Three quarters of a round: a slice out of its top right.
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, 0.0, 0.0);
+    fude_zoom_sym_arc_pts(_s, 0.0, 0.0, _s->hw, _s->hh, FUDE_ZOOM_SYMBOL_PI * 0.5, FUDE_ZOOM_SYMBOL_PI * 2.0);
+    fude_zoom_sym_end(_s, FZS_OUT);
+}
+RDE_INTERNAL void fzs_ring(fude_zoom_sym* _s) {
+    fude_zoom_sym_ellipse(_s, 0, 0, _s->hw, _s->hh, FZS_OUT);
+    fude_zoom_sym_ellipse(_s, 0, 0, _s->hw * 0.55, _s->hh * 0.55, FZS_OUT | FUDE_ZOOM_SYMBOL_JOIN);   // (its hole)
+}
+// A cube: its front, its top and its right side (its text on its front).
+#define FZS_CUBE_DEPTH 0.5   // (its depth, of its box's half: as u and v)
+RDE_INTERNAL void fzs_cube(fude_zoom_sym* _s) {
+    const f64 _d = FZS_CUBE_DEPTH, _f = 1.0 - _d;
+    const f64 _o[12] = { -1, -1, _f, -1, 1, -1 + _d, 1, 1, -1 + _d, 1, -1, _f };
+    fude_zoom_sym_poly(_s, _o, 6u, FZS_OUT);
+    const f64 _l[6] = { -1, _f, _f, _f, _f, -1 };
+    fude_zoom_sym_poly(_s, _l, 3u, 0u);
+    fude_zoom_sym_line(_s, _f, _f, 1, 1, 0u);
+}
+// Block arrows: a shaft and a head as long as the arrow is thick, however long it is.
+RDE_INTERNAL void fzs_block_arrow(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw, _h = _s->hh, _head = fmin(_w, _h * 1.1), _t = _h * 0.42;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_w, -_t); fude_zoom_sym_pt(_s, _w - _head, -_t); fude_zoom_sym_pt(_s, _w - _head, -_h); fude_zoom_sym_pt(_s, _w, 0.0);
+    fude_zoom_sym_pt(_s, _w - _head, _h); fude_zoom_sym_pt(_s, _w - _head, _t); fude_zoom_sym_pt(_s, -_w, _t);
+    fude_zoom_sym_end(_s, FZS_OUT);
+}
+RDE_INTERNAL void fzs_double_arrow(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw, _h = _s->hh, _head = fmin(_w * 0.5, _h * 1.1), _t = _h * 0.42;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_w, 0.0); fude_zoom_sym_pt(_s, -_w + _head, -_h); fude_zoom_sym_pt(_s, -_w + _head, -_t);
+    fude_zoom_sym_pt(_s, _w - _head, -_t); fude_zoom_sym_pt(_s, _w - _head, -_h); fude_zoom_sym_pt(_s, _w, 0.0);
+    fude_zoom_sym_pt(_s, _w - _head, _h); fude_zoom_sym_pt(_s, _w - _head, _t); fude_zoom_sym_pt(_s, -_w + _head, _t);
+    fude_zoom_sym_pt(_s, -_w + _head, _h);
+    fude_zoom_sym_end(_s, FZS_OUT);
+}
+RDE_INTERNAL void fzs_curved_arrow(fude_zoom_sym* _s) {
+    // A band over the top of an ellipse, from its left foot round to a head pointing down on its right.
+    const f64 _e = 0.6, _ri[2] = { 0.55, 1.2 }, _ro[2] = { 0.85, 1.75 };
+    f64 _xy[2u * 64u];
+    u32 _n = 0;
+    const u32 _k = 24u;
+    for(u32 _i = 0; _i <= _k; _i++) {   // (its outer side, from its left foot over the top)
+        const f64 _a = FUDE_ZOOM_SYMBOL_PI + (_e - FUDE_ZOOM_SYMBOL_PI) * (f64)_i / (f64)_k;
+        _xy[2u * _n] = cos(_a) * _ro[0]; _xy[2u * _n + 1u] = -1.0 + sin(_a) * _ro[1]; _n++;
+    }
+    const f64 _po[2] = { cos(_e) * _ro[0], -1.0 + sin(_e) * _ro[1] }, _pi[2] = { cos(_e) * _ri[0], -1.0 + sin(_e) * _ri[1] };
+    const f64 _mid[2] = { (_po[0] + _pi[0]) * 0.5, (_po[1] + _pi[1]) * 0.5 };
+    f64 _dir[2] = { sin(_e) * (_ro[0] + _ri[0]) * 0.5, -cos(_e) * (_ro[1] + _ri[1]) * 0.5 };
+    const f64 _dl = hypot(_dir[0], _dir[1]);
+    _dir[0] /= _dl; _dir[1] /= _dl;
+    _xy[2u * _n] = _po[0] + (_po[0] - _mid[0]) * 0.7; _xy[2u * _n + 1u] = _po[1] + (_po[1] - _mid[1]) * 0.7; _n++;
+    _xy[2u * _n] = _mid[0] + _dir[0] * 0.75; _xy[2u * _n + 1u] = _mid[1] + _dir[1] * 0.75; _n++;
+    _xy[2u * _n] = _pi[0] + (_pi[0] - _mid[0]) * 0.7; _xy[2u * _n + 1u] = _pi[1] + (_pi[1] - _mid[1]) * 0.7; _n++;
+    for(u32 _i = 0; _i <= _k; _i++) {   // (its inner side, back to its left foot)
+        const f64 _a = _e + (FUDE_ZOOM_SYMBOL_PI - _e) * (f64)_i / (f64)_k;
+        _xy[2u * _n] = cos(_a) * _ri[0]; _xy[2u * _n + 1u] = -1.0 + sin(_a) * _ri[1]; _n++;
+    }
+    fzs_fit(_s, _xy, _n, FZS_OUT);
+}
+RDE_INTERNAL void fzs_chevron(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw, _h = _s->hh, _d = fmin(_w * 0.5, _h * 0.6);
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_w, -_h); fude_zoom_sym_pt(_s, _w - _d, -_h); fude_zoom_sym_pt(_s, _w, 0.0);
+    fude_zoom_sym_pt(_s, _w - _d, _h); fude_zoom_sym_pt(_s, -_w, _h); fude_zoom_sym_pt(_s, -_w + _d, 0.0);
+    fude_zoom_sym_end(_s, FZS_OUT);
+}
+
+// --- 0.1.86: Venn diagrams, geometry's marks, science, stamps ------------------------------------------------
+
+// The last part made given its own colours: _fill (TINTED: alpha 0 none), its line's _line (alpha 0: the symbol's own),
+// _width (its own units; 0: the symbol's line).
+RDE_INTERNAL void fzs_tint(fude_zoom_sym* _s, rde_color _fill, rde_color _line, f32 _width) {
+    const u32 _n = (u32)rde_arr_length(_s->parts);
+    if(_n == 0u) {
+        return;
+    }
+    fude_zoom_symbol_part* _p = &((fude_zoom_symbol_part*)_s->parts->memory)[_n - 1u];
+    if(_fill.a > 0u) {
+        _p->flags = (u8)((_p->flags & ~FUDE_ZOOM_SYMBOL_FILLED) | FUDE_ZOOM_SYMBOL_TINTED);
+    }
+    _p->fill  = _fill;
+    _p->line  = _line;
+    _p->width = _width;
+}
+
+// A circle round (x, y) in own units, its points' flags _flags.
+RDE_INTERNAL void fzs_round(fude_zoom_sym* _s, f64 _x, f64 _y, f64 _r, u8 _flags) {
+    fude_zoom_sym_ellipse(_s, _x, _y, _r, _r, _flags);
+}
+
+// Venn diagrams: their circles (not filled: each seen through the others).
+RDE_INTERNAL f64 fzs_venn2_r(f64 _hw, f64 _hh) { return fmin(_hh, _hw * 0.62); }
+RDE_INTERNAL void fzs_venn2(fude_zoom_sym* _s) {
+    const f64 _r = fzs_venn2_r(_s->hw, _s->hh), _d = _s->hw - _r;
+    fzs_round(_s, -_d, 0.0, _r, FZS_LOOP);
+    fzs_round(_s, _d, 0.0, _r, FZS_LOOP);
+}
+RDE_INTERNAL f64 fzs_venn3_r(f64 _hw, f64 _hh) { return fmin(_hw, _hh) * 0.6; }
+RDE_INTERNAL void fzs_venn3(fude_zoom_sym* _s) {
+    const f64 _r = fzs_venn3_r(_s->hw, _s->hh), _d = _r * 0.62;
+    for(u32 _i = 0; _i < 3u; _i++) {
+        const f64 _a = FUDE_ZOOM_SYMBOL_PI * 0.5 + 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 3.0;
+        fzs_round(_s, cos(_a) * _d, sin(_a) * _d - _s->hh * 0.05, _r, FZS_LOOP);
+    }
+}
+
+// Geometry's marks (in the box's proportions: a mark rotates with the lasso to sit on what it marks).
+RDE_INTERNAL void fzs_angle_mark(fude_zoom_sym* _s) {
+    const f64 _vx = -_s->hw * 0.85, _vy = -_s->hh * 0.8, _a = 50.0 * FUDE_ZOOM_SYMBOL_PI / 180.0;
+    const f64 _len = fmin((_s->hw - _vx) / cos(_a), (_s->hh - _vy) / sin(_a));
+    fude_zoom_sym_line(_s, -0.85, -0.8, 1.0, -0.8, 0u);
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, _vx, _vy);
+    fude_zoom_sym_pt(_s, _vx + cos(_a) * _len, _vy + sin(_a) * _len);
+    fude_zoom_sym_end(_s, 0u);
+    const f64 _r = FZS_R(_s) * 0.6;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_arc_pts(_s, _vx, _vy, _r, _r, 0.0, _a);
+    fude_zoom_sym_end(_s, 0u);
+}
+RDE_INTERNAL void fzs_right_angle_mark(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.85, -0.85, 1.0, -0.85, 0u);
+    fude_zoom_sym_line(_s, -0.85, -0.85, -0.85, 1.0, 0u);
+    const f64 _q = FZS_R(_s) * 0.45, _x = -_s->hw * 0.85, _y = -_s->hh * 0.85;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, _x + _q, _y); fude_zoom_sym_pt(_s, _x + _q, _y + _q); fude_zoom_sym_pt(_s, _x, _y + _q);
+    fude_zoom_sym_end(_s, 0u);
+}
+// Ticks across a side (equal lengths): _n of them.
+RDE_INTERNAL void fzs_ticks(fude_zoom_sym* _s, u32 _n) {
+    for(u32 _i = 0; _i < _n; _i++) {
+        const f64 _u = _n == 1u ? 0.0 : -0.6 + 1.2 * (f64)_i / (f64)(_n - 1u);
+        fude_zoom_sym_line(_s, _u, -1.0, _u, 1.0, 0u);
+    }
+}
+RDE_INTERNAL void fzs_tick1(fude_zoom_sym* _s) { fzs_ticks(_s, 1u); }
+RDE_INTERNAL void fzs_tick2(fude_zoom_sym* _s) { fzs_ticks(_s, 2u); }
+RDE_INTERNAL void fzs_tick3(fude_zoom_sym* _s) { fzs_ticks(_s, 3u); }
+// Arrowheads along a side (parallels): _n of them.
+RDE_INTERNAL void fzs_parallels(fude_zoom_sym* _s, u32 _n) {
+    for(u32 _i = 0; _i < _n; _i++) {
+        const f64 _u = _n == 1u ? 0.3 : (_i == 0u ? -0.15 : 0.75);
+        const f64 _d[6] = { _u - 0.6, 1.0, _u, 0.0, _u - 0.6, -1.0 };
+        fude_zoom_sym_poly(_s, _d, 3u, 0u);
+    }
+}
+RDE_INTERNAL void fzs_parallel1(fude_zoom_sym* _s) { fzs_parallels(_s, 1u); }
+RDE_INTERNAL void fzs_parallel2(fude_zoom_sym* _s) { fzs_parallels(_s, 2u); }
+RDE_INTERNAL void fzs_point(fude_zoom_sym* _s) { fzs_round(_s, 0.0, 0.0, FZS_R(_s) * 0.45, FZS_SOLID); }
+RDE_INTERNAL void fzs_segment(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.9, 0.0, 0.9, 0.0, 0u);
+    const f64 _r = _s->hh * 0.45;
+    fzs_round(_s, -_s->hw * 0.9, 0.0, _r, FZS_SOLID);
+    fzs_round(_s, _s->hw * 0.9, 0.0, _r, FZS_SOLID);
+}
+RDE_INTERNAL void fzs_ray(fude_zoom_sym* _s) {
+    fude_zoom_sym_arrow(_s, -_s->hw * 0.9, 0.0, _s->hw, 0.0, _s->hh * 1.6);
+    fzs_round(_s, -_s->hw * 0.9, 0.0, _s->hh * 0.45, FZS_SOLID);
+}
+RDE_INTERNAL void fzs_line_both(fude_zoom_sym* _s) {
+    fude_zoom_sym_arrow(_s, -_s->hw * 0.2, 0.0, _s->hw, 0.0, _s->hh * 1.6);
+    fude_zoom_sym_arrow(_s, _s->hw * 0.2, 0.0, -_s->hw, 0.0, _s->hh * 1.6);
+}
+RDE_INTERNAL void fzs_vector(fude_zoom_sym* _s) { fude_zoom_sym_arrow(_s, -_s->hw, -_s->hh, _s->hw, _s->hh, FZS_R(_s) * 0.5); }
+RDE_INTERNAL void fzs_circle_radius(fude_zoom_sym* _s) {
+    fzs_round(_s, 0.0, 0.0, FZS_R(_s), FZS_LOOP);
+    fzs_round(_s, 0.0, 0.0, FZS_R(_s) * 0.05, FZS_SOLID);
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, 0.0, 0.0);
+    fude_zoom_sym_pt(_s, FZS_R(_s) * 0.7071, FZS_R(_s) * 0.7071);
+    fude_zoom_sym_end(_s, 0u);
+}
+RDE_INTERNAL void fzs_protractor(fude_zoom_sym* _s) {
+    // Half a round on its flat side, a tick every 10°, longer every 30°, and its middle marked.
+    const f64 _r = fmin(_s->hw, _s->hh * 2.0), _y = -_s->hh;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_arc_pts(_s, 0.0, _y, _r, _r, 0.0, FUDE_ZOOM_SYMBOL_PI);
+    fude_zoom_sym_end(_s, FZS_OUT);
+    for(u32 _i = 0; _i <= 18u; _i++) {
+        const f64 _a = FUDE_ZOOM_SYMBOL_PI * (f64)_i / 18.0, _in = _i % 3u == 0u ? 0.82 : 0.9;
+        fude_zoom_sym_begin(_s);
+        fude_zoom_sym_pt(_s, cos(_a) * _r, _y + sin(_a) * _r);
+        fude_zoom_sym_pt(_s, cos(_a) * _r * _in, _y + sin(_a) * _r * _in);
+        fude_zoom_sym_end(_s, 0u);
+    }
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_arc_pts(_s, 0.0, _y, _r * 0.25, _r * 0.25, 0.0, FUDE_ZOOM_SYMBOL_PI);
+    fude_zoom_sym_end(_s, 0u);
+    fude_zoom_sym_line(_s, 0.0, -1.0, 0.0, -1.0 + 0.3 * _r / _s->hh, 0u);
+}
+
+// Science: glassware (open at the top: their box what they are taken by), optics, an atom, a cell, DNA.
+RDE_INTERNAL void fzs_open(fude_zoom_sym* _s, const f64* _uv, u32 _n) { fude_zoom_sym_poly(_s, _uv, _n, 0u); }
+RDE_INTERNAL void fzs_graduations(fude_zoom_sym* _s, f64 _x, f64 _v0, f64 _v1, u32 _n, f64 _len) {
+    for(u32 _i = 0; _i < _n; _i++) {
+        const f64 _v = _v0 + (_v1 - _v0) * (f64)_i / (f64)(_n - 1u);
+        fude_zoom_sym_line(_s, _x, _v, _x - _len, _v, 0u);
+    }
+}
+RDE_INTERNAL void fzs_beaker(fude_zoom_sym* _s) {
+    const f64 _d[10] = { -1.0, 1.0, -0.85, 0.85, -0.85, -1.0, 0.85, -1.0, 0.85, 1.0 };
+    fzs_open(_s, _d, 5u);
+    fzs_graduations(_s, 0.85, -0.6, 0.6, 4u, 0.25);
+}
+RDE_INTERNAL void fzs_flask(fude_zoom_sym* _s) {
+    const f64 _d[12] = { -0.25, 1.0, -0.25, 0.35, -0.95, -1.0, 0.95, -1.0, 0.25, 0.35, 0.25, 1.0 };
+    fzs_open(_s, _d, 6u);
+    fude_zoom_sym_line(_s, -0.32, 1.0, 0.32, 1.0, 0u);
+}
+RDE_INTERNAL void fzs_round_flask(fude_zoom_sym* _s) {
+    const f64 _r = fmin(_s->hw, _s->hh * 0.65), _cy = -_s->hh + _r;
+    const f64 _neck = fmin(_r * 0.3, _s->hw * 0.3);
+    const f64 _a = asin(_neck / _r);
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_neck, _s->hh);
+    fude_zoom_sym_arc_pts(_s, 0.0, _cy, _r, _r, FUDE_ZOOM_SYMBOL_PI * 0.5 + _a, FUDE_ZOOM_SYMBOL_PI * 2.5 - _a);
+    fude_zoom_sym_pt(_s, _neck, _s->hh);
+    fude_zoom_sym_end(_s, 0u);
+}
+RDE_INTERNAL void fzs_test_tube(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw * 0.7, _r = _w;
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_w, _s->hh);
+    fude_zoom_sym_arc_pts(_s, 0.0, -_s->hh + _r, _w, _r, FUDE_ZOOM_SYMBOL_PI, 2.0 * FUDE_ZOOM_SYMBOL_PI);
+    fude_zoom_sym_pt(_s, _w, _s->hh);
+    fude_zoom_sym_end(_s, 0u);
+    fude_zoom_sym_line(_s, -0.9, 1.0, 0.9, 1.0, 0u);
+}
+RDE_INTERNAL void fzs_cylinder_measure(fude_zoom_sym* _s) {
+    const f64 _d[8] = { -0.4, 1.0, -0.4, -0.85, 0.4, -0.85, 0.4, 1.0 };
+    fzs_open(_s, _d, 4u);
+    fude_zoom_sym_rect(_s, -0.8, -1.0, 0.8, -0.85, FZS_OUT);
+    fzs_graduations(_s, 0.4, -0.6, 0.8, 8u, 0.2);
+}
+RDE_INTERNAL void fzs_funnel(fude_zoom_sym* _s) {
+    const f64 _l[6] = { -1.0, 1.0, -0.15, -0.15, -0.15, -1.0 }, _r[6] = { 1.0, 1.0, 0.15, -0.15, 0.15, -1.0 };
+    fzs_open(_s, _l, 3u);
+    fzs_open(_s, _r, 3u);
+}
+RDE_INTERNAL void fzs_burner(fude_zoom_sym* _s) {
+    fude_zoom_sym_rect(_s, -0.22, -0.75, 0.22, 0.35, FZS_OUT);
+    fude_zoom_sym_rect(_s, -0.8, -1.0, 0.8, -0.75, FZS_OUT);
+    // its flame: a drop, round low, pointed at its top
+    fude_zoom_sym_begin(_s);
+    const u32 _n = 16u;
+    for(u32 _i = 0; _i <= _n; _i++) {
+        const f64 _t = (f64)_i / (f64)_n;
+        fude_zoom_sym_uv(_s, -0.88 * (1.0 - _t) * sqrt(_t), 0.38 + 0.62 * _t);
+    }
+    for(u32 _i = 1; _i < _n; _i++) {
+        const f64 _t = 1.0 - (f64)_i / (f64)_n;
+        fude_zoom_sym_uv(_s, 0.88 * (1.0 - _t) * sqrt(_t), 0.38 + 0.62 * _t);
+    }
+    fude_zoom_sym_end(_s, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 245, 150, 40, 230 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+}
+// A lens: its two faces as parabolas — bowed out (converging) or in.
+RDE_INTERNAL void fzs_lens(fude_zoom_sym* _s, b8 _convex) {
+    const u32 _n = 16u;
+    fude_zoom_sym_begin(_s);
+    for(u32 _i = 0; _i <= _n; _i++) {
+        const f64 _t = 1.0 - 2.0 * (f64)_i / (f64)_n;
+        fude_zoom_sym_uv(_s, _convex ? 1.0 - _t * _t : 0.35 + 0.65 * _t * _t, _t);
+    }
+    for(u32 _i = 0; _i <= _n; _i++) {
+        const f64 _t = -1.0 + 2.0 * (f64)_i / (f64)_n;
+        fude_zoom_sym_uv(_s, _convex ? -(1.0 - _t * _t) : -(0.35 + 0.65 * _t * _t), _t);
+    }
+    fude_zoom_sym_end(_s, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 150, 200, 240, 90 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+}
+RDE_INTERNAL void fzs_lens_convex(fude_zoom_sym* _s)  { fzs_lens(_s, true); }
+RDE_INTERNAL void fzs_lens_concave(fude_zoom_sym* _s) { fzs_lens(_s, false); }
+// A mirror: its face (flat, or bowed in) and strokes behind it.
+RDE_INTERNAL void fzs_mirror(fude_zoom_sym* _s, b8 _curved) {
+    const u32 _n = _curved ? 16u : 1u;
+    fude_zoom_v2 _face[17];
+    fude_zoom_sym_begin(_s);
+    for(u32 _i = 0; _i <= _n; _i++) {
+        const f64 _t = -1.0 + 2.0 * (f64)_i / (f64)_n;
+        _face[_i] = (fude_zoom_v2){ (_curved ? 0.6 * _t * _t - 0.3 : 0.0) * _s->hw, _t * _s->hh };
+        fude_zoom_sym_pt(_s, _face[_i].x, _face[_i].y);
+    }
+    fude_zoom_sym_end(_s, 0u);
+    for(u32 _k = 0; _k < 8u; _k++) {
+        const f64 _t = -0.9 + 1.8 * (f64)_k / 7.0;
+        const f64 _x = (_curved ? 0.6 * _t * _t - 0.3 : 0.0) * _s->hw, _y = _t * _s->hh;
+        fude_zoom_sym_begin(_s);
+        fude_zoom_sym_pt(_s, _x, _y);
+        fude_zoom_sym_pt(_s, _x + _s->hw * 0.4, _y - _s->hw * 0.4);
+        fude_zoom_sym_end(_s, 0u);
+    }
+}
+RDE_INTERNAL void fzs_mirror_flat(fude_zoom_sym* _s)   { fzs_mirror(_s, false); }
+RDE_INTERNAL void fzs_mirror_curved(fude_zoom_sym* _s) { fzs_mirror(_s, true); }
+RDE_INTERNAL void fzs_prism(fude_zoom_sym* _s) {
+    const f64 _d[6] = { -1, -1, 1, -1, 0, 1 };
+    fude_zoom_sym_poly(_s, _d, 3u, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 150, 200, 240, 90 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+}
+RDE_INTERNAL void fzs_lamp(fude_zoom_sym* _s) {
+    const f64 _r = FZS_R(_s);
+    fzs_round(_s, 0.0, 0.0, _r * 0.45, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 250, 220, 90, 255 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+    for(u32 _i = 0; _i < 8u; _i++) {
+        const f64 _a = 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 8.0;
+        fude_zoom_sym_begin(_s);
+        fude_zoom_sym_pt(_s, cos(_a) * _r * 0.6, sin(_a) * _r * 0.6);
+        fude_zoom_sym_pt(_s, cos(_a) * _r, sin(_a) * _r);
+        fude_zoom_sym_end(_s, 0u);
+    }
+}
+RDE_INTERNAL void fzs_atom(fude_zoom_sym* _s) {
+    // Three orbits (ellipses turned 60° from each other) round its nucleus.
+    for(u32 _k = 0; _k < 3u; _k++) {
+        const f64 _t = FUDE_ZOOM_SYMBOL_PI * (f64)_k / 3.0, _c = cos(_t), _sn = sin(_t);
+        fude_zoom_sym_begin(_s);
+        for(u32 _i = 0; _i < 48u; _i++) {
+            const f64 _a = 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 48.0;
+            const f64 _x = cos(_a) * _s->hw, _y = sin(_a) * _s->hh * 0.32;
+            fude_zoom_sym_pt(_s, _x * _c - _y * _sn * (_s->hh / _s->hw), _x * _sn * (_s->hh / _s->hw) + _y * _c);
+        }
+        fude_zoom_sym_end(_s, FZS_LOOP);
+    }
+    fzs_round(_s, 0.0, 0.0, FZS_R(_s) * 0.16, FZS_SOLID);
+}
+RDE_INTERNAL void fzs_benzene(fude_zoom_sym* _s) {
+    fude_zoom_sym_regular(_s, 6u, FUDE_ZOOM_SYMBOL_PI * 0.5, FZS_OUT);
+    fude_zoom_sym_ellipse(_s, 0.0, 0.0, _s->hw * 0.55, _s->hh * 0.55, FZS_LOOP);
+}
+RDE_INTERNAL void fzs_cell(fude_zoom_sym* _s) {
+    fude_zoom_sym_ellipse(_s, 0.0, 0.0, _s->hw, _s->hh, FZS_OUT);
+    fude_zoom_sym_ellipse(_s, _s->hw * 0.12, _s->hh * 0.05, _s->hw * 0.28, _s->hh * 0.3, FZS_LOOP);
+    fzs_tint(_s, (rde_color){ 170, 120, 220, 110 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+    const f64 _dots[8] = { -0.55, 0.3, -0.45, -0.4, 0.55, -0.35, 0.6, 0.35 };
+    for(u32 _i = 0; _i < 4u; _i++) {
+        fude_zoom_sym_ellipse(_s, _dots[2u * _i] * _s->hw, _dots[2u * _i + 1u] * _s->hh, _s->hw * 0.08, _s->hh * 0.06, FZS_LOOP);
+    }
+}
+RDE_INTERNAL void fzs_dna(fude_zoom_sym* _s) {
+    // Two strands round each other along it, rungs between them.
+    for(u32 _k = 0; _k < 2u; _k++) {
+        fude_zoom_sym_begin(_s);
+        for(u32 _i = 0; _i <= 48u; _i++) {
+            const f64 _t = (f64)_i / 48.0;
+            fude_zoom_sym_uv(_s, -1.0 + 2.0 * _t, 0.85 * sin(_t * 4.0 * FUDE_ZOOM_SYMBOL_PI + (_k == 0u ? 0.0 : FUDE_ZOOM_SYMBOL_PI)));
+        }
+        fude_zoom_sym_end(_s, 0u);
+    }
+    for(u32 _i = 1; _i < 16u; _i++) {
+        const f64 _t = (f64)_i / 16.0, _v = 0.85 * sin(_t * 4.0 * FUDE_ZOOM_SYMBOL_PI);
+        if(fabs(_v) > 0.15) {
+            fude_zoom_sym_line(_s, -1.0 + 2.0 * _t, _v, -1.0 + 2.0 * _t, -_v, 0u);
+        }
+    }
+}
+RDE_INTERNAL void fzs_thermometer(fude_zoom_sym* _s) {
+    const f64 _w = _s->hw * 0.35, _b = fmin(_s->hw * 0.75, _s->hh * 0.3);
+    fude_zoom_sym_rounded(_s, -_w, -_s->hh + _b, _w, _s->hh, _w, FZS_OUT);
+    fzs_round(_s, 0.0, -_s->hh + _b, _b, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 225, 70, 60, 255 }, (rde_color){ 0, 0, 0, 0 }, 0.0f);
+    fude_zoom_sym_rect(_s, -0.15, -1.0 + _b / _s->hh, 0.15, 0.2, FZS_SOLID);
+    fzs_tint(_s, (rde_color){ 225, 70, 60, 255 }, (rde_color){ 225, 70, 60, 255 }, 0.0f);
+    fzs_graduations(_s, -0.35, -0.2, 0.85, 6u, 0.25);
+}
+
+// Stamps, in their own colours: a thick stroke where a pen would write one.
+#define FZS_GREEN  ((rde_color){ 60, 170, 90, 255 })
+#define FZS_RED    ((rde_color){ 220, 70, 60, 255 })
+#define FZS_AMBER  ((rde_color){ 245, 170, 40, 255 })
+#define FZS_BLUE   ((rde_color){ 70, 130, 230, 255 })
+#define FZS_GOLD   ((rde_color){ 245, 195, 50, 255 })
+#define FZS_DARK   ((rde_color){ 40, 40, 44, 255 })
+#define FZS_WHITE  ((rde_color){ 255, 255, 255, 255 })
+#define FZS_NONE   ((rde_color){ 0, 0, 0, 0 })
+RDE_INTERNAL void fzs_stroke(fude_zoom_sym* _s, const f64* _uv, u32 _n, rde_color _c, f64 _w) {
+    fude_zoom_sym_poly(_s, _uv, _n, 0u);
+    fzs_tint(_s, FZS_NONE, _c, (f32)(_w * FZS_R(_s)));
+}
+RDE_INTERNAL void fzs_stamp_check(fude_zoom_sym* _s) {
+    const f64 _d[6] = { -0.75, 0.0, -0.25, -0.6, 0.8, 0.7 };
+    fzs_stroke(_s, _d, 3u, FZS_GREEN, 0.22);
+}
+RDE_INTERNAL void fzs_stamp_cross(fude_zoom_sym* _s) {
+    const f64 _a[4] = { -0.7, -0.7, 0.7, 0.7 }, _b[4] = { -0.7, 0.7, 0.7, -0.7 };
+    fzs_stroke(_s, _a, 2u, FZS_RED, 0.22);
+    fzs_stroke(_s, _b, 2u, FZS_RED, 0.22);
+}
+RDE_INTERNAL void fzs_stamp_warning(fude_zoom_sym* _s) {
+    const f64 _d[6] = { -1.0, -0.9, 1.0, -0.9, 0.0, 1.0 };
+    fude_zoom_sym_poly(_s, _d, 3u, FZS_OUT);
+    fzs_tint(_s, FZS_AMBER, FZS_DARK, (f32)(0.06 * FZS_R(_s)));
+    const f64 _bar[4] = { 0.0, 0.45, 0.0, -0.3 };
+    fzs_stroke(_s, _bar, 2u, FZS_DARK, 0.15);
+    fzs_round(_s, 0.0, -_s->hh * 0.6, FZS_R(_s) * 0.09, FZS_SOLID);
+    fzs_tint(_s, FZS_DARK, FZS_DARK, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_question(fude_zoom_sym* _s) {
+    fude_zoom_sym_begin(_s);
+    const f64 _r = 0.42;
+    for(u32 _i = 0; _i <= 20u; _i++) {
+        const f64 _a = FUDE_ZOOM_SYMBOL_PI * (1.15 - 1.55 * (f64)_i / 20.0);
+        fude_zoom_sym_uv(_s, cos(_a) * _r * 1.2, 0.42 + sin(_a) * _r);
+    }
+    fude_zoom_sym_uv(_s, 0.0, -0.05);
+    fude_zoom_sym_uv(_s, 0.0, -0.3);
+    fude_zoom_sym_end(_s, 0u);
+    fzs_tint(_s, FZS_NONE, FZS_BLUE, (f32)(0.17 * FZS_R(_s)));
+    fzs_round(_s, 0.0, -_s->hh * 0.72, FZS_R(_s) * 0.13, FZS_SOLID);
+    fzs_tint(_s, FZS_BLUE, FZS_BLUE, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_exclamation(fude_zoom_sym* _s) {
+    const f64 _bar[4] = { 0.0, 0.85, 0.0, -0.3 };
+    fzs_stroke(_s, _bar, 2u, FZS_RED, 0.4);
+    fzs_round(_s, 0.0, -_s->hh * 0.72, FZS_R(_s) * 0.13, FZS_SOLID);
+    fzs_tint(_s, FZS_RED, FZS_RED, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_info(fude_zoom_sym* _s) {
+    fzs_round(_s, 0.0, 0.0, FZS_R(_s), FZS_OUT);
+    fzs_tint(_s, FZS_BLUE, FZS_BLUE, 0.0f);
+    const f64 _bar[4] = { 0.0, 0.15, 0.0, -0.6 };
+    fzs_stroke(_s, _bar, 2u, FZS_WHITE, 0.16);
+    fzs_round(_s, 0.0, _s->hh * 0.45, FZS_R(_s) * 0.11, FZS_SOLID);
+    fzs_tint(_s, FZS_WHITE, FZS_WHITE, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_star(fude_zoom_sym* _s) {
+    fzs_star_of(_s, 5u, 0.42);
+    fzs_tint(_s, FZS_GOLD, (rde_color){ 210, 150, 30, 255 }, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_heart(fude_zoom_sym* _s) {
+    fzs_heart(_s);
+    fzs_tint(_s, FZS_RED, FZS_RED, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_bulb(fude_zoom_sym* _s) {
+    // Its glass round over its neck, and its base's bands.
+    const f64 _r = fmin(_s->hw * 0.62, _s->hh * 0.5), _cy = _s->hh - _r - _s->hh * 0.08, _neck = _r * 0.45;
+    const f64 _a = asin(_neck / _r);
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, -_neck, -_s->hh * 0.35);
+    fude_zoom_sym_arc_pts(_s, 0.0, _cy, _r, _r, FUDE_ZOOM_SYMBOL_PI * 1.5 - (FUDE_ZOOM_SYMBOL_PI * 0.5 - _a) * 0.6, -FUDE_ZOOM_SYMBOL_PI * 0.5 + (FUDE_ZOOM_SYMBOL_PI * 0.5 - _a) * 0.6);
+    fude_zoom_sym_pt(_s, _neck, -_s->hh * 0.35);
+    fude_zoom_sym_end(_s, FZS_OUT);
+    fzs_tint(_s, (rde_color){ 252, 225, 100, 255 }, FZS_DARK, 0.0f);
+    for(u32 _i = 0; _i < 3u; _i++) {
+        const f64 _y = -_s->hh * (0.47 + 0.15 * (f64)_i);
+        fude_zoom_sym_begin(_s);
+        fude_zoom_sym_pt(_s, -_neck, _y);
+        fude_zoom_sym_pt(_s, _neck, _y);
+        fude_zoom_sym_end(_s, 0u);
+        fzs_tint(_s, FZS_NONE, (rde_color){ 120, 120, 128, 255 }, (f32)(0.07 * FZS_R(_s)));
+    }
+}
+RDE_INTERNAL void fzs_stamp_flag(fude_zoom_sym* _s) {
+    fude_zoom_sym_line(_s, -0.8, -1.0, -0.8, 1.0, 0u);
+    fzs_tint(_s, FZS_NONE, FZS_NONE, (f32)(0.07 * FZS_R(_s)));   // (its pole in its ink: seen on any paper)
+    const f64 _d[8] = { -0.8, 1.0, 0.9, 0.62, -0.8, 0.2, -0.8, 1.0 };
+    fude_zoom_sym_poly(_s, _d, 3u, FZS_OUT);
+    fzs_tint(_s, FZS_RED, FZS_RED, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_pin(fude_zoom_sym* _s) {
+    // A drop upside down: a round over a point; a hole in it.
+    const f64 _r = fmin(_s->hw, _s->hh * 0.62), _cy = _s->hh - _r;
+    const f64 _a = asin(fmin(_r / (_cy + _s->hh), 1.0));
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, 0.0, -_s->hh);
+    fude_zoom_sym_arc_pts(_s, 0.0, _cy, _r, _r, -_a, FUDE_ZOOM_SYMBOL_PI + _a);
+    fude_zoom_sym_end(_s, FZS_OUT);
+    fzs_tint(_s, FZS_RED, FZS_RED, 0.0f);
+    fzs_round(_s, 0.0, _cy, _r * 0.38, FZS_SOLID);
+    fzs_tint(_s, FZS_WHITE, FZS_WHITE, 0.0f);
+}
+RDE_INTERNAL void fzs_stamp_clock(fude_zoom_sym* _s) {
+    const f64 _r = FZS_R(_s);
+    fzs_round(_s, 0.0, 0.0, _r, FZS_OUT);
+    for(u32 _i = 0; _i < 12u; _i++) {
+        const f64 _a = 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 12.0;
+        fude_zoom_sym_begin(_s);
+        fude_zoom_sym_pt(_s, cos(_a) * _r * 0.85, sin(_a) * _r * 0.85);
+        fude_zoom_sym_pt(_s, cos(_a) * _r * 0.95, sin(_a) * _r * 0.95);
+        fude_zoom_sym_end(_s, 0u);
+    }
+    fude_zoom_sym_begin(_s);
+    fude_zoom_sym_pt(_s, 0.0, _r * 0.6); fude_zoom_sym_pt(_s, 0.0, 0.0); fude_zoom_sym_pt(_s, _r * 0.42, -_r * 0.2);
+    fude_zoom_sym_end(_s, 0u);
+    fzs_tint(_s, FZS_NONE, FZS_NONE, (f32)(0.07 * _r));
+}
+
+// Brackets (0.1.85): each drawn across from its back (its spine, the side a "(" bulges to) to its front (its open
+// side) — t from 0 to 1 — and _h each way along it from its middle; lying along x (_across: under or over a row).
+typedef enum {
+    FZB_ROUND = 0, FZB_SQUARE, FZB_CURLY, FZB_ANGLE, FZB_BAR, FZB_DOUBLE, FZB_FLOOR, FZB_CEILING,
+} FZB_;
+
+typedef struct {
+    fude_zoom_sym* s;
+    f64            back, front;   // where t is 0 and 1 (x; y when it lies across)
+    f64            h;
+    b8             across;
+} fzs_bk;
+
+RDE_INTERNAL void fzs_bk_pt(const fzs_bk* _k, f64 _t, f64 _along) {
+    const f64 _c = _k->back + (_k->front - _k->back) * _t;
+    if(_k->across) {
+        fude_zoom_sym_pt(_k->s, _along, _c);
+    } else {
+        fude_zoom_sym_pt(_k->s, _c, _along);
+    }
+}
+
+RDE_INTERNAL void fzs_bk_line(const fzs_bk* _k, f64 _t0, f64 _a0, f64 _t1, f64 _a1) {
+    fude_zoom_sym_begin(_k->s);
+    fzs_bk_pt(_k, _t0, _a0);
+    fzs_bk_pt(_k, _t1, _a1);
+    fude_zoom_sym_end(_k->s, 0u);
+}
+
+// A quarter of an ellipse round (t, along) _rt across and _ra along, from angle _a0 to _a1 (_n steps; its first point
+// left out when _from is 1: where the one before it ended).
+RDE_INTERNAL void fzs_bk_arc(const fzs_bk* _k, f64 _t, f64 _along, f64 _rt, f64 _ra, f64 _a0, f64 _a1, u32 _n, u32 _from) {
+    for(u32 _i = _from; _i <= _n; _i++) {
+        const f64 _a = _a0 + (_a1 - _a0) * (f64)_i / (f64)_n;
+        fzs_bk_pt(_k, _t + cos(_a) * _rt, _along + sin(_a) * _ra);
+    }
+}
+
+RDE_INTERNAL void fzs_bracket(fude_zoom_sym* _s, u8 _kind, f64 _back, f64 _front, f64 _h, b8 _across) {
+    const fzs_bk _k = { _s, _back, _front, _h, _across };
+    const f64 _pi = FUDE_ZOOM_SYMBOL_PI, _h2 = _pi * 0.5;
+    const f64 _wide = fabs(_front - _back);
+    const u32 _n = _s->segments / 4u < 6u ? 6u : _s->segments / 4u;
+    switch(_kind) {
+        case FZB_ROUND: {
+            // An arc of a circle's sixth, as wide as it is (the taller, the flatter: as a typeset one stretches).
+            const f64 _a = _pi / 3.0;
+            fude_zoom_sym_begin(_s);
+            for(u32 _i = 0; _i <= 2u * _n; _i++) {
+                const f64 _p = -_a + 2.0 * _a * (f64)_i / (f64)(2u * _n);
+                fzs_bk_pt(&_k, (1.0 - cos(_p)) / (1.0 - cos(_a)), _h * sin(_p) / sin(_a));
+            }
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        }
+        case FZB_SQUARE:
+            fude_zoom_sym_begin(_s);
+            fzs_bk_pt(&_k, 1.0, _h); fzs_bk_pt(&_k, 0.0, _h); fzs_bk_pt(&_k, 0.0, -_h); fzs_bk_pt(&_k, 1.0, -_h);
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        case FZB_CURLY: {
+            // Its spine halfway across; its curls as round as its width lets them, however long it is.
+            const f64 _ra = fmin(_wide * 0.7, _h * 0.25);
+            fude_zoom_sym_begin(_s);
+            fzs_bk_arc(&_k, 1.0, _h - _ra, 0.5, _ra, _h2, _pi, _n, 0u);
+            fzs_bk_arc(&_k, 0.0, _ra, 0.5, _ra, 0.0, -_h2, _n, 0u);
+            fzs_bk_arc(&_k, 0.0, -_ra, 0.5, _ra, _h2, 0.0, _n, 1u);
+            fzs_bk_arc(&_k, 1.0, -_h + _ra, 0.5, _ra, _pi, _pi + _h2, _n, 0u);
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        }
+        case FZB_ANGLE:
+            fude_zoom_sym_begin(_s);
+            fzs_bk_pt(&_k, 1.0, _h); fzs_bk_pt(&_k, 0.0, 0.0); fzs_bk_pt(&_k, 1.0, -_h);
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        case FZB_BAR:
+            fzs_bk_line(&_k, 0.5, _h, 0.5, -_h);
+            break;
+        case FZB_DOUBLE:
+            fzs_bk_line(&_k, 0.2, _h, 0.2, -_h);
+            fzs_bk_line(&_k, 0.8, _h, 0.8, -_h);
+            break;
+        case FZB_FLOOR:
+            fude_zoom_sym_begin(_s);
+            fzs_bk_pt(&_k, 0.0, _h); fzs_bk_pt(&_k, 0.0, -_h); fzs_bk_pt(&_k, 1.0, -_h);
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        case FZB_CEILING:
+            fude_zoom_sym_begin(_s);
+            fzs_bk_pt(&_k, 1.0, _h); fzs_bk_pt(&_k, 0.0, _h); fzs_bk_pt(&_k, 0.0, -_h);
+            fude_zoom_sym_end(_s, 0u);
+            break;
+        default:
+            break;
+    }
+}
+
+// One on its own, as tall as its box, a little in from its sides: its back on the left (a "("), or on the right.
+RDE_INTERNAL void fzs_bracket_left(fude_zoom_sym* _s, u8 _kind)  { fzs_bracket(_s, _kind, -_s->hw * 0.7, _s->hw * 0.7, _s->hh, false); }
+RDE_INTERNAL void fzs_bracket_right(fude_zoom_sym* _s, u8 _kind) { fzs_bracket(_s, _kind, _s->hw * 0.7, -_s->hw * 0.7, _s->hh, false); }
+RDE_INTERNAL void fzs_paren_l(fude_zoom_sym* _s)   { fzs_bracket_left(_s, FZB_ROUND); }
+RDE_INTERNAL void fzs_paren_r(fude_zoom_sym* _s)   { fzs_bracket_right(_s, FZB_ROUND); }
+RDE_INTERNAL void fzs_square_l(fude_zoom_sym* _s)  { fzs_bracket_left(_s, FZB_SQUARE); }
+RDE_INTERNAL void fzs_square_r(fude_zoom_sym* _s)  { fzs_bracket_right(_s, FZB_SQUARE); }
+RDE_INTERNAL void fzs_curly_l(fude_zoom_sym* _s)   { fzs_bracket_left(_s, FZB_CURLY); }
+RDE_INTERNAL void fzs_curly_r(fude_zoom_sym* _s)   { fzs_bracket_right(_s, FZB_CURLY); }
+RDE_INTERNAL void fzs_angle_l(fude_zoom_sym* _s)   { fzs_bracket_left(_s, FZB_ANGLE); }
+RDE_INTERNAL void fzs_angle_r(fude_zoom_sym* _s)   { fzs_bracket_right(_s, FZB_ANGLE); }
+RDE_INTERNAL void fzs_vbar(fude_zoom_sym* _s)      { fzs_bracket_left(_s, FZB_BAR); }
+RDE_INTERNAL void fzs_double_bar(fude_zoom_sym* _s) { fzs_bracket_left(_s, FZB_DOUBLE); }
+RDE_INTERNAL void fzs_floor_l(fude_zoom_sym* _s)   { fzs_bracket_left(_s, FZB_FLOOR); }
+RDE_INTERNAL void fzs_floor_r(fude_zoom_sym* _s)   { fzs_bracket_right(_s, FZB_FLOOR); }
+RDE_INTERNAL void fzs_ceiling_l(fude_zoom_sym* _s) { fzs_bracket_left(_s, FZB_CEILING); }
+RDE_INTERNAL void fzs_ceiling_r(fude_zoom_sym* _s) { fzs_bracket_right(_s, FZB_CEILING); }
+// A brace under a row (its point down, to its text under it), or over one.
+RDE_INTERNAL void fzs_brace_under(fude_zoom_sym* _s) { fzs_bracket(_s, FZB_CURLY, -_s->hh * 0.7, _s->hh * 0.7, _s->hw, true); }
+RDE_INTERNAL void fzs_brace_over(fude_zoom_sym* _s)  { fzs_bracket(_s, FZB_CURLY, _s->hh * 0.7, -_s->hh * 0.7, _s->hw, true); }
+
+// A pair round a text: each as wide as its height asks (a typeset one's), never more than a third of the box.
+RDE_INTERNAL f64 fzs_pair_width(f64 _hw, f64 _hh) {
+    return fmin(_hw * 0.3, fmax(_hh * 0.22, 6.0));
+}
+RDE_INTERNAL void fzs_pair(fude_zoom_sym* _s, u8 _kind) {
+    const f64 _bw = fzs_pair_width(_s->hw, _s->hh);
+    fzs_bracket(_s, _kind, -_s->hw, -_s->hw + _bw, _s->hh, false);
+    fzs_bracket(_s, _kind, _s->hw, _s->hw - _bw, _s->hh, false);
+}
+RDE_INTERNAL void fzs_pair_round(fude_zoom_sym* _s)  { fzs_pair(_s, FZB_ROUND); }
+RDE_INTERNAL void fzs_pair_square(fude_zoom_sym* _s) { fzs_pair(_s, FZB_SQUARE); }
+RDE_INTERNAL void fzs_pair_curly(fude_zoom_sym* _s)  { fzs_pair(_s, FZB_CURLY); }
+RDE_INTERNAL void fzs_pair_angle(fude_zoom_sym* _s)  { fzs_pair(_s, FZB_ANGLE); }
+RDE_INTERNAL void fzs_pair_bar(fude_zoom_sym* _s)    { fzs_pair(_s, FZB_BAR); }
+RDE_INTERNAL void fzs_pair_double(fude_zoom_sym* _s) { fzs_pair(_s, FZB_DOUBLE); }
+
 #define FZS(_id, _name, _fam, _w, _h, _place, _boxes, _hull, _fn) \
     { { _id, FUDE_ZOOM_SYMBOL_FAMILY_##_fam, _w, _h, FUDE_ZOOM_SYMBOL_TEXT_##_place, _boxes, _hull }, _fn }   // (_name: page.c's, in the same order)
 
@@ -1516,6 +2242,107 @@ RDE_INTERNAL const fude_zoom_sym_entry FUDE_ZOOM_SYMBOLS[] = {
     FZS("phototransistor",     ZOOM_SYM_E_PHOTOTRANS,  ELECTRONICS, 60, 60, BELOW, 1, false, fzs_part_phototrans),
     FZS("speaker",             ZOOM_SYM_E_SPEAKER,     ELECTRONICS, 60, 40, BELOW, 1, true, fzs_part_speaker),
     FZS("CD4017",              ZOOM_SYM_C_4017,        CHIPS, 200, 180, INSIDE, 1, true, fzs_part_cd4017),
+    // (0.1.85: brackets, on their own and in pairs)
+    FZS("left parenthesis",    ZOOM_SYM_B_PAREN_L,     BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_paren_l),
+    FZS("right parenthesis",   ZOOM_SYM_B_PAREN_R,     BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_paren_r),
+    FZS("left square bracket", ZOOM_SYM_B_SQUARE_L,    BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_square_l),
+    FZS("right square bracket", ZOOM_SYM_B_SQUARE_R,   BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_square_r),
+    FZS("left brace",          ZOOM_SYM_B_CURLY_L,     BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_curly_l),
+    FZS("right brace",         ZOOM_SYM_B_CURLY_R,     BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_curly_r),
+    FZS("left angle bracket",  ZOOM_SYM_B_ANGLE_L,     BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_angle_l),
+    FZS("right angle bracket", ZOOM_SYM_B_ANGLE_R,     BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_angle_r),
+    FZS("vertical bar",        ZOOM_SYM_B_BAR,         BRACKETS, 20, 150, OUT_RIGHT, 1, true, fzs_vbar),
+    FZS("double bar",          ZOOM_SYM_B_DOUBLE,      BRACKETS, 24, 150, OUT_RIGHT, 1, true, fzs_double_bar),
+    FZS("left floor",          ZOOM_SYM_B_FLOOR_L,     BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_floor_l),
+    FZS("right floor",         ZOOM_SYM_B_FLOOR_R,     BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_floor_r),
+    FZS("left ceiling",        ZOOM_SYM_B_CEILING_L,   BRACKETS, 30, 150, OUT_LEFT, 1, true, fzs_ceiling_l),
+    FZS("right ceiling",       ZOOM_SYM_B_CEILING_R,   BRACKETS, 30, 150, OUT_RIGHT, 1, true, fzs_ceiling_r),
+    FZS("under brace",         ZOOM_SYM_B_UNDER,       BRACKETS, 220, 30, BELOW, 1, true, fzs_brace_under),
+    FZS("over brace",          ZOOM_SYM_B_OVER,        BRACKETS, 220, 30, ABOVE, 1, true, fzs_brace_over),
+    FZS("parentheses",         ZOOM_SYM_B_PARENS,      BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_round),
+    FZS("square brackets",     ZOOM_SYM_B_SQUARES,     BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_square),
+    FZS("braces",              ZOOM_SYM_B_CURLIES,     BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_curly),
+    FZS("angle brackets",      ZOOM_SYM_B_ANGLES,      BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_angle),
+    FZS("bars",                ZOOM_SYM_B_BARS,        BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_bar),
+    FZS("double bars",         ZOOM_SYM_B_DOUBLES,     BRACKETS, 180, 80, INSIDE, 1, true, fzs_pair_double),
+    // (0.1.85: plain shapes)
+    FZS("rectangle",           ZOOM_SYM_P_RECT,        SHAPES, 120, 76, INSIDE, 1, false, fzs_rectangle),
+    FZS("rounded rectangle",   ZOOM_SYM_P_ROUNDED,     SHAPES, 120, 76, INSIDE, 1, false, fzs_round_rect),
+    FZS("circle",              ZOOM_SYM_P_CIRCLE,      SHAPES, 90, 90, INSIDE, 1, false, fzs_circle),
+    FZS("diamond",             ZOOM_SYM_P_DIAMOND,     SHAPES, 110, 90, INSIDE, 1, false, fzs_decision),
+    FZS("parallelogram",       ZOOM_SYM_P_PARALLEL,    SHAPES, 130, 70, INSIDE, 1, false, fzs_parallelogram),
+    FZS("trapezoid",           ZOOM_SYM_P_TRAPEZOID,   SHAPES, 130, 70, INSIDE, 1, false, fzs_trapezoid),
+    FZS("isosceles triangle",  ZOOM_SYM_P_TRIANGLE,    SHAPES, 100, 86, INSIDE, 1, false, fzs_triangle),
+    FZS("right triangle",      ZOOM_SYM_P_RIGHT_TRI,   SHAPES, 100, 86, INSIDE, 1, false, fzs_right_triangle),
+    FZS("pentagon",            ZOOM_SYM_P_PENTAGON,    SHAPES, 100, 96, INSIDE, 1, false, fzs_pentagon),
+    FZS("regular hexagon",     ZOOM_SYM_P_HEXAGON,     SHAPES, 110, 96, INSIDE, 1, false, fzs_hexagon),
+    FZS("octagon",             ZOOM_SYM_P_OCTAGON,     SHAPES, 96, 96, INSIDE, 1, false, fzs_octagon),
+    FZS("star",                ZOOM_SYM_P_STAR,        SHAPES, 100, 96, INSIDE, 1, false, fzs_star),
+    FZS("burst",               ZOOM_SYM_P_BURST,       SHAPES, 110, 110, INSIDE, 1, false, fzs_burst),
+    FZS("cross",               ZOOM_SYM_P_CROSS,       SHAPES, 90, 90, INSIDE, 1, false, fzs_cross),
+    FZS("heart",               ZOOM_SYM_P_HEART,       SHAPES, 100, 90, INSIDE, 1, false, fzs_heart),
+    FZS("cloud shape",         ZOOM_SYM_P_CLOUD,       SHAPES, 150, 96, INSIDE, 1, false, fzs_cloud),
+    FZS("speech bubble",       ZOOM_SYM_P_SPEECH,      SHAPES, 150, 100, INSIDE, 1, false, fzs_speech),
+    FZS("thought bubble",      ZOOM_SYM_P_THOUGHT,     SHAPES, 150, 110, INSIDE, 1, false, fzs_thought),
+    FZS("arc",                 ZOOM_SYM_P_ARC,         SHAPES, 120, 60, BELOW, 1, true, fzs_arc),
+    FZS("pie",                 ZOOM_SYM_P_PIE,         SHAPES, 96, 96, BELOW, 1, false, fzs_pie),
+    FZS("ring",                ZOOM_SYM_P_RING,        SHAPES, 96, 96, BELOW, 1, false, fzs_ring),
+    FZS("cylinder",            ZOOM_SYM_P_CYLINDER,    SHAPES, 90, 110, INSIDE, 1, false, fzs_cylinder),
+    FZS("cube",                ZOOM_SYM_P_CUBE,        SHAPES, 110, 110, INSIDE, 1, false, fzs_cube),
+    FZS("block arrow",         ZOOM_SYM_P_ARROW,       SHAPES, 150, 70, INSIDE, 1, false, fzs_block_arrow),
+    FZS("double block arrow",  ZOOM_SYM_P_DOUBLE_ARROW, SHAPES, 170, 70, INSIDE, 1, false, fzs_double_arrow),
+    FZS("curved arrow",        ZOOM_SYM_P_CURVED_ARROW, SHAPES, 120, 90, BELOW, 1, false, fzs_curved_arrow),
+    FZS("chevron",             ZOOM_SYM_P_CHEVRON,     SHAPES, 130, 70, INSIDE, 1, false, fzs_chevron),
+    // (0.1.86: Venn diagrams, charts, geometry's marks, science, stamps)
+    FZS("venn 2",              ZOOM_SYM_P_VENN2,       SHAPES, 240, 150, REGIONS, 3, true, fzs_venn2),
+    FZS("venn 3",              ZOOM_SYM_P_VENN3,       SHAPES, 220, 210, REGIONS, 4, true, fzs_venn3),
+    FZS("bar chart",           ZOOM_SYM_K_BARS,        CHARTS, 320, 220, CORNER, 1, true, fzs_graph),
+    FZS("line chart",          ZOOM_SYM_K_LINES,       CHARTS, 320, 220, CORNER, 1, true, fzs_graph),
+    FZS("pie chart",           ZOOM_SYM_K_PIE,         CHARTS, 280, 240, CORNER, 1, true, fzs_graph),
+    FZS("angle mark",          ZOOM_SYM_G_ANGLE,       GEOMETRY, 90, 70, BELOW, 1, true, fzs_angle_mark),
+    FZS("right angle mark",    ZOOM_SYM_G_RIGHT,       GEOMETRY, 80, 80, BELOW, 1, true, fzs_right_angle_mark),
+    FZS("equal mark",          ZOOM_SYM_G_TICK1,       GEOMETRY, 8, 24, BELOW, 1, true, fzs_tick1),
+    FZS("double equal mark",   ZOOM_SYM_G_TICK2,       GEOMETRY, 16, 24, BELOW, 1, true, fzs_tick2),
+    FZS("triple equal mark",   ZOOM_SYM_G_TICK3,       GEOMETRY, 22, 24, BELOW, 1, true, fzs_tick3),
+    FZS("parallel mark",       ZOOM_SYM_G_PAR1,        GEOMETRY, 16, 20, BELOW, 1, true, fzs_parallel1),
+    FZS("double parallel mark", ZOOM_SYM_G_PAR2,       GEOMETRY, 26, 20, BELOW, 1, true, fzs_parallel2),
+    FZS("point",               ZOOM_SYM_G_POINT,       GEOMETRY, 16, 16, OUT_RIGHT, 1, true, fzs_point),
+    FZS("segment",             ZOOM_SYM_G_SEGMENT,     GEOMETRY, 160, 14, BELOW, 1, true, fzs_segment),
+    FZS("ray",                 ZOOM_SYM_G_RAY,         GEOMETRY, 160, 14, BELOW, 1, true, fzs_ray),
+    FZS("line",                ZOOM_SYM_G_LINE,        GEOMETRY, 180, 14, BELOW, 1, true, fzs_line_both),
+    FZS("vector",              ZOOM_SYM_G_VECTOR,      GEOMETRY, 120, 70, ABOVE, 1, true, fzs_vector),
+    FZS("circle and radius",   ZOOM_SYM_G_RADIUS,      GEOMETRY, 120, 120, BELOW, 1, false, fzs_circle_radius),
+    FZS("protractor",          ZOOM_SYM_G_PROTRACTOR,  GEOMETRY, 220, 110, BELOW, 1, false, fzs_protractor),
+    FZS("beaker",              ZOOM_SYM_S_BEAKER,      SCIENCE, 80, 100, BELOW, 1, true, fzs_beaker),
+    FZS("flask",               ZOOM_SYM_S_FLASK,       SCIENCE, 90, 110, BELOW, 1, true, fzs_flask),
+    FZS("round flask",         ZOOM_SYM_S_ROUND_FLASK, SCIENCE, 90, 120, BELOW, 1, true, fzs_round_flask),
+    FZS("test tube",           ZOOM_SYM_S_TUBE,        SCIENCE, 30, 120, BELOW, 1, true, fzs_test_tube),
+    FZS("measuring cylinder",  ZOOM_SYM_S_CYLINDER,    SCIENCE, 50, 140, BELOW, 1, true, fzs_cylinder_measure),
+    FZS("funnel",              ZOOM_SYM_S_FUNNEL,      SCIENCE, 90, 100, BELOW, 1, true, fzs_funnel),
+    FZS("burner",              ZOOM_SYM_S_BURNER,      SCIENCE, 60, 120, BELOW, 1, true, fzs_burner),
+    FZS("convex lens",         ZOOM_SYM_S_CONVEX,      SCIENCE, 36, 130, BELOW, 1, false, fzs_lens_convex),
+    FZS("concave lens",        ZOOM_SYM_S_CONCAVE,     SCIENCE, 40, 130, BELOW, 1, false, fzs_lens_concave),
+    FZS("mirror",              ZOOM_SYM_S_MIRROR,      SCIENCE, 30, 130, BELOW, 1, true, fzs_mirror_flat),
+    FZS("curved mirror",       ZOOM_SYM_S_MIRROR2,     SCIENCE, 40, 130, BELOW, 1, true, fzs_mirror_curved),
+    FZS("prism",               ZOOM_SYM_S_PRISM,       SCIENCE, 110, 100, BELOW, 1, false, fzs_prism),
+    FZS("light source",        ZOOM_SYM_S_LAMP,        SCIENCE, 80, 80, BELOW, 1, true, fzs_lamp),
+    FZS("atom",                ZOOM_SYM_S_ATOM,        SCIENCE, 110, 110, BELOW, 1, true, fzs_atom),
+    FZS("benzene ring",        ZOOM_SYM_S_BENZENE,     SCIENCE, 90, 100, BELOW, 1, false, fzs_benzene),
+    FZS("cell",                ZOOM_SYM_S_CELL,        SCIENCE, 140, 100, BELOW, 1, false, fzs_cell),
+    FZS("DNA",                 ZOOM_SYM_S_DNA,         SCIENCE, 180, 60, BELOW, 1, true, fzs_dna),
+    FZS("thermometer",         ZOOM_SYM_S_THERMO,      SCIENCE, 36, 130, BELOW, 1, true, fzs_thermometer),
+    FZS("check stamp",         ZOOM_SYM_T_CHECK,       STAMPS, 60, 60, BELOW, 1, true, fzs_stamp_check),
+    FZS("cross stamp",         ZOOM_SYM_T_CROSS,       STAMPS, 60, 60, BELOW, 1, true, fzs_stamp_cross),
+    FZS("warning stamp",       ZOOM_SYM_T_WARNING,     STAMPS, 66, 60, BELOW, 1, false, fzs_stamp_warning),
+    FZS("question stamp",      ZOOM_SYM_T_QUESTION,    STAMPS, 46, 66, BELOW, 1, true, fzs_stamp_question),
+    FZS("exclamation stamp",   ZOOM_SYM_T_EXCLAIM,     STAMPS, 30, 66, BELOW, 1, true, fzs_stamp_exclamation),
+    FZS("info stamp",          ZOOM_SYM_T_INFO,        STAMPS, 60, 60, BELOW, 1, false, fzs_stamp_info),
+    FZS("star stamp",          ZOOM_SYM_T_STAR,        STAMPS, 64, 62, BELOW, 1, false, fzs_stamp_star),
+    FZS("heart stamp",         ZOOM_SYM_T_HEART,       STAMPS, 62, 56, BELOW, 1, false, fzs_stamp_heart),
+    FZS("idea stamp",          ZOOM_SYM_T_BULB,        STAMPS, 50, 70, BELOW, 1, true, fzs_stamp_bulb),
+    FZS("flag stamp",          ZOOM_SYM_T_FLAG,        STAMPS, 54, 66, BELOW, 1, true, fzs_stamp_flag),
+    FZS("pin stamp",           ZOOM_SYM_T_PIN,         STAMPS, 44, 66, BELOW, 1, false, fzs_stamp_pin),
+    FZS("clock stamp",         ZOOM_SYM_T_CLOCK,       STAMPS, 60, 60, BELOW, 1, false, fzs_stamp_clock),
 };
 
 #define FUDE_ZOOM_SYMBOL_N ((u32)(sizeof(FUDE_ZOOM_SYMBOLS) / sizeof(FUDE_ZOOM_SYMBOLS[0])))
@@ -1611,6 +2438,40 @@ u32 fude_zoom_symbol_text_boxes(u32 _kind, f64 _hw, f64 _hh, u32 _count, fude_zo
             _out[0] = (fude_zoom_box){ -_w, -_h, -_w + _band, _h };
             return 1u;
         }
+        case FUDE_ZOOM_SYMBOL_TEXT_OUT_LEFT:
+        case FUDE_ZOOM_SYMBOL_TEXT_OUT_RIGHT: {
+            // (beside it, as tall as it is: its text in the middle of its height, against it)
+            const f64 _gap = fmax(_w * 0.3, 4.0), _wide = fmax(_h * 1.2, 180.0);
+            _out[0] = _info->place == FUDE_ZOOM_SYMBOL_TEXT_OUT_LEFT ? (fude_zoom_box){ -_w - _gap - _wide, -_h, -_w - _gap, _h }
+                                                                      : (fude_zoom_box){ _w + _gap, -_h, _w + _gap + _wide, _h };
+            return 1u;
+        }
+        case FUDE_ZOOM_SYMBOL_TEXT_ABOVE:
+            _out[0] = (fude_zoom_box){ -_w * 2.5, _h + 2.0, _w * 2.5, _h + fmax(_h * 0.9, 26.0) };
+            return 1u;
+        case FUDE_ZOOM_SYMBOL_TEXT_REGIONS: {
+            // A Venn diagram's regions: each circle's own part, then where they all meet.
+            u32 _n = 0;
+            if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_venn3) {
+                const f64 _r = fzs_venn3_r(_w, _h), _d = _r * 0.62;
+                for(u32 _i = 0; _i < 3u && _n < _max; _i++) {
+                    const f64 _a = FUDE_ZOOM_SYMBOL_PI * 0.5 + 2.0 * FUDE_ZOOM_SYMBOL_PI * (f64)_i / 3.0;
+                    const f64 _cx = cos(_a) * (_d + _r * 0.42), _cy = sin(_a) * (_d + _r * 0.42) - _h * 0.05;
+                    _out[_n++] = (fude_zoom_box){ _cx - _r * 0.5, _cy - _r * 0.3, _cx + _r * 0.5, _cy + _r * 0.3 };
+                }
+                if(_n < _max) {
+                    _out[_n++] = (fude_zoom_box){ -_r * 0.3, -_r * 0.25 - _h * 0.05, _r * 0.3, _r * 0.25 - _h * 0.05 };
+                }
+                return _n;
+            }
+            const f64 _r = fzs_venn2_r(_w, _h), _d = _w - _r, _lens = fmax(_r - _d, _r * 0.2);
+            const fude_zoom_box _q[3] = { { -_w + _r * 0.1, -_r * 0.5, -_d - _lens * 0.5 + _r * 0.05, _r * 0.5 }, { -_lens * 0.9, -_r * 0.5, _lens * 0.9, _r * 0.5 },
+                                          { _d + _lens * 0.5 - _r * 0.05, -_r * 0.5, _w - _r * 0.1, _r * 0.5 } };
+            for(u32 _i = 0; _i < 3u && _n < _max; _i++) {
+                _out[_n++] = _q[_i];
+            }
+            return _n;
+        }
         case FUDE_ZOOM_SYMBOL_TEXT_CORNER: {
             const f64 _in = fmin(_w, _h) * 0.035;   // (from its top left, a little in)
             _out[0] = (fude_zoom_box){ -_w + _in, -_h + _in, _w - _in, _h - _in };
@@ -1644,6 +2505,18 @@ u32 fude_zoom_symbol_text_boxes(u32 _kind, f64 _hw, f64 _hh, u32 _count, fude_zo
         _out[0] = (fude_zoom_box){ -_w + _pad, -_h + _pad, _w - _pad, _h * 0.35 };
     } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_browser) {
         _out[0] = (fude_zoom_box){ -_w + _pad, -_h + _pad, _w - _pad, _h * 0.6 };
+    } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_task_card) {
+        const f64 _tag = fmin(_w * 0.05, 6.0) * 1.5;   // (clear of its tag down its left: a task's box beside it)
+        _out[0] = (fude_zoom_box){ -_w + _tag + _pad, -_h + _pad, _w - _pad, _h - _pad };
+    } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_speech) {
+        _out[0] = (fude_zoom_box){ -_w + _pad, -_h * FZS_BUBBLE_FOOT + _pad, _w - _pad, _h - _pad };   // (its body)
+    } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_thought) {
+        _out[0] = (fude_zoom_box){ -_w * 0.7, -_h * 0.3, _w * 0.7, _h * 0.75 };
+    } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_cube) {
+        _out[0] = (fude_zoom_box){ -_w + _pad, -_h + _pad, _w * (1.0 - FZS_CUBE_DEPTH) - _pad, _h * (1.0 - FZS_CUBE_DEPTH) - _pad };   // (its front)
+    } else if(_info->family == FUDE_ZOOM_SYMBOL_FAMILY_BRACKETS) {
+        const f64 _in = fzs_pair_width(_w, _h) + _pad;   // (between its pair)
+        _out[0] = (fude_zoom_box){ -_w + _in, -_h + _pad, _w - _in, _h - _pad };
     } else if(_kind < FUDE_ZOOM_SYMBOL_N && FUDE_ZOOM_SYMBOLS[_kind].draw == fzs_decision) {
         _out[0] = (fude_zoom_box){ -_w * 0.6, -_h * 0.6, _w * 0.6, _h * 0.6 };
     } else {

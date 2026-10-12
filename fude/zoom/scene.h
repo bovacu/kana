@@ -102,7 +102,8 @@ typedef enum {
 
 typedef enum {
     FUDE_ZOOM_TEXT_PLAIN = 0,
-    FUDE_ZOOM_TEXT_STICKY
+    FUDE_ZOOM_TEXT_STICKY,
+    FUDE_ZOOM_TEXT_FORMULA     // its words LaTeX: set and drawn as maths (formula.h), its size an em
 } FUDE_ZOOM_TEXT_;
 
 #define FUDE_ZOOM_FLAG_ALIVE     0x01u
@@ -203,6 +204,7 @@ typedef struct {
     u32           moved_first, moved;
     u32           place_first;  // into scene.places: two each (before, after)
     u32           bytes;      // what it keeps alive (the history's budget)
+    u32           tag;        // the app's own, kept with it (page.c: a notebook's pages added or taken out); 0: none
 } fude_zoom_action;
 
 typedef struct {
@@ -459,6 +461,10 @@ b8   fude_zoom_history_redo(fude_zoom_scene* _s);
 // ...both in one step: _died let go, _born made, _moved moved (one undo undoes all of it).
 void fude_zoom_history_push_all(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
                                 const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count);
+// ...with the app's own _tag kept with the step (fude_zoom_action.tag: undone or redone, the app does its part) — a step
+// with nothing in it but its tag is kept too.
+void fude_zoom_history_push_tagged(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _died, u32 _died_count, const u32* _born, u32 _born_count,
+                                   const u32* _moved, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _moved_count, u32 _tag);
 // Things moved (scaled, turned): from _before to _after, already where _after says.
 void fude_zoom_history_push_moved(fude_zoom_scene* _s, u32 _frame, fude_zoom_box _box, const u32* _objects, const fude_zoom_place* _before, const fude_zoom_place* _after, u32 _count);
 b8   fude_zoom_history_can_undo(const fude_zoom_scene* _s);

@@ -107,7 +107,8 @@ typedef enum {
     FUDE_ZOOM_FLOW_TB = 0,              // TB and TD
     FUDE_ZOOM_FLOW_BT,
     FUDE_ZOOM_FLOW_LR,
-    FUDE_ZOOM_FLOW_RL
+    FUDE_ZOOM_FLOW_RL,
+    FUDE_ZOOM_FLOW_MIND                 // a mind map (Mermaid's mindmap): laid out round its root, both ways
 } FUDE_ZOOM_FLOW_;
 
 // Why Mermaid text was not read.
@@ -195,12 +196,24 @@ u32  fude_zoom_graph_add_edge(fude_zoom_graph* _g, u32 _from, u32 _to);
 // Mermaid flowchart text (_size bytes, UTF-8) into _g, which is cleared
 // first. False when it cannot be read: _g left empty, and (each may be NULL)
 // the line it stopped at (from 1) and why (FUDE_ZOOM_MERMAID_).
+//   A MIND MAP too (0.1.86: mermaid.js.org/syntax/mindmap), "mindmap" first:
+//   each line a node, its parent the nearest line above it less indented (one
+//   root: a second is an error, FUDE_ZOOM_MERMAID_NODE), as text alone or
+//   id[a] id(a) id((a)) id))a(( id)a( id{{a}}; ::icon(…) and :::class lines
+//   read past. Its edges plain lines, parent to child; its direction
+//   FUDE_ZOOM_FLOW_MIND (fude_zoom_graph_layout then lays it out as one).
 b8   fude_zoom_graph_parse_mermaid(fude_zoom_graph* _g, const c8* _text, u32 _size, u32* _error_line, u8* _error);
 
 // Places every node that is not pinned (x, y), each subgraph's box, and each
 // edge's bends and label. Give the nodes their size first (and the edges
 // their label's, to keep room for it).
 void fude_zoom_graph_layout(fude_zoom_graph* _g, fude_zoom_graph_spacing _sp);
+//   A mind map (FUDE_ZOOM_FLOW_MIND): its root where it is; its first branches
+//   shared out right and left (each to the side with less so far, in their
+//   order), each a tree growing outward, rank_gap between a node and its
+//   children, node_gap between siblings' branches, each node in the middle of
+//   its own children; each edge curving out of its parent's side into its
+//   child's (its bends along the curve).
 
 // Each edge's line for drawing: from the outline of its `from` node (its box;
 // a circle's or a diamond's own outline; a subgraph end's box) through its

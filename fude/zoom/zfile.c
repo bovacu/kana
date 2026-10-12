@@ -657,6 +657,18 @@ done:
     return _result;
 }
 
+FUDE_LOAD_ fude_zoom_file_peek(const c8* _path, fude_zoom_scene* _s) {
+    fude_zoom_file _f;
+    memset(&_f, 0, sizeof(_f));
+    snprintf(_f.path, sizeof(_f.path), "%s", _path);
+    const FUDE_LOAD_ _r = fude_zoom_file_read(&_f, _path, _s);
+    if(_r != FUDE_LOAD_OK) {
+        return _r;
+    }
+    fude_zoom_scene_loaded(_s);
+    return _f.repaired ? FUDE_LOAD_RECOVERED : FUDE_LOAD_OK;
+}
+
 FUDE_LOAD_ fude_zoom_file_open(fude_zoom_file* _f, const c8* _path, fude_zoom_scene* _s) {
     memset(_f, 0, sizeof(*_f));
     snprintf(_f->path, sizeof(_f->path), "%s", _path);

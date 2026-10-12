@@ -159,4 +159,12 @@
 #define FUDE_ICON_AREA            "\xEE\x9B\x8E"   // ph-bounding-box U+E6CE (a named area)
 #define FUDE_ICON_PRESENT         "\xEE\x99\x94"   // ph-presentation U+E654 (present: the areas in turn)
 
+#define FUDE_ICON_HOME          "\xEE\x8B\x82"   // ph-house U+E2C2
+#define FUDE_ICON_MIC           "\xEE\x8C\xA6"   // ph-microphone U+E326
+#define FUDE_ICON_RECORD        "\xEE\x8F\xAE"   // ph-record U+E3EE
+#define FUDE_ICON_STOP          "\xEE\x91\xAC"   // ph-stop U+E46C
+#define FUDE_ICON_WAVEFORM      "\xEE\xA0\x82"   // ph-waveform U+E802
+#define FUDE_ICON_BUG           "\xEE\x97\xB4"   // ph-bug U+E5F4
+#define FUDE_ICON_SEND          "\xEE\x8E\x98"   // ph-paper-plane-tilt U+E398
+
 #endif

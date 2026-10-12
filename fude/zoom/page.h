@@ -8,6 +8,9 @@
 #include "drawing/ink/ink.h"
 #include "zoom/scene.h"
 #include "zoom/render.h"
+#include "zoom/rich.h"
+#include "zoom/formula.h"
+#include "zoom/handmath.h"
 #include "zoom/erase.h"
 #include "zoom/zfile.h"
 #include "zoom/select.h"
@@ -41,6 +44,9 @@
 #include "zoom/display.h"
 #include "zoom/product.h"
 #include "zoom/pages.h"
+#include "zoom/audio.h"
+#include "zoom/voice.h"
+#include "zoom/transcript.h"
 
 // ===========================================================================
 // The deep-zoom page: Sketching's, in place of the ink page (extension.h's
@@ -125,6 +131,8 @@ typedef struct {
 #define FUDE_ZOOM_PAGE_PLACES 8u     // bookmarks listed (the newest)
 #define FUDE_ZOOM_PAGE_LASER  192u   // the laser pointer's trail: its last points kept
 #define FUDE_ZOOM_PAGE_ANCHOR_BUTTONS 7u
+#define FUDE_ZOOM_PAGE_STRIP_PICS 24u       // a notebook's pages' pictures kept at once (its strip's)
+#define FUDE_ZOOM_PAGE_INLINE_BUTTONS 12u   // writing on the page: its bar's buttons (the marks, cut, copy, paste, done)
 #define FUDE_ZOOM_PAGE_PREVIEWS 8u         // the arrows' pictures kept at once   // the offset pad's: ◀ X ▶  ▼ Y ▲  ×
 #define FUDE_ZOOM_PAGE_LAYER_ROWS 8u // layers listed
 #define FUDE_ZOOM_PAGE_CURVE_NODES FUDE_ZOOM_PATH_NODES   // a curve's points, at most (a path's)
@@ -139,10 +147,27 @@ typedef struct {
     fude_zoom_v2 at[2];       // ...on the screen as the drag began
 } fude_zoom_page_drag_wire;
 
+// A recording's transcript (0.1.95, listen.h): what it said, as read so far.
+typedef struct {
+    u32                  number;   // the recording's
+    fude_zoom_transcript t;
+    b8                   wanted;   // to be read to its end (Transcribe pressed; a recording made with Live text)
+} fude_zoom_page_heard;
+
+// A canvas holding the words Find looked for (everywhere_found).
+typedef struct {
+    u32 note;            // notes.h id
+    u32 count;           // its matches
+    c8  name[64];
+    c8  excerpt[200];    // the line of its first
+} fude_zoom_page_found;
+
 typedef struct fude_zoom_page {
     struct fude_app*   app;
     fude_zoom_scene    scene;
     fude_zoom_renderer renderer;
+    fude_zoom_formulas formulas;     // the maths font and the formulas set with it (the renderer draws them)
+    fude_zoom_handmath_chars hand_chars;   // its glyphs' characters (a formula written out by hand: handmath.h)
     fude_zoom_eraser   eraser;
     fude_zoom_file     file;
     fude_ink           capture;      // the stroke being drawn
@@ -285,9 +310,40 @@ typedef struct fude_zoom_page {
     // is for: a new one where the pen went down (screen), or the one tapped.
     u8                 text_tool;
     fude_kit_modal     text_card;
+    rde_vec_2F         text_card_at;    // where it was placed (the kit's units) and how big: the Formula preview's room
+    rde_vec_2F         text_card_size;
     rde_ui_text_editor* text_field;
     rde_ui_button*     text_save;
     rde_ui_button*     text_cancel;
+    c8                 context_link[1024];   // the page's menu opened on a note's link: its address (Open link; empty: none)
+    // Writing on the page (0.1.90): a text or a sticky note written where it is, not on a card — a hidden field taking
+    // the keyboard (and its words), the words drawn on the page as they are written (rich.h' lay_raw), a caret, the
+    // selection, a bar of marks over them.
+    b8                  inline_on;
+    rde_ui_text_editor* inline_field;
+    rde_ui_text_editor* card_field;        // the card's own (text_field is one or the other)
+    rde_ui_image*       inline_bar;
+    rde_ui_button*      inline_buttons[FUDE_ZOOM_PAGE_INLINE_BUTTONS];
+    b8                  inline_bar_shown;
+    rde_vec_2F          inline_bar_at, inline_bar_size;   // where it was put (UI canvas: bottom-left origin), so a touch on it is not the page's
+    fude_zoom_rich      inline_rich;       // its words as written, laid out (its own units)
+    b8                  inline_rich_made;
+    u32                 inline_frame;
+    fude_zoom_sim       inline_sim;        // its own units (its top left at 0, 0, Y up) into its frame's
+    f64                 inline_size;       // its letters (its own units)
+    f64                 inline_w, inline_h;   // a note's size (its own units; 0, 0: a text's, as long as its lines)
+    rde_color           inline_ink, inline_paper;
+    fude_zoom_box       inline_box;        // where it is on the screen (the last frame's)
+    rde_vec_2F          inline_origin;     // its words' top left on the screen, a unit of them inline_k points
+    f64                 inline_k;
+    f64                 inline_started;
+    b8                  inline_selecting;  // a hand on its words: the selection from inline_anchor to under it
+    u32                 inline_anchor;
+    b8                 link_pending;      // the pen down on a note's link: let go where it went down, it opens; moved, it draws
+    b8                 link_audio;      // ...not a link: ink a recording linked (its panel up): a tap plays from it
+    b8                 link_from_pen;
+    rde_vec_2F         link_down;
+    rde_ui_button*     text_formats[FUDE_ZOOM_RICH_DOS];   // ...a note's marks a tap each (rich.h: bold, italic, a heading, lists, a table, a link)
     u32                text_object;    // FUDE_ZOOM_NONE: a new one
     u32                text_frame;
     fude_zoom_v2       text_at;        // a new one's top left, its frame's units
@@ -380,6 +436,112 @@ typedef struct fude_zoom_page {
     u32                compass_serial;
     u8                 compass_step;      // an ellipse template's: 0 its width on the numpad, 1 its height
     f32                kerf_mm;         // the saw's cut, millimetres wide (settings; 0: never set)
+    b8                 keep_grain;      // fitting parts into a board: their grain kept along its (settings; else they may turn)
+    b8                 smooth_chosen;   // the smoothing chosen by hand (settings; else the default's, off)
+    b8                 rich_fonts_tried;   // a note's bold and italic letters loaded (or tried: the renderer's)
+    rde_arr            paper_lines;        // Sketching's own papers' lines this frame (paper.h; made the first time)
+    // A notebook's pages strip (0.1.86): its chip ("3 / 12": the page the view is on, of how many) opening it, and the
+    // strip — a picture of each page, the one you are on lit, a tap flying to it, dragged along.
+    rde_ui_button*      pages_button;
+    b8                  shown_pages;
+    b8                  laid_pages;        // (the row at the bottom left laid out with the chip in it)
+    c8                  pages_said[24];
+    rde_vec_2F          pages_center;
+    f64                 pages_pressed_at;
+    b8                  strip_open;
+    f64                 strip_scroll;      // points along it
+    u64                 strip_hand;
+    rde_vec_2F          strip_down;
+    f64                 strip_scroll_down;
+    b8                  strip_dragged;
+    // Find through every canvas (0.1.92, words.h): looked through a few a frame, those holding the words listed in
+    // a panel where the strip goes — a tap opens one, Find carried on in it.
+    b8                  everywhere_on;          // still looking
+    b8                  everywhere_shown;       // its panel up
+    c8                  everywhere_query[128];
+    u32                 everywhere_next;        // the next of the notes to look through
+    u32                 everywhere_done, everywhere_total;   // canvases looked through, of
+    rde_arr             everywhere_found;       // fude_zoom_page_found, most matches first
+    f64                 everywhere_scroll;
+    u64                 everywhere_hand;
+    rde_vec_2F          everywhere_down;
+    f64                 everywhere_scroll_down;
+    b8                  everywhere_dragged;
+    c8                  find_after[128];        // a canvas opened from it: its words found once it is up...
+    u32                 find_after_frames;      // ...these frames on
+    // Its cover (0.1.92): a picture of it beside it (<id>.cover.png) for the home screen — a notebook's first page,
+    // else the view — drawn again a few seconds after it changed (or when asked), read back the frame after.
+    rde_render_texture* cover_target;
+    u32                 cover_canvas;     // the canvas the next three are of
+    u32                 cover_rev;        // the drawing's revision last seen
+    f64                 cover_changed_at;
+    b8                  cover_due;        // changed since its cover was drawn
+    b8                  cover_now;        // wanted at once (the home screen opening; none yet)
+    u8                  cover_stage;      // 1: drawn this frame, read back the next
+    u32                 cover_stamp;      // goes up as each is written...
+    u32                 cover_note;       // ...this canvas's
+    // The home button (beside the side panel's), where the app has a home screen (on_home).
+    rde_ui_button*      home_button;
+    b8                  shown_home;
+    rde_vec_2F          home_center;
+    void              (*on_home)(struct fude_app* _app);
+    u8                  notebook_next;    // the next new canvas opened made a notebook of this size (pages.h' FUDE_ZOOM_PAGES_ + 1; 0: none)
+    // Audio synced to ink (0.1.93: audio.h, voice.h): the open canvas's recordings and what each thing was written
+    // during; one being made, one played (the ink faint past where it is, with Replay ink); the chips and the panel.
+    fude_zoom_audio          audio;
+    fude_zoom_voice_recorder recorder;
+    u32                      audio_recording;     // the one being made (its number; 0: none)
+    f64                      audio_started_at;    // (engine clock) when it began
+    f64                      audio_saved_at;
+    u64                      audio_pushes_seen;   // the history's steps linked up to
+    fude_zoom_voice_player   player;
+    u32                      audio_playing;       // the one in the player (its number; 0: none)
+    b8                       audio_panel;
+    b8                       audio_replay;
+    rde_arr                  audio_faint;         // u8 an object: the renderer's faint
+    u32                      audio_faint_at;      // (the position it was worked out for, ms; FUDE_ZOOM_NONE: again)
+    u8                       audio_asked;         // the microphone's permission: 0 not asked now, 1 asked, 2 granted, 3 refused
+    // Speech to text (0.1.95: listen.h): the recordings' transcripts (each loaded as it is first shown), the piece being
+    // read, Live text (the recording being made read as it goes), the model's download.
+    rde_arr                  heard;               // fude_zoom_page_heard
+    u32                      heard_reading;       // the recording a piece of is being read (0: none)
+    u32                      heard_piece_end;     // ...up to this sample
+    b8                       heard_live;
+    b8                       heard_downloading;
+    u32                      heard_ask;           // a Transcribe (its recording) or Live text (FUDE_ZOOM_NONE) pressed once: the download asked
+    f64                      heard_checked_at;    // (the recording being made: its file's length looked at, now and then)
+    u32                      heard_available;     // ...its samples there
+    f64                      heard_said_at;       // when the live caption's last words came
+    u32                      audio_armed;         // a recording whose Delete was pressed once (0: none)
+    u64                      audio_hand;          // the panel's touch
+    rde_vec_2F               audio_down;
+    b8                       audio_scrubbing;     // its bar dragged
+    f32                      audio_scrub;         // ...to there (0 .. 1)
+    f64                      audio_scroll;
+    rde_ui_button*           mic_button;
+    b8                       shown_mic;
+    rde_vec_2F               mic_center;
+    c8                       mic_said[24];
+    f64                      mic_pressed_at;
+    rde_ui_button*           listen_button;
+    b8                       shown_listen;
+    rde_vec_2F               listen_center;
+    f64                      listen_pressed_at;
+    b8                       laid_listen;         // (the row laid out with the recordings' chip in it)
+    b8                       laid_recording;      // (...with the microphone's chip wide: a recording's time)
+    f64                 strip_down_at;     // (engine clock: held this long without moving, the page under it lifted)
+    rde_vec_2F          strip_at;          // the hand now
+    b8                  strip_lifted;      // a page held: dragged to its new place
+    u32                 strip_pick;        // the page held (then let go: its buttons over it); FUDE_ZOOM_NONE: none
+    u32                 strip_drop;        // where it would go, let go now
+    rde_render_texture* strip_pics[FUDE_ZOOM_PAGE_STRIP_PICS];
+    u32                 strip_pic_page[FUDE_ZOOM_PAGE_STRIP_PICS];   // its page (FUDE_ZOOM_NONE: none)
+    u32                 strip_pic_rev[FUDE_ZOOM_PAGE_STRIP_PICS];
+    b8                  strip_pic_ready[FUDE_ZOOM_PAGE_STRIP_PICS];
+    u64                 strip_pic_seen[FUDE_ZOOM_PAGE_STRIP_PICS];   // (the frame it was last shown: the longest unseen let go)
+    u64                 strip_frame;
+    rde_ui_label*      grain_label;     // ...its row in Settings
+    rde_ui_button*     grain_buttons[2];   // (0: may turn, 1: keep the grain)
     rde_ui_label*      kerf_label;
     rde_ui_button*     kerf_button;
     rde_ui_button*     kerf_chip;       // the saw's kerf, shown while the Saw is on (tapped: typed)
@@ -788,6 +950,22 @@ void fude_zoom_page_look_fillet(fude_zoom_page* _page, f64 _mm);
 // The diagram library's panel open on family _family; a symbol (symbol.h' id) put _dx, _dy (screen points)
 // from the view's middle with _text ("|": a line break); a Kanban board of preset _preset.
 void fude_zoom_page_look_library(fude_zoom_page* _page, u8 _family);
+// How far over the screen's bottom a notice goes to be clear of the page's panels there (the strip's, Find's; none up: a little).
+f32  fude_zoom_page_notice_above(const fude_zoom_page* _page);
+// The app going to the background: a recording made stopped (and kept), one played paused.
+void fude_zoom_page_audio_pause(fude_zoom_page* _page);
+// The next new canvas opened (the home screen's New notebook) made a notebook of pages _size (pages.h' FUDE_ZOOM_PAGES_).
+void fude_zoom_page_notebook_next(fude_zoom_page* _page, u8 _size);
+// Its cover written at the next frames (the home screen opening: what it shows now).
+void fude_zoom_page_cover_now(fude_zoom_page* _page);
+// <canvas>.cover.png's path.
+void fude_zoom_page_cover_path(u32 _canvas, c8* _out, usize _size);
+void fude_zoom_page_look_strip(fude_zoom_page* _page);   // (a notebook's pages strip open)
+void fude_zoom_page_look_audio(fude_zoom_page* _page, u8 _what, u32 _value);
+void fude_zoom_page_look_audio_import(fude_zoom_page* _page, const c8* _wav);   // (a 16 kHz mono 16-bit WAV made a recording)   // (0: a made-up recording _value s long, what is there linked over it; 1: its panel; 2: the newest at _value ms; 3: the microphone's chip)
+void fude_zoom_page_look_strip_do(fude_zoom_page* _page, u8 _what, u32 _i, u32 _j);   // (0: page _i held, its buttons up; 1: ...carried over place _j; 2, 3, 4: a page put in before _i, _i deleted, _i made _j)
+// Is the canvas open a notebook of pages (pages.h)?
+b8   fude_zoom_page_is_notebook(const fude_zoom_page* _page);
 void fude_zoom_page_look_symbol(fude_zoom_page* _page, const c8* _id, const c8* _text, f64 _dx, f64 _dy);
 void fude_zoom_page_look_kanban(fude_zoom_page* _page, u32 _preset);
 // Insert's Kanban board's card up, template _preset in its rows (_extra: a row more), then (_insert) Insert.
@@ -896,7 +1074,13 @@ void fude_zoom_page_look_mermaid(fude_zoom_page* _page, const c8* _text);
 // ...and the true size's calibration begun, as Settings' Calibrate does.
 void fude_zoom_page_look_calibrate(fude_zoom_page* _page);
 // ...and a text (or a sticky note: _sticky) put down at _screen saying _words, as the card's Save does.
-void fude_zoom_page_look_text(fude_zoom_page* _page, rde_vec_2F _screen, b8 _sticky, const c8* _words);
+// Over the UI, after it (the shell's top overlay, its drawing begun): the Formula card's formula set as it is typed.
+void fude_zoom_page_render_top(fude_zoom_page* _page);
+
+// Everything lassoed, then its formulas written out by hand (_what 0) or its handwriting read as a formula (1).
+void fude_zoom_page_look_formula(fude_zoom_page* _page, u8 _what);
+
+void fude_zoom_page_look_text(fude_zoom_page* _page, rde_vec_2F _screen, u8 _kind, const c8* _words);   // (_kind: 0 a text, 1 a sticky note, 2 a formula, 3 a formula's card left open)
 // ...and the numpad opened with _text in it, on the last line drawn (as its length chip opens it).
 void fude_zoom_page_look_numpad(fude_zoom_page* _page, const c8* _text);
 // ...and Export into _path: PNG (0), SVG (1), PDF (2) or DXF (3).

@@ -183,6 +183,7 @@ void fude_ui_update(fude_ui* _ui) {
         _ext->ui_update(_ui, _full);   // the app's own widgets (Kana: the word card)
     }
     fude_side_update(_ui, _full);
+    fude_crashcard_update(_ui);
 }
 
 b8 fude_ui_press(fude_ui* _ui, u32 _button) {
@@ -233,8 +234,8 @@ b8 fude_ui_hit(const fude_ui* _ui, rde_vec_2F _screen) {
     const rde_vec_2F _size = fude_kit_screen_size(_ui->window);
     const rde_vec_2F _p    = { _screen.x + _size.x * 0.5f, _screen.y + _size.y * 0.5f };
 
-    // The side panel and Settings (while either is open, the whole screen).
-    if(fude_side_hit(_ui, _p)) {
+    // The crash card, the side panel and Settings (while any is open, the whole screen).
+    if(fude_crashcard_shown(_ui) || fude_side_hit(_ui, _p)) {
         return true;
     }
     const fude_extension* _ext = fude_app_ext(_ui->app);
@@ -302,6 +303,7 @@ void fude_ui_apply_theme(fude_ui* _ui) {
         fude_app_ext(_ui->app)->ui_restyle(_ui);
     }
     fude_side_apply_theme(_ui);
+    fude_crashcard_restyle(_ui);
 }
 
 // --- lifetime -----------------------------------------------------------------------------
@@ -358,6 +360,7 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     if(fude_app_ext(_app)->ui_build != NULL) {
         fude_app_ext(_app)->ui_build(_ui, _root);   // the app's own, over all (Kana: the word card)
     }
+    fude_crashcard_create(_ui, _root);   // (over everything: a crash report to ask about)
 
     _ui->_insets_seen = rde_window_get_safe_area_insets(_ui->window);
     _ui->_screen_seen = fude_kit_screen_size(_ui->window);
@@ -416,6 +419,7 @@ RDE_INTERNAL void fude_ui_rebuild(fude_ui* _ui) {
     const b8 _settings_open = _ui->side.settings_open;
     const b8 _faq_open      = _ui->side.faq_open;
     fude_side_forget(_ui);
+    fude_crashcard_forget(_ui);
     if(fude_app_ext(_ui->app)->ui_forget != NULL) {
         fude_app_ext(_ui->app)->ui_forget(_ui);
     }
@@ -465,6 +469,7 @@ void fude_ui_trim_fonts(fude_ui* _ui) {
 void fude_ui_destroy(fude_ui* _ui) {
     if(_ui->canvas != NULL) {
         fude_side_forget(_ui);
+    fude_crashcard_forget(_ui);
         if(fude_app_ext(_ui->app)->ui_forget != NULL) {
             fude_app_ext(_ui->app)->ui_forget(_ui);
         }

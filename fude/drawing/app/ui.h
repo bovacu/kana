@@ -11,6 +11,7 @@
 #include "drawing/widgets/filterbar.h"
 #include "drawing/widgets/side.h"
 #include "drawing/widgets/docbar.h"
+#include "drawing/widgets/crashcard.h"
 
 // ===========================================================================
 // The retained UI: one RDE UI canvas over everything, and every widget on it —
@@ -58,6 +59,7 @@ typedef struct fude_ui {
     rde_ui_text_editor* fields[FUDE_APP_SCREENS];      // a screen's field, where it declares one
     fude_ui_field_ref   field_refs[FUDE_APP_SCREENS];
     fude_side           side;
+    fude_crashcard      crash;     // the last session's crash report: asked about (crashcard.h)
     b8                  chrome_hidden;   // the page alone on the screen (Sketching presenting): the bar, the menus, the menu button away
 
     u32                 _text_revision;                // the language the widgets were built in (fude_text_revision)

@@ -59,6 +59,22 @@ b8 fude_zoom_pages_used(const fude_zoom_pages* _p, const fude_zoom_scene* _s, u3
 // As many pages as it needs: one past the last one used. True: it changed.
 b8 fude_zoom_pages_grow(fude_zoom_pages* _p, const fude_zoom_scene* _s);
 
+// The page object _object is on: the one its box's middle is over (a frame's: its drawing's) — FUDE_ZOOM_NONE: not
+// on a page (not alive, not the home frame's, a layer).
+u32 fude_zoom_pages_of(const fude_zoom_pages* _p, const fude_zoom_scene* _s, u32 _object);
+
+// Pages rearranged (0.1.92): a blank page put in before page _i (INSERT; _i the count: at the end), page _i taken
+// out (DELETE: what is on it let go; the last page left, emptied), page _i made page _j (MOVE). What is on the pages
+// after goes with them; the count follows. Into _died (u32: let go, their flags set), _moved (u32), _before and
+// _after (fude_zoom_place: where they were, where they are now): the caller's one undo step
+// (fude_zoom_history_push_all). False: no such page.
+typedef enum {
+    FUDE_ZOOM_PAGES_INSERT = 0,
+    FUDE_ZOOM_PAGES_DELETE,
+    FUDE_ZOOM_PAGES_MOVE,
+} FUDE_ZOOM_PAGES_DO_;
+b8 fude_zoom_pages_rearrange(fude_zoom_pages* _p, fude_zoom_scene* _s, u8 _do, u32 _i, u32 _j, rde_arr* _died, rde_arr* _moved, rde_arr* _before, rde_arr* _after);
+
 // Paper's lines apart for a view: _true the paper's own (millimetres), _z screen points to a millimetre. The spacing to
 // draw: its own as a notebook's page shows it — halved again and again once the view goes in so far that its lines are
 // _in points apart twice over, so they are never further apart than that (*_fade: how far the finest have come in,
