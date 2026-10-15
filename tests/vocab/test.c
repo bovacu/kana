@@ -11,6 +11,13 @@ static int fails = 0;
 
 static void put_s(fude_bytes* b, const char* s) { fude_put_u16(b, (u16)strlen(s)); fude_put_data(b, s, (u32)strlen(s)); }
 
+// A repeatable random number (xorshift), for the random words below.
+static u32 vocab_next(void) {
+    static u64 s = 0x9E3779B97F4A7C15ull;
+    s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+    return (u32)(s >> 16);
+}
+
 int main(int argc, char** argv) {
     CHECK(fude_text_set_language(RDE_LANGUAGE_EN_US));
     mkdir("saves", 0755);
@@ -43,10 +50,15 @@ int main(int argc, char** argv) {
     // A kanji's words: written with it, or saved from its page.
     const u32 sushi = fude_vocab_add("すし", "すし", "sushi", 0x98DF);
     u32 ids[8]; CHECK(fude_vocab_of_kanji(0x98DF, ids, 8) == 2 && ids[0] == taberu && ids[1] == sushi);
-    // A long text is cut at a whole character.
-    char longw[200]; longw[0] = 0; for(int i = 0; i < 40; i++) strcat(longw, "語");
+    // As many characters as the word card takes are kept whole (here of 3 bytes; vocab.h keeps 8 a character); a
+    // longer text is cut at a whole character.
+    char longw[400]; longw[0] = 0; for(u32 i = 0; i < FUDE_USERWORD_WRITTEN_CHARS; i++) strcat(longw, "語");
+    const u32 whole = fude_vocab_add(longw, "", "", 0);
+    CHECK(whole != 0 && strcmp(fude_vocab_get(whole)->written, longw) == 0);
+    fude_vocab_remove(whole);   // (the counts below are of the words before it)
+    longw[0] = 0; for(int i = 0; i < 100; i++) strcat(longw, "語");
     const u32 lw = fude_vocab_add(longw, "", "", 0);
-    CHECK(lw != 0 && strlen(fude_vocab_get(lw)->written) == 63 && strlen(fude_vocab_get(lw)->written) % 3 == 0);
+    CHECK(lw != 0 && strlen(fude_vocab_get(lw)->written) == (FUDE_USERWORD_WRITTEN - 1u) / 3u * 3u && strlen(fude_vocab_get(lw)->written) % 3 == 0);
 
     // Lists.
     char name[64]; fude_vocab_list_new_name(name, sizeof name); CHECK(strcmp(name, "List 1") == 0);
@@ -91,6 +103,23 @@ int main(int argc, char** argv) {
     fude_vocab_close(); fude_vocab_open("saves/words.kana");
     CHECK(fude_vocab_list_count() == 2 && fude_vocab_list_at(1) == l3 && fude_vocab_count() == 5);
     CHECK(fude_vocab_sentence(again, NULL)[0] == 0 && strcmp(fude_vocab_sentence(sushi, NULL), "すしが好き。") == 0);   // a new word does not get the old one's
+    // Lists have no limit: 100 made (more than the 64 there once could be, past which a file's lists were dropped),
+    // saved, and read back whole and in order, a word in the last one still there.
+    { const u32 had = fude_vocab_list_count();
+      u32 made[100];
+      for(u32 i = 0; i < 100u; i++) { char n[32]; snprintf(n, sizeof n, "Lesson %u", i + 1u); made[i] = fude_vocab_list_add(n); CHECK(made[i] != 0); }
+      fude_vocab_set_in_list(made[99], sushi, true);
+      CHECK(fude_vocab_list_count() == had + 100u);
+      fude_vocab_close(); fude_vocab_open("saves/words.kana");
+      CHECK(fude_vocab_list_count() == had + 100u);
+      b8 same = true;
+      for(u32 i = 0; i < 100u; i++) {
+          char n[32]; snprintf(n, sizeof n, "Lesson %u", i + 1u);
+          same = same && fude_vocab_list_at(had + i) == made[i] && strcmp(fude_vocab_list_name(made[i]), n) == 0;
+      }
+      CHECK(same && fude_vocab_in_list(made[99], sushi) && fude_vocab_list_words(made[99], NULL, 0) == 1);
+      for(u32 i = 0; i < 100u; i++) fude_vocab_list_remove(made[i]);
+      CHECK(fude_vocab_list_count() == had && fude_vocab_list_at(1) == l3); }
     // Keys for the reviews stay above code points.
     CHECK(FUDE_VOCAB_KEY(sushi) > 0x10FFFFu);
     // Characters as a new list (Select mode's Save list): a kanji read by its first
@@ -106,7 +135,52 @@ int main(int argc, char** argv) {
         CHECK(list != 0 && saved == 2 && fude_vocab_count() >= before + 1 && fude_vocab_list_words(list, NULL, 0) == 2);   // a word already there is the same word
         const u32 ki = fude_vocab_find("木", "き"), a = fude_vocab_find("あ", "あ");
         CHECK(ki != 0 && a != 0 && fude_vocab_in_list(list, ki) && strcmp(fude_vocab_get(a)->meaning, "a") == 0);
+        // A character asked for twice goes in once, and is counted once.
+        const u32 twice[3] = { recs[0], recs[0], recs[1] };
+        const u32 list2 = fude_vocab_add_characters(&db, twice, 3, name, sizeof(name), &saved);
+        CHECK(list2 != 0 && saved == 2 && fude_vocab_list_words(list2, NULL, 0) == 2);
         fude_kanji_unload(&db);
+    }
+    // fude_vocab_find through its map (vocab.c's fude_vocab_by_text), against a search of every word in order: words
+    // added (some again), changed and removed at random, in memory — every pair of texts asked for is found as the
+    // search finds it. Then a prefix of a word's text, one a byte off, an empty one and one too long to be kept: none;
+    // a word added too long is found by the text it was cut to.
+    {
+        fude_vocab_close();
+        fude_vocab_open(NULL);
+        u32 wrong = 0, found = 0;
+        for(u32 step = 0; step < 4000u; step++) {
+            char w[16], r[16];
+            snprintf(w, sizeof w, "w%u", vocab_next() % 60u);
+            snprintf(r, sizeof r, "r%u", vocab_next() % 4u);
+            const u32 what = vocab_next() % 10u;
+            if(what < 4u) {
+                fude_vocab_add(w, r, "m", 0);
+            } else if(what < 5u && fude_vocab_count() > 0u) {
+                fude_vocab_remove(fude_vocab_at(vocab_next() % fude_vocab_count())->id);
+            } else if(what < 6u && fude_vocab_count() > 0u) {
+                fude_vocab_update(fude_vocab_at(vocab_next() % fude_vocab_count())->id, w, r, "changed");
+            }
+            u32 naive = 0;
+            for(u32 i = 0; i < fude_vocab_count() && naive == 0u; i++) {
+                const fude_vocab_word* x = fude_vocab_at(i);
+                if(strcmp(x->written, w) == 0 && strcmp(x->reading, r) == 0) naive = x->id;
+            }
+            wrong += fude_vocab_find(w, r) != naive ? 1u : 0u;
+            found += naive != 0u ? 1u : 0u;
+        }
+        CHECK(wrong == 0u && found > 500u);
+        const u32 abc = fude_vocab_add("abcdef", "xyz", "m", 0);
+        CHECK(abc != 0u && fude_vocab_find("abcdef", "xyz") == abc && fude_vocab_find("abcde", "xyz") == 0u && fude_vocab_find("abcdeg", "xyz") == 0u);
+        CHECK(fude_vocab_find("abcdef", "xy") == 0u && fude_vocab_find("abcdef", NULL) == 0u && fude_vocab_find("", "xyz") == 0u && fude_vocab_find(NULL, "xyz") == 0u);
+        char longw[200];
+        memset(longw, 'a', sizeof longw - 1u);
+        longw[sizeof longw - 1u] = 0;
+        CHECK(fude_vocab_find(longw, "xyz") == 0u);
+        const u32 cut = fude_vocab_add(longw, "xyz", "m", 0);
+        CHECK(fude_vocab_find(longw, "xyz") == 0u);   // (the long text is no word's: the word is its cut)
+        longw[FUDE_USERWORD_WRITTEN - 1u] = 0;
+        CHECK(cut != 0u && fude_vocab_find(longw, "xyz") == cut);
     }
     fude_vocab_close();
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);

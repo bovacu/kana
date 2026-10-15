@@ -3,54 +3,74 @@
 #include "study/app/study.h"
 #include "drawing/base/text.h"
 #include "drawing/widgets/notice.h"
-#include "drawing/widgets/icons.h"
+#include "drawing/base/icons.h"
 #include "study/models/marks.h"
 #include "study/models/review.h"
 #include "study/models/vocab.h"
 
-#include <string.h>
-
 // ===========================================================================
-// The study's verbs (study.h): the ways from one study screen to another, and
-// Select mode's row.
+// See study.h. This file holds the study's verbs, the ways from one study screen to another, and Select mode's row.
 // ===========================================================================
 
 // --- the verbs ----------------------------------------------------------------------------
 
+// Opens Practice on _count characters as a set. A set takes the first FUDE_PRACTICE_SET_MAX (practice.h says why),
+// and a notice says so when there were more.
+RDE_INTERNAL void fude_study_practice_open_set(fude_app* _app, const u32* _records, u32 _count) {
+    fude_practice_open_set(FUDE_STUDY(_app)->practice, _records, _count);
+    if(_count > FUDE_PRACTICE_SET_MAX) {
+        c8 _line[512];
+        FUDE_TEXTF(_line, FUDE_TEXT_SET_FIRST_N, FUDE_TN(FUDE_PRACTICE_SET_MAX));
+        fude_notice_show(_line);
+    }
+}
+
+// Opens Practice on one character alone, or on several as a set; nothing happens for none.
 void fude_study_practice(fude_app* _app, const u32* _records, u32 _count) {
     fude_study* _study = FUDE_STUDY(_app);
     if(_count == 1u) {
         fude_practice_open(_study->practice, _records[0]);
     } else if(_count > 1u) {
-        fude_practice_open_set(_study->practice, _records, _count);
+        fude_study_practice_open_set(_app, _records, _count);
     }
 }
 
+// Opens Practice as a set, even of one character, so that it has Next, Finish and the summary.
 void fude_study_practice_set(fude_app* _app, const u32* _records, u32 _count) {
     if(_count > 0u) {
-        fude_practice_open_set(FUDE_STUDY(_app)->practice, _records, _count);
+        fude_study_practice_open_set(_app, _records, _count);
     }
 }
 
+// Opens the viewer on _records[_at], or on the first when _at is out of range.
 void fude_study_view(fude_app* _app, const u32* _records, u32 _count, u32 _at) {
     if(_count > 0u) {
         fude_viewer_show(FUDE_STUDY(_app)->viewer, _records, _count, _at < _count ? _at : 0u);
     }
 }
 
+// Opens an exam of _records, straight to its preview.
 void fude_study_exam(fude_app* _app, const u32* _records, u32 _count) {
     if(_count > 0u) {
         fude_exam_open_with(FUDE_STUDY(_app)->exam, _records, _count);
     }
 }
 
+// Finds the characters whose reviews are due today, among every one marked Studying or Known, and turns their code
+// points into record numbers; at most FUDE_REVIEW_SESSION are due at once.
 u32 fude_study_reviews_due(fude_app* _app, u32* _out, u32 _max) {
     fude_study* _study = FUDE_STUDY(_app);
-    static u32 _marked[4096];
-    u32        _n = fude_marks_list(FUDE_MARK_STUDYING, _marked, 4096u);
-    _n += fude_marks_list(FUDE_MARK_KNOWN, _marked + _n, 4096u - _n);
+    // Every marked character, however many the learner has marked (Kana alone has over 6,000 kanji).
+    const u32         _studying = fude_marks_count(FUDE_MARK_STUDYING);
+    const u32         _known    = fude_marks_count(FUDE_MARK_KNOWN);
+    rde_arr TYPE(u32) _list     = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_list, _studying + _known);
+    u32* _marked = (u32*)_list.memory;
+    u32  _n      = fude_marks_list(FUDE_MARK_STUDYING, _marked, _studying);
+    _n += fude_marks_list(FUDE_MARK_KNOWN, _marked + _n, _known);
     u32       _due[FUDE_REVIEW_SESSION];
     const u32 _d = fude_reviews_due(_marked, _n, _due, FUDE_REVIEW_SESSION);
+    rde_arr_free(&_list);
     u32       _r = 0;
     for(u32 _i = 0; _i < _d && _r < _max && _study->db != NULL; _i++) {
         if(fude_kanji_find_index(_study->db, _due[_i], &_out[_r])) {
@@ -60,6 +80,8 @@ u32 fude_study_reviews_due(fude_app* _app, u32* _out, u32 _max) {
     return _r;
 }
 
+// Opens the reviews due today as an exam, after letting go of the lasso's selection. With none due, a notice says
+// so and it returns false.
 b8 fude_study_review(fude_app* _app) {
     u32       _records[FUDE_REVIEW_SESSION];
     const u32 _n = fude_study_reviews_due(_app, _records, FUDE_REVIEW_SESSION);
@@ -74,10 +96,11 @@ b8 fude_study_review(fude_app* _app) {
 
 // --- Select mode's row (Browse's and the chart's) ---------------------------------------
 //
-// What to do with the ticked characters (select.h). Its owner is whichever
-// screen that ticks is on top; All takes what that one has in view.
+// What to do with the ticked characters (select.h). The row belongs to whichever screen that ticks is on top; All
+// takes the characters that screen has in view.
 
-RDE_INTERNAL void fude_study_select_all(fude_app* _app, void* _self, u32 _arg) {
+// All: ticks every character the top screen has in view (its vt's in_view).
+RDE_INTERNAL void fude_study_select_all(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     const fude_screen_slot* _top = fude_app_top(_app);
     const u32*              _records;
@@ -87,54 +110,61 @@ RDE_INTERNAL void fude_study_select_all(fude_app* _app, void* _self, u32 _arg) {
     }
 }
 
-RDE_INTERNAL void fude_study_select_none(fude_app* _app, void* _self, u32 _arg) {
+// None: clears the ticks.
+RDE_INTERNAL void fude_study_select_none(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_selection_clear(FUDE_STUDY(_app)->selection);
 }
 
-// Study: the ticked marked Studying — or, when every one of them already is, no
-// longer marked.
-RDE_INTERNAL void fude_study_select_study(fude_app* _app, void* _self, u32 _arg) {
+// Study: marks the ticked characters Studying. When every one of them already is, it takes the mark off instead, so
+// the button works as a toggle. Every ticked character is marked, however many.
+RDE_INTERNAL void fude_study_select_study(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_study* _study = FUDE_STUDY(_app);
     const u32 _count = fude_selection_count(_study->selection);
     if(_count == 0u || _study->db == NULL) {
         return;
     }
-    static u32 _cps[16384];
-    const u32  _n   = _count < 16384u ? _count : 16384u;
-    b8         _all = true;
-    for(u32 _i = 0; _i < _n; _i++) {
+    // Every ticked character's code point, however many are ticked.
+    rde_arr TYPE(u32) _list = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_list, _count);
+    u32* _cps = (u32*)_list.memory;
+    b8   _all = true;
+    for(u32 _i = 0; _i < _count; _i++) {
         fude_kanji_info _info;
         fude_kanji_at(_study->db, fude_selection_records(_study->selection)[_i], &_info);
         _cps[_i] = _info.codepoint;
         _all     = _all && fude_marks_get(_info.codepoint) == FUDE_MARK_STUDYING;
     }
-    fude_marks_set_many(_cps, _n, _all ? FUDE_MARK_NONE : FUDE_MARK_STUDYING);
+    fude_marks_set_many(_cps, _count, _all ? FUDE_MARK_NONE : FUDE_MARK_STUDYING);
+    rde_arr_free(&_list);
 }
 
-// Exam (straight to its preview), Sheet, Practice: the ticked, in the order ticked.
-RDE_INTERNAL void fude_study_select_exam(fude_app* _app, void* _self, u32 _arg) {
+// Exam: an exam of the ticked characters, in the order they were ticked, straight to its preview.
+RDE_INTERNAL void fude_study_select_exam(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_study* _study = FUDE_STUDY(_app);
     fude_study_exam(_app, fude_selection_records(_study->selection), fude_selection_count(_study->selection));
 }
 
-RDE_INTERNAL void fude_study_select_sheet(fude_app* _app, void* _self, u32 _arg) {
+// Sheet: a practice sheet of the ticked characters, in the order they were ticked.
+RDE_INTERNAL void fude_study_select_sheet(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_study* _study = FUDE_STUDY(_app);
     fude_study_sheet(_app, fude_selection_records(_study->selection), fude_selection_count(_study->selection));
 }
 
-RDE_INTERNAL void fude_study_select_practice(fude_app* _app, void* _self, u32 _arg) {
+// Practice: the ticked characters as a practice set, in the order they were ticked.
+RDE_INTERNAL void fude_study_select_practice(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_study* _study = FUDE_STUDY(_app);
     fude_study_practice_set(_app, fude_selection_records(_study->selection), fude_selection_count(_study->selection));
 }
 
-// Save list: the ticked, in the order ticked, as a new list of the vocabulary
-// (vocab.h): each character a word (fude_vocab_add_characters).
-RDE_INTERNAL void fude_study_select_list(fude_app* _app, void* _self, u32 _arg) {
+// Save list: the ticked characters, in the order they were ticked, saved as a new list of the vocabulary (vocab.h),
+// each character as a word of its own (fude_vocab_add_characters). A notice says how many were saved and under what
+// name, or that the list could not be made.
+RDE_INTERNAL void fude_study_select_list(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     fude_study* _study = FUDE_STUDY(_app);
     if(fude_selection_count(_study->selection) == 0u || _study->db == NULL) {
@@ -144,7 +174,7 @@ RDE_INTERNAL void fude_study_select_list(fude_app* _app, void* _self, u32 _arg) 
     u32       _saved = 0;
     const u32 _list  = fude_vocab_add_characters(_study->db, fude_selection_records(_study->selection), fude_selection_count(_study->selection), _name, sizeof(_name), &_saved);
     if(_list == 0u) {
-        fude_notice_show(fude_text(FUDE_TEXT_VOCAB_LISTS_FULL));
+        fude_notice_show(fude_text(FUDE_TEXT_VOCAB_LIST_NOT_MADE));
         return;
     }
     c8 _line[512];
@@ -152,12 +182,13 @@ RDE_INTERNAL void fude_study_select_list(fude_app* _app, void* _self, u32 _arg) 
     fude_notice_show(_line);
 }
 
-// Done: taps open characters again; the ticks stay for next time.
-RDE_INTERNAL void fude_study_select_done(fude_app* _app, void* _self, u32 _arg) {
+// Done: leaves Select mode, so that a tap opens a character again. The ticks stay for next time.
+RDE_INTERNAL void fude_study_select_done(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_self); RDE_UNUSED(_arg);
     FUDE_STUDY(_app)->selection->active = false;
 }
 
+// The buttons' places in the row, in the order of FUDE_STUDY_SELECT_BUTTONS.
 enum { FUDE_STUDY_SELECT_ALL = 0, FUDE_STUDY_SELECT_NONE, FUDE_STUDY_SELECT_STUDY, FUDE_STUDY_SELECT_EXAM, FUDE_STUDY_SELECT_SHEET, FUDE_STUDY_SELECT_LIST,
        FUDE_STUDY_SELECT_PRACTICE, FUDE_STUDY_SELECT_DONE };
 const fude_row_button FUDE_STUDY_SELECT_BUTTONS[FUDE_STUDY_SELECT_COUNT] = {
@@ -171,7 +202,8 @@ const fude_row_button FUDE_STUDY_SELECT_BUTTONS[FUDE_STUDY_SELECT_COUNT] = {
     { FUDE_TEXT_DONE,       FUDE_ICON_CHECK,       fude_study_select_done,     0, FUDE_ROW_QUIET,   false, NULL },
 };
 
-// "Practice n", the ticked; everything that acts on them greyed out without any.
+// Practice shows "Practice n" with the number ticked, and every button that acts on the ticks is greyed out while
+// none is ticked.
 void fude_study_select_faces(const fude_selection* _selection, fude_row_face* _faces) {
     const u32 _n = fude_selection_count(_selection);
     fude_row_face_count(&_faces[FUDE_STUDY_SELECT_PRACTICE], FUDE_TEXT_PRACTICE_N, _n);

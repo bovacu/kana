@@ -2,23 +2,25 @@
 
 #include "study/handwriting/score.h"
 #include "drawing/base/text.h"
+#include "drawing/base/theme.h"   // FUDE_THEME_GRADE_GOOD: where "Good" starts.
 #include "study/handwriting/match.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
 
 // ===========================================================================
 // See score.h.
+//
+// The pairing is a square cost matrix, padded with FUDE_SCORE_GAP for "no partner" when the drawing and the reference
+// have different stroke counts, and solved by the Hungarian algorithm. The order is judged by the longest run of
+// pairs in reference order (the longest increasing subsequence): every pair off that run counts as misplaced.
 // ===========================================================================
 
+// The most strokes scored (as many as the matcher keeps), and a cost larger than any real one.
 #define FUDE_SCORE_MAX  FUDE_MATCH_MAX_STROKES
 #define FUDE_SCORE_INF  1e30f
 
-// Minimum-cost assignment on an _n x _n matrix (Hungarian algorithm, O(n³)).
-// _cost is row-major; _row_of_col[j] gets the row given column j.
+// Finds the minimum-cost assignment on an _n x _n matrix (the Hungarian algorithm, O(n³)). _cost is row-major, and
+// _row_of_col[j] gets the row given column j. Its scratch is static, so it is for the main thread only.
 RDE_INTERNAL void fude_score_assign(const f32* _cost, u32 _n, u32* _row_of_col) {
-    // 1-based arrays, the classic potentials formulation.
+    // 1-based arrays, in the classic formulation with potentials (_u for rows, _v for columns).
     static f32 _u[FUDE_SCORE_MAX + 1], _v[FUDE_SCORE_MAX + 1], _minv[FUDE_SCORE_MAX + 1];
     static u32 _p[FUDE_SCORE_MAX + 1], _way[FUDE_SCORE_MAX + 1];
     static b8  _used[FUDE_SCORE_MAX + 1];
@@ -78,7 +80,7 @@ RDE_INTERNAL void fude_score_assign(const f32* _cost, u32 _n, u32* _row_of_col) 
     }
 }
 
-// The length of the longest strictly increasing subsequence of _seq.
+// Returns the length of the longest strictly increasing subsequence of _seq (by patience sorting, O(n log n)).
 RDE_INTERNAL u32 fude_score_lis(const u32* _seq, u32 _n) {
     u32 _best[FUDE_SCORE_MAX];
     u32 _len = 0;
@@ -96,18 +98,18 @@ RDE_INTERNAL u32 fude_score_lis(const u32* _seq, u32 _n) {
     return _len;
 }
 
-// The best fit of the drawing onto the reference, given the pairs: per axis, a
-// scale and a shift (least squares over every corresponding point), so SHAPE is
-// judged without the character's placement, size or a little stretch — a 日 a
-// bit wide, a ま whose tail runs on and so stretches the box both are fitted
-// by. Kept honest: the axes stay within FUDE_SCORE_FIT_STRETCH of each other
-// and the size within FUDE_SCORE_FIT_SIZE of the box fit, so a character can be
-// moved and resized, not remade.
+// The best fit of the drawing onto the reference, given the pairs: a scale and a shift for each axis (least squares
+// over every pair of corresponding points). SHAPE is then judged without the character's placement, size or a little
+// stretch: a 日 a bit wide, or a ま whose tail runs on and so stretches the box, are both fitted. The fit is kept
+// honest: the axes stay within FUDE_SCORE_FIT_STRETCH of each other, and the size within FUDE_SCORE_FIT_SIZE of the
+// box fit, so that a character can be moved and resized, but not remade.
 typedef struct {
-    f32 sx, sy;   // scale
-    f32 tx, ty;   // then shift
+    f32 sx, sy;   // the scale
+    f32 tx, ty;   // then the shift
 } fude_score_fit;
 
+// Finds the best fit (see above) over the paired strokes of the drawing. _ref_of_user gives each drawn stroke's
+// reference stroke (UINT32_MAX: none), and _backwards whether it is compared walked backwards.
 RDE_INTERNAL fude_score_fit fude_score_best_fit(const fude_match_stroke* _user, const fude_match_stroke* _ref, const u32* _ref_of_user,
                                                 const b8* _backwards, u32 _n) {
     f64 _count = 0.0, _ux = 0.0, _uy = 0.0, _rx = 0.0, _ry = 0.0;
@@ -136,8 +138,8 @@ RDE_INTERNAL fude_score_fit fude_score_best_fit(const fude_match_stroke* _user, 
         }
     }
 
-    // One size for both axes first; then each axis may differ from it a little
-    // (an axis with almost no extent — 一's height — keeps the shared size).
+    // One size for both axes first; then each axis may differ from it a little. An axis with almost no extent (the
+    // height of 一) keeps the shared size.
     const f64 _shared = (_vx + _vy) > 1e-6 ? (_cx + _cy) / (_vx + _vy) : 1.0;
     const f32 _size   = rde_math_clamp_f32((f32)_shared, 1.0f / FUDE_SCORE_FIT_SIZE, FUDE_SCORE_FIT_SIZE);
     const f64 _flat   = 0.05 * (_vx + _vy);
@@ -150,7 +152,8 @@ RDE_INTERNAL fude_score_fit fude_score_best_fit(const fude_match_stroke* _user, 
     return _fit;
 }
 
-// A drawn stroke's distance to its reference stroke once fitted.
+// Returns a drawn stroke's mean distance to its reference stroke once the drawing is fitted, in the matcher's box of
+// 100.
 RDE_INTERNAL f32 fude_score_fitted_distance(const fude_match_stroke* _user, const fude_match_stroke* _ref, b8 _backwards, fude_score_fit _fit) {
     f32 _sum = 0.0f;
     for(u32 _k = 0; _k < FUDE_MATCH_POINTS; _k++) {
@@ -158,19 +161,21 @@ RDE_INTERNAL f32 fude_score_fitted_distance(const fude_match_stroke* _user, cons
         const rde_vec_2F _r  = _ref->p[_backwards ? FUDE_MATCH_POINTS - 1u - _k : _k];
         const f32        _dx = _u.x * _fit.sx + _fit.tx - _r.x;
         const f32        _dy = _u.y * _fit.sy + _fit.ty - _r.y;
-        _sum += sqrtf(_dx * _dx + _dy * _dy);
+        _sum += rde_math_sqrt_f32(_dx * _dx + _dy * _dy);
     }
     return _sum / (f32)FUDE_MATCH_POINTS;
 }
 
+// Writes the feedback line (see the header).
 void fude_score_describe(fude_score* _s) {
-    // One line: the most important thing first.
-    // In the learner's language (text.h), as it was when scored: history keeps the words.
+    // One line, with the most important thing first. It is in the learner's language as it is now (text.h): the history
+    // keeps the score's numbers, not its words, and describes a session again when it is read, so an old session reads
+    // in today's language.
     c8 _strokes[512];
     if(_s->empty) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(FUDE_TEXT_SCORE_EMPTY));
+        rde_snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(FUDE_TEXT_SCORE_EMPTY));
     } else if(_s->expected == 0) {
-        snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(FUDE_TEXT_SCORE_NO_REFERENCE));
+        rde_snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(FUDE_TEXT_SCORE_NO_REFERENCE));
     } else if(_s->drawn != _s->expected) {
         FUDE_TEXTF(_strokes, FUDE_TEXT_STROKES_N, FUDE_TN(_s->drawn));
         FUDE_TEXTF(_s->feedback, FUDE_TEXT_SCORE_COUNT, FUDE_TS(_strokes), FUDE_TN(_s->expected));
@@ -184,10 +189,13 @@ void fude_score_describe(fude_score* _s) {
     } else if(_s->shape < 70.0f && _s->worst != 0) {
         FUDE_TEXTF(_s->feedback, FUDE_TEXT_SCORE_SHAPE, FUDE_TN(_s->worst));
     } else {
-        snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(_s->score >= 90.0f ? FUDE_TEXT_SCORE_EXCELLENT : _s->score >= 75.0f ? FUDE_TEXT_SCORE_GOOD : FUDE_TEXT_SCORE_OK));
+        // The words follow the grades the score is coloured by (theme.h), so a score is called good only where it shows
+        // good.
+        rde_snprintf(_s->feedback, sizeof(_s->feedback), "%s", fude_text(_s->score >= FUDE_SCORE_EXCELLENT ? FUDE_TEXT_SCORE_EXCELLENT : _s->score >= FUDE_THEME_GRADE_GOOD ? FUDE_TEXT_SCORE_GOOD : FUDE_TEXT_SCORE_OK));
     }
 }
 
+// Scores a drawing against a character (see the header). Its scratch is static, so it is for the main thread only.
 fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _info, const fude_ink* _drawing) {
     static fude_match_stroke _user[FUDE_SCORE_MAX];
     static fude_match_stroke _ref[FUDE_SCORE_MAX];
@@ -196,7 +204,7 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
     static f32               _rev[FUDE_SCORE_MAX][FUDE_SCORE_MAX];
 
     fude_score _s;
-    memset(&_s, 0, sizeof(_s));
+    rde_memset(&_s, 0, sizeof(_s));
 
     const u32 _n = fude_match_drawing(_drawing, _user, FUDE_SCORE_MAX);
     const u32 _m = fude_match_reference(_db, _info, _ref, FUDE_SCORE_MAX);
@@ -205,16 +213,16 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
 
     if(_n == 0) {
         _s.empty = true;
-        snprintf(_s.feedback, sizeof(_s.feedback), "%s", fude_text(FUDE_TEXT_SCORE_EMPTY));
+        rde_snprintf(_s.feedback, sizeof(_s.feedback), "%s", fude_text(FUDE_TEXT_SCORE_EMPTY));
         return _s;
     }
     if(_m == 0) {
-        snprintf(_s.feedback, sizeof(_s.feedback), "%s", fude_text(FUDE_TEXT_SCORE_NO_REFERENCE));
+        rde_snprintf(_s.feedback, sizeof(_s.feedback), "%s", fude_text(FUDE_TEXT_SCORE_NO_REFERENCE));
         return _s;
     }
 
-    // Pairing costs, padded square: a real pair costs its distance (backwards a
-    // little more, so a forward reading wins a tie); "no partner" costs the gap.
+    // The pairing costs, padded to a square: a real pair costs its distance (walked backwards a little more, 2 units,
+    // so that the forward reading wins a tie), and "no partner" costs FUDE_SCORE_GAP.
     const u32 _size = _n > _m ? _n : _m;
     for(u32 _i = 0; _i < _size; _i++) {
         for(u32 _j = 0; _j < _size; _j++) {
@@ -222,7 +230,7 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
             if(_i < _n && _j < _m) {
                 _fwd[_i][_j] = fude_match_points_distance(&_user[_i], &_ref[_j], false);
                 _rev[_i][_j] = fude_match_points_distance(&_user[_i], &_ref[_j], true);
-                _c = fminf(_fwd[_i][_j], _rev[_i][_j] + 2.0f);
+                _c = rde_math_min_f32(_fwd[_i][_j], _rev[_i][_j] + 2.0f);
             }
             _cost[_i * _size + _j] = _c;
         }
@@ -231,7 +239,8 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
     u32 _row_of_col[FUDE_SCORE_MAX];
     fude_score_assign(_cost, _size, _row_of_col);
 
-    // Read the pairing back as "which reference stroke did drawn stroke i become".
+    // The pairing is read back as "which reference stroke did drawn stroke i become". A drawn stroke paired with
+    // padding is extra; a reference stroke paired with padding is missing.
     u32 _ref_of_user[FUDE_SCORE_MAX];
     for(u32 _i = 0; _i < _size; _i++) {
         _ref_of_user[_i] = UINT32_MAX;
@@ -247,8 +256,8 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
         }
     }
 
-    // Direction over the pairs, in writing order; the reference order they came
-    // in, for the order check.
+    // The direction of each pair, in writing order, and the reference strokes in the order they were written, for the
+    // order check.
     u32 _sequence[FUDE_SCORE_MAX];
     b8  _backwards[FUDE_SCORE_MAX];
     u32 _pairs = 0;
@@ -269,7 +278,7 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
         _sequence[_pairs++] = _j;
     }
 
-    // Shape: the pairs' distance once the drawing is fitted onto the reference.
+    // Shape: the pairs' mean distance once the drawing is fitted onto the reference, and the stroke furthest off.
     const fude_score_fit _fit     = fude_score_best_fit(_user, _ref, _ref_of_user, _backwards, _n);
     f32                  _total   = 0.0f;
     f32                  _worst_d = 0.0f;
@@ -286,7 +295,9 @@ fude_score fude_score_drawing(const fude_kanji_db* _db, const fude_kanji_info* _
         _total += _d;
     }
 
-    // Order: whatever is not on the longest in-order run was written out of place.
+    // Order: whatever is not on the longest in-order run was written out of place. The first place where the order goes
+    // down is reported as those two strokes (swap_a should have come before swap_b): a swap when only they are out of
+    // place, but just as well the stroke written late and the one it came after (1 3 4 2: 2 before 4).
     _s.misplaced = (u8)(_pairs - fude_score_lis(_sequence, _pairs));
     for(u32 _k = 0; _k + 1u < _pairs && _s.misplaced > 0; _k++) {
         if(_sequence[_k] > _sequence[_k + 1u]) {

@@ -4,7 +4,7 @@
 #include "study/widgets/header.h"
 #include "study/models/review.h"
 #include "lang/lang.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "study/models/examlog.h"
 #include "study/models/marks.h"
 #include "study/handwriting/match.h"
@@ -14,61 +14,52 @@
 #include "study/models/vocab.h"
 #include "drawing/base/text.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
 
 // ===========================================================================
 // See exam.h.
+//
+// The items are a fixed array of FUDE_EXAM_MAX, each with its own ink, made once in fude_exam_init and emptied again
+// for each exam rather than freed. order lists the included items in the order asked, and the writing, the marking
+// and the results all walk it. Marking runs in fude_exam_grade, from fude_exam_update each frame: one answer at a
+// time, through ML Kit when it is available, else through the matcher alone. Once every answer is marked,
+// fude_exam_keep adds the exam to the log and moves the marks and the reviews.
 // ===========================================================================
 
+// The layout's sizes, in screen points (MARGIN from the screen's sides, a chip's height and the gap between chips, and
+// the answer square at its largest), then the text sizes, in points.
 #define FUDE_EXAM_MARGIN      24.0f
 #define FUDE_EXAM_CHIP_H      40.0f
 #define FUDE_EXAM_CHIP_GAP    8.0f
-#define FUDE_EXAM_CELL_MIN    88.0f     // the preview's grid, as Browse's
-#define FUDE_EXAM_RESULT_MIN  132.0f    // the results' grid: room to see the writing
+#define FUDE_EXAM_CELL_MIN    88.0f     // The preview's smallest cell, as in Browse's grid.
+#define FUDE_EXAM_RESULT_MIN  132.0f    // The results' smallest cell, with room to see the writing.
 #define FUDE_EXAM_SQUARE_MAX  520.0f
-#define FUDE_EXAM_TITLE_PX    17.0f     // sizes: a screen's title
-#define FUDE_EXAM_CAPTION_PX  10.0f     // a caption
-#define FUDE_EXAM_CHIP_PX     13.0f     // a chip's label
-#define FUDE_EXAM_MEANING_PX  22.0f     // the prompt's meaning
-#define FUDE_EXAM_WORD_PX     19.0f     // the prompt's word
-#define FUDE_EXAM_GRADE_WAIT  4.0       // seconds ML Kit may take on one answer before the matcher decides alone
+#define FUDE_EXAM_TITLE_PX    17.0f     // A screen's title.
+#define FUDE_EXAM_CAPTION_PX  10.0f     // A caption.
+#define FUDE_EXAM_CHIP_PX     13.0f     // A chip's label.
+#define FUDE_EXAM_MEANING_PX  22.0f     // The prompt's meaning.
+#define FUDE_EXAM_WORD_PX     19.0f     // The prompt's word.
+#define FUDE_EXAM_GRADE_WAIT  4.0       // The seconds ML Kit may take on one answer before the matcher decides alone.
+// The pen's radius, in the answer ink's units: the model's stroke width scaled from KanjiVG's box to the answer square.
 #define FUDE_EXAM_PEN_RADIUS  (FUDE_EXAM_UNITS * FUDE_GLYPH_WIDTH / FUDE_KANJI_BOX * 0.5f)
 
-static const u32       FUDE_EXAM_LENGTH_VALUES[FUDE_EXAM_LENGTHS] = { 10u, 20u, 50u, 0u };   // 0: all
-static const c8* const FUDE_EXAM_LENGTH_NAMES[FUDE_EXAM_LENGTHS]  = { "10", "20", "50", NULL };   // NULL: All (text.h)
-// --- the sources, numbered from the language's levels and sets (exam.h) -------------
+// The lengths to choose from and their chips' labels. A length of 0 means all of them, and its label, NULL, shows the
+// translated "All" (text.h).
+static const u32       FUDE_EXAM_LENGTH_VALUES[FUDE_EXAM_LENGTHS] = { 10u, 20u, 50u, 0u };   // 0 is all.
+static const c8* const FUDE_EXAM_LENGTH_NAMES[FUDE_EXAM_LENGTHS]  = { "10", "20", "50", NULL };   // NULL is All.
 
-// How many groups are sets, and the _set-th's group (FUDE_LANG_NO_GROUP: none).
-RDE_INTERNAL u32 fude_exam_set_count(void) {
-    u32 _n = 0;
-    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
-        _n += (fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u ? 1u : 0u;
-    }
-    return _n;
-}
+// --- The sources, numbered from the language's levels and sets (exam.h) ----------------------------------------------
 
-RDE_INTERNAL u32 fude_exam_set_group(u32 _set) {
-    for(u32 _g = 0; _g < fude_lang_group_count(); _g++) {
-        if((fude_lang_group_flags(_g) & FUDE_LANG_GROUP_SET) != 0u && _set-- == 0u) {
-            return _g;
-        }
-    }
-    return FUDE_LANG_NO_GROUP;
-}
-
+// The source numbers, in exam.h's order: 0 Studying and 1 Known, then the levels, the sets, a selection given and the
+// reviews due. How many there are depends on the language.
 FUDE_EXAM_SOURCE_ fude_exam_source_level(u32 _level) { return 2u + _level; }
 FUDE_EXAM_SOURCE_ fude_exam_source_set(u32 _set)     { return 2u + fude_lang_level_count() + _set; }
-FUDE_EXAM_SOURCE_ fude_exam_source_selection(void)  { return 2u + fude_lang_level_count() + fude_exam_set_count(); }
+FUDE_EXAM_SOURCE_ fude_exam_source_selection(void)  { return 2u + fude_lang_level_count() + fude_catalog_set_count(); }
 FUDE_EXAM_SOURCE_ fude_exam_source_review(void)     { return fude_exam_source_selection() + 1u; }
 u32               fude_exam_source_count(void)      { return fude_exam_source_review() + 1u; }
 
-// A source's name: Studying, Known, a level's short name (the same in every
-// language: "N5"), a set's group name, Selection, Reviews.
+// Returns a source's name: Studying, Known, a level's short name (the same in every language of the meanings, such as
+// "N5": catalog.h), a set's group name, Selection or Reviews.
 const c8* fude_exam_source_name(FUDE_EXAM_SOURCE_ _source) {
-    static c8 _levels[FUDE_LANG_LEVELS][16];
     const u32 _level_count = fude_lang_level_count();
     if(_source >= fude_exam_source_count()) {
         return "";
@@ -76,26 +67,26 @@ const c8* fude_exam_source_name(FUDE_EXAM_SOURCE_ _source) {
     if(_source == FUDE_EXAM_SOURCE_STUDYING) { return fude_text(FUDE_TEXT_STUDYING); }
     if(_source == FUDE_EXAM_SOURCE_KNOWN)    { return fude_text(FUDE_TEXT_KNOWN); }
     if(_source < 2u + _level_count) {
-        const u32 _level = _source - 2u;
-        fude_lang_level_name(fude_lang_level_value(_level), false, _levels[_level], sizeof(_levels[_level]));
-        return _levels[_level];
+        return fude_catalog_level_label(_source - 2u);
     }
     if(_source < fude_exam_source_selection()) {
-        return fude_text((FUDE_TEXT_)fude_lang_group_name(fude_exam_set_group(_source - 2u - _level_count)));
+        return fude_text((FUDE_TEXT_)fude_lang_group_name(fude_catalog_set_group(_source - 2u - _level_count)));
     }
     return fude_text(_source == fude_exam_source_selection() ? FUDE_TEXT_EXAM_SELECTION : FUDE_TEXT_REVIEWS);
 }
 
+// Makes an empty answer ink, drawn at the exam pen's fixed width.
 RDE_INTERNAL void fude_exam_fresh_ink(fude_ink* _ink) {
     fude_ink_init(_ink);
     _ink->constant_radius = FUDE_EXAM_PEN_RADIUS;
 }
 
+// Sets the exam up closed, 20 characters long, with an empty ink for every item.
 void fude_exam_init(fude_exam* _exam, const fude_kanji_db* _db, const fude_catalog* _catalog) {
-    memset(_exam, 0, sizeof(*_exam));
+    rde_memset(_exam, 0, sizeof(*_exam));
     _exam->db        = _db;
     _exam->catalog   = _catalog;
-    _exam->length    = 1u;   // 20
+    _exam->length    = 1u;   // The second length: 20.
     _exam->grading   = UINT32_MAX;
     _exam->tapped    = -1;
     _exam->selection = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
@@ -105,6 +96,7 @@ void fude_exam_init(fude_exam* _exam, const fude_kanji_db* _db, const fude_catal
     }
 }
 
+// Frees every item's ink, the selection and the glyph cache, and zeroes the exam.
 void fude_exam_destroy(fude_exam* _exam) {
     for(u32 _i = 0; _i < FUDE_EXAM_MAX; _i++) {
         fude_ink_destroy(&_exam->items[_i].ink);
@@ -113,14 +105,16 @@ void fude_exam_destroy(fude_exam* _exam) {
         rde_arr_free(&_exam->selection);
     }
     fude_glyph_destroy(&_exam->glyph);
-    memset(_exam, 0, sizeof(*_exam));
+    rde_memset(_exam, 0, sizeof(*_exam));
 }
 
-// --- what an exam can be of ----------------------------------------------------------
+// --- What an exam can be of ------------------------------------------------------------------------------------------
 
+// Returns whether record _record belongs to source _source (not a selection given, nor the reviews: those are lists).
+// Only what the catalog lists counts.
 RDE_INTERNAL b8 fude_exam_in_source(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _source, u32 _record) {
     if(_exam->catalog == NULL || !fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_ALL)) {
-        return false;   // kana and kanji only
+        return false;   // Only what the catalog lists (in Kana, the kana and the kanji).
     }
     fude_kanji_info _info;
     const u32       _levels = fude_lang_level_count();
@@ -131,13 +125,14 @@ RDE_INTERNAL b8 fude_exam_in_source(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _s
     if(_source < 2u + _levels) {
         return fude_catalog_passes(_exam->catalog, _record, fude_filter_level(_source - 2u));
     }
-    if(_source < fude_exam_source_selection()) {   // a set: its core characters
-        return fude_catalog_passes(_exam->catalog, _record, fude_filter_group(fude_exam_set_group(_source - 2u - _levels))) &&
+    if(_source < fude_exam_source_selection()) {   // A set: only its core characters.
+        return fude_catalog_passes(_exam->catalog, _record, fude_filter_group(fude_catalog_set_group(_source - 2u - _levels))) &&
                fude_kanji_at(_exam->db, _record, &_info) && fude_lang_core(_info.codepoint);
     }
     return false;
 }
 
+// Counts source _source's characters by going through every record; a selection or the reviews is the list given.
 u32 fude_exam_source_size(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _source) {
     if(_source == fude_exam_source_selection() || _source == fude_exam_source_review()) {
         return (u32)rde_arr_length(&_exam->selection);
@@ -149,6 +144,7 @@ u32 fude_exam_source_size(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _source) {
     return _n;
 }
 
+// See the header: the source's size, cut to the length chosen (0 is all) and to FUDE_EXAM_MAX.
 u32 fude_exam_planned(const fude_exam* _exam) {
     const u32 _size = fude_exam_source_size(_exam, _exam->source);
     const u32 _want = FUDE_EXAM_LENGTH_VALUES[_exam->length];
@@ -156,25 +152,8 @@ u32 fude_exam_planned(const fude_exam* _exam) {
     return _n > FUDE_EXAM_MAX ? FUDE_EXAM_MAX : _n;
 }
 
-RDE_INTERNAL u32 fude_exam_random(fude_exam* _exam) {
-    u32 _x = _exam->rng != 0 ? _exam->rng : 0x9E3779B9u;
-    _x ^= _x << 13;
-    _x ^= _x >> 17;
-    _x ^= _x << 5;
-    _exam->rng = _x;
-    return _x;
-}
-
-RDE_INTERNAL void fude_exam_shuffle(fude_exam* _exam, u32* _records, u32 _count) {
-    for(u32 _i = _count; _i > 1u; _i--) {
-        const u32 _j = fude_exam_random(_exam) % _i;
-        const u32 _t = _records[_i - 1u];
-        _records[_i - 1u] = _records[_j];
-        _records[_j]      = _t;
-    }
-}
-
-// The items, fresh: nothing answered, every one ticked.
+// Makes the items _records (at most FUDE_EXAM_MAX of them), fresh: nothing answered, every one ticked, every ink
+// empty. It also forgets any answer being read, and starts the grid from its top.
 RDE_INTERNAL void fude_exam_set_items(fude_exam* _exam, const u32* _records, u32 _count) {
     _count = _count > FUDE_EXAM_MAX ? FUDE_EXAM_MAX : _count;
     for(u32 _i = 0; _i < FUDE_EXAM_MAX; _i++) {
@@ -200,34 +179,39 @@ RDE_INTERNAL void fude_exam_set_items(fude_exam* _exam, const u32* _records, u32
     _exam->scroller.offset = 0.0f;
 }
 
+// Opens on the setup, keeping the source and length chosen last time. The shuffle is seeded from the clock.
 void fude_exam_open(fude_exam* _exam) {
     rde_arr_clear(&_exam->selection);
     if(_exam->source == fude_exam_source_selection() || _exam->source == fude_exam_source_review()) {
-        _exam->source = FUDE_EXAM_SOURCE_STUDYING;   // those were a list given: gone with it
+        _exam->source = FUDE_EXAM_SOURCE_STUDYING;   // Those were lists given, which are gone now.
     }
-    _exam->rng   = (u32)time(NULL) | 1u;
+    _exam->rng   = rde_random_new_from_entropy();
     _exam->stage = FUDE_EXAM_SETUP;
     _exam->open  = _exam->db != NULL;
     fude_exam_set_items(_exam, NULL, 0u);
 }
 
+// Opens on a copy of _records, as a selection, all of them, straight to the preview.
 void fude_exam_open_with(fude_exam* _exam, const u32* _records, u32 _count) {
     fude_exam_open(_exam);
     if(_count > 0) {
         rde_memcpy(rde_arr_add_n(&_exam->selection, _count), (any)_records, sizeof(u32) * _count);
     }
     _exam->source = fude_exam_source_selection();
-    _exam->length = FUDE_EXAM_LENGTHS - 1u;   // all of them
+    _exam->length = FUDE_EXAM_LENGTHS - 1u;   // All of them.
     fude_exam_preview(_exam);
 }
 
+// Opens on a copy of the reviews due, as the source Reviews, and starts writing at once.
 void fude_exam_open_review(fude_exam* _exam, const u32* _records, u32 _count) {
     fude_exam_open_with(_exam, _records, _count);
     _exam->source = fude_exam_source_review();
     fude_exam_preview(_exam);
-    fude_exam_start(_exam);   // no preview: what is due is what is asked
+    fude_exam_start(_exam);   // No preview: everything due is asked.
 }
 
+// Opens kept exam _index on its results, as they were: its items marked as the log says, and their writing read back
+// from the log. Characters the data no longer has are left out.
 b8 fude_exam_open_kept(fude_exam* _exam, u32 _index) {
     if(_exam->db == NULL || _index >= fude_examlog_count()) {
         return false;
@@ -235,9 +219,9 @@ b8 fude_exam_open_kept(fude_exam* _exam, u32 _index) {
     const fude_examlog_exam* _kept  = &fude_examlog_exams()[_index];
     const fude_examlog_item* _items = &fude_examlog_items()[_kept->first_item];
 
-    // Its characters the data still has, as they were asked.
+    // The kept exam's characters that the data still has, in the order they were asked.
     u32 _records[FUDE_EXAM_MAX];
-    u32 _from[FUDE_EXAM_MAX];   // each one's item in the log
+    u32 _from[FUDE_EXAM_MAX];   // Each one's item in the log.
     u32 _n = 0;
     for(u32 _i = 0; _i < _kept->item_count && _n < FUDE_EXAM_MAX; _i++) {
         if(fude_kanji_find_index(_exam->db, _items[_i].codepoint, &_records[_n])) {
@@ -258,7 +242,8 @@ b8 fude_exam_open_kept(fude_exam* _exam, u32 _index) {
         _exam->order[_k] = _k;
     }
 
-    // The writing, back from the log into each answer's ink.
+    // The writing is read back from the log into each answer's ink: a point's x and y go from a fraction of the square
+    // times 65535 to the ink's FUDE_EXAM_UNITS.
     rde_memory_allocator* _heap     = rde_memory_allocator_get_default_std();
     rde_arr               _writings = rde_arr_new(sizeof(fude_examlog_writing), _heap);
     rde_arr               _strokes  = rde_arr_new(sizeof(fude_history_stroke), _heap);
@@ -296,52 +281,47 @@ b8 fude_exam_open_kept(fude_exam* _exam, u32 _index) {
 
     _exam->source = _kept->source < fude_exam_source_count() ? (FUDE_EXAM_SOURCE_)_kept->source : FUDE_EXAM_SOURCE_STUDYING;
     _exam->asked  = _n;
-    _exam->saved  = true;   // already kept
+    _exam->saved  = true;   // It is already in the log.
     _exam->kept   = _index;
     _exam->stage  = FUDE_EXAM_RESULTS;
     _exam->open   = true;
     return true;
 }
 
-void fude_exam_close(fude_exam* _exam) {
-    if(_exam->pen) {
-        fude_ink_end(&_exam->items[_exam->order[_exam->current]].ink);
-        _exam->pen = false;
-    }
-    _exam->open = false;
-}
-
+// Goes on to the preview: the source's characters, shuffled, cut to the length planned. They are gathered whole, in an
+// array as long as the source is (on the std allocator, freed before it returns), so any of them may be drawn.
 void fude_exam_preview(fude_exam* _exam) {
-    static u32 _records[16384];
-    u32        _n = 0;
+    rde_arr TYPE(u32) _records = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     if(_exam->source == fude_exam_source_selection() || _exam->source == fude_exam_source_review()) {
-        const u32* _sel = (const u32*)_exam->selection.memory;
-        for(u32 _i = 0; _i < (u32)rde_arr_length(&_exam->selection) && _n < 16384u; _i++) {
-            _records[_n++] = _sel[_i];
-        }
+        rde_arr_add_arr(&_records, &_exam->selection);
     } else {
-        for(u32 _r = 0; _exam->db != NULL && _r < _exam->db->count && _n < 16384u; _r++) {
+        for(u32 _r = 0; _exam->db != NULL && _r < _exam->db->count; _r++) {
             if(fude_exam_in_source(_exam, _exam->source, _r)) {
-                _records[_n++] = _r;
+                rde_arr_add(&_records, (any)&_r);
             }
         }
     }
-    fude_exam_shuffle(_exam, _records, _n);
-    fude_exam_set_items(_exam, _records, fude_exam_planned(_exam) < _n ? fude_exam_planned(_exam) : _n);
+    const u32 _n = (u32)rde_arr_length(&_records);
+    rde_random_shuffle(&_exam->rng, _records.memory, _n, sizeof(u32));
+    fude_exam_set_items(_exam, (const u32*)_records.memory, fude_exam_planned(_exam) < _n ? fude_exam_planned(_exam) : _n);
+    rde_arr_free(&_records);
     _exam->stage = FUDE_EXAM_PREVIEW;
 }
 
+// Goes back to the setup, dropping the items.
 void fude_exam_back(fude_exam* _exam) {
     _exam->stage = FUDE_EXAM_SETUP;
     fude_exam_set_items(_exam, NULL, 0u);
 }
 
+// Ticks every item (_on) or unticks them all.
 void fude_exam_tick_all(fude_exam* _exam, b8 _on) {
     for(u32 _i = 0; _i < _exam->count; _i++) {
         _exam->items[_i].included = _on;
     }
 }
 
+// Returns how many items are ticked.
 u32 fude_exam_included(const fude_exam* _exam) {
     u32 _n = 0;
     for(u32 _i = 0; _i < _exam->count; _i++) {
@@ -350,6 +330,7 @@ u32 fude_exam_included(const fude_exam* _exam) {
     return _n;
 }
 
+// Starts writing the ticked items, in their order; with none ticked it stays where it is.
 void fude_exam_start(fude_exam* _exam) {
     _exam->asked = 0;
     for(u32 _i = 0; _i < _exam->count; _i++) {
@@ -367,12 +348,14 @@ void fude_exam_start(fude_exam* _exam) {
     _exam->scroller.offset = 0.0f;
 }
 
-// --- writing ---------------------------------------------------------------------------
+// --- Writing ---------------------------------------------------------------------------------------------------------
 
+// Returns the item being written, or NULL when the exam is not at the writing stage.
 RDE_INTERNAL fude_exam_item* fude_exam_current(fude_exam* _exam) {
     return _exam->stage == FUDE_EXAM_WRITING && _exam->current < _exam->asked ? &_exam->items[_exam->order[_exam->current]] : NULL;
 }
 
+// Takes back the answer's last stroke, unless the pen is down.
 void fude_exam_undo(fude_exam* _exam) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_it != NULL && !_exam->pen) {
@@ -380,6 +363,7 @@ void fude_exam_undo(fude_exam* _exam) {
     }
 }
 
+// Empties the answer, unless the pen is down.
 void fude_exam_clear(fude_exam* _exam) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_it != NULL && !_exam->pen) {
@@ -388,10 +372,13 @@ void fude_exam_clear(fude_exam* _exam) {
     }
 }
 
+// Returns whether the character being written is the last one asked.
 b8 fude_exam_at_last(const fude_exam* _exam) {
     return _exam->current + 1u >= _exam->asked;
 }
 
+// Ends a stroke still being drawn, marks the answer answered (to be read), and moves on: to the next character, or
+// after the last to the results.
 void fude_exam_next(fude_exam* _exam) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_it == NULL) {
@@ -405,32 +392,34 @@ void fude_exam_next(fude_exam* _exam) {
     if(_exam->current + 1u < _exam->asked) {
         _exam->current++;
     } else {
-        _exam->stage = FUDE_EXAM_RESULTS;   // the answers still being read show as such
+        _exam->stage = FUDE_EXAM_RESULTS;   // Answers still being read show as such.
         fude_scroller_stop(&_exam->scroller);
         _exam->scroller.offset = 0.0f;
     }
 }
 
-// --- marking ---------------------------------------------------------------------------
+// --- Marking ---------------------------------------------------------------------------------------------------------
 
-// An answer read: right when among the first candidates of recognition (_r's
-// readings of one character, then the matcher's ranking); its points, how well
-// it was written.
+// Marks one answer. It is right when the character asked is among the first FUDE_EXAM_CANDIDATES candidates of
+// recognition: ML Kit's readings of one character in _r (NULL when there are none), then the matcher's ranking. Its
+// quality is how well it was written against the character asked, and its points are that quality when it is right,
+// 0 when not.
 RDE_INTERNAL void fude_exam_mark(fude_exam* _exam, fude_exam_item* _it, const fude_recognition* _r) {
     _it->graded  = true;
     _it->correct = false;
     _it->score   = _it->quality = 0.0f;
     _it->read_as = UINT32_MAX;
     if(fude_ink_alive_strokes(&_it->ink) == 0) {
-        return;   // nothing written: wrong
+        return;   // Nothing written is wrong.
     }
 
     fude_match_result _matched[16];
     fude_match_result _candidates[8];
     const u32 _m = fude_match_rank(_exam->db, _exam->catalog, FUDE_FILTER_ALL, &_it->ink, _matched, 16u);
     const u32 _n = fude_recognize_candidates(_exam->db, _r, 0u, 1u, _exam->catalog, FUDE_FILTER_ALL, _matched, _m, _candidates, 8u);
+    // A joined form counts as its letter (recognize.h: fude_recognize_same).
     for(u32 _i = 0; _i < _n && _i < FUDE_EXAM_CANDIDATES; _i++) {
-        _it->correct = _it->correct || fude_recognize_same(_exam->db, _candidates[_i].record, _it->record);   // a joined form: its letter
+        _it->correct = _it->correct || fude_recognize_same(_exam->db, _candidates[_i].record, _it->record);   // Forms count as letters.
     }
     _it->read_as = _n > 0 ? _candidates[0].record : UINT32_MAX;
 
@@ -442,6 +431,7 @@ RDE_INTERNAL void fude_exam_mark(fude_exam* _exam, fude_exam_item* _it, const fu
     _it->score = _it->correct ? _it->quality : 0.0f;
 }
 
+// Returns whether every answer asked has been read.
 b8 fude_exam_graded(const fude_exam* _exam) {
     for(u32 _i = 0; _i < _exam->asked; _i++) {
         if(!_exam->items[_exam->order[_i]].graded) {
@@ -451,6 +441,7 @@ b8 fude_exam_graded(const fude_exam* _exam) {
     return true;
 }
 
+// Returns how many answers asked have been read.
 RDE_INTERNAL u32 fude_exam_graded_count(const fude_exam* _exam) {
     u32 _n = 0;
     for(u32 _i = 0; _i < _exam->asked; _i++) {
@@ -459,18 +450,18 @@ RDE_INTERNAL u32 fude_exam_graded_count(const fude_exam* _exam) {
     return _n;
 }
 
-// The answers, read one at a time: ML Kit while it is on and has its model (it
-// answers a frame or more later), else the matcher alone.
+// Reads the answers given, one at a time. ML Kit reads it while it is on and has its model: it answers a frame or more
+// later and is given FUDE_EXAM_GRADE_WAIT seconds from when it was asked (grading_since). Otherwise the matcher reads
+// it alone, one answer a frame.
 RDE_INTERNAL void fude_exam_grade(fude_exam* _exam) {
-    static f64 _asked_at = 0.0;
-    const f64  _now      = rde_engine_get_time_now();
+    const f64 _now = rde_engine_get_time_now();
     if(_exam->grading != UINT32_MAX) {
         fude_exam_item* _it = &_exam->items[_exam->grading];
         if(fude_recognize_poll(&_exam->recognition)) {
             fude_exam_mark(_exam, _it, &_exam->recognition);
             _exam->grading = UINT32_MAX;
-        } else if(_now - _asked_at > FUDE_EXAM_GRADE_WAIT) {
-            fude_recognize_forget(&_exam->recognition);   // no answer: the matcher decides
+        } else if(_now - _exam->grading_since > FUDE_EXAM_GRADE_WAIT) {
+            fude_recognize_forget(&_exam->recognition);   // No answer in time: the matcher decides alone.
             fude_exam_mark(_exam, _it, NULL);
             _exam->grading = UINT32_MAX;
         }
@@ -483,19 +474,23 @@ RDE_INTERNAL void fude_exam_grade(fude_exam* _exam) {
         }
         if(fude_ink_alive_strokes(&_it->ink) > 0 && fude_recognize_available()) {
             if(fude_recognize_start(&_exam->recognition, &_it->ink)) {
-                _exam->grading = _exam->order[_i];
-                _asked_at      = _now;
+                _exam->grading       = _exam->order[_i];
+                _exam->grading_since = _now;
             }
-            return;   // started, or ML Kit busy elsewhere: a later frame
+            return;   // Asked, or ML Kit is busy elsewhere and it is tried on a later frame.
         }
         fude_exam_mark(_exam, _it, NULL);
-        return;   // one a frame: the matcher takes a moment
+        return;   // One a frame, since the matcher takes a moment.
     }
 }
 
-// All marked: kept in the log, and the marks follow.
+// Keeps the exam once every answer is marked: it is added to the log with each answer's writing, and the marks follow.
+// A character right in FUDE_EXAM_KNOWN_STREAK exams in a row becomes Known, and a Known one that is wrong is Studying
+// again. Every answer also moves its character's review schedule.
 RDE_INTERNAL void fude_exam_keep(fude_exam* _exam) {
-    static fude_examlog_item _log[FUDE_EXAM_MAX];
+    // Scratch for this one exam, each as long as an exam can be (FUDE_EXAM_MAX, its most characters), on the stack:
+    // the log, the marks and the reviews copy what they keep.
+    fude_examlog_item        _log[FUDE_EXAM_MAX];
     const fude_ink*          _drawings[FUDE_EXAM_MAX];
     u32                      _known[FUDE_EXAM_MAX];
     u32                      _studying[FUDE_EXAM_MAX];
@@ -511,7 +506,7 @@ RDE_INTERNAL void fude_exam_keep(fude_exam* _exam) {
         };
         _drawings[_i] = &_it->ink;
     }
-    fude_examlog_add((u64)time(NULL), (u8)_exam->source, _log, _exam->asked, _drawings, FUDE_EXAM_UNITS);
+    fude_examlog_add((u64)rde_date_now_unix_seconds(), (u8)_exam->source, _log, _exam->asked, _drawings, FUDE_EXAM_UNITS);
 
     for(u32 _i = 0; _i < _exam->asked; _i++) {
         const u32 _cp = _log[_i].codepoint;
@@ -523,13 +518,48 @@ RDE_INTERNAL void fude_exam_keep(fude_exam* _exam) {
     }
     fude_marks_set_many(_known, _nk, FUDE_MARK_KNOWN);
     fude_marks_set_many(_studying, _ns, FUDE_MARK_STUDYING);
-    // Every answer written from memory is a review (review.h): the schedules move.
+    // Every answer written from memory counts as a review (review.h), so the schedules move.
+    fude_review_answer _answers[FUDE_EXAM_MAX];
     for(u32 _i = 0; _i < _exam->asked; _i++) {
-        fude_reviews_answer(_log[_i].codepoint, _log[_i].correct, _log[_i].quality / 100.0f);   // quality is points (0..100); reviews take 0..1
+        _answers[_i] = (fude_review_answer){ _log[_i].codepoint, _log[_i].correct, _log[_i].quality / 100.0f };   // Quality is in points (0 to 100); reviews take 0 to 1.
     }
+    fude_reviews_answer(_answers, _exam->asked);
     _exam->saved = true;
 }
 
+// An exam closed on its results before every answer was read (Done, or another screen opened from the side panel) is
+// still kept: the answers left are read by the matcher alone, all at once. Reading goes on only while the screen is
+// open (update), and ML Kit can take seconds an answer, so without this the whole exam (its log, the marks and the
+// reviews) would be lost. Quit while writing is different: the learner gave the exam up, and nothing is kept.
+RDE_INTERNAL void fude_exam_keep_unread(fude_exam* _exam) {
+    if(_exam->stage != FUDE_EXAM_RESULTS || _exam->saved || _exam->asked == 0) {
+        return;
+    }
+    if(_exam->grading != UINT32_MAX) {
+        fude_recognize_forget(&_exam->recognition);
+        _exam->grading = UINT32_MAX;
+    }
+    for(u32 _i = 0; _i < _exam->asked; _i++) {
+        fude_exam_item* _it = &_exam->items[_exam->order[_i]];
+        if(!_it->graded) {
+            fude_exam_mark(_exam, _it, NULL);
+        }
+    }
+    fude_exam_keep(_exam);
+}
+
+// Closes the exam, ending a stroke still being drawn. An exam on its results is kept even when not every answer has
+// been read (fude_exam_keep_unread); one quit while writing is not kept.
+void fude_exam_close(fude_exam* _exam) {
+    if(_exam->pen) {
+        fude_ink_end(&_exam->items[_exam->order[_exam->current]].ink);
+        _exam->pen = false;
+    }
+    fude_exam_keep_unread(_exam);
+    _exam->open = false;
+}
+
+// See the header: the records of the answers read and wrong, in the order asked.
 u32 fude_exam_wrong(const fude_exam* _exam, u32* _out, u32 _max) {
     u32 _n = 0;
     for(u32 _i = 0; _i < _exam->asked && _n < _max; _i++) {
@@ -541,17 +571,20 @@ u32 fude_exam_wrong(const fude_exam* _exam, u32* _out, u32 _max) {
     return _n;
 }
 
+// Makes the wrong ones, shuffled, an exam of their own and starts writing it, once every answer has been read. The
+// exam just taken was kept already, so nothing is lost.
 void fude_exam_retry_wrong(fude_exam* _exam) {
     u32       _wrong[FUDE_EXAM_MAX];
     const u32 _n = fude_exam_wrong(_exam, _wrong, FUDE_EXAM_MAX);
     if(_n == 0 || !fude_exam_graded(_exam)) {
         return;
     }
-    fude_exam_shuffle(_exam, _wrong, _n);
+    rde_random_shuffle(&_exam->rng, _wrong, _n, sizeof(u32));
     fude_exam_set_items(_exam, _wrong, _n);
     fude_exam_start(_exam);
 }
 
+// See the header: the records asked, in order.
 u32 fude_exam_asked(const fude_exam* _exam, u32* _out, u32 _max) {
     u32 _n = 0;
     for(u32 _i = 0; _i < _exam->asked && _n < _max; _i++) {
@@ -560,6 +593,7 @@ u32 fude_exam_asked(const fude_exam* _exam, u32* _out, u32 _max) {
     return _n;
 }
 
+// Hands out the result tapped once, as its record: tapped goes back to -1, which means none is waiting.
 b8 fude_exam_take_tap(fude_exam* _exam, u32* _record) {
     if(_exam->tapped < 0) {
         return false;
@@ -569,8 +603,10 @@ b8 fude_exam_take_tap(fude_exam* _exam, u32* _record) {
     return true;
 }
 
-// --- the pointer -----------------------------------------------------------------------
+// --- The pointer -----------------------------------------------------------------------------------------------------
 
+// Turns a screen point into the answer ink's units: from the square's bottom-left corner, FUDE_EXAM_UNITS across, Y
+// up, clamped to the square.
 RDE_INTERNAL rde_vec_2F fude_exam_local(const fude_exam* _exam, rde_vec_2F _screen) {
     const f32 _k = FUDE_EXAM_UNITS / _exam->square_size;
     return (rde_vec_2F){
@@ -579,15 +615,16 @@ RDE_INTERNAL rde_vec_2F fude_exam_local(const fude_exam* _exam, rde_vec_2F _scre
     };
 }
 
+// While writing, a pen in the square starts a stroke; at the other stages any pointer starts a drag or a tap.
 void fude_exam_pointer_down(fude_exam* _exam, rde_vec_2F _screen, b8 _pen, f64 _time) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_it != NULL) {
-        // Writing: only the pen, only in the square (a resting hand does nothing).
+        // While writing, only the pen writes, and only inside the square, so a resting hand does nothing.
         const b8 _in = _screen.x >= _exam->square_tl.x && _screen.x <= _exam->square_tl.x + _exam->square_size &&
                        _screen.y <= _exam->square_tl.y && _screen.y >= _exam->square_tl.y - _exam->square_size;
         if(_pen && _in && _exam->square_size > 0.0f) {
-            _it->ink.zoom = _exam->square_size / FUDE_EXAM_UNITS;   // the min step stays a screen unit
-            fude_ink_begin(&_it->ink, fude_exam_local(_exam, _screen), true, false);
+            _it->ink.zoom = _exam->square_size / FUDE_EXAM_UNITS;   // The ink's smallest step stays one screen unit.
+            fude_ink_begin(&_it->ink, fude_exam_local(_exam, _screen), true);
             _exam->pen = true;
         }
         return;
@@ -595,6 +632,7 @@ void fude_exam_pointer_down(fude_exam* _exam, rde_vec_2F _screen, b8 _pen, f64 _
     fude_scroller_down(&_exam->scroller, _screen, _time);
 }
 
+// Extends the stroke, or drags.
 void fude_exam_pointer_moved(fude_exam* _exam, rde_vec_2F _screen, f64 _time) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_exam->pen && _it != NULL) {
@@ -604,6 +642,7 @@ void fude_exam_pointer_moved(fude_exam* _exam, rde_vec_2F _screen, f64 _time) {
     fude_scroller_moved(&_exam->scroller, _screen, _time);
 }
 
+// Ends the stroke, or the drag; a tap is taken by fude_exam_update.
 void fude_exam_pointer_up(fude_exam* _exam, f64 _time) {
     fude_exam_item* _it = fude_exam_current(_exam);
     if(_exam->pen) {
@@ -616,7 +655,8 @@ void fude_exam_pointer_up(fude_exam* _exam, f64 _time) {
     fude_scroller_up(&_exam->scroller, _time);
 }
 
-// The grid cell under _p (the preview's items, the results' asked ones), or -1.
+// Returns the index of the grid cell under _p among _cells (the preview's items, or the results' asked ones), or -1
+// when there is none.
 RDE_INTERNAL i32 fude_exam_cell_at(const fude_exam* _exam, rde_vec_2F _p, u32 _cells) {
     if(_exam->cell <= 0.0f || _p.x < _exam->grid_min.x || _p.x > _exam->grid_max.x || _p.y < _exam->grid_min.y || _p.y > _exam->grid_max.y) {
         return -1;
@@ -627,6 +667,8 @@ RDE_INTERNAL i32 fude_exam_cell_at(const fude_exam* _exam, rde_vec_2F _p, u32 _c
     return _col < _exam->columns && _i < _cells ? (i32)_i : -1;
 }
 
+// Acts on a tap at _at, as the stage takes it: a setup chip chooses its source or length, a preview cell ticks or
+// unticks its item, and a results cell is kept (as the item's index) for fude_exam_take_tap.
 RDE_INTERNAL void fude_exam_tap(fude_exam* _exam, rde_vec_2F _at) {
     switch(_exam->stage) {
         case FUDE_EXAM_SETUP:
@@ -654,6 +696,7 @@ RDE_INTERNAL void fude_exam_tap(fude_exam* _exam, rde_vec_2F _at) {
     }
 }
 
+// Scrolls and takes a tap, reads an answer, and keeps the exam once every answer is read.
 void fude_exam_update(fude_exam* _exam, f32 _dt) {
     if(!_exam->open) {
         return;
@@ -669,10 +712,11 @@ void fude_exam_update(fude_exam* _exam, f32 _dt) {
     }
 }
 
-// --- drawing ---------------------------------------------------------------------------
+// --- Drawing ---------------------------------------------------------------------------------------------------------
 
-// A chip: a pill drawn here, not UI (the setup's choices are many and change
-// with what there is to choose from). The accent when chosen.
+// Draws a chip from _min to _max: a pill drawn here rather than a UI widget, because the setup's choices are many and
+// change with what there is to choose from. It is filled with the accent when chosen, and its label is greyed out when
+// it is not _usable.
 RDE_INTERNAL void fude_exam_chip_draw(rde_font* _font, f32 _font_px, rde_vec_2F _min, rde_vec_2F _max, const c8* _label, b8 _chosen, b8 _usable) {
     const fude_theme* _theme = fude_theme_active();
     const rde_vec_2F  _size  = { _max.x - _min.x, _max.y - _min.y };
@@ -684,14 +728,14 @@ RDE_INTERNAL void fude_exam_chip_draw(rde_font* _font, f32 _font_px, rde_vec_2F 
                    !_usable ? _theme->button_text_disabled : _chosen ? _theme->on_accent : _theme->text);
 }
 
-// A label that is one of the language's characters (試, 音, 訓), written from its strokes in
-// the accent on its tint, _box square, its top-left at _tl.
+// Draws the setup from _top: the header, the chips of the sources (each with how many characters it has) and of the
+// lengths, wrapping onto more rows, and a card saying what that choice makes. It records the chips for taps.
 RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top) {
     const fude_theme* _theme = fude_theme_active();
     fude_header_draw(&_exam->glyph, fude_lang_badge(FUDE_LANG_BADGE_EXAM), _font, _font_px, _left, _right, _top, fude_text(FUDE_TEXT_EXAM), fude_text(FUDE_TEXT_EXAM_INTRO), NULL);
     f32 _y = _top - 56.0f;
 
-    // What it is of, and how many.
+    // The chips: what the exam is of, then how many.
     _exam->chip_count = 0;
     c8 _label[512];
     for(u32 _group = 0; _group < 2u; _group++) {
@@ -705,18 +749,18 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
             b8 _chosen;
             if(_group == 0) {
                 if((_i == fude_exam_source_selection() && rde_arr_length(&_exam->selection) == 0) || _i == fude_exam_source_review()) {
-                    continue;   // only when opened from Select mode; Reviews has its own way in
+                    continue;   // Selection only when opened with one; Reviews has its own way in.
                 }
                 const u32 _size = fude_exam_source_size(_exam, (FUDE_EXAM_SOURCE_)_i);
-                snprintf(_label, sizeof(_label), "%s  %u", fude_exam_source_name((FUDE_EXAM_SOURCE_)_i), _size);
+                rde_snprintf(_label, sizeof(_label), "%s  %u", fude_exam_source_name((FUDE_EXAM_SOURCE_)_i), _size);
                 _usable = _size > 0;
                 _chosen = _exam->source == (FUDE_EXAM_SOURCE_)_i;
             } else {
-                snprintf(_label, sizeof(_label), "%s", FUDE_EXAM_LENGTH_NAMES[_i] != NULL ? FUDE_EXAM_LENGTH_NAMES[_i] : fude_text(FUDE_TEXT_ALL));
+                rde_snprintf(_label, sizeof(_label), "%s", FUDE_EXAM_LENGTH_NAMES[_i] != NULL ? FUDE_EXAM_LENGTH_NAMES[_i] : fude_text(FUDE_TEXT_ALL));
                 _chosen = _exam->length == _i;
             }
-            const f32 _w = fmaxf(64.0f, fude_draw_text_width(_font, _font_px, _label, FUDE_EXAM_CHIP_PX) + 36.0f);
-            if(_x + _w > _right && _x > _left) {   // on to another row
+            const f32 _w = rde_math_max_f32(64.0f, fude_draw_text_width(_font, _font_px, _label, FUDE_EXAM_CHIP_PX) + 36.0f);
+            if(_x + _w > _right && _x > _left) {   // The chip goes on to the next row.
                 _x  = _left;
                 _y -= FUDE_EXAM_CHIP_H + FUDE_EXAM_CHIP_GAP;
             }
@@ -729,18 +773,18 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
         _y -= FUDE_EXAM_CHIP_H;
     }
 
-    // What that makes, in a card.
+    // What that choice makes, in a card.
     _y -= 24.0f;
     const u32 _size    = fude_exam_source_size(_exam, _exam->source);
     const u32 _planned = fude_exam_planned(_exam);
     // Its two texts wrap to the card's width; it is as tall as they are.
     c8 _first[512], _second[256];
     if(_size == 0) {
-        snprintf(_first, sizeof(_first), "%s", fude_text(_exam->source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_TEXT_EXAM_NOTHING_STUDYING : FUDE_TEXT_EXAM_NOTHING));
-        snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_MARK_HINT));
+        rde_snprintf(_first, sizeof(_first), "%s", fude_text(_exam->source == FUDE_EXAM_SOURCE_STUDYING ? FUDE_TEXT_EXAM_NOTHING_STUDYING : FUDE_TEXT_EXAM_NOTHING));
+        rde_snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_MARK_HINT));
     } else {
         FUDE_TEXTF(_first, FUDE_TEXT_EXAM_PLAN, FUDE_TN(_planned), FUDE_TN(_size), FUDE_TS(fude_exam_source_name(_exam->source)));
-        snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_RULE));
+        rde_snprintf(_second, sizeof(_second), "%s", fude_text(FUDE_TEXT_EXAM_RULE));
         if(_size > FUDE_EXAM_MAX && FUDE_EXAM_LENGTH_VALUES[_exam->length] == 0u) {
             FUDE_TEXTF(_second, FUDE_TEXT_EXAM_MAX, FUDE_TN(FUDE_EXAM_MAX));
         }
@@ -757,16 +801,19 @@ RDE_INTERNAL void fude_exam_render_setup(fude_exam* _exam, rde_font* _font, f32 
     fude_draw_text_wrap(_font, _font_px, _second, _left + 18.0f, _y - 56.0f - _more1, 12.0f, _tw2, 16.0f, _theme->text_soft);
 }
 
-// A grid below _top: cells for _count things, scrolled; the layout kept for taps.
+// Lays out a grid between _top and _bottom for _count cells of at least _cell_min, and keeps the layout for taps and
+// scrolling. It draws nothing.
 RDE_INTERNAL void fude_exam_grid(fude_exam* _exam, f32 _left, f32 _right, f32 _top, f32 _bottom, f32 _cell_min, u32 _count) {
     const f32 _width = _right - _left;
-    _exam->columns   = (u32)fmaxf(1.0f, floorf(_width / _cell_min));
+    _exam->columns   = (u32)rde_math_max_f32(1.0f, rde_math_floor_f32(_width / _cell_min));
     _exam->cell      = _width / (f32)_exam->columns;
     _exam->grid_min  = (rde_vec_2F){ _left, _bottom };
     _exam->grid_max  = (rde_vec_2F){ _right, _top };
     _exam->content_h = (f32)((_count + _exam->columns - 1u) / _exam->columns) * _exam->cell;
 }
 
+// Draws the preview: the header with how many are ticked, then the grid of the characters chosen, each ticked or not,
+// the unticked ones faint.
 RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
     c8 _line[512];
@@ -804,9 +851,9 @@ RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window
     rde_rendering_end_clipping_rect();
 }
 
-// A word with the kanji in it, the kanji blanked (□): the learner's own first
-// (vocab.h), then the character's — of two characters or more (the kanji
-// alone leaves nothing to show). False when there is none.
+// Finds a word with the character in it and writes it into _blanked (_size bytes) with the character replaced by □:
+// the learner's own words first (vocab.h), then the character data's. Only a word of two characters or more is taken,
+// since the character alone would leave nothing to show. The word goes into *_out. Returns false when there is none.
 RDE_INTERNAL b8 fude_exam_blanked_word(fude_exam* _exam, const fude_kanji_info* _info, u32 _record, c8* _blanked, usize _size, fude_kanji_word* _out) {
     u32       _words[FUDE_KANJI_MAX_WORDS];
     const u32 _yours = fude_vocab_kanji_count(_info->codepoint);
@@ -821,9 +868,16 @@ RDE_INTERNAL b8 fude_exam_blanked_word(fude_exam* _exam, const fude_kanji_info* 
         _blanked[0] = 0;
         for(u32 _cp = fude_utf8_next(&_p); _cp != 0; _cp = fude_utf8_next(&_p)) {
             c8 _one[8];
-            if(_cp == _info->codepoint) { snprintf(_one, sizeof(_one), "\xE2\x96\xA1"); }   // □
+            if(_cp == _info->codepoint) { rde_snprintf(_one, sizeof(_one), "\xE2\x96\xA1"); }   // U+25A1, the blank: □
             else                        { fude_utf8_put(_cp, _one); }
-            _len += (usize)snprintf(_blanked + _len, _size - _len, "%s", _one);
+            // Only whole characters that fit: a long word (the learner's own can be any length) is cut at the last
+            // one that does, rather than written past _blanked.
+            const usize _one_len = rde_strlen(_one);
+            if(_len + _one_len + 1u > _size) {
+                break;
+            }
+            rde_memcpy(_blanked + _len, _one, _one_len + 1u);
+            _len += _one_len;
             _chars++;
         }
         if(_chars >= 2u) {
@@ -833,23 +887,22 @@ RDE_INTERNAL b8 fude_exam_blanked_word(fude_exam* _exam, const fude_kanji_info* 
     return false;
 }
 
-// The prompt, in a card from _y down: for a character with readings (a kanji) its
-// meaning, its readings (behind the language's badges: 音, 訓) and a word with it
-// blanked out; for a script's letter (a kana) its Latin name. Returns the y below it.
+// Draws the prompt in a card from _y down. For a character with readings (a kanji) it is the meaning, the readings
+// (each after the language's badge, such as 音 and 訓) and a word with the character blanked out; for a script's letter
+// (_kana: a kana) it is its Latin name. Returns the y under the card.
 RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info, u32 _record, b8 _kana, rde_font* _font, f32 _font_px,
                                   f32 _left, f32 _right, f32 _y) {
     const fude_theme* _theme = fude_theme_active();
     const f32         _pad   = 18.0f;
     const f32         _x     = _left + _pad;
-    c8                _line[512];
 
-    // How tall it is: the caption and the big line, then a line a reading, and the word.
-    const c8* _on  = _kana ? "" : fude_kanji_reading(_exam->db, _info, 0u);   // the language's first kind...
-    const c8* _kun = _kana ? "" : fude_kanji_reading(_exam->db, _info, 1u);   // ...and second
+    // The card's height: the caption and the big line, then a line for the readings, and one for the word.
+    const c8* _first  = _kana ? "" : fude_kanji_reading(_exam->db, _info, 0u);   // The language's first kind of reading...
+    const c8* _second = _kana ? "" : fude_kanji_reading(_exam->db, _info, 1u);   // ...and its second kind.
     c8              _blanked[96];
     fude_kanji_word _word;
     const b8        _has_word = !_kana && fude_exam_blanked_word(_exam, _info, _record, _blanked, sizeof(_blanked), &_word);
-    const u32       _readings = (_on[0] != 0 ? 1u : 0u) + (_kun[0] != 0 ? 1u : 0u);
+    const u32       _readings = (_first[0] != 0 ? 1u : 0u) + (_second[0] != 0 ? 1u : 0u);
     const f32       _h = _pad + 18.0f + (_kana ? 64.0f : 40.0f) + (_readings > 0 ? 44.0f : 0.0f) + (_has_word ? 52.0f : 0.0f) + _pad - 6.0f;
     fude_draw_card((rde_vec_2F){ _left, _y - _h }, (rde_vec_2F){ _right, _y }, 16.0f, _theme->surface, _theme->outline);
 
@@ -865,19 +918,19 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
                          FUDE_EXAM_MEANING_PX, _right - _pad - _x, 1u, _theme->text);
     _cy -= 40.0f;
 
-    // The readings side by side, each behind its label.
+    // The readings side by side, each after its badge.
     if(_readings > 0) {
         const f32 _mid = _cy - 24.0f;
         f32       _rx  = _x;
         for(u32 _k = 0; _k < fude_lang_reading_kinds() && _k < 2u; _k++) {
-            const c8* _text = _k == 0u ? _on : _kun;
+            const c8* _text = _k == 0u ? _first : _second;
             if(_text[0] == 0 || _rx > _right - 80.0f) {
                 continue;
             }
-            fude_header_badge(&_exam->glyph, fude_lang_badge(_k == 0u ? FUDE_LANG_BADGE_READING_0 : FUDE_LANG_BADGE_READING_1), (rde_vec_2F){ _rx, _mid + 15.0f }, 30.0f);   // 音, 訓
+            fude_header_badge(&_exam->glyph, fude_lang_badge(_k == 0u ? FUDE_LANG_BADGE_READING_0 : FUDE_LANG_BADGE_READING_1), (rde_vec_2F){ _rx, _mid + 15.0f }, 30.0f);   // Such as 音 and 訓.
             const f32 _end = fude_glyph_reading(&_exam->glyph, _text, (rde_vec_2F){ _rx + 42.0f, _mid + 12.0f }, 24.0f,
-                                                _k == 0u && _kun[0] != 0 ? (_left + _right) * 0.5f + 40.0f : _right - _pad, _theme->ink, _theme->text_soft);
-            _rx = fmaxf(_end + 28.0f, _k == 0u ? _x : _rx);
+                                                _k == 0u && _second[0] != 0 ? (_left + _right) * 0.5f + 40.0f : _right - _pad, _theme->ink, _theme->text_soft);
+            _rx = rde_math_max_f32(_end + 28.0f, _k == 0u ? _x : _rx);
         }
         _cy -= 44.0f;
     }
@@ -895,6 +948,8 @@ RDE_INTERNAL f32 fude_exam_prompt(fude_exam* _exam, const fude_kanji_info* _info
     return _y - _h;
 }
 
+// Draws the writing stage: the header and the progress, the prompt, and the answer square with the answer's ink. It
+// records the square for the pointer.
 RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
     fude_exam_item*   _it    = fude_exam_current(_exam);
@@ -903,8 +958,8 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
         return;
     }
 
-    // The title, where it is, and the progress: a segment per character (a bar
-    // when there are many).
+    // The title, how far through it is, and the progress: a segment per character, or a single bar when there are more
+    // than 30.
     c8 _title[512];
     c8 _line[512];
     FUDE_TEXTF(_title, FUDE_TEXT_EXAM_TITLE_SOURCE, FUDE_TS(fude_exam_source_name(_exam->source)));
@@ -926,17 +981,17 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
         }
     }
 
-    // What to write.
+    // What to write. A script's letter (a kana) is one with a Latin name and no text of its own.
     const b8 _kana = fude_lang_latin(_info.codepoint) != NULL && _info.text == UINT32_MAX;
     const f32 _y   = fude_exam_prompt(_exam, &_info, _it->record, _kana, _font, _font_px, _left, _right, _py - 16.0f);
 
-    // The square.
+    // The answer square: as big as fits under the prompt, never smaller than 120 nor larger than FUDE_EXAM_SQUARE_MAX.
     const f32 _room   = _y - 18.0f - (_bottom + 26.0f);
-    const f32 _square = fmaxf(120.0f, fminf(fminf(_right - _left, _room), FUDE_EXAM_SQUARE_MAX));
+    const f32 _square = rde_math_max_f32(120.0f, rde_math_min_f32(rde_math_min_f32(_right - _left, _room), FUDE_EXAM_SQUARE_MAX));
     const rde_vec_2F _tl = { (_left + _right) * 0.5f - _square * 0.5f, _y - 18.0f };
     _exam->square_tl   = _tl;
     _exam->square_size = _square;
-    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // Handwriting is never mirrored (draw.h).
     fude_glyph_box(_tl, _square);
     const rde_vec_2I _size = rde_window_get_size(_window);
     fude_ink_render(&_it->ink, (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / FUDE_EXAM_UNITS,
@@ -946,6 +1001,9 @@ RDE_INTERNAL void fude_exam_render_writing(fude_exam* _exam, rde_window* _window
                    _tl.x, _tl.y - _square - 20.0f, 12.0f, _theme->text_soft);
 }
 
+// Draws the results: how many are being read, or once all are, how many were right, the mean points and whether it
+// passed; then each answer's writing in a grid, with what was asked, right or wrong, and its points or what it was read
+// as.
 RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme = fude_theme_active();
     c8 _line[512];
@@ -960,13 +1018,13 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
             _points  += _exam->items[_exam->order[_i]].score;
         }
         const b8 _passed = (f32)_right_n >= FUDE_EXAM_PASS * (f32)_exam->asked;
-        FUDE_TEXTF(_line, FUDE_TEXT_EXAM_RESULT, FUDE_TN(_right_n), FUDE_TN(_exam->asked), FUDE_TN(lroundf(_points / (f32)_exam->asked)));
+        FUDE_TEXTF(_line, FUDE_TEXT_EXAM_RESULT, FUDE_TN(_right_n), FUDE_TN(_exam->asked), FUDE_TN(rde_math_round_to_i64_f32(_points / (f32)_exam->asked)));
         fude_draw_text(_font, _font_px, _line, _left, _top - 30.0f, FUDE_EXAM_TITLE_PX, _theme->text);
         fude_draw_chip(_font, _font_px, fude_text(_passed ? FUDE_TEXT_EXAM_PASSED : FUDE_TEXT_EXAM_NOT_PASSED), _left + fude_draw_text_width(_font, _font_px, _line, FUDE_EXAM_TITLE_PX) + 16.0f,
                        _top - 30.0f + FUDE_EXAM_TITLE_PX * 0.42f, 12.0f, _passed ? _theme->score_good : _theme->score_poor, _theme->on_accent);
     }
 
-    // A kept exam: which, and when.
+    // For a kept exam, a line saying which exam it was and when.
     f32 _grid_top = _top - 56.0f;
     if(_exam->kept < fude_examlog_count()) {
         c8 _title[512], _when[96];
@@ -996,18 +1054,18 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
         if(!fude_kanji_at(_exam->db, _it->record, &_info)) {
             continue;
         }
-        // The writing, in its square; what was asked, small, in the corner.
+        // The writing in its square, with what was asked small in its corner.
         const f32 _sq = _cell - 10.0f;
         const rde_vec_2F _tl = { _x + 5.0f, _y - 5.0f };
         fude_glyph_box(_tl, _sq);
-        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _sq }, (rde_vec_2F){ _tl.x + _sq, _tl.y }, false);   // the writing as written (draw.h)
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _sq }, (rde_vec_2F){ _tl.x + _sq, _tl.y }, false);   // Handwriting is never mirrored (draw.h).
         fude_ink_render(&_it->ink, (rde_vec_2F){ _tl.x, _tl.y - _sq }, _sq / FUDE_EXAM_UNITS,
                         (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, rde_engine_get_time_now(), false);
         fude_draw_keep_end();
         fude_glyph_character(&_exam->glyph, _info.codepoint, (rde_vec_2F){ _tl.x + 4.0f, _tl.y - 4.0f }, _sq * 0.26f, _theme->text_soft);
 
-        // Right or wrong, and the points.
-        const f32        _r = fmaxf(10.0f, _sq * 0.1f);
+        // Right or wrong, and the points. An answer still being read shows an empty circle.
+        const f32        _r = rde_math_max_f32(10.0f, _sq * 0.1f);
         const rde_vec_2F _c = { _tl.x + _sq - _r - 5.0f, _tl.y - _r - 5.0f };
         if(!_it->graded) {
             rde_rendering_2d_draw_circle_border(fude_draw_at(_c), _r, 1.5f, 24, _theme->text_soft, NULL);
@@ -1015,11 +1073,11 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
         }
         fude_draw_verdict(_c, _r, _it->correct);
         if(_it->correct) {
-            snprintf(_line, sizeof(_line), "%.0f", (f64)_it->score);
+            rde_snprintf(_line, sizeof(_line), "%.0f", (f64)_it->score);
             fude_draw_text(_font, _font_px, _line, _tl.x + _sq - fude_draw_text_width(_font, _font_px, _line, 18.0f) - 6.0f, _tl.y - _sq + 8.0f, 18.0f,
                            fude_theme_grade(_it->score));
         } else if(_it->read_as != UINT32_MAX && _it->read_as != _it->record) {
-            // What it read as instead.
+            // What it was read as instead.
             fude_kanji_info _read;
             if(fude_kanji_at(_exam->db, _it->read_as, &_read)) {
                 fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_EXAM_READ_AS), _tl.x + 6.0f, _tl.y - _sq + 8.0f, 11.0f, _theme->text_soft);
@@ -1031,12 +1089,13 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
     rde_rendering_end_clipping_rect();
 }
 
+// Draws the stage. The setup has no grid, so its grid and content height are zeroed (for the scroller).
 void fude_exam_render(fude_exam* _exam, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom) {
     if(!_exam->open) {
         return;
     }
     const rde_vec_2I _size   = rde_window_get_size(_window);
-    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // The order is left, top, right, bottom.
     const f32        _left   = -(f32)_size.x * 0.5f + (f32)_insets.x + FUDE_EXAM_MARGIN;
     const f32        _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_EXAM_MARGIN;
     switch(_exam->stage) {
@@ -1047,17 +1106,18 @@ void fude_exam_render(fude_exam* _exam, rde_window* _window, rde_font* _font, f3
     }
 }
 
-// --- the screen (screen.h): its rows, and what they do ------------------------------------
+// --- The screen (screen.h): its rows of buttons, and what they do ----------------------------------------------------
 
 #include "study/app/study.h"
-#include "drawing/widgets/icons.h"
+#include "drawing/base/icons.h"
 
+// The screen's is_open, close, pointer and render functions, which call the exam's own (screen.h); the pen writes.
 FUDE_SCREEN_ADAPTERS_PEN(fude_exam, fude_exam)
 FUDE_SCREEN_RENDER(fude_exam, fude_exam)
 
-// Its answers read as it goes; a character tapped in the results opens the
-// viewer on it, walking the exam's characters.
-RDE_INTERNAL void fude_exam_screen_update(fude_app* _app, void* _self, f32 _dt) {
+// Updates the exam, which reads its answers as it goes, then hands on a character tapped in the results: the viewer
+// opens on it, able to walk the exam's characters.
+RDE_INTERNAL void fude_exam_screen_update(fude_app* _app, any _self, f32 _dt) {
     fude_exam* _exam = (fude_exam*)_self;
     fude_exam_update(_exam, _dt);
     u32 _tapped;
@@ -1073,6 +1133,8 @@ RDE_INTERNAL void fude_exam_screen_update(fude_app* _app, void* _self, f32 _dt) 
     }
 }
 
+// The buttons that call one of the exam's functions: Close, Quit and Done close it; Next n goes on to the preview,
+// Back back to the setup, Start n starts writing; Undo, Clear and Next act on the answer; Retry wrong retries.
 FUDE_ROW_CALL(fude_exam_row_close,   fude_exam, fude_exam_close)
 FUDE_ROW_CALL(fude_exam_row_preview, fude_exam, fude_exam_preview)
 FUDE_ROW_CALL(fude_exam_row_back,    fude_exam, fude_exam_back)
@@ -1082,21 +1144,22 @@ FUDE_ROW_CALL(fude_exam_row_clear,   fude_exam, fude_exam_clear)
 FUDE_ROW_CALL(fude_exam_row_next,    fude_exam, fude_exam_next)
 FUDE_ROW_CALL(fude_exam_row_retry,   fude_exam, fude_exam_retry_wrong)
 
-// All, None: every character in the preview ticked, or none (_arg).
-RDE_INTERNAL void fude_exam_row_tick(fude_app* _app, void* _self, u32 _arg) {
+// All and None: tick every character in the preview (_arg 1) or none (_arg 0).
+RDE_INTERNAL void fude_exam_row_tick(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_app);
     fude_exam_tick_all((fude_exam*)_self, _arg != 0u);
 }
 
-// The wrong ones as a practice set, over the results.
-RDE_INTERNAL void fude_exam_row_practice(fude_app* _app, void* _self, u32 _arg) {
+// Practice wrong: opens Practice on the wrong ones, as a set, over the results.
+RDE_INTERNAL void fude_exam_row_practice(fude_app* _app, any _self, u32 _arg) {
     RDE_UNUSED(_arg);
     u32       _wrong[FUDE_EXAM_MAX];
     const u32 _n = fude_exam_wrong((const fude_exam*)_self, _wrong, FUDE_EXAM_MAX);
     fude_study_practice_set(_app, _wrong, _n);
 }
 
-// One row per stage (FUDE_EXAM_ order): its setup's, preview's, writing's, results'.
+// One row per stage, in FUDE_EXAM_STAGE_ order: the setup's, the preview's, the writing's and the results'. The enums
+// are the indices of the buttons whose faces change.
 enum { FUDE_EXAM_SETUP_NEXT = 1 };
 enum { FUDE_EXAM_PREVIEW_START = 3 };
 enum { FUDE_EXAM_WRITE_NEXT = 3 };
@@ -1125,13 +1188,15 @@ static const fude_row_button FUDE_EXAM_RESULTS_ROW[] = {
 static const fude_row_def FUDE_EXAM_BUTTON_ROWS[] = { FUDE_ROW_DEF(FUDE_EXAM_SETUP_ROW), FUDE_ROW_DEF(FUDE_EXAM_PREVIEW_ROW), FUDE_ROW_DEF(FUDE_EXAM_WRITE_ROW),
                                                FUDE_ROW_DEF(FUDE_EXAM_RESULTS_ROW) };
 
-RDE_INTERNAL u32 fude_exam_screen_row(const void* _self) {
+// Which row is up: the stage's.
+RDE_INTERNAL u32 fude_exam_screen_row(const any _self) {
     return (u32)((const fude_exam*)_self)->stage;
 }
 
-// Next n (the characters planned), Start n (those ticked), Next or Finish; Retry
-// and Practice the wrong ones when there are.
-RDE_INTERNAL void fude_exam_screen_faces(const void* _self, u32 _row, fude_row_face* _faces) {
+// How the buttons show: Next n says how many are planned and Start n how many are ticked (each greyed out at 0); the
+// writing's Next becomes Finish on the last; Retry and Practice wrong are greyed out until every answer is read and
+// while none is wrong.
+RDE_INTERNAL void fude_exam_screen_faces(const any _self, u32 _row, fude_row_face* _faces) {
     const fude_exam* _exam = (const fude_exam*)_self;
     if(_row == FUDE_EXAM_SETUP) {
         const u32 _planned = fude_exam_planned(_exam);

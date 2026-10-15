@@ -2,73 +2,81 @@
 
 #include "zoom/rich.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
 // See rich.h. A text is read a line at a time: the line's kind from the marks it starts with (a heading, a bullet,
 // a number, a task, a table's row, a rule); then its words' styles from the marks in it, as SEGMENTS of the text of
 // one style each; then those cut into words (PIECES) and flowed into lines as wide as there is room for, as runs.
+//
+// Internal names start fzr_ (FZR_). The file goes: a line's words' styles (fzr_inline), a line's kind
+// (fzr_read_line), flowing words into lines (fzr_flow), tables, the whole text (fude_zoom_rich_lay_aligned), the
+// marks put in by a tap (fude_zoom_rich_format), and the layout made while a text is written, with its caret. Sizes
+// below are in letters: multiples of the text's letter size.
 // ===========================================================================
 
-#define FZR_HEADINGS  { 1.5f, 1.3f, 1.12f }   // a heading's letters, of the text's: #, ##, ###
+#define FZR_HEADINGS  { 1.5f, 1.3f, 1.12f }   // a heading's letter size, of the text's: #, ##, ###
 #define FZR_INDENT    1.4f    // a level's indent (letters)
 #define FZR_BULLET_AT 0.2f    // a bullet's place in its indent, and its words' (letters)
-#define FZR_BULLET_TO 1.1f
+#define FZR_BULLET_TO 1.1f    // (its words')
 #define FZR_BOX       0.72f   // a task's box (letters), its words after it
-#define FZR_BOX_TO    1.25f
+#define FZR_BOX_TO    1.25f   // (its words')
 #define FZR_CELL_X    0.45f   // a table cell's room round its words (letters)
-#define FZR_CELL_Y    0.22f
+#define FZR_CELL_Y    0.22f   // (above and below)
 #define FZR_COLUMNS   16u     // a table's columns, at most
 
+// A line's kind: plain words, a heading, a bullet, a numbered line, a rule, a table's row. A task is a plain line, a
+// bullet or a number with a task (fzr_line's task).
 typedef enum {
     FZR_PARA = 0, FZR_HEAD, FZR_BULLET, FZR_NUMBER, FZR_RULE, FZR_TABLE,
 } FZR_;
 
 // A run of the text in one style (a link's: its address too).
 typedef struct {
-    u32 from, len;
-    u32 addr, addr_len;
-    u8  style;
+    u32 from, len;        // its bytes in the text
+    u32 addr, addr_len;   // a link's address in the text (0, 0: none)
+    u8  style;            // FUDE_ZOOM_RICH_ flags
 } fzr_seg;
 
 // A word of one: where a line may break (a space before it), and how wide it is.
 typedef struct {
-    u32 from, len;
+    u32 from, len;        // as fzr_seg's
     u32 addr, addr_len;
     u8  style;
-    b8  space;
-    f32 w;
+    b8  space;            // a space before it: a line may break there
+    f32 w;                // its width, measured
 } fzr_piece;
 
+// A line of the text as fzr_read_line reads it.
 typedef struct {
     u32 from, to, body;   // the line (its '\n' not in it); where its words start
     u32 num, num_len;     // a numbered line's number ("12.")
     u32 task;             // a task's "[" (FUDE_ZOOM_RICH_NONE: none)
     u8  kind, level;      // FZR_; a heading's 1 to 3, else how far in
-    b8  done;
+    b8  done;             // its task is ticked
 } fzr_line;
 
+// A layout's work: the text, the layout filled, the caller's measure, and the arrays a line is worked in.
 typedef struct {
     const c8*                 t;
     fude_zoom_rich*           out;
     fude_zoom_rich_measure_fn measure;
-    void*                     self;
+    any                       self;
     rde_arr                   segs;     // fzr_seg (a line's, a cell's)
     rde_arr                   pieces;   // fzr_piece
     rde_arr                   addr;     // u32 pairs: each run's link address (with out->runs)
 } fzr_ctx;
 
+// Returns whether a byte belongs in a word: a letter, a digit, or any byte of a UTF-8 character past ASCII.
 RDE_INTERNAL b8 fzr_word_char(c8 _c) {
     return (_c >= 'a' && _c <= 'z') || (_c >= 'A' && _c <= 'Z') || (_c >= '0' && _c <= '9') || ((u8)_c & 0x80u) != 0u;
 }
 
+// Returns whether _t goes on at _i with _s, all of it before _to.
 RDE_INTERNAL b8 fzr_starts(const c8* _t, u32 _i, u32 _to, const c8* _s) {
-    const u32 _n = (u32)strlen(_s);
-    return _i + _n <= _to && memcmp(&_t[_i], _s, _n) == 0;
+    const u32 _n = (u32)rde_strlen(_s);
+    return _i + _n <= _to && rde_memcmp(&_t[_i], _s, _n) == 0;
 }
 
+// Returns where the spaces at _i end (_to at most).
 RDE_INTERNAL u32 fzr_skip_spaces(const c8* _t, u32 _i, u32 _to) {
     while(_i < _to && _t[_i] == ' ') {
         _i++;
@@ -78,6 +86,7 @@ RDE_INTERNAL u32 fzr_skip_spaces(const c8* _t, u32 _i, u32 _to) {
 
 // --- a line's words' styles ---------------------------------------------------------------------------
 
+// Adds a segment, unless it is empty.
 RDE_INTERNAL void fzr_push(rde_arr* _segs, u32 _from, u32 _len, u8 _style, u32 _addr, u32 _addr_len) {
     if(_len > 0u) {
         const fzr_seg _s = { _from, _len, _addr, _addr_len, _style };
@@ -182,7 +191,7 @@ RDE_INTERNAL void fzr_inline(rde_arr* _segs, const c8* _t, u32 _from, u32 _to, u
             while(_j < _to && _t[_j] != ' ') {
                 _j++;
             }
-            while(_j > _i && _t[_j - 1u] != 0 && strchr(".,;:!?)'\"", _t[_j - 1u]) != NULL) {
+            while(_j > _i && _t[_j - 1u] != 0 && rde_strchr(".,;:!?)'\"", _t[_j - 1u]) != NULL) {
                 _j--;
             }
             if(_j > _i + 4u) {
@@ -201,6 +210,9 @@ RDE_INTERNAL void fzr_inline(rde_arr* _segs, const c8* _t, u32 _from, u32 _to, u
 
 // --- a line's kind -------------------------------------------------------------------------------------
 
+// Reads the line [_from, _to): its indent (two spaces, or a tab, a level; six at most), then the first of a table's
+// row, a rule, a heading (# to ###, a space after), a bullet (- * + or •, a space after) or a number (one to three
+// digits, then "." or ")" and a space), then a task's [ ], [x] or [X]. body is where its words start.
 RDE_INTERNAL fzr_line fzr_read_line(const c8* _t, u32 _from, u32 _to) {
     fzr_line _l = { _from, _to, _from, 0u, 0u, FUDE_ZOOM_RICH_NONE, FZR_PARA, 0u, false };
     u32 _i = _from, _spaces = 0;
@@ -241,7 +253,7 @@ RDE_INTERNAL fzr_line fzr_read_line(const c8* _t, u32 _from, u32 _to) {
     if(_i + 1u < _to && (_t[_i] == '-' || _t[_i] == '*' || _t[_i] == '+') && _t[_i + 1u] == ' ') {
         _l.kind = FZR_BULLET;
         _i      = fzr_skip_spaces(_t, _i + 1u, _to);
-    } else if(_i + 3u < _to && memcmp(&_t[_i], FUDE_ZOOM_RICH_BULLET, 3u) == 0 && _t[_i + 3u] == ' ') {
+    } else if(_i + 3u < _to && rde_memcmp(&_t[_i], FUDE_ZOOM_RICH_BULLET, 3u) == 0 && _t[_i + 3u] == ' ') {
         _l.kind = FZR_BULLET;
         _i      = fzr_skip_spaces(_t, _i + 3u, _to);
     } else {
@@ -316,7 +328,8 @@ RDE_INTERNAL void fzr_place(fzr_ctx* _c, const fzr_piece* _p, u32 _from, u32 _le
     rde_arr_add(&_c->addr, (any)&_a[1]);
 }
 
-// A line done: its runs from _first moved to its side (_align: 0 left, 1 middle, 2 right) of _x0.._x1.
+// A line done: its runs from _first moved to its side (_align: 0 left, 1 middle, 2 right), by the room between where
+// it ends (_x_end) and _x1. Nothing moves with no room to share out.
 RDE_INTERNAL void fzr_align(fzr_ctx* _c, u32 _first, f32 _x_end, f32 _x1, u8 _align) {
     if(_align == 0u || !(_x1 > 0.0f) || _x_end >= _x1) {
         return;
@@ -339,7 +352,7 @@ RDE_INTERNAL u32 fzr_flow(fzr_ctx* _c, f32 _x0, f32 _x1, f32 _y, f32 _px, f32 _a
     f32 _x = _x0, _most = _x0;
     u32 _lines = 1, _first_run = (u32)rde_arr_length(&_c->out->runs);
     b8  _fresh = true;
-    #define FZR_NEW_LINE() do { if(_emit) { fzr_align(_c, _first_run, _x, _x1, _align); } _most = fmaxf(_most, _x); _y += _adv; _x = _x0; _lines++; \
+    #define FZR_NEW_LINE() do { if(_emit) { fzr_align(_c, _first_run, _x, _x1, _align); } _most = rde_math_max_f32(_most, _x); _y += _adv; _x = _x0; _lines++; \
                                 _fresh = true; _first_run = (u32)rde_arr_length(&_c->out->runs); } while(0)
     for(u32 _i = 0; _i < _n;) {
         // The word: pieces with no space between them (bold in the middle of a word) go together.
@@ -420,15 +433,17 @@ RDE_INTERNAL u32 fzr_flow(fzr_ctx* _c, f32 _x0, f32 _x1, f32 _y, f32 _px, f32 _a
         fzr_align(_c, _first_run, _x, _x1, _align);
     }
     #undef FZR_NEW_LINE
-    *_right = fmaxf(_most, _x);
+    *_right = rde_math_max_f32(_most, _x);
     return _lines;
 }
 
+// Adds a mark to the layout.
 RDE_INTERNAL void fzr_mark(fude_zoom_rich* _r, f32 _x0, f32 _y0, f32 _x1, f32 _y1, u8 _kind, u8 _soft) {
     const fude_zoom_rich_mark _m = { _x0, _y0, _x1, _y1, _kind, _soft };
     rde_arr_add(&_r->marks, (any)&_m);
 }
 
+// Adds a hit to the layout.
 RDE_INTERNAL void fzr_hit(fude_zoom_rich* _r, f32 _x0, f32 _y0, f32 _x1, f32 _y1, u32 _at, u32 _len, u8 _kind) {
     const fude_zoom_rich_hit _h = { _x0, _y0, _x1, _y1, _at, _len, _kind };
     rde_arr_add(&_r->hits, (any)&_h);
@@ -490,11 +505,13 @@ RDE_INTERNAL b8 fzr_header_line(const c8* _t, const u32* _from, const u32* _to, 
     return true;
 }
 
-// The table of rows _rows (_n of them) from _y down: its cells' words, its lines, its header's ground. How tall.
+// The table of rows _rows (_n of them) from _y down: its cells' words, its lines, its header's ground. How tall; its
+// right edge in *_right. Each column is as wide as its widest cell, all shrunk alike when they do not fit _width; a
+// row of only - : | is the header's line, read for the columns' sides and not drawn.
 RDE_INTERNAL f32 fzr_table(fzr_ctx* _c, const fzr_line* _rows, u32 _n, f32 _y, f32 _width, f32 _px, f32 _line, f32* _right) {
     const c8* _t = _c->t;
     u8  _align[FZR_COLUMNS];
-    memset(_align, 0, sizeof(_align));
+    rde_memset(_align, 0, sizeof(_align));
     u32 _from[FZR_COLUMNS], _to[FZR_COLUMNS];
     const b8 _header = _n >= 2u && fzr_header_line(_t, _from, _to, fzr_cells(_t, &_rows[1], _from, _to, FZR_COLUMNS), _align);
     const f32 _pad_x = FZR_CELL_X * _px, _pad_y = FZR_CELL_Y * _px, _adv = _px * _line;
@@ -517,7 +534,7 @@ RDE_INTERNAL f32 fzr_table(fzr_ctx* _c, const fzr_line* _rows, u32 _n, f32 _y, f
             fzr_pieces(_c, _px);
             f32 _w = 0.0f;
             fzr_flow(_c, 0.0f, 0.0f, 0.0f, _px, _adv, 0u, false, &_w);
-            _nat[_k] = fmaxf(_nat[_k], _w + 2.0f * _pad_x);
+            _nat[_k] = rde_math_max_f32(_nat[_k], _w + 2.0f * _pad_x);
         }
     }
     if(_cols == 0u) {
@@ -531,10 +548,10 @@ RDE_INTERNAL f32 fzr_table(fzr_ctx* _c, const fzr_line* _rows, u32 _n, f32 _y, f
         _total += _nat[_k];
     }
     if(_width > 0.0f && _x0 + _total > _width) {
-        const f32 _room = fmaxf(_width - _x0, (f32)_cols * (2.0f * _pad_x + _px));
+        const f32 _room = rde_math_max_f32(_width - _x0, (f32)_cols * (2.0f * _pad_x + _px));
         f32 _sum = 0.0f;
         for(u32 _k = 0; _k < _cols; _k++) {
-            _cw[_k] = fmaxf(_nat[_k] * _room / _total, 2.0f * _pad_x + _px);
+            _cw[_k] = rde_math_max_f32(_nat[_k] * _room / _total, 2.0f * _pad_x + _px);
             _sum   += _cw[_k];
         }
         _total = _sum;
@@ -585,6 +602,7 @@ RDE_INTERNAL f32 fzr_table(fzr_ctx* _c, const fzr_line* _rows, u32 _n, f32 _y, f
 
 // --- the whole text ---------------------------------------------------------------------------------------
 
+// See the header.
 void fude_zoom_rich_init(fude_zoom_rich* _r) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     _r->runs  = rde_arr_new(sizeof(fude_zoom_rich_run), _heap);
@@ -595,6 +613,7 @@ void fude_zoom_rich_init(fude_zoom_rich* _r) {
     _r->line = 1.3f;
 }
 
+// See the header.
 void fude_zoom_rich_free(fude_zoom_rich* _r) {
     rde_arr_free(&_r->runs);
     rde_arr_free(&_r->marks);
@@ -602,11 +621,15 @@ void fude_zoom_rich_free(fude_zoom_rich* _r) {
     rde_arr_free(&_r->lines);
 }
 
-void fude_zoom_rich_lay(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, fude_zoom_rich_measure_fn _measure, void* _self) {
+// See the header: left-aligned.
+void fude_zoom_rich_lay(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, fude_zoom_rich_measure_fn _measure, any _self) {
     fude_zoom_rich_lay_aligned(_r, _text, _len, _width, _px, _line, 0u, _measure, _self);
 }
 
-void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, u8 _align, fude_zoom_rich_measure_fn _measure, void* _self) {
+// See the header. Each line is read and laid out under the one before: a table takes its rows (64 at most; more
+// start a table of their own), a rule's mark is drawn across the whole width once it is known, and every run's own
+// marks and a link's hit are added at the end. c.addr keeps two u32s for each run: its link's address.
+void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, u8 _align, fude_zoom_rich_measure_fn _measure, any _self) {
     rde_arr_clear(&_r->runs);
     rde_arr_clear(&_r->marks);
     rde_arr_clear(&_r->hits);
@@ -645,7 +668,7 @@ void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f
             }
             f32 _right = 0.0f;
             _y   += fzr_table(&_c, _rows, _n, _y, _width, _px, _line, &_right);
-            _most = fmaxf(_most, _right);
+            _most = rde_math_max_f32(_most, _right);
             _i    = _next;
             continue;
         }
@@ -682,9 +705,9 @@ void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f
             const u32 _none[2] = { 0u, 0u };
             rde_arr_add(&_c.addr, (any)&_none[0]);
             rde_arr_add(&_c.addr, (any)&_none[1]);
-            _x = _indent + fmaxf(_nw + 0.4f * _lpx, FZR_BULLET_TO * _lpx);
+            _x = _indent + rde_math_max_f32(_nw + 0.4f * _lpx, FZR_BULLET_TO * _lpx);
         }
-        _most = fmaxf(_most, _x > _indent ? _x : 0.0f);
+        _most = rde_math_max_f32(_most, _x > _indent ? _x : 0.0f);
         {
             const fude_zoom_rich_line _rl = { _l.from, _l.to, _x, _base, _lpx };
             rde_arr_add(&_r->lines, (any)&_rl);
@@ -695,8 +718,8 @@ void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f
         fzr_pieces(&_c, _lpx);
         f32 _right = 0.0f;
         const b8  _side  = _width > 0.0f && (_l.kind == FZR_PARA || _l.kind == FZR_HEAD) && _l.task == FUDE_ZOOM_RICH_NONE;   // (a list from the left)
-        const u32 _lines = fzr_flow(&_c, _x, _width > 0.0f ? fmaxf(_width, _x + _lpx) : 0.0f, _base, _lpx, _adv, _side ? _align : 0u, true, &_right);
-        _most = fmaxf(_most, _right);
+        const u32 _lines = fzr_flow(&_c, _x, _width > 0.0f ? rde_math_max_f32(_width, _x + _lpx) : 0.0f, _base, _lpx, _adv, _side ? _align : 0u, true, &_right);
+        _most = rde_math_max_f32(_most, _right);
         _y   += (f32)_lines * _adv;
         _i    = _e + 1u;
     }
@@ -730,6 +753,7 @@ void fude_zoom_rich_lay_aligned(fude_zoom_rich* _r, const c8* _text, u32 _len, f
     rde_arr_free(&_c.addr);
 }
 
+// See the header: a line of any kind but plain, a task, or any style or link inside a plain line.
 b8 fude_zoom_rich_marked(const c8* _text, u32 _len) {
     if(_text == NULL || _len == 0u) {
         return false;
@@ -756,6 +780,7 @@ b8 fude_zoom_rich_marked(const c8* _text, u32 _len) {
     return _marked;
 }
 
+// See the header.
 u32 fude_zoom_rich_hit_at(const fude_zoom_rich* _r, f32 _x, f32 _y, f32 _reach) {
     const fude_zoom_rich_hit* _h = (const fude_zoom_rich_hit*)_r->hits.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_r->hits); _i++) {
@@ -766,6 +791,7 @@ u32 fude_zoom_rich_hit_at(const fude_zoom_rich* _r, f32 _x, f32 _y, f32 _reach) 
     return FUDE_ZOOM_RICH_NONE;
 }
 
+// See the header.
 b8 fude_zoom_rich_tick(c8* _text, u32 _len, u32 _at) {
     if(_text == NULL || _at + 2u >= _len || _text[_at] != '[' || _text[_at + 2u] != ']') {
         return false;
@@ -778,6 +804,7 @@ b8 fude_zoom_rich_tick(c8* _text, u32 _len, u32 _at) {
     return true;
 }
 
+// See the header. A scheme is up to 11 letters, digits, + - or . before a colon.
 void fude_zoom_rich_address(const c8* _text, u32 _at, u32 _len, c8* _out, usize _size) {
     if(_size == 0u) {
         return;
@@ -798,23 +825,25 @@ void fude_zoom_rich_address(const c8* _text, u32 _at, u32 _len, c8* _out, usize 
             break;
         }
     }
-    snprintf(_out, _size, "%s%.*s", _way ? "" : "https://", (int)_len, &_text[_at]);
+    rde_snprintf(_out, _size, "%s%.*s", _way ? "" : "https://", (int)_len, &_text[_at]);
 }
 
 // --- marks put in by a tap -------------------------------------------------------------------------------
 
+// Where fude_zoom_rich_format writes: the buffer, its size, how much is written, and whether something did not fit.
 typedef struct {
     c8* out;
     u32 size, at;
     b8  full;
 } fzr_put;
 
+// Appends _n bytes, keeping room for the ending 0; once they do not fit, full is set and nothing more is written.
 RDE_INTERNAL void fzr_out(fzr_put* _p, const c8* _s, u32 _n) {
     if(_p->at + _n + 1u > _p->size) {
         _p->full = true;
         return;
     }
-    memcpy(&_p->out[_p->at], _s, _n);
+    rde_memcpy(&_p->out[_p->at], _s, _n);
     _p->at += _n;
 }
 
@@ -825,6 +854,8 @@ typedef struct {
     b8  task;
 } fzr_marks;
 
+// Returns the line [_from, _to)'s own marks. A table's row and a rule count as having none, so a button's marks go in
+// front of them.
 RDE_INTERNAL fzr_marks fzr_marks_of(const c8* _t, u32 _from, u32 _to) {
     const fzr_line _l = fzr_read_line(_t, _from, _to);
     u32 _indent = _from;
@@ -836,6 +867,97 @@ RDE_INTERNAL fzr_marks fzr_marks_of(const c8* _t, u32 _from, u32 _to) {
     return _m;
 }
 
+// The line buttons' work for fude_zoom_rich_format (_do one of them): each line of _text (_len bytes) that the
+// selection [_from, _to) touches written out again into _put, its indent kept and its old marks replaced by _do's (or
+// taken off when every one of them has them already); the selection's ends (*_sel_a, *_sel_b) moved to follow its
+// words. It takes the writer and the ends under the names the function had, and hands them back.
+RDE_INTERNAL void fzr_format_lines(fzr_put* _put, const c8* _text, u32 _len, u32 _from, u32 _to, u8 _do, u32* _sel_a, u32* _sel_b) {
+    fzr_put _p = *_put;
+    u32 _a = *_sel_a, _b = *_sel_b;
+    // The lines it touches (a selection ending at a line's start: not that one).
+    u32 _first = _from;
+    while(_first > 0u && _text[_first - 1u] != '\n') {
+        _first--;
+    }
+    const u32 _end = _to > _from && _text[_to - 1u] == '\n' ? _to - 1u : _to;
+    // All of them as it would make them already? Then plain again.
+    b8 _all = true;
+    for(u32 _i = _first; _i <= _end && _i <= _len;) {
+        u32 _e = _i;
+        while(_e < _len && _text[_e] != '\n') {
+            _e++;
+        }
+        const fzr_marks _m = fzr_marks_of(_text, _i, _e);
+        _all = _all && (_do == FUDE_ZOOM_RICH_DO_BULLETS ? _m.kind == FZR_BULLET && !_m.task :
+                        _do == FUDE_ZOOM_RICH_DO_NUMBERS ? _m.kind == FZR_NUMBER :
+                        _do == FUDE_ZOOM_RICH_DO_TASKS   ? _m.task : true);
+        _i = _e + 1u;
+    }
+    fzr_out(&_p, _text, _first);
+    u32 _number = 1;
+    for(u32 _i = _first; _i <= _end && _i <= _len;) {
+        u32 _e = _i;
+        while(_e < _len && _text[_e] != '\n') {
+            _e++;
+        }
+        const fzr_marks _m = fzr_marks_of(_text, _i, _e);
+        c8 _mark[16] = { 0 };
+        if(_do == FUDE_ZOOM_RICH_DO_HEADING) {
+            const u32 _next = _m.kind == FZR_HEAD ? (u32)fzr_read_line(_text, _i, _e).level + 1u : 1u;   // (### then plain)
+            if(_next <= 3u) {
+                rde_snprintf(_mark, sizeof(_mark), "%.*s ", (int)_next, "###");
+            }
+        } else if(!_all) {
+            if(_do == FUDE_ZOOM_RICH_DO_BULLETS) {
+                rde_snprintf(_mark, sizeof(_mark), "- ");
+            } else if(_do == FUDE_ZOOM_RICH_DO_NUMBERS) {
+                rde_snprintf(_mark, sizeof(_mark), "%u. ", _number++);
+            } else {
+                rde_snprintf(_mark, sizeof(_mark), "- [%c] ", _m.task && _text[fzr_read_line(_text, _i, _e).task + 1u] != ' ' ? 'x' : ' ');
+            }
+        }
+        fzr_out(&_p, &_text[_i], _m.indent - _i);   // (its indent kept)
+        fzr_out(&_p, _mark, (u32)rde_strlen(_mark));
+        const u32 _words = _p.at;
+        fzr_out(&_p, &_text[_m.words], _e - _m.words);
+        // (the selection's ends on this line: by its words, or at their start if they were in its marks)
+        if(_from >= _i && _from <= _e) {
+            _a = _from >= _m.words ? _words + (_from - _m.words) : _words;
+        }
+        if(_to >= _i && _to <= _e) {
+            _b = _to >= _m.words ? _words + (_to - _m.words) : _words;
+        }
+        if(_e < _len) {
+            fzr_out(&_p, "\n", 1u);
+        }
+        _i = _e + 1u;
+        if(_e >= _len) {
+            break;
+        }
+    }
+    // The rest after them (a selection to the next line's start: to it still).
+    if(_to > _end) {
+        _b = _p.at;
+    }
+    u32 _rest = _end;
+    while(_rest < _len && _text[_rest] != '\n') {
+        _rest++;
+    }
+    if(_rest < _len) {
+        fzr_out(&_p, &_text[_rest + 1u], _len - _rest - 1u);
+    }
+    if(_b < _a) {
+        _b = _a;
+    }
+    *_put = _p;
+    *_sel_a = _a;
+    *_sel_b = _b;
+}
+
+// See the header. Bold and italic wrap the selection (or take off the marks round it); a link puts the selection in
+// square brackets with "(https://" and ")" after it, the caret where the address goes on (with no selection,
+// "https://" alone); a table goes on lines of its own; the line buttons rewrite each line the selection touches, its
+// indent kept and its old marks replaced (fzr_format_lines). The selection is moved to follow the words.
 b8 fude_zoom_rich_format(const c8* _text, u32 _len, u32 _from, u32 _to, u8 _do, c8* _out, u32 _size, u32* _sel_from, u32* _sel_to) {
     if(_out == NULL || _size == 0u) {
         return false;
@@ -852,8 +974,8 @@ b8 fude_zoom_rich_format(const c8* _text, u32 _len, u32 _from, u32 _to, u8 _do, 
     u32 _a = _from, _b = _to;
     if(_do == FUDE_ZOOM_RICH_DO_BOLD || _do == FUDE_ZOOM_RICH_DO_ITALIC) {
         const c8* _mark = _do == FUDE_ZOOM_RICH_DO_BOLD ? "**" : "*";
-        const u32 _m = (u32)strlen(_mark);
-        if(_from >= _m && _to + _m <= _len && memcmp(&_text[_from - _m], _mark, _m) == 0 && memcmp(&_text[_to], _mark, _m) == 0 &&
+        const u32 _m = (u32)rde_strlen(_mark);
+        if(_from >= _m && _to + _m <= _len && rde_memcmp(&_text[_from - _m], _mark, _m) == 0 && rde_memcmp(&_text[_to], _mark, _m) == 0 &&
            (_do == FUDE_ZOOM_RICH_DO_BOLD || ((_from < _m + 1u || _text[_from - _m - 1u] != '*') && (_to + _m >= _len || _text[_to + _m] != '*')))) {
             // Already so: its marks out.
             fzr_out(&_p, _text, _from - _m);
@@ -901,82 +1023,7 @@ b8 fude_zoom_rich_format(const c8* _text, u32 _len, u32 _from, u32 _to, u8 _do, 
         fzr_out(&_p, _table, (u32)sizeof(_table) - 1u);
         fzr_out(&_p, &_text[_eol], _len - _eol);
     } else if(_do < FUDE_ZOOM_RICH_DOS) {
-        // The lines it touches (a selection ending at a line's start: not that one).
-        u32 _first = _from;
-        while(_first > 0u && _text[_first - 1u] != '\n') {
-            _first--;
-        }
-        const u32 _end = _to > _from && _text[_to - 1u] == '\n' ? _to - 1u : _to;
-        // All of them as it would make them already? Then plain again.
-        b8 _all = true;
-        u32 _n = 0;
-        for(u32 _i = _first; _i <= _end && _i <= _len; _n++) {
-            u32 _e = _i;
-            while(_e < _len && _text[_e] != '\n') {
-                _e++;
-            }
-            const fzr_marks _m = fzr_marks_of(_text, _i, _e);
-            _all = _all && (_do == FUDE_ZOOM_RICH_DO_BULLETS ? _m.kind == FZR_BULLET && !_m.task :
-                            _do == FUDE_ZOOM_RICH_DO_NUMBERS ? _m.kind == FZR_NUMBER :
-                            _do == FUDE_ZOOM_RICH_DO_TASKS   ? _m.task : true);
-            _i = _e + 1u;
-        }
-        fzr_out(&_p, _text, _first);
-        u32 _number = 1;
-        for(u32 _i = _first; _i <= _end && _i <= _len;) {
-            u32 _e = _i;
-            while(_e < _len && _text[_e] != '\n') {
-                _e++;
-            }
-            const fzr_marks _m = fzr_marks_of(_text, _i, _e);
-            c8 _mark[16] = { 0 };
-            if(_do == FUDE_ZOOM_RICH_DO_HEADING) {
-                const u32 _next = _m.kind == FZR_HEAD ? (u32)fzr_read_line(_text, _i, _e).level + 1u : 1u;   // (### then plain)
-                if(_next <= 3u) {
-                    snprintf(_mark, sizeof(_mark), "%.*s ", (int)_next, "###");
-                }
-            } else if(!_all) {
-                if(_do == FUDE_ZOOM_RICH_DO_BULLETS) {
-                    snprintf(_mark, sizeof(_mark), "- ");
-                } else if(_do == FUDE_ZOOM_RICH_DO_NUMBERS) {
-                    snprintf(_mark, sizeof(_mark), "%u. ", _number++);
-                } else {
-                    snprintf(_mark, sizeof(_mark), "- [%c] ", _m.task && _text[fzr_read_line(_text, _i, _e).task + 1u] != ' ' ? 'x' : ' ');
-                }
-            }
-            fzr_out(&_p, &_text[_i], _m.indent - _i);   // (its indent kept)
-            fzr_out(&_p, _mark, (u32)strlen(_mark));
-            const u32 _words = _p.at;
-            fzr_out(&_p, &_text[_m.words], _e - _m.words);
-            // (the selection's ends on this line: by its words, or at their start if they were in its marks)
-            if(_from >= _i && _from <= _e) {
-                _a = _from >= _m.words ? _words + (_from - _m.words) : _words;
-            }
-            if(_to >= _i && _to <= _e) {
-                _b = _to >= _m.words ? _words + (_to - _m.words) : _words;
-            }
-            if(_e < _len) {
-                fzr_out(&_p, "\n", 1u);
-            }
-            _i = _e + 1u;
-            if(_e >= _len) {
-                break;
-            }
-        }
-        // The rest after them (a selection to the next line's start: to it still).
-        if(_to > _end) {
-            _b = _p.at;
-        }
-        u32 _rest = _end;
-        while(_rest < _len && _text[_rest] != '\n') {
-            _rest++;
-        }
-        if(_rest < _len) {
-            fzr_out(&_p, &_text[_rest + 1u], _len - _rest - 1u);
-        }
-        if(_b < _a) {
-            _b = _a;
-        }
+        fzr_format_lines(&_p, _text, _len, _from, _to, _do, &_a, &_b);
     } else {
         fzr_out(&_p, _text, _len);
     }
@@ -992,7 +1039,9 @@ b8 fude_zoom_rich_format(const c8* _text, u32 _len, u32 _from, u32 _to, u8 _do, 
 
 // --- as it is being written --------------------------------------------------------------------------
 
-void fude_zoom_rich_lay_raw(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, fude_zoom_rich_measure_fn _measure, void* _self) {
+// See the header. Each line is one flow: its indent measured as its spaces, its own marks a faint segment, then its
+// words with their span marks kept (fzr_inline with _keep).
+void fude_zoom_rich_lay_raw(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _width, f32 _px, f32 _line, fude_zoom_rich_measure_fn _measure, any _self) {
     rde_arr_clear(&_r->runs);
     rde_arr_clear(&_r->marks);
     rde_arr_clear(&_r->hits);
@@ -1037,8 +1086,8 @@ void fude_zoom_rich_lay_raw(fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _
             rde_arr_add(&_r->lines, (any)&_rl);
         }
         f32 _right = 0.0f;
-        const u32 _lines = fzr_flow(&_c, _x0, _width > 0.0f ? fmaxf(_width, _x0 + _lpx) : 0.0f, _base, _lpx, _adv, 0u, true, &_right);
-        _most = fmaxf(_most, _right);
+        const u32 _lines = fzr_flow(&_c, _x0, _width > 0.0f ? rde_math_max_f32(_width, _x0 + _lpx) : 0.0f, _base, _lpx, _adv, 0u, true, &_right);
+        _most = rde_math_max_f32(_most, _right);
         _y   += (f32)_lines * _adv;
         _i    = _e + 1u;
     }
@@ -1061,7 +1110,9 @@ RDE_INTERNAL u32 fzr_line_of(const fude_zoom_rich* _r, u32 _at) {
     return _n > 0u ? _n - 1u : FUDE_ZOOM_RICH_NONE;
 }
 
-void fude_zoom_rich_caret(const fude_zoom_rich* _r, const c8* _text, u32 _len, u32 _at, fude_zoom_rich_measure_fn _measure, void* _self,
+// See the header. In a line's indent, as far in as the spaces before it; else by the last run of its line that starts
+// at or before it (past that run's end, a space's width for each byte after it).
+void fude_zoom_rich_caret(const fude_zoom_rich* _r, const c8* _text, u32 _len, u32 _at, fude_zoom_rich_measure_fn _measure, any _self,
                           f32* _x, f32* _y, f32* _px) {
     *_x = 0.0f;
     *_y = 0.0f;
@@ -1107,7 +1158,8 @@ void fude_zoom_rich_caret(const fude_zoom_rich* _r, const c8* _text, u32 _len, u
     *_x = _b.x + _b.w + _measure(_self, " ", 1u, _b.px, (u8)(_b.style & (FUDE_ZOOM_RICH_BOLD | FUDE_ZOOM_RICH_ITALIC))) * (f32)(_at - _b.from - _b.len);
 }
 
-u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _x, f32 _y, fude_zoom_rich_measure_fn _measure, void* _self) {
+// See the header. The row is the nearest of the runs' and the empty lines' bands; then the place on it.
+u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, f32 _x, f32 _y, fude_zoom_rich_measure_fn _measure, any _self) {
     const fude_zoom_rich_run*  _q = (const fude_zoom_rich_run*)_r->runs.memory;
     const fude_zoom_rich_line* _l = (const fude_zoom_rich_line*)_r->lines.memory;
     const u32 _nq = (u32)rde_arr_length(&_r->runs), _nl = (u32)rde_arr_length(&_r->lines);
@@ -1129,7 +1181,7 @@ u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, 
     // Its runs, left to right.
     u32 _first = FUDE_ZOOM_RICH_NONE, _last = FUDE_ZOOM_RICH_NONE;
     for(u32 _k = 0; _k < _nq; _k++) {
-        if(fabsf(_q[_k].y - _row) < 0.01f && !(_q[_k].style & FUDE_ZOOM_RICH_OWN)) {
+        if(rde_math_abs_f32(_q[_k].y - _row) < 0.01f && !(_q[_k].style & FUDE_ZOOM_RICH_OWN)) {
             _first = _first == FUDE_ZOOM_RICH_NONE ? _k : _first;
             _last  = _k;
         }
@@ -1137,7 +1189,7 @@ u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, 
     if(_first == FUDE_ZOOM_RICH_NONE) {
         // (a line with no words: its start — or as far into its spaces as it is)
         for(u32 _i = 0; _i < _nl; _i++) {
-            if(fabsf(_l[_i].y - _row) < 0.01f) {
+            if(rde_math_abs_f32(_l[_i].y - _row) < 0.01f) {
                 u32 _at = _l[_i].from;
                 while(_at < _l[_i].to && _measure(_self, &_text[_l[_i].from], _at + 1u - _l[_i].from, _l[_i].px, 0u) <= _x) {
                     _at++;
@@ -1150,7 +1202,7 @@ u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, 
     if(_x <= _q[_first].x) {
         // (before its first word: its start, its spaces in front of it too if it is a line's first row)
         const u32 _li = fzr_line_of(_r, _q[_first].from);
-        if(_li != FUDE_ZOOM_RICH_NONE && fabsf(_l[_li].y - _row) < 0.01f) {
+        if(_li != FUDE_ZOOM_RICH_NONE && rde_math_abs_f32(_l[_li].y - _row) < 0.01f) {
             u32 _at = _l[_li].from;
             while(_at < _q[_first].from && _measure(_self, &_text[_l[_li].from], _at + 1u - _l[_li].from, _l[_li].px, 0u) <= _x) {
                 _at++;
@@ -1161,20 +1213,20 @@ u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, 
     }
     for(u32 _k = _first; _k <= _last; _k++) {
         const fude_zoom_rich_run _b = _q[_k];
-        if(fabsf(_b.y - _row) >= 0.01f || (_b.style & FUDE_ZOOM_RICH_OWN)) {
+        if(rde_math_abs_f32(_b.y - _row) >= 0.01f || (_b.style & FUDE_ZOOM_RICH_OWN)) {
             continue;
         }
         if(_x <= _b.x + _b.w) {
             // In it: the nearest place between its characters.
             u32 _best = _b.from;
-            f32 _bd = fabsf(_x - _b.x);
+            f32 _bd = rde_math_abs_f32(_x - _b.x);
             for(u32 _i = _b.from + 1u; _i <= _b.from + _b.len; _i++) {
                 if(_i < _b.from + _b.len && ((u8)_text[_i] & 0xC0u) == 0x80u) {
                     continue;
                 }
                 const f32 _cx = _b.x + _measure(_self, &_text[_b.from], _i - _b.from, _b.px, _b.style);
-                if(fabsf(_x - _cx) < _bd) {
-                    _bd   = fabsf(_x - _cx);
+                if(rde_math_abs_f32(_x - _cx) < _bd) {
+                    _bd   = rde_math_abs_f32(_x - _cx);
                     _best = _i;
                 }
             }
@@ -1183,7 +1235,7 @@ u32 fude_zoom_rich_byte_at(const fude_zoom_rich* _r, const c8* _text, u32 _len, 
         // Between it and the next on the row: whichever is nearer.
         u32 _next = FUDE_ZOOM_RICH_NONE;
         for(u32 _m = _k + 1u; _m <= _last; _m++) {
-            if(fabsf(_q[_m].y - _row) < 0.01f && !(_q[_m].style & FUDE_ZOOM_RICH_OWN)) {
+            if(rde_math_abs_f32(_q[_m].y - _row) < 0.01f && !(_q[_m].style & FUDE_ZOOM_RICH_OWN)) {
                 _next = _m;
                 break;
             }

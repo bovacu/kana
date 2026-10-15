@@ -1,5 +1,6 @@
 // backup.h: export, inspect, restore — with real files in ./saves/.
 #include "drawing/base/backup.h"
+#include "drawing/base/crash.h"
 #include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,6 +118,26 @@ int main(void) {
     }
     CHECK(has("notes/1.kana", "page one AGAIN") == false && has("notes/1.kana", "page one"));   // restored copy still there
     free(data);
+    // A folder deeper down that happens to be called outbox is the user's, and is backed up (only the save folder's own
+    // outbox/ and before-import/, at its top, are left out).
+    { fude_backup_info i1, i2;
+      CHECK(fude_backup_export("saves/", "deep1.kanabackup", KANA_VERSION, &i1));
+      put("notes/outbox/kept.kana", "a canvas kept in a folder called outbox");
+      CHECK(fude_backup_export("saves/", "deep2.kanabackup", KANA_VERSION, &i2));
+      CHECK(i2.files == i1.files + 1u);
+      remove("deep1.kanabackup"); remove("deep2.kanabackup"); }
+    // The crash report's files (this device's) are left out at the save folder's top; a file of the same name deeper
+    // down is the user's.
+    { fude_backup_info i1, i2, i3;
+      CHECK(fude_backup_export("saves/", "cr1.kanabackup", KANA_VERSION, &i1));
+      put(FUDE_CRASH_REPORT_FILE, "a crash report"); put(FUDE_CRASH_RUNNING_FILE, "running");
+      CHECK(fude_backup_export("saves/", "cr2.kanabackup", KANA_VERSION, &i2));
+      CHECK(i2.files == i1.files);
+      put("notes/" FUDE_CRASH_REPORT_FILE, "a note of the user's that happens to have that name");
+      CHECK(fude_backup_export("saves/", "cr3.kanabackup", KANA_VERSION, &i3));
+      CHECK(i3.files == i1.files + 1u);
+      remove("cr1.kanabackup"); remove("cr2.kanabackup"); remove("cr3.kanabackup"); }
+
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

@@ -2,3 +2,4 @@
 "NSCameraUsageDescription" = "InfiNote numérise des pages avec l’appareil photo pour que vous puissiez dessiner dessus.";
 "CFBundleDisplayName" = "InfiNote";
 "NSMicrophoneUsageDescription" = "InfiNote enregistre ce qui se dit pendant que vous écrivez, pour qu’un toucher sur vos notes le fasse réentendre.";
+"NSPhotoLibraryAddUsageDescription" = "InfiNote enregistre dans votre photothèque les images et les vidéos que vous exportez.";

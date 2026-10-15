@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 # The icons' left bearings (FUDE_KIT_ICON_BEARINGS in fude/drawing/widgets/kit.c), measured
-# from Phosphor-Regular.ttf (Kana's assets) for every icon of fude/drawing/widgets/icons.h.
+# from Phosphor-Regular.ttf (Kana's assets) for every icon of fude/drawing/base/icons.h.
 # Run after adding an icon (and cutting the fonts again: COMMANDS.txt, ICONS):
 #
 #   python3 -m pip install fonttools      # once
@@ -12,7 +12,7 @@ from fontTools.ttLib import TTFont
 from fontTools.pens.boundsPen import BoundsPen
 
 K = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
-s = open(os.path.join(K, 'fude/drawing/widgets/icons.h')).read()
+s = open(os.path.join(K, 'fude/drawing/base/icons.h')).read()
 cps = set()
 for m in re.findall(r'#define\s+FUDE_ICON_\w+\s+"([^"]+)"', s):
     b = bytes(int(h, 16) for h in re.findall(r'\\x([0-9A-Fa-f]{2})', m))

@@ -10,107 +10,129 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// A canvas over a PDF (Sketching): its pages under the ink, written on as
-// anything is drawn — a canvas made from one (Insert → PDF: the PDF the
-// canvas's own, notes.h' <id>.pdf).
+// PDF view: a canvas over a PDF (Sketching's Insert → PDF). The PDF's pages lie under the ink and are written on like
+// anything else drawn; the PDF is the canvas's own (notes.h: <id>.pdf).
 //
-// The pages hang one under the other in the canvas's home frame, as big as
-// they are (a unit a millimetre: page.h' FUDE_ZOOM_PAGE_MM_PER_UNIT), their
-// middles on x 0, the first's top on y 0 (Y up: they go down). The canvas is
-// as big as they are: the view kept over them, never out past them (the page
-// keeps it so: fude_zoom_pdfview_bounds), and zoomed in as far as the canvas goes.
+// Where it sits: zoom, the canvas apps' layer, over drawing/doc's pdf.h (which opens, draws, searches and writes PDFs)
+// and doc.h's tiles. The page owns one fude_zoom_pdfview (page.h), updates it and keeps the view over its
+// pages (page_frame.c), draws it each frame (page_render.c), and runs Find (page_find.c) and Export (page_export.c)
+// through it.
+// Its main types and their lifecycle: the page makes its fude_zoom_pdfview with fude_zoom_pdfview_init, opens a PDF in
+// it with fude_zoom_pdfview_open, and lets it go with fude_zoom_pdfview_close (opening another closes the one before).
+// Threads: every function is called on the main thread. The pages' pictures are drawn by a PDF worker of the view's own
+// (drawing/doc/worker.h, the module Kana's documents draw with too: RDE's detached threads, one started for each
+// piece), one piece at a time, nearest the view first; the view looks each frame whether the piece is done. Nothing
+// waits for a piece (a page not drawn yet shows as blank paper) but fude_zoom_pdfview_export, which draws the PDF's
+// pages itself and so waits for the piece being drawn, if any. A PDF let go while a piece is being drawn leaves that
+// piece to the worker to finish and free, closing the PDF with it.
+// Files: reads the PDF; fude_zoom_pdfview_export writes a new PDF.
 //
-// Drawn from textures, as Kana's documents are (doc.h): each page whole, sharp
-// enough at a glance; and, the view resting, the part of each page on screen
-// again at the screen's own pixels — sharp at any zoom (the PDF is drawn
-// again for what is on screen, however deep). Drawn on a thread of their own,
-// one piece at a time, nearest first; a page not drawn yet is blank paper.
-// In a dark theme the pages are dark too (paper the page's colour, print the
-// text's).
-//
-// Its text (pdf.h: the PDF's own; a scan has none) is searched by Find: the
-// matches marked on the pages, the one gone to outlined.
+// Layout: the pages hang one under the other in the canvas's home frame, at their own size (a unit is a millimetre:
+// page.h's FUDE_ZOOM_PAGE_MM_PER_UNIT), their middles on x = 0 and the first page's top on y = 0 (Y points up, so the
+// pages go down). The canvas is as big as the pages: page_frame.c keeps the view over them and never out past them
+// (fude_zoom_pdfview_bounds), and it zooms in as far as any canvas goes.
+// Drawing: from textures, as Kana's documents are drawn (doc.h). Each page has a whole picture, sharp enough at a
+// glance; once the view rests, the part of each page on screen is drawn again at the screen's own pixels, so it is
+// sharp at any zoom however deep (the PDF is drawn again for what is on screen). In a dark theme the pages are dark
+// too: the paper in the page's colour, the print in the text's.
+// Search: Find searches the PDF's own text (pdf.h; a scan has none). The matches are marked on the pages and the one
+// gone to is outlined.
+// Design: see docs/infinite_canvas_design.md §19.
 // ===========================================================================
 
-#define FUDE_ZOOM_PDFVIEW_GAP        8.0      // between pages, millimetres
-#define FUDE_ZOOM_PDFVIEW_WHOLE_PX   1100u    // a whole page's texture: its width in pixels
-#define FUDE_ZOOM_PDFVIEW_SHARP_MAX  4096u    // a sharp piece's longer side, at most
-#define FUDE_ZOOM_PDFVIEW_SCALE      2.0      // pixels to a screen point (iPad, Mac: 2x)
-#define FUDE_ZOOM_PDFVIEW_KEEP       6u       // whole pages kept drawn, at most (the nearest)
-#define FUDE_ZOOM_PDFVIEW_REST       0.15     // seconds the view keeps still before the sharp pieces
+#define FUDE_ZOOM_PDFVIEW_GAP        8.0      // The gap between pages, in millimetres.
+// A whole page's picture's width, a sharp piece's most, the pixels to a point, how much of the whole pages is kept and
+// how long the view rests before the sharp pieces are drawn are the PDF worker's (worker.h: FUDE_DOC_WHOLE_PX,
+// FUDE_DOC_SHARP_MAX, FUDE_DOC_SCALE, FUDE_DOC_KEEP_BYTES, FUDE_DOC_REST), as Kana's documents have them. So is the
+// choice of the whole pages to keep and draw (fude_doc_wholes).
 
+// One of the PDF's pages on the canvas, with its pictures.
 typedef struct {
-    rde_vec_2F    points;   // its size in the PDF (points), as read
-    fude_zoom_box box;      // on the canvas (home frame units)
+    rde_vec_2F    points;   // Its size in the PDF, in points, as read.
+    fude_zoom_box box;      // Where it lies on the canvas, in home frame units.
     fude_doc_tile whole;
-    fude_doc_tile sharp;    // what was on screen, at the screen's pixels (its zoom: screen points to a page point)
+    // Its tile's zoom says how many screen points to a page point it was drawn for.
+    fude_doc_tile sharp;    // What was on screen, drawn at the screen's pixels.
 } fude_zoom_pdfview_page;
 
-struct fude_zoom_pdfview_job;
-
+// The PDF under a canvas, its pages' pictures and a search in it.
 typedef struct {
-    fude_pdf*                 pdf;          // NULL: none open
+    fude_pdf*                 pdf;          // NULL when none is open.
     c8                        path[RDE_MAX_PATH];
     rde_arr TYPE(fude_zoom_pdfview_page) pages;
     u32                       page_count;
-    fude_zoom_box             bounds;       // every page, home frame units
-    struct fude_zoom_pdfview_job* job;          // the piece being drawn (NULL: none)
-    b8                        dark;
-    rde_color                 paper, print;
-    fude_zoom_sim             seen;         // the home frame on screen, to tell the view resting
+    fude_zoom_box             bounds;       // Every page together, in home frame units.
+    // Draws the pages' pieces, one at a time (as pdf.h asks), in the theme's colours (its paper is a blank page's).
+    fude_doc_worker           worker;
+    // Each page as seen from the view, filled each frame for the worker to choose the whole pages to keep and draw
+    // (worker.h: fude_doc_wholes, which reorders it). Made with pages, page_count of them.
+    rde_arr TYPE(fude_doc_seen) pages_seen;
+    fude_zoom_sim             seen;         // The home frame on screen last frame, to tell when the view rests.
     f64                       moved_at;
-    // A search (Find): its matches as they come, the one gone to.
-    rde_arr TYPE(fude_pdf_match) matches;   // FUDE_PDF_MATCHES
+    // A search (Find): its matches as they come in, and the one gone to.
+    rde_arr TYPE(fude_pdf_match) matches;   // Room for FUDE_PDF_MATCHES.
     u32                       match_count;
-    u32                       match_at;     // the one gone to (match_count: none yet)
+    u32                       match_at;     // The match gone to (0 when a search starts: the first one).
     b8                        searching;
     b8                        search_done;
-    b8                        search_go;    // go to the first as it comes
+    b8                        search_go;    // Fly to the first match as soon as it comes in.
     c8                        query[128];
 } fude_zoom_pdfview;
 
-// Its pages (page_count of them while it is open).
+// Returns its pages (page_count of them while a PDF is open). The pointer is valid until the PDF is closed.
 static inline fude_zoom_pdfview_page* fude_zoom_pdfview_pages(const fude_zoom_pdfview* _v) { return (fude_zoom_pdfview_page*)_v->pages.memory; }
 
+// Clears _v, with no PDF open, and sets up its worker (worker.h: the first worker makes the mutex they all share).
 void fude_zoom_pdfview_init(fude_zoom_pdfview* _v);
-// The PDF at _path open over the canvas (the one before let go). False: it does not open.
+// Opens the PDF at _path over the canvas, closing the one before. Returns false when it does not open or has no pages.
 b8   fude_zoom_pdfview_open(fude_zoom_pdfview* _v, const c8* _path);
+// Closes the PDF (or leaves it to the worker to close, while a piece is being drawn), frees the pictures and clears _v.
 void fude_zoom_pdfview_close(fude_zoom_pdfview* _v);
+// Returns whether a PDF with pages is open.
 b8   fude_zoom_pdfview_is_open(const fude_zoom_pdfview* _v);
 
-// Once a frame: finished pieces put on the GPU, the next asked for. _home: the
-// home frame on the screen (centre origin, Y up); _half: half the screen.
+// Call once a frame: puts a finished piece on the GPU, asks for the next one, lets go of pictures far from the view,
+// redraws everything when the theme's colours change, and collects a search's new matches. _home: the home frame on
+// the screen (origin at the screen's centre, Y up); _half: half the screen's size, in points.
 void fude_zoom_pdfview_update(fude_zoom_pdfview* _v, fude_zoom_sim _home, fude_zoom_v2 _half);
-// The pages (and a search's marks), under the ink.
+// Draws the pages (and a search's marks), under the ink. Arguments as for fude_zoom_pdfview_update.
 void fude_zoom_pdfview_render(const fude_zoom_pdfview* _v, fude_zoom_sim _home, fude_zoom_v2 _half);
 
-// The canvas the pages make (home frame units): what the view is kept over.
+// Returns the canvas the pages make, in home frame units: what the page keeps the view over.
 fude_zoom_box fude_zoom_pdfview_bounds(const fude_zoom_pdfview* _v);
-// The page whose box holds _at (home units), or the nearest (from 0).
+// Returns the page whose box holds _at (home frame units), or else the nearest one, counting from 0.
 u32  fude_zoom_pdfview_page_at(const fude_zoom_pdfview* _v, fude_zoom_v2 _at);
-// A place on page _page (points from its top-left) on the canvas, and back.
+// Turn a place on page _page (in points from its top-left corner) into canvas units (home frame), and back. A page
+// out of range is taken as the first.
 fude_zoom_v2 fude_zoom_pdfview_to_canvas(const fude_zoom_pdfview* _v, u32 _page, rde_vec_2F _points);
 rde_vec_2F   fude_zoom_pdfview_to_page(const fude_zoom_pdfview* _v, u32 _page, fude_zoom_v2 _at);
 
-// Search: _query's matches found as the PDF is gone through (the first gone to
-// as it comes: fude_zoom_pdfview_search_wanted); stopped.
+// fude_zoom_pdfview_search starts a search for _query, stopping the one before; its matches come in as the PDF is gone
+// through (fude_zoom_pdfview_update), and the first is gone to as it comes (fude_zoom_pdfview_search_wanted). Nothing
+// is searched when no PDF is open, _query is empty, or this platform cannot read a PDF's text.
+// fude_zoom_pdfview_search_stop stops it and drops its matches.
 void fude_zoom_pdfview_search(fude_zoom_pdfview* _v, const c8* _query);
 void fude_zoom_pdfview_search_stop(fude_zoom_pdfview* _v);
-// The match to go to now, when one is wanted (the first come in): its box on the
-// canvas (home units). False: none wanted.
+// Returns the match to fly to now, when one is wanted (the first match, once it has come in): its box on the canvas
+// (home frame units) into *_box, and it becomes the one gone to. Returns false when none is wanted; it answers true
+// only once for each search.
 b8   fude_zoom_pdfview_search_wanted(fude_zoom_pdfview* _v, fude_zoom_box* _box);
-// Match _i's box on the canvas (home units); made the one gone to.
+// Puts match _i's box on the canvas (home frame units) into *_box and makes it the one gone to. Returns false when
+// there is no such match.
 b8   fude_zoom_pdfview_match_box(fude_zoom_pdfview* _v, u32 _i, fude_zoom_box* _box);
 
-// The PDF again at _out with what was drawn on it (scene _s's, at any depth): each
-// page copied as it is (its text stays text), and over it, in the order they were
-// drawn (the markers' first, under the rest), the lines, the fills the eraser and the
-// bucket left, the shapes, the texts and notes (their lines broken as _font breaks them
-// on the canvas) — on white paper, the theme's ink as the light theme's. What is beside
-// the pages is left out; pictures put on the canvas are not written yet. False when it
-// could not be (pdf.h: no writer here). Formulas set with _formulas (NULL: written as their LaTeX).
+// The formulas' type (formula.h), named here without including formula.h.
 struct fude_zoom_formulas;
-b8   fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* _font, f32 _font_px, struct fude_zoom_formulas* _formulas,
-                              const c8* _out);
+// Writes the PDF again at _out with what was drawn on it (scene _s's things at any depth). Each page is copied as it
+// is, so its text stays text, and over it go, in the order they were drawn (the markers first, under the rest): lines,
+// the fills the eraser and the bucket left, the shapes, the pictures, and the texts and notes, their lines broken as
+// _fonts (each loaded at _font_px) break them on the canvas: the app's font in its four faces, in pdf.h's
+// FUDE_PDF_FACE_ order (regular, bold, italic, bold italic), a note's words measured and set in their own face (a NULL
+// face as the regular one); with no regular one, no text is written. It is on white paper, with the theme's ink as
+// the light theme's. What lies beside the pages is left out. Formulas are set with _formulas (with NULL, as their
+// LaTeX). It first waits for the piece the worker is drawing, if any (pdf.h: a PDF is drawn on one thread at a time).
+// Returns false when no PDF is open or it could not be written (pdf.h: this platform has no writer).
+b8   fude_zoom_pdfview_export(const fude_zoom_pdfview* _v, const fude_zoom_scene* _s, rde_font* const _fonts[FUDE_PDF_FACES], f32 _font_px,
+                              struct fude_zoom_formulas* _formulas, const c8* _out);
 
 #endif

@@ -3,18 +3,23 @@
 #include "zoom/dxf.h"
 #include "drawing/base/utf8.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+// ===========================================================================
+// See dxf.h, which describes the file written and the pre-flight's checks in full.
+//
+// Everything added is kept until fude_zoom_dxf_finish writes it all at once, because the header's $EXTMIN and $EXTMAX
+// come before the entities. Points are kept in one array of f64 pairs (xy) and texts, already escaped, in one array
+// of strings; an entity points into them. Every name here is fude_zoom_dxf_. The file goes: building (layers and the
+// adding of geometry), writing (numbers, group codes, the extents, the tables and the entities), and the pre-flight
+// (duplicates, then open contours).
+// ===========================================================================
 
 #define FUDE_ZOOM_DXF_NAME   32u      // a layer's name, NUL included
 #define FUDE_ZOOM_DXF_TEXT   255u     // R12's longest string
 #define FUDE_ZOOM_DXF_TURN   2e-6     // degrees: closer angles could come out the same at six decimals
 #define FUDE_ZOOM_DXF_ROT    1e-3     // degrees two duplicate texts' angles may differ by
 #define FUDE_ZOOM_DXF_ACI    7u       // white on black, black on white: layer "0"'s
-#define FUDE_ZOOM_DXF_PI     3.14159265358979323846
 
+// An entity's kind.
 enum {
     FUDE_ZOOM_DXF_LINE,
     FUDE_ZOOM_DXF_POLYLINE,
@@ -23,11 +28,14 @@ enum {
     FUDE_ZOOM_DXF_TEXT_KIND,
 };
 
+// A layer: its cleaned name and its colour (AutoCAD's colour index).
 typedef struct {
     c8 name[FUDE_ZOOM_DXF_NAME];
     u8 aci;
 } fude_zoom_dxf_layer_def;
 
+// An entity: its kind, whether a polyline is closed, its layer's index, and its points in xy (a polyline's, a line's
+// two, or one: a circle's or an arc's centre, a text's insertion point).
 typedef struct {
     u8  kind;
     b8  closed;
@@ -38,8 +46,11 @@ typedef struct {
     f64 angle;      // arc: start; text: rotation (degrees, [0, 360))
     f64 sweep;      // arc: degrees counter-clockwise from the start, (0, 360)
     u32 text;       // text: where its escaped string starts in strings
+    u8  align;      // text: FUDE_ZOOM_DXF_ALIGN_ (dxf.h)
 } fude_zoom_dxf_entity;
 
+// The drawing: its layers (layer "0" first), its entities in the order added, every entity's points as x, y pairs, and
+// its texts' escaped strings.
 struct fude_zoom_dxf {
     rde_arr TYPE(fude_zoom_dxf_layer_def) layers;
     rde_arr TYPE(fude_zoom_dxf_entity)    entities;
@@ -47,39 +58,45 @@ struct fude_zoom_dxf {
     rde_arr TYPE(c8)                      strings;   // each NUL-terminated
 };
 
+// A point, in millimetres.
 typedef struct { f64 x, y; } fude_zoom_dxf_v2;
 
+// Returns _v, or 0 when it is not finite.
 RDE_INTERNAL f64 fude_zoom_dxf_finite(f64 _v) {
-    return isfinite(_v) ? _v : 0.0;
+    return rde_math_is_finite_f64(_v) ? _v : 0.0;
 }
 
 // An angle in [0, 360); one that six decimals would round up to 360 is 0.
 RDE_INTERNAL f64 fude_zoom_dxf_degrees(f64 _a) {
-    f64 _r = fmod(fude_zoom_dxf_finite(_a), 360.0);
+    f64 _r = rde_math_fmod_f64(fude_zoom_dxf_finite(_a), 360.0);
     if(_r < 0.0) {
         _r += 360.0;
     }
     return _r >= 360.0 - 5e-7 ? 0.0 : _r;
 }
 
+// Returns entity _e's first point (an x, y pair) in the drawing's points.
 RDE_INTERNAL const f64* fude_zoom_dxf_points(const fude_zoom_dxf* _d, const fude_zoom_dxf_entity* _e) {
     return (const f64*)_d->xy.memory + (usize)_e->first * 2u;
 }
 
+// Returns entity _i (not checked against the count).
 RDE_INTERNAL const fude_zoom_dxf_entity* fude_zoom_dxf_entity_at(const fude_zoom_dxf* _d, u32 _i) {
     return (const fude_zoom_dxf_entity*)_d->entities.memory + _i;
 }
 
+// Returns the point at angle _deg (degrees, counter-clockwise from +x) on the circle of arc or circle _e.
 RDE_INTERNAL fude_zoom_dxf_v2 fude_zoom_dxf_on_arc(const fude_zoom_dxf* _d, const fude_zoom_dxf_entity* _e, f64 _deg) {
     const f64* _c = fude_zoom_dxf_points(_d, _e);
-    const f64  _a = _deg * FUDE_ZOOM_DXF_PI / 180.0;
-    return (fude_zoom_dxf_v2){ _c[0] + _e->r * cos(_a), _c[1] + _e->r * sin(_a) };
+    const f64  _a = _deg * RDE_PI / 180.0;
+    return (fude_zoom_dxf_v2){ _c[0] + _e->r * rde_math_cos_f64(_a), _c[1] + _e->r * rde_math_sin_f64(_a) };
 }
 
 // --- building --------------------------------------------------------------------------------------
 
+// See dxf.h.
 fude_zoom_dxf* fude_zoom_dxf_new(void) {
-    fude_zoom_dxf* _d = (fude_zoom_dxf*)calloc(1, sizeof(fude_zoom_dxf));
+    fude_zoom_dxf* _d = (fude_zoom_dxf*)rde_calloc(1, sizeof(fude_zoom_dxf));
     if(_d == NULL) {
         return NULL;
     }
@@ -93,6 +110,7 @@ fude_zoom_dxf* fude_zoom_dxf_new(void) {
     return _d;
 }
 
+// See dxf.h.
 void fude_zoom_dxf_free(fude_zoom_dxf* _d) {
     if(_d == NULL) {
         return;
@@ -101,9 +119,10 @@ void fude_zoom_dxf_free(fude_zoom_dxf* _d) {
     rde_arr_free(&_d->entities);
     rde_arr_free(&_d->xy);
     rde_arr_free(&_d->strings);
-    free(_d);
+    rde_free(_d);
 }
 
+// True when two layer names are the same but for the case of ASCII letters, as AutoCAD compares them.
 RDE_INTERNAL b8 fude_zoom_dxf_same_name(const c8* _a, const c8* _b) {
     for(;; _a++, _b++) {
         c8 _x = *_a, _y = *_b;
@@ -122,6 +141,7 @@ RDE_INTERNAL b8 fude_zoom_dxf_same_name(const c8* _a, const c8* _b) {
     }
 }
 
+// See dxf.h. The name is cut at 31 characters after cleaning; a name that cleans to nothing is layer 0.
 u32 fude_zoom_dxf_layer(fude_zoom_dxf* _d, const c8* _name, u8 _aci) {
     if(_d == NULL) {
         return 0;
@@ -155,7 +175,7 @@ u32 fude_zoom_dxf_layer(fude_zoom_dxf* _d, const c8* _name, u8 _aci) {
 // A new entity, its _count points (if any) taken from _xy, made finite.
 RDE_INTERNAL fude_zoom_dxf_entity* fude_zoom_dxf_add(fude_zoom_dxf* _d, u8 _kind, u32 _layer, const f64* _xy, u32 _count) {
     fude_zoom_dxf_entity _e;
-    memset(&_e, 0, sizeof _e);
+    rde_memset(&_e, 0, sizeof _e);
     _e.kind  = _kind;
     _e.layer = _layer < (u32)rde_arr_length(&_d->layers) ? _layer : 0u;
     _e.first = (u32)(rde_arr_length(&_d->xy) / 2u);
@@ -169,6 +189,7 @@ RDE_INTERNAL fude_zoom_dxf_entity* fude_zoom_dxf_add(fude_zoom_dxf* _d, u8 _kind
     return (fude_zoom_dxf_entity*)rde_arr_add(&_d->entities, (any)&_e);
 }
 
+// See dxf.h.
 void fude_zoom_dxf_line(fude_zoom_dxf* _d, u32 _layer, f64 _x1, f64 _y1, f64 _x2, f64 _y2) {
     if(_d == NULL) {
         return;
@@ -177,6 +198,7 @@ void fude_zoom_dxf_line(fude_zoom_dxf* _d, u32 _layer, f64 _x1, f64 _y1, f64 _x2
     fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_LINE, _layer, _xy, 2u);
 }
 
+// See dxf.h. The repeat of the first point is checked before the points are made finite.
 void fude_zoom_dxf_polyline(fude_zoom_dxf* _d, u32 _layer, const f64* _xy, u32 _count, b8 _closed) {
     if(_d == NULL || _xy == NULL) {
         return;
@@ -190,25 +212,28 @@ void fude_zoom_dxf_polyline(fude_zoom_dxf* _d, u32 _layer, const f64* _xy, u32 _
     fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_POLYLINE, _layer, _xy, _count)->closed = _closed ? true : false;
 }
 
+// See dxf.h. A negative radius is taken as its size.
 void fude_zoom_dxf_circle(fude_zoom_dxf* _d, u32 _layer, f64 _cx, f64 _cy, f64 _r) {
     if(_d == NULL) {
         return;
     }
     const f64 _c[2] = { _cx, _cy };
-    fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_CIRCLE, _layer, _c, 1u)->r = fabs(fude_zoom_dxf_finite(_r));
+    fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_CIRCLE, _layer, _c, 1u)->r = rde_math_abs_f64(fude_zoom_dxf_finite(_r));
 }
 
+// See dxf.h. The sweep is kept as degrees counter-clockwise from the start, so that an arc across 0° needs no care
+// later. Sweeps within FUDE_ZOOM_DXF_TURN of a whole turn become a circle, and those under it are dropped.
 void fude_zoom_dxf_arc(fude_zoom_dxf* _d, u32 _layer, f64 _cx, f64 _cy, f64 _r, f64 _start_deg, f64 _end_deg) {
     if(_d == NULL) {
         return;
     }
     const f64 _turned = fude_zoom_dxf_finite(_end_deg) - fude_zoom_dxf_finite(_start_deg);
-    f64       _sweep  = fmod(_turned, 360.0);
+    f64       _sweep  = rde_math_fmod_f64(_turned, 360.0);
     if(_sweep < 0.0) {
         _sweep += 360.0;
     }
     // A whole turn, or near enough that both angles would be written the same: a circle.
-    if(fabs(_turned) >= 360.0 - FUDE_ZOOM_DXF_TURN || _sweep > 360.0 - FUDE_ZOOM_DXF_TURN) {
+    if(rde_math_abs_f64(_turned) >= 360.0 - FUDE_ZOOM_DXF_TURN || _sweep > 360.0 - FUDE_ZOOM_DXF_TURN) {
         fude_zoom_dxf_circle(_d, _layer, _cx, _cy, _r);
         return;
     }
@@ -217,23 +242,24 @@ void fude_zoom_dxf_arc(fude_zoom_dxf* _d, u32 _layer, f64 _cx, f64 _cy, f64 _r, 
     }
     const f64             _c[2] = { _cx, _cy };
     fude_zoom_dxf_entity* _e    = fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_ARC, _layer, _c, 1u);
-    _e->r     = fabs(fude_zoom_dxf_finite(_r));
+    _e->r     = rde_math_abs_f64(fude_zoom_dxf_finite(_r));
     _e->angle = fude_zoom_dxf_degrees(_start_deg);
     _e->sweep = _sweep;
 }
 
-// One character's DXF spelling into _out (room for 16). _next: what follows it.
+// Writes code point _cp's DXF spelling into _out (room for 16 bytes, no NUL) and returns its length; _next is the text
+// that follows it, which decides how a '%' or a backslash is written. dxf.h lists the rules.
 RDE_INTERNAL u32 fude_zoom_dxf_escape(u32 _cp, const c8* _next, c8* _out) {
     if(_cp < 0x20u || _cp == 0x7Fu) {
         _out[0] = ' ';
         return 1u;
     }
     if(_cp == '%' && _next[0] == '%') {
-        memcpy(_out, "%%%", 3u);
+        rde_memcpy(_out, "%%%", 3u);
         return 3u;
     }
     if(_cp == '\\' && (_next[0] == 'U' || _next[0] == 'u' || _next[0] == 'M' || _next[0] == 'm') && _next[1] == '+') {
-        memcpy(_out, "\\U+005C", 7u);
+        rde_memcpy(_out, "\\U+005C", 7u);
         return 7u;
     }
     if(_cp < 0x80u) {
@@ -241,13 +267,15 @@ RDE_INTERNAL u32 fude_zoom_dxf_escape(u32 _cp, const c8* _next, c8* _out) {
         return 1u;
     }
     if(_cp <= 0xFFFFu) {
-        return (u32)snprintf(_out, 16u, "\\U+%04X", (unsigned)_cp);
+        return (u32)rde_snprintf(_out, 16u, "\\U+%04X", (unsigned)_cp);
     }
     const u32 _v = _cp - 0x10000u;
-    return (u32)snprintf(_out, 16u, "\\U+%04X\\U+%04X", (unsigned)(0xD800u + (_v >> 10)), (unsigned)(0xDC00u + (_v & 0x3FFu)));
+    return (u32)rde_snprintf(_out, 16u, "\\U+%04X\\U+%04X", (unsigned)(0xD800u + (_v >> 10)), (unsigned)(0xDC00u + (_v & 0x3FFu)));
 }
 
-void fude_zoom_dxf_text(fude_zoom_dxf* _d, u32 _layer, f64 _x, f64 _y, f64 _height, f64 _rotation_deg, const c8* _utf8) {
+// See dxf.h. The text is escaped whole characters at a time until the next would pass FUDE_ZOOM_DXF_TEXT bytes, and
+// kept in the drawing's strings.
+void fude_zoom_dxf_text(fude_zoom_dxf* _d, u32 _layer, f64 _x, f64 _y, f64 _height, f64 _rotation_deg, u8 _align, const c8* _utf8) {
     if(_d == NULL || _utf8 == NULL) {
         return;
     }
@@ -264,7 +292,7 @@ void fude_zoom_dxf_text(fude_zoom_dxf* _d, u32 _layer, f64 _x, f64 _y, f64 _heig
         if(_n + _k > FUDE_ZOOM_DXF_TEXT) {
             break;
         }
-        memcpy(_text + _n, _one, _k);
+        rde_memcpy(_text + _n, _one, _k);
         _n += _k;
     }
     if(_n == 0) {
@@ -272,33 +300,34 @@ void fude_zoom_dxf_text(fude_zoom_dxf* _d, u32 _layer, f64 _x, f64 _y, f64 _heig
     }
     _text[_n] = 0;
     const u32 _at = (u32)rde_arr_length(&_d->strings);
-    memcpy(rde_arr_add_n(&_d->strings, _n + 1u), _text, _n + 1u);
+    rde_memcpy(rde_arr_add_n(&_d->strings, _n + 1u), _text, _n + 1u);
     const f64             _p[2] = { _x, _y };
     fude_zoom_dxf_entity* _e    = fude_zoom_dxf_add(_d, FUDE_ZOOM_DXF_TEXT_KIND, _layer, _p, 1u);
-    _e->r     = fabs(fude_zoom_dxf_finite(_height));
+    _e->r     = rde_math_abs_f64(fude_zoom_dxf_finite(_height));
     _e->r     = _e->r > 0.0 ? _e->r : 1.0;
     _e->angle = fude_zoom_dxf_degrees(_rotation_deg);
     _e->text  = _at;
+    _e->align = _align == FUDE_ZOOM_DXF_ALIGN_CENTRE || _align == FUDE_ZOOM_DXF_ALIGN_RIGHT ? _align : (u8)FUDE_ZOOM_DXF_ALIGN_LEFT;
 }
 
 // --- writing ---------------------------------------------------------------------------------------
 
-// Up to six decimals, no trailing zeros, no exponent; by hand, as printf's
-// decimal point follows the locale.
+// Writes _v with up to six decimals, no trailing zeros and no exponent, by hand, as printf's decimal point follows the
+// locale. Not finite is written as 0.
 RDE_INTERNAL void fude_zoom_dxf_number(c8* _buf, usize _size, f64 _v) {
     _v = fude_zoom_dxf_finite(_v);
-    if(fabs(_v) >= 1e9) {
+    if(rde_math_abs_f64(_v) >= 1e9) {
         // A thousand kilometres and more: no decimals (so no decimal point to
         // print), and a millionth would be noise anyway.
-        snprintf(_buf, _size, "%.0f", _v);
+        rde_snprintf(_buf, _size, "%.0f", _v);
         return;
     }
-    const long long          _q     = llround(_v * 1e6);   // under 1e15: exact in a double and a long long
+    const long long          _q     = rde_math_round_to_i64_f64(_v * 1e6);   // under 1e15: exact in a double and a long long
     const unsigned long long _m     = (unsigned long long)(_q < 0 ? -_q : _q);
     const unsigned long long _whole = _m / 1000000ull;
     unsigned long long       _frac  = _m % 1000000ull;
     if(_frac == 0) {
-        snprintf(_buf, _size, "%s%llu", _q < 0 ? "-" : "", _whole);   // never "-0": a zero _q has no sign
+        rde_snprintf(_buf, _size, "%s%llu", _q < 0 ? "-" : "", _whole);   // never "-0": a zero _q has no sign
         return;
     }
     int _digits = 6;
@@ -306,23 +335,26 @@ RDE_INTERNAL void fude_zoom_dxf_number(c8* _buf, usize _size, f64 _v) {
         _frac /= 10ull;
         _digits--;
     }
-    snprintf(_buf, _size, "%s%llu.%0*llu", _q < 0 ? "-" : "", _whole, _digits, _frac);
+    rde_snprintf(_buf, _size, "%s%llu.%0*llu", _q < 0 ? "-" : "", _whole, _digits, _frac);
 }
 
+// Appends a group: its code right-aligned in three characters on one line, its value on the next, both ending "\r\n".
 RDE_INTERNAL void fude_zoom_dxf_put(fude_bytes* _out, i32 _code, const c8* _value) {
     c8        _head[16];
-    const int _n = snprintf(_head, sizeof _head, "%3d\r\n", (int)_code);
+    const int _n = rde_snprintf(_head, sizeof _head, "%3d\r\n", (int)_code);
     fude_put_data(_out, _head, (u32)_n);
-    fude_put_data(_out, _value, (u32)strlen(_value));
+    fude_put_data(_out, _value, (u32)rde_strlen(_value));
     fude_put_data(_out, "\r\n", 2u);
 }
 
+// Appends a group whose value is a whole number.
 RDE_INTERNAL void fude_zoom_dxf_put_int(fude_bytes* _out, i32 _code, i32 _v) {
     c8 _buf[16];
-    snprintf(_buf, sizeof _buf, "%d", (int)_v);
+    rde_snprintf(_buf, sizeof _buf, "%d", (int)_v);
     fude_zoom_dxf_put(_out, _code, _buf);
 }
 
+// Appends a group whose value is a real number (fude_zoom_dxf_number).
 RDE_INTERNAL void fude_zoom_dxf_put_num(fude_bytes* _out, i32 _code, f64 _v) {
     c8 _buf[400];   // room for the largest double's whole digits
     fude_zoom_dxf_number(_buf, sizeof _buf, _v);
@@ -336,18 +368,21 @@ RDE_INTERNAL void fude_zoom_dxf_put_point(fude_bytes* _out, i32 _code, f64 _x, f
     fude_zoom_dxf_put_num(_out, _code + 20, 0.0);
 }
 
+// Grows _box (min x, min y, max x, max y) to hold (_x, _y).
 RDE_INTERNAL void fude_zoom_dxf_extend(f64* _box, f64 _x, f64 _y) {
-    _box[0] = fmin(_box[0], _x);
-    _box[1] = fmin(_box[1], _y);
-    _box[2] = fmax(_box[2], _x);
-    _box[3] = fmax(_box[3], _y);
+    _box[0] = rde_math_min_f64(_box[0], _x);
+    _box[1] = rde_math_min_f64(_box[1], _y);
+    _box[2] = rde_math_max_f64(_box[2], _x);
+    _box[3] = rde_math_max_f64(_box[3], _y);
 }
 
-// min x, min y, max x, max y of everything; all 0 when there is nothing.
+// Writes into _box the min x, min y, max x and max y of everything: a circle's whole box, an arc's ends and the
+// quarter points it passes through, and every other entity's points (a text's insertion point only). All 0 when there
+// is nothing.
 RDE_INTERNAL void fude_zoom_dxf_extents(const fude_zoom_dxf* _d, f64* _box) {
     const u32 _n = (u32)rde_arr_length(&_d->entities);
-    _box[0] = _box[1] = INFINITY;
-    _box[2] = _box[3] = -INFINITY;
+    _box[0] = _box[1] = RDE_INFINITY_F64;
+    _box[2] = _box[3] = -RDE_INFINITY_F64;
     for(u32 _i = 0; _i < _n; _i++) {
         const fude_zoom_dxf_entity* _e = fude_zoom_dxf_entity_at(_d, _i);
         const f64*                  _p = fude_zoom_dxf_points(_d, _e);
@@ -382,6 +417,7 @@ RDE_INTERNAL void fude_zoom_dxf_extents(const fude_zoom_dxf* _d, f64* _box) {
     }
 }
 
+// Appends the TABLES section: one line type (CONTINUOUS), every layer with its colour, and the STANDARD text style.
 RDE_INTERNAL void fude_zoom_dxf_tables(const fude_zoom_dxf* _d, fude_bytes* _out) {
     fude_zoom_dxf_put(_out, 0, "SECTION");
     fude_zoom_dxf_put(_out, 2, "TABLES");
@@ -430,6 +466,8 @@ RDE_INTERNAL void fude_zoom_dxf_tables(const fude_zoom_dxf* _d, fude_bytes* _out
     fude_zoom_dxf_put(_out, 0, "ENDSEC");
 }
 
+// Appends one entity to ENTITIES, on its layer's name. An arc's end angle is written as its start plus its sweep, taken
+// back into [0, 360).
 RDE_INTERNAL void fude_zoom_dxf_entity_put(const fude_zoom_dxf* _d, const fude_zoom_dxf_entity* _e, fude_bytes* _out) {
     const c8*  _layer = ((const fude_zoom_dxf_layer_def*)_d->layers.memory)[_e->layer].name;
     const f64* _p     = fude_zoom_dxf_points(_d, _e);
@@ -475,10 +513,17 @@ RDE_INTERNAL void fude_zoom_dxf_entity_put(const fude_zoom_dxf* _d, const fude_z
             fude_zoom_dxf_put_num(_out, 40, _e->r);
             fude_zoom_dxf_put(_out, 1, (const c8*)_d->strings.memory + _e->text);
             fude_zoom_dxf_put_num(_out, 50, _e->angle);
+            if(_e->align != FUDE_ZOOM_DXF_ALIGN_LEFT) {
+                // R12 places a justified text by its alignment point (11/21) and works out 10/20 itself; the same
+                // point in both keeps a reader that skips 72 near the right place.
+                fude_zoom_dxf_put_int(_out, 72, _e->align);
+                fude_zoom_dxf_put_point(_out, 11, _p[0], _p[1]);
+            }
             break;
     }
 }
 
+// See dxf.h. The sections in order: HEADER, TABLES, BLOCKS (empty), ENTITIES, then EOF.
 b8 fude_zoom_dxf_finish(const fude_zoom_dxf* _d, fude_bytes* _out) {
     if(_d == NULL || _out == NULL || !rde_arr_is_inited(_out)) {
         return false;
@@ -523,10 +568,14 @@ b8 fude_zoom_dxf_finish(const fude_zoom_dxf* _d, fude_bytes* _out) {
 
 // --- pre-flight ------------------------------------------------------------------------------------
 
+// An entity's index with the key it is sorted by to find duplicates (fude_zoom_dxf_key).
 typedef struct { f64 key; u32 index; } fude_zoom_dxf_sorted;
-typedef struct { f64 x, y; u32 piece; b8 away; } fude_zoom_dxf_end;   // away: the piece goes further than _tiny from its start
+// One end of a piece of a contour: where it is, which piece it ends, and whether that piece goes further than _tiny
+// from its start (only then can its own two ends close it).
+typedef struct { f64 x, y; u32 piece; b8 away; } fude_zoom_dxf_end;
 
-RDE_INTERNAL int fude_zoom_dxf_by_key(const void* _a, const void* _b) {
+// rde_sort's order for fude_zoom_dxf_sorted: by key, then by index, so equal keys keep the order added.
+RDE_INTERNAL int fude_zoom_dxf_by_key(const any _a, const any _b) {
     const fude_zoom_dxf_sorted* _x = (const fude_zoom_dxf_sorted*)_a;
     const fude_zoom_dxf_sorted* _y = (const fude_zoom_dxf_sorted*)_b;
     if(_x->key != _y->key) {
@@ -535,25 +584,30 @@ RDE_INTERNAL int fude_zoom_dxf_by_key(const void* _a, const void* _b) {
     return _x->index < _y->index ? -1 : (_x->index > _y->index ? 1 : 0);
 }
 
-RDE_INTERNAL int fude_zoom_dxf_by_x(const void* _a, const void* _b) {
+// rde_sort's order for fude_zoom_dxf_end: by x.
+RDE_INTERNAL int fude_zoom_dxf_by_x(const any _a, const any _b) {
     const f64 _x = ((const fude_zoom_dxf_end*)_a)->x, _y = ((const fude_zoom_dxf_end*)_b)->x;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
+// True when two points are within _tiny of each other.
 RDE_INTERNAL b8 fude_zoom_dxf_near(f64 _ax, f64 _ay, f64 _bx, f64 _by, f64 _tiny) {
     const f64 _dx = _ax - _bx, _dy = _ay - _by;
     return _dx * _dx + _dy * _dy <= _tiny * _tiny;
 }
 
+// fude_zoom_dxf_near for two fude_zoom_dxf_v2.
 RDE_INTERNAL b8 fude_zoom_dxf_near_v(fude_zoom_dxf_v2 _a, fude_zoom_dxf_v2 _b, f64 _tiny) {
     return fude_zoom_dxf_near(_a.x, _a.y, _b.x, _b.y, _tiny);
 }
 
+// True for a line or a polyline, which are compared as paths of points.
 RDE_INTERNAL b8 fude_zoom_dxf_is_path(const fude_zoom_dxf_entity* _e) {
     return _e->kind == FUDE_ZOOM_DXF_LINE || _e->kind == FUDE_ZOOM_DXF_POLYLINE;
 }
 
-// B's points against A's, B's _i-th at A's (_shift + _step * _i) mod _n.
+// True when each of B's _n points is within _tiny of A's: B's _i-th against A's (_shift + _i) mod _n, or, with a
+// negative _step, A's (_shift - _i) mod _n, so B runs the other way.
 RDE_INTERNAL b8 fude_zoom_dxf_same_run(const f64* _a, const f64* _b, u32 _n, u32 _shift, i32 _step, f64 _tiny) {
     for(u32 _i = 0; _i < _n; _i++) {
         const u32 _j = _step > 0 ? (_shift + _i) % _n : (_shift + _n - _i) % _n;
@@ -564,6 +618,9 @@ RDE_INTERNAL b8 fude_zoom_dxf_same_run(const f64* _a, const f64* _b, u32 _n, u32
     return true;
 }
 
+// True when entities _a and _b are the same, as dxf.h's duplicates says: on the same layer, paths by their points in
+// either direction (a closed one from any start), circles by centre and radius, arcs also by their ends and middle,
+// and texts also by angle (within FUDE_ZOOM_DXF_ROT), alignment and string.
 RDE_INTERNAL b8 fude_zoom_dxf_same(const fude_zoom_dxf* _d, const fude_zoom_dxf_entity* _a, const fude_zoom_dxf_entity* _b, f64 _tiny) {
     if(_a->layer != _b->layer) {
         return false;
@@ -585,7 +642,7 @@ RDE_INTERNAL b8 fude_zoom_dxf_same(const fude_zoom_dxf* _d, const fude_zoom_dxf_
         }
         return false;
     }
-    if(_a->kind != _b->kind || !fude_zoom_dxf_near(_p[0], _p[1], _q[0], _q[1], _tiny) || fabs(_a->r - _b->r) > _tiny) {
+    if(_a->kind != _b->kind || !fude_zoom_dxf_near(_p[0], _p[1], _q[0], _q[1], _tiny) || rde_math_abs_f64(_a->r - _b->r) > _tiny) {
         return false;
     }
     switch(_a->kind) {
@@ -597,8 +654,8 @@ RDE_INTERNAL b8 fude_zoom_dxf_same(const fude_zoom_dxf* _d, const fude_zoom_dxf_
                    fude_zoom_dxf_near_v(fude_zoom_dxf_on_arc(_d, _a, _a->angle + _a->sweep * 0.5), fude_zoom_dxf_on_arc(_d, _b, _b->angle + _b->sweep * 0.5), _tiny);
         default: {
             const f64 _turn = fude_zoom_dxf_degrees(_a->angle - _b->angle);
-            return fmin(_turn, 360.0 - _turn) <= FUDE_ZOOM_DXF_ROT &&
-                   strcmp((const c8*)_d->strings.memory + _a->text, (const c8*)_d->strings.memory + _b->text) == 0;
+            return rde_math_min_f64(_turn, 360.0 - _turn) <= FUDE_ZOOM_DXF_ROT && _a->align == _b->align &&
+                   rde_strcmp((const c8*)_d->strings.memory + _a->text, (const c8*)_d->strings.memory + _b->text) == 0;
         }
     }
 }
@@ -609,12 +666,13 @@ RDE_INTERNAL f64 fude_zoom_dxf_key(const fude_zoom_dxf* _d, const fude_zoom_dxf_
     const f64* _p   = fude_zoom_dxf_points(_d, _e);
     f64        _min = _p[0];
     for(u32 _k = 1; _k < _e->count; _k++) {
-        _min = fmin(_min, _p[_k * 2u]);
+        _min = rde_math_min_f64(_min, _p[_k * 2u]);
     }
     return _min;
 }
 
-// Marks _dup[i] for every entity the same as an earlier one. How many.
+// Marks _dup[i] for every entity the same as an earlier one, and returns how many. The entities are sorted by their
+// key, so each is compared only with those whose keys are within _tiny of its own.
 RDE_INTERNAL u32 fude_zoom_dxf_duplicates(const fude_zoom_dxf* _d, f64 _tiny, b8* _dup) {
     const u32 _n        = (u32)rde_arr_length(&_d->entities);
     rde_arr   _sort_arr = rde_arr_new(sizeof(fude_zoom_dxf_sorted), rde_memory_allocator_get_default_std());
@@ -624,7 +682,7 @@ RDE_INTERNAL u32 fude_zoom_dxf_duplicates(const fude_zoom_dxf* _d, f64 _tiny, b8
         _sort[_i].key   = fude_zoom_dxf_key(_d, fude_zoom_dxf_entity_at(_d, _i));
         _sort[_i].index = _i;
     }
-    qsort(_sort, _n, sizeof(fude_zoom_dxf_sorted), fude_zoom_dxf_by_key);
+    rde_sort(_sort, _n, sizeof(fude_zoom_dxf_sorted), fude_zoom_dxf_by_key);
     u32 _count = 0;
     for(u32 _i = 0; _i < _n; _i++) {
         for(u32 _j = _i + 1u; _j < _n && _sort[_j].key - _sort[_i].key <= _tiny; _j++) {
@@ -640,18 +698,12 @@ RDE_INTERNAL u32 fude_zoom_dxf_duplicates(const fude_zoom_dxf* _d, f64 _tiny, b8
     return _count;
 }
 
-RDE_INTERNAL u32 fude_zoom_dxf_root(u32* _parent, u32 _i) {
-    while(_parent[_i] != _i) {
-        _parent[_i] = _parent[_parent[_i]];
-        _i = _parent[_i];
-    }
-    return _i;
-}
-
-// Open contours among the pieces that are not duplicates (see the header),
-// with room for every entity as a piece: _piece and _parent _n each, _loose _n,
-// _met and _ends twice _n.
-RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const b8* _dup, u32* _piece, u32* _parent, b8* _loose, b8* _met,
+// Counts the open contours among the pieces that are not duplicates (see dxf.h), in the caller's room for every entity
+// as a piece: _piece and _loose _n each, _groups _n elements, _met and _ends twice _n. Lines, open polylines and arcs
+// are pieces, each with its two ends. The ends are sorted by x, so only ends within _tiny across are compared; ends
+// that meet join their pieces into one group (a contour). A group is open when any end in it met nothing. Which piece
+// names a group does not change how many groups have a loose end.
+RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const b8* _dup, u32* _piece, rde_disjoint_set* _groups, b8* _loose, b8* _met,
                                        fude_zoom_dxf_end* _ends) {
     const u32 _n      = (u32)rde_arr_length(&_d->entities);
     u32       _pieces = 0;
@@ -677,7 +729,6 @@ RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const
             continue;
         }
         _piece[_pieces]          = _i;
-        _parent[_pieces]         = _pieces;
         _ends[_pieces * 2u]      = (fude_zoom_dxf_end){ _a.x, _a.y, _pieces, _away };
         _ends[_pieces * 2u + 1u] = (fude_zoom_dxf_end){ _b.x, _b.y, _pieces, _away };
         _pieces++;
@@ -686,7 +737,7 @@ RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const
         return 0;
     }
     const u32 _count = _pieces * 2u;
-    qsort(_ends, _count, sizeof(fude_zoom_dxf_end), fude_zoom_dxf_by_x);
+    rde_sort(_ends, _count, sizeof(fude_zoom_dxf_end), fude_zoom_dxf_by_x);
     for(u32 _i = 0; _i < _count; _i++) {
         for(u32 _j = _i + 1u; _j < _count && _ends[_j].x - _ends[_i].x <= _tiny; _j++) {
             const u32                   _pa = _ends[_i].piece, _pb = _ends[_j].piece;
@@ -699,50 +750,51 @@ RDE_INTERNAL u32 fude_zoom_dxf_open_in(const fude_zoom_dxf* _d, f64 _tiny, const
             }
             if(fude_zoom_dxf_near(_ends[_i].x, _ends[_i].y, _ends[_j].x, _ends[_j].y, _tiny)) {
                 _met[_i] = _met[_j] = true;
-                _parent[fude_zoom_dxf_root(_parent, _pa)] = fude_zoom_dxf_root(_parent, _pb);
+                rde_disjoint_set_union(_groups, _pa, _pb);
             }
         }
     }
     for(u32 _i = 0; _i < _count; _i++) {
         if(!_met[_i]) {
-            _loose[fude_zoom_dxf_root(_parent, _ends[_i].piece)] = true;
+            _loose[rde_disjoint_set_find(_groups, _ends[_i].piece)] = true;
         }
     }
     u32 _open = 0;
     for(u32 _i = 0; _i < _pieces; _i++) {
-        if(fude_zoom_dxf_root(_parent, _i) == _i && _loose[_i]) {
+        if(rde_disjoint_set_find(_groups, _i) == _i && _loose[_i]) {
             _open++;
         }
     }
     return _open;
 }
 
+// Makes the room fude_zoom_dxf_open_in needs, counts the open contours, and frees it.
 RDE_INTERNAL u32 fude_zoom_dxf_open(const fude_zoom_dxf* _d, f64 _tiny, const b8* _dup) {
     const usize           _n      = rde_arr_length(&_d->entities);
     rde_memory_allocator* _heap   = rde_memory_allocator_get_default_std();
     rde_arr               _piece  = rde_arr_new(sizeof(u32), _heap);
-    rde_arr               _parent = rde_arr_new(sizeof(u32), _heap);
+    rde_disjoint_set      _groups = rde_disjoint_set_new((u32)_n, _heap);
     rde_arr               _loose  = rde_arr_new(sizeof(b8), _heap);
     rde_arr               _met    = rde_arr_new(sizeof(b8), _heap);
     rde_arr               _ends   = rde_arr_new(sizeof(fude_zoom_dxf_end), _heap);
     rde_arr_resize(&_piece, _n);
-    rde_arr_resize(&_parent, _n);
     rde_arr_resize(&_loose, _n);
     rde_arr_resize(&_met, _n * 2u);
     rde_arr_resize(&_ends, _n * 2u);
-    const u32 _open = fude_zoom_dxf_open_in(_d, _tiny, _dup, (u32*)_piece.memory, (u32*)_parent.memory, (b8*)_loose.memory, (b8*)_met.memory,
+    const u32 _open = fude_zoom_dxf_open_in(_d, _tiny, _dup, (u32*)_piece.memory, &_groups, (b8*)_loose.memory, (b8*)_met.memory,
                                             (fude_zoom_dxf_end*)_ends.memory);
     rde_arr_free(&_piece);
-    rde_arr_free(&_parent);
+    rde_disjoint_set_free(&_groups);
     rde_arr_free(&_loose);
     rde_arr_free(&_met);
     rde_arr_free(&_ends);
     return _open;
 }
 
+// See dxf.h. Short segments are counted first, then duplicates are marked, since open contours leave them out.
 fude_zoom_dxf_check fude_zoom_dxf_preflight(const fude_zoom_dxf* _d, f64 _tiny_mm) {
     fude_zoom_dxf_check _c;
-    memset(&_c, 0, sizeof _c);
+    rde_memset(&_c, 0, sizeof _c);
     if(_d == NULL) {
         return _c;
     }
@@ -761,17 +813,17 @@ fude_zoom_dxf_check fude_zoom_dxf_preflight(const fude_zoom_dxf* _d, f64 _tiny_m
                 const u32 _sides = _e->closed ? _e->count : _e->count - 1u;
                 for(u32 _k = 0; _k < _sides; _k++) {
                     const u32 _m = (_k + 1u) % _e->count;
-                    if(hypot(_p[_m * 2u] - _p[_k * 2u], _p[_m * 2u + 1u] - _p[_k * 2u + 1u]) < _tiny) {
+                    if(rde_math_hypot_f64(_p[_m * 2u] - _p[_k * 2u], _p[_m * 2u + 1u] - _p[_k * 2u + 1u]) < _tiny) {
                         _c.tiny_segments++;
                     }
                 }
                 break;
             }
             case FUDE_ZOOM_DXF_CIRCLE:
-                _c.tiny_segments += 2.0 * FUDE_ZOOM_DXF_PI * _e->r < _tiny ? 1u : 0u;
+                _c.tiny_segments += 2.0 * RDE_PI * _e->r < _tiny ? 1u : 0u;
                 break;
             case FUDE_ZOOM_DXF_ARC:
-                _c.tiny_segments += _e->r * _e->sweep * FUDE_ZOOM_DXF_PI / 180.0 < _tiny ? 1u : 0u;
+                _c.tiny_segments += _e->r * _e->sweep * RDE_PI / 180.0 < _tiny ? 1u : 0u;
                 break;
             default:
                 break;

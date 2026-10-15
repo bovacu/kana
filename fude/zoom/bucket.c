@@ -2,19 +2,22 @@
 
 #include "zoom/bucket.h"
 #include "zoom/fill.h"
-#include <math.h>
-#include <string.h>
 
-// The distance from _q to the segment _a–_b, less its half-width.
+// ===========================================================================
+// See bucket.h.
+//
+// Everything is in fude_zoom_bucket_region, its steps numbered as the header's, with two helpers: the distance to a
+// piece of ink, and a chamfer distance transform for growing the area back (step 4). The grid's cell (i, j) is the
+// point (_bounds.min_x + i × cell, _bounds.min_y + j × cell); its distances are f32.
+// ===========================================================================
+
+// Returns the distance from _q to the ink's segment a–b, less its half-width: negative on the ink itself.
 RDE_INTERNAL f64 fude_zoom_bucket_reach(fude_zoom_v2 _q, const fude_zoom_bucket_ink* _k) {
-    const f64 _dx = _k->b.x - _k->a.x, _dy = _k->b.y - _k->a.y, _l2 = _dx * _dx + _dy * _dy;
-    f64 _t = _l2 > 0.0 ? ((_q.x - _k->a.x) * _dx + (_q.y - _k->a.y) * _dy) / _l2 : 0.0;
-    _t = _t < 0.0 ? 0.0 : (_t > 1.0 ? 1.0 : _t);
-    return hypot(_k->a.x + _dx * _t - _q.x, _k->a.y + _dy * _t - _q.y) - _k->r;
+    return rde_math_point_segment_distance_2d_f64(_q, _k->a, _k->b) - _k->r;
 }
 
-// A chamfer distance transform (3-4) of _mask's cells to the nearest set one,
-// in cells (an eighth or so off Euclidean at worst).
+// Writes into _d each cell's distance to the nearest set cell of _mask, in cells: a 3-4 chamfer transform, one pass
+// forwards and one back (an eighth or so off the true distance at worst). With no cell set, every distance is 1e9.
 RDE_INTERNAL void fude_zoom_bucket_chamfer(const u8* _mask, u32 _w, u32 _h, f32* _d) {
     const f32 _far = 1e9f;
     for(u32 _i = 0; _i < _w * _h; _i++) {
@@ -23,20 +26,20 @@ RDE_INTERNAL void fude_zoom_bucket_chamfer(const u8* _mask, u32 _w, u32 _h, f32*
     for(u32 _j = 0; _j < _h; _j++) {
         for(u32 _i = 0; _i < _w; _i++) {
             f32 _v = _d[_j * _w + _i];
-            if(_i > 0)                    { _v = fminf(_v, _d[_j * _w + _i - 1u] + 3.0f); }
-            if(_j > 0)                    { _v = fminf(_v, _d[(_j - 1u) * _w + _i] + 3.0f); }
-            if(_i > 0 && _j > 0)          { _v = fminf(_v, _d[(_j - 1u) * _w + _i - 1u] + 4.0f); }
-            if(_i + 1u < _w && _j > 0)    { _v = fminf(_v, _d[(_j - 1u) * _w + _i + 1u] + 4.0f); }
+            if(_i > 0)                    { _v = rde_math_min_f32(_v, _d[_j * _w + _i - 1u] + 3.0f); }
+            if(_j > 0)                    { _v = rde_math_min_f32(_v, _d[(_j - 1u) * _w + _i] + 3.0f); }
+            if(_i > 0 && _j > 0)          { _v = rde_math_min_f32(_v, _d[(_j - 1u) * _w + _i - 1u] + 4.0f); }
+            if(_i + 1u < _w && _j > 0)    { _v = rde_math_min_f32(_v, _d[(_j - 1u) * _w + _i + 1u] + 4.0f); }
             _d[_j * _w + _i] = _v;
         }
     }
     for(u32 _j = _h; _j-- > 0;) {
         for(u32 _i = _w; _i-- > 0;) {
             f32 _v = _d[_j * _w + _i];
-            if(_i + 1u < _w)               { _v = fminf(_v, _d[_j * _w + _i + 1u] + 3.0f); }
-            if(_j + 1u < _h)               { _v = fminf(_v, _d[(_j + 1u) * _w + _i] + 3.0f); }
-            if(_i + 1u < _w && _j + 1u < _h) { _v = fminf(_v, _d[(_j + 1u) * _w + _i + 1u] + 4.0f); }
-            if(_i > 0 && _j + 1u < _h)     { _v = fminf(_v, _d[(_j + 1u) * _w + _i - 1u] + 4.0f); }
+            if(_i + 1u < _w)               { _v = rde_math_min_f32(_v, _d[_j * _w + _i + 1u] + 3.0f); }
+            if(_j + 1u < _h)               { _v = rde_math_min_f32(_v, _d[(_j + 1u) * _w + _i] + 3.0f); }
+            if(_i + 1u < _w && _j + 1u < _h) { _v = rde_math_min_f32(_v, _d[(_j + 1u) * _w + _i + 1u] + 4.0f); }
+            if(_i > 0 && _j + 1u < _h)     { _v = rde_math_min_f32(_v, _d[(_j + 1u) * _w + _i - 1u] + 4.0f); }
             _d[_j * _w + _i] = _v;
         }
     }
@@ -45,6 +48,9 @@ RDE_INTERNAL void fude_zoom_bucket_chamfer(const u8* _mask, u32 _w, u32 _h, f32*
     }
 }
 
+// See the header. The tap must fall inside the grid's border, so the flood starts inside it. Three arrays of a value
+// per cell: _d (the distance to the ink, then the field traced in step 4), _area (the cells filled) and _todo (the
+// flood's queue, each cell put in it at most once).
 FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 _n, fude_zoom_box _bounds, fude_zoom_v2 _tap,
                                           f64 _cell, f64 _gap, f64 _under, rde_arr* _out, rde_arr* _rings) {
     rde_arr_clear(_out);
@@ -58,9 +64,9 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
     while((_bw / _cell + 2.0) * (_bh / _cell + 2.0) > (f64)FUDE_ZOOM_BUCKET_CELLS) {
         _cell *= 1.25;
     }
-    const u32 _w = (u32)ceil(_bw / _cell) + 1u, _h = (u32)ceil(_bh / _cell) + 1u;
+    const u32 _w = (u32)rde_math_ceil_f64(_bw / _cell) + 1u, _h = (u32)rde_math_ceil_f64(_bh / _cell) + 1u;
     const f64 _x0 = _bounds.min_x, _y0 = _bounds.min_y;
-    const i32 _ti = (i32)llround((_tap.x - _x0) / _cell), _tj = (i32)llround((_tap.y - _y0) / _cell);
+    const i32 _ti = (i32)rde_math_round_to_i64_f64((_tap.x - _x0) / _cell), _tj = (i32)rde_math_round_to_i64_f64((_tap.y - _y0) / _cell);
     if(_ti <= 0 || _tj <= 0 || _ti >= (i32)_w - 1 || _tj >= (i32)_h - 1) {
         return FUDE_ZOOM_BUCKET_NOTHING;
     }
@@ -82,8 +88,8 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
     for(u32 _k = 0; _k < _n; _k++) {
         const fude_zoom_bucket_ink* _p = &_ink[_k];
         const f64 _reach = _p->r + _wall + _cell;
-        const i32 _i0 = (i32)floor((fmin(_p->a.x, _p->b.x) - _reach - _x0) / _cell), _i1 = (i32)ceil((fmax(_p->a.x, _p->b.x) + _reach - _x0) / _cell);
-        const i32 _j0 = (i32)floor((fmin(_p->a.y, _p->b.y) - _reach - _y0) / _cell), _j1 = (i32)ceil((fmax(_p->a.y, _p->b.y) + _reach - _y0) / _cell);
+        const i32 _i0 = (i32)rde_math_floor_f64((rde_math_min_f64(_p->a.x, _p->b.x) - _reach - _x0) / _cell), _i1 = (i32)rde_math_ceil_f64((rde_math_max_f64(_p->a.x, _p->b.x) + _reach - _x0) / _cell);
+        const i32 _j0 = (i32)rde_math_floor_f64((rde_math_min_f64(_p->a.y, _p->b.y) - _reach - _y0) / _cell), _j1 = (i32)rde_math_ceil_f64((rde_math_max_f64(_p->a.y, _p->b.y) + _reach - _y0) / _cell);
         for(i32 _j = _j0 < 0 ? 0 : _j0; _j <= _j1 && _j < (i32)_h; _j++) {
             for(i32 _i = _i0 < 0 ? 0 : _i0; _i <= _i1 && _i < (i32)_w; _i++) {
                 const f32 _v = (f32)fude_zoom_bucket_reach((fude_zoom_v2){ _x0 + _i * _cell, _y0 + _j * _cell }, _p);
@@ -143,12 +149,12 @@ FUDE_ZOOM_BUCKET_ fude_zoom_bucket_region(const fude_zoom_bucket_ink* _ink, u32 
     }
     // Its border cells kept outside, so every loop closes inside the grid.
     for(u32 _i = 0; _i < _w; _i++) {
-        _d[_i] = fmaxf(_d[_i], 1.0f);
-        _d[(usize)(_h - 1u) * _w + _i] = fmaxf(_d[(usize)(_h - 1u) * _w + _i], 1.0f);
+        _d[_i] = rde_math_max_f32(_d[_i], 1.0f);
+        _d[(usize)(_h - 1u) * _w + _i] = rde_math_max_f32(_d[(usize)(_h - 1u) * _w + _i], 1.0f);
     }
     for(u32 _j = 0; _j < _h; _j++) {
-        _d[(usize)_j * _w] = fmaxf(_d[(usize)_j * _w], 1.0f);
-        _d[(usize)_j * _w + _w - 1u] = fmaxf(_d[(usize)_j * _w + _w - 1u], 1.0f);
+        _d[(usize)_j * _w] = rde_math_max_f32(_d[(usize)_j * _w], 1.0f);
+        _d[(usize)_j * _w + _w - 1u] = rde_math_max_f32(_d[(usize)_j * _w + _w - 1u], 1.0f);
     }
     const u32 _k = fude_zoom_fill_contour(_d, _w, _h, _x0, _y0, _cell, _out, _rings);
     rde_arr_free(&_d_arr); rde_arr_free(&_area_arr); rde_arr_free(&_out_d_arr); rde_arr_free(&_not_arr);

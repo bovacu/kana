@@ -20,7 +20,6 @@ void rde_rendering_end_clipping_rect(void) {}
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return g_now; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 
 static const f32 TOP = 566.5f - 24.0f - 8.0f, BOTTOM = -566.5f + 20.0f + 76.0f + 24.0f;
 static void frame(fude_exam* e) { g_now += 0.016; fude_exam_update(e, 0.016f); fude_exam_render(e, NULL, NULL, 32.0f, TOP, BOTTOM); }
@@ -222,6 +221,59 @@ int main(int argc, char** argv) {
     fude_exam_open(&e); e.source = fude_exam_source_set(0u); e.length = 0; fude_exam_preview(&e);
     CHECK(e.count == 10);
     printf("hiragana exam: %u of 10 right\n", take(&e, &db, -1, 0));
+
+    // Done before every answer was read: the exam is kept all the same, its answers read by the matcher at once. Then a
+    // log read back from its backup (the main file gone, as a kill between a save's two renames leaves it) is added
+    // to, not started anew: the backup is put back in place (save.h).
+    { const u32 before = fude_examlog_count();
+      fude_exam_open_with(&e, keep, 3); fude_exam_start(&e); frame(&e);
+      for(u32 i = 0; i < e.asked; i++) { write_as(&e, &db, e.items[e.order[i]].record); fude_exam_next(&e); }
+      CHECK(e.stage == FUDE_EXAM_RESULTS && !e.saved && !fude_exam_graded(&e));
+      fude_exam_close(&e);
+      CHECK(e.saved && fude_exam_graded(&e) && fude_examlog_count() == before + 1u && fude_examlog_exams()[before].correct == 3);
+      remove("saves/exams.kana");
+      fude_examlog_close(); fude_examlog_open("saves/exams.kana");
+      CHECK(fude_examlog_count() == before);   // the backup: the log as it was before that exam
+      fude_exam_open_with(&e, keep, 1); take(&e, &db, -1, 0);
+      fude_examlog_close(); fude_examlog_open("saves/exams.kana");
+      CHECK(fude_examlog_count() == before + 1u); }   // the recovered exams, and the new one
+
+    // A source longer than the 16384 the preview once gathered at most is drawn from whole: 16384 of one character,
+    // then as many of another. The 100 drawn are never all the first (they were, when the second half was left out);
+    // the chance they all are now is 2^-100.
+    { static u32 big[32768];
+      for(u32 i = 0; i < 32768u; i++) big[i] = i < 16384u ? keep[0] : keep[1];
+      CHECK(keep[0] != keep[1]);
+      fude_exam_open_with(&e, big, 32768u);
+      u32 second = 0; for(u32 i = 0; i < e.count; i++) second += e.items[i].record == keep[1] ? 1u : 0u;
+      CHECK(e.stage == FUDE_EXAM_PREVIEW && e.count == FUDE_EXAM_MAX && second > 0u);
+      fude_exam_close(&e); }
+
+    // A drawing the file has damaged (its second stroke runs past its chunk's end) adds nothing: the stroke and the
+    // points read before the damage are taken back off the arrays, so none is left without its writing.
+    { fude_bytes b = fude_bytes_new(256);
+      fude_put_header(&b, 1u, FUDE_TAG('E', 'X', 'A', 'M'));
+      const u32 c = fude_chunk_begin(&b, FUDE_TAG('E', 'X', 'A', 'M'));
+      fude_put_u64(&b, 1700000000ull); fude_put_u8(&b, 0); fude_put_u8(&b, 0); fude_put_u8(&b, 0); fude_put_u8(&b, 0);
+      fude_put_u32(&b, 2); fude_put_u32(&b, 24);
+      for(u32 i = 0; i < 2u; i++) {
+          fude_put_u32(&b, 0x6728u + i); fude_put_u8(&b, 1); fude_put_u8(&b, 0); fude_put_u8(&b, 0); fude_put_u8(&b, 0);
+          fude_put_f32(&b, 90.0f); fude_put_f32(&b, 90.0f); fude_put_u32(&b, 0); fude_put_u32(&b, 0);
+      }
+      fude_put_u16(&b, 1); fude_put_u16(&b, 2); fude_put_u16(&b, 100); fude_put_u16(&b, 100); fude_put_u16(&b, 200); fude_put_u16(&b, 200);   // item 0: one whole stroke
+      fude_put_u16(&b, 2); fude_put_u16(&b, 2); fude_put_u16(&b, 300); fude_put_u16(&b, 300); fude_put_u16(&b, 400); fude_put_u16(&b, 400);   // item 1: a whole stroke,
+      fude_put_u16(&b, 50);                                                                                                                   // then one of 50 points, cut off
+      fude_chunk_end(&b, c);
+      CHECK(fude_bytes_write_and_free(&b, "saves/damaged.kana", NULL));
+      fude_examlog_close(); fude_examlog_open("saves/damaged.kana");
+      CHECK(fude_examlog_count() == 1u && fude_examlog_exams()[0].item_count == 2u);
+      rde_memory_allocator* hp = rde_memory_allocator_get_default_std();
+      rde_arr w = rde_arr_new(sizeof(fude_examlog_writing), hp), st = rde_arr_new(sizeof(fude_history_stroke), hp), pt = rde_arr_new(sizeof(fude_history_point), hp);
+      CHECK(fude_examlog_read_writing(0, 0, &w, &st, &pt) == 1u);
+      CHECK(rde_arr_length(&w) == 1u && rde_arr_length(&st) == 1u && rde_arr_length(&pt) == 2u);   // item 1's whole stroke is gone too
+      CHECK(((const fude_examlog_writing*)w.memory)[0].item == 0u && ((const fude_history_stroke*)st.memory)[0].point_count == 2u);
+      rde_arr_free(&w); rde_arr_free(&st); rde_arr_free(&pt);
+      fude_examlog_close(); fude_examlog_open("saves/exams.kana"); }
 
     fude_exam_destroy(&e); fude_catalog_destroy(&cat); fude_kanji_unload(&db);
     fude_marks_close(); fude_examlog_close();

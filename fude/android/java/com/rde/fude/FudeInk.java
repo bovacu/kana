@@ -28,7 +28,16 @@ public final class FudeInk {
     static volatile boolean                    busy;
     static volatile String                     answer;   // null: none in
     static volatile double                     took;
-    static long                                started;
+    static volatile long                       started;
+    // Each reading's number: a reading given up on (take, after GIVE_UP_NS) has its late answer dropped, so it is
+    // never taken for the next reading's. ML Kit always calls back, but should it ever not, handwriting would
+    // otherwise stay unreadable until the app restarts.
+    static volatile int                        generation;
+    static final long                          GIVE_UP_NS = 10_000_000_000L;
+    // Guards a reading's start, its answer (the generation checked and finish together) and the give-up in take: the
+    // answer comes on Android's UI thread and take runs on the app's, so without it an answer could pass the check
+    // just before take gives up and then land as the next reading's.
+    static final Object                        LOCK = new Object();
 
     public static int state() {
         return state;
@@ -106,9 +115,13 @@ public final class FudeInk {
             .setPreContext(FudeAndroid.text(preContext))
             .setWritingArea(new WritingArea(Math.max(width, 1.0f), Math.max(height, 1.0f)))
             .build();
-        busy    = true;
-        answer  = null;
-        started = System.nanoTime();
+        final int gen;
+        synchronized(LOCK) {
+            busy    = true;
+            answer  = null;
+            started = System.nanoTime();
+            gen     = ++generation;
+        }
         recognizer.recognize(ink.build(), context).addOnSuccessListener(new OnSuccessListener<RecognitionResult>() {
             @Override
             public void onSuccess(RecognitionResult result) {
@@ -116,18 +129,28 @@ public final class FudeInk {
                 for(RecognitionCandidate c : result.getCandidates()) {
                     s.append(c.getText()).append('\n');
                 }
-                finish(s.toString());
+                synchronized(LOCK) {
+                    if(gen == generation) {   // (else given up on: not the current reading's answer)
+                        finish(s.toString());
+                    }
+                }
             }
         }).addOnFailureListener(new OnFailureListener() {
             @Override
             public void onFailure(Exception e) {
-                Log.e(FudeAndroid.TAG, "recognition failed: " + e);
-                finish("");
+                synchronized(LOCK) {
+                    if(gen != generation) {
+                        return;
+                    }
+                    Log.e(FudeAndroid.TAG, "recognition failed: " + e);
+                    finish("");
+                }
             }
         });
         return true;
     }
 
+    /** The reading's answer is in (called under LOCK). */
     static void finish(String s) {
         took   = (System.nanoTime() - started) / 1.0e6;
         answer = s;
@@ -136,12 +159,17 @@ public final class FudeInk {
 
     /** The answer, once (candidates best first, one per line, UTF-8); null while none. */
     public static byte[] take() {
-        final String a = answer;
-        if(a == null) {
-            return null;
+        final String a;
+        synchronized(LOCK) {
+            if(answer == null && busy && System.nanoTime() - started > GIVE_UP_NS) {
+                Log.w(FudeAndroid.TAG, "no answer after 10 s; given up");
+                generation++;
+                finish("");   // an empty answer: the reader falls back to its own, and the next reading can start
+            }
+            a = answer;
+            answer = null;
         }
-        answer = null;
-        return FudeAndroid.bytes(a);
+        return a != null ? FudeAndroid.bytes(a) : null;
     }
 
     public static double took() {

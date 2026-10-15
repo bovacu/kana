@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
-# The deep-zoom canvas's UI strings (fude/zoom), read by the apps built on it
-# (apps/sketching/tools/strings.py) after the drawing core's. A row:
+# The deep-zoom canvas's UI strings (fude/zoom), read for the apps built on it
+# after the drawing core's (tools/strings/build.py). A row:
 # t('ID', English, Spanish, Portuguese (Brazil), Japanese, French).
 
 # The eraser's mode, said as it changes (Erase pressed again: page.h).
@@ -48,6 +48,7 @@ t('ZOOM_HANDWRITE', 'Handwriting', 'A mano', 'À mão', '手書きに', 'Manuscr
 t('ZOOM_CIRCLE', 'Circle template', 'Plantilla de círculos', 'Gabarito de círculos', '円定規', 'Gabarit de cercles')
 t('ZOOM_CIRCLE_DIAMETER', 'Circle diameter', 'Diámetro del círculo', 'Diâmetro do círculo', '円の直径', 'Diamètre du cercle')
 t('ZOOM_LICENCE_HAND', 'Handwriting', 'Escritura a mano', 'Escrita à mão', '手書き', 'Écriture manuscrite')
+t('ZOOM_LICENCE_MATHS', 'Maths font', 'Fuente matemática', 'Fonte matemática', '数式フォント', 'Police mathématique')
 t('ZOOM_ELLIPSE', 'Ellipse template', 'Plantilla de elipses', 'Gabarito de elipses', '楕円定規', 'Gabarit d’ellipses')
 t('ZOOM_ELLIPSE_WIDTH', 'Ellipse width', 'Ancho de la elipse', 'Largura da elipse', '楕円の幅', 'Largeur de l’ellipse')
 t('ZOOM_ELLIPSE_HEIGHT', 'Ellipse height', 'Alto de la elipse', 'Altura da elipse', '楕円の高さ', 'Hauteur de l’ellipse')
@@ -308,6 +309,12 @@ t('ZOOM_MATERIAL_BIRCH_PLY', 'Birch plywood', 'Contrachapado de abedul', 'Compen
 t('ZOOM_MATERIAL_MDF', 'MDF', 'MDF', 'MDF', 'MDF', 'MDF')
 t('ZOOM_MATERIAL_MELAMINE', 'Melamine', 'Melamina', 'Melamina', 'メラミン化粧板', 'Mélaminé')
 t('ZOOM_MERMAID_FAILED', 'The diagram could not be read (line {0})', 'No se pudo leer el diagrama (línea {0})', 'Não foi possível ler o diagrama (linha {0})', '図を読み取れませんでした ({0} 行目)', 'Impossible de lire le diagramme (ligne {0})')
+# The hint in Diagram from text's empty card: a small flowchart in Mermaid's own syntax, its words in the reader's
+# language (page_diagrams.c puts them in the syntax's places).
+t('ZOOM_MERMAID_SAMPLE_IDEA', 'Idea', 'Idea', 'Ideia', 'アイデア', 'Idée')
+t('ZOOM_MERMAID_SAMPLE_READY', 'Ready?', '¿Listo?', 'Pronto?', '準備できた？', 'Prêt ?')
+t('ZOOM_MERMAID_SAMPLE_YES', 'yes', 'sí', 'sim', 'はい', 'oui')
+t('ZOOM_MERMAID_SAMPLE_START', 'Start', 'Empezar', 'Começar', '始める', 'Commencer')
 t('ZOOM_PICTURE_PHOTOS', 'Photos', 'Fotos', 'Fotos', '写真', 'Photos')
 t('ZOOM_PICTURE_FILES', 'Files', 'Archivos', 'Arquivos', 'ファイル', 'Fichiers')
 t('ZOOM_INSERT_PDF', 'PDF', 'PDF', 'PDF', 'PDF', 'PDF')
@@ -322,6 +329,8 @@ t('ZOOM_JOINT_TAILS', 'Tails (how many)', 'Colas (cuántas)', 'Rabos (quantos)',
 t('ZOOM_JOINT_DEPTH', 'Depth (the other board’s thickness)', 'Profundidad (grosor de la otra tabla)', 'Profundidade (espessura da outra tábua)', '深さ（相手の板厚）', 'Profondeur (épaisseur de l’autre planche)')
 t('ZOOM_COPY_TEXT', 'Copy text', 'Copiar texto', 'Copiar texto', 'テキストをコピー', 'Copier le texte')
 t('ZOOM_PICTURE_UNREADABLE', 'That picture could not be read', 'No se pudo leer esa imagen', 'Não foi possível ler essa imagem', 'その画像を読み込めませんでした', 'Impossible de lire cette image')
+# A PDF picked with pictures or other PDFs: only it was opened (page_pictures.c).
+t('ZOOM_IMPORT_ONLY_PDF', 'Only “{0}” was opened: add the other files you picked on their own', 'Solo se abrió «{0}»: añade por separado los demás archivos que elegiste', 'Só «{0}» foi aberto: adicione separadamente os outros arquivos que você escolheu', '「{0}」だけを開きました。ほかに選んだファイルは個別に追加してください', 'Seul « {0} » a été ouvert : ajoutez séparément les autres fichiers choisis')
 
 # The Smoothing tool (page.h, smooth.h) and its levels.
 t('ZOOM_SMOOTHING', 'Smoothing', 'Suavizado', 'Suavização', '手ブレ補正', 'Lissage')
@@ -351,6 +360,8 @@ t('ZOOM_EXPORT_TILES_LETTER', 'Print 1:1 (Letter)', 'Imprimir 1:1 (Carta)', 'Imp
 t('ZOOM_EXPORT_TOO_BIG', 'At its real size this view takes too many pages: zoom in to a part of it', 'A tamaño real esta vista ocupa demasiadas páginas: acércate a una parte', 'Em tamanho real esta vista ocupa páginas demais: aproxime uma parte', '実寸ではページ数が多すぎます。一部を拡大してください', 'À taille réelle, cette vue prend trop de pages : zoomez sur une partie')
 t('ZOOM_EXPORT_SAVED', 'Saved to {0}', 'Guardado en {0}', 'Salvo em {0}', '{0} に保存しました', 'Enregistré dans {0}')
 t('ZOOM_EXPORT_FAILED', 'The view could not be exported', 'No se pudo exportar la vista', 'Não foi possível exportar a vista', '表示を書き出せませんでした', 'Impossible d’exporter la vue')
+# A canvas the app makes for itself (an example's, a template's) that could not be made (page_custom.c).
+t('ZOOM_CANVAS_NOT_MADE', 'A new canvas could not be made', 'No se pudo crear un lienzo nuevo', 'Não foi possível criar uma tela nova', '新しいキャンバスを作成できませんでした', 'Impossible de créer une nouvelle toile')
 
 # Places (page.h): the bookmarks.
 t('ZOOM_PLACES', 'Places', 'Lugares', 'Lugares', '場所', 'Lieux')
@@ -394,6 +405,11 @@ t('ZOOM_PRINTER_ASK_X', 'Line X measured (150 mm)', 'Línea X medida (150 mm)', 
 t('ZOOM_PRINTER_ASK_Y', 'Line Y measured (200 mm)', 'Línea Y medida (200 mm)', 'Linha Y medida (200 mm)', 'Yの線の実測 (200 mm)', 'Ligne Y mesurée (200 mm)')
 t('ZOOM_PRINTER_DONE', 'Printer checked: templates will print true', 'Impresora comprobada: las plantillas saldrán a tamaño real', 'Impressora verificada: os modelos sairão em tamanho real', 'プリンターを確認しました。テンプレートは実寸で印刷されます', 'Imprimante vérifiée : les gabarits sortiront à taille réelle')
 t('ZOOM_PRINTER_FAR', 'That is far off: was it printed at 100%?', 'Eso está muy lejos: ¿se imprimió al 100 %?', 'Isso está muito longe: foi impresso a 100%?', '大きくずれています。100%で印刷しましたか?', 'C’est très loin : était-ce imprimé à 100 % ?')
+# Printed in the PDFs themselves (export.h): by a template's test square, and the printer's check page's title and
+# how to print it. (The PDF's Helvetica has no Japanese: words it cannot write are left out of it, page_export.c.)
+t('ZOOM_PRINT_SQUARE', 'Scale 1:1. Check the square: 100 mm a side', 'Escala 1:1. Comprueba el cuadrado: 100 mm de lado', 'Escala 1:1. Confira o quadrado: 100 mm de lado', '縮尺 1:1。正方形の一辺が100 mmか確認してください', 'Échelle 1:1. Vérifiez le carré : 100 mm de côté')
+t('ZOOM_PRINT_CHECK_TITLE', 'Printer check', 'Prueba de la impresora', 'Teste da impressora', 'プリンターの確認', 'Vérification de l’imprimante')
+t('ZOOM_PRINT_CHECK_HOW', 'Print at 100% (actual size, not fit to page), then measure both lines.', 'Imprime al 100 % (tamaño real, sin ajustar a la página) y mide las dos líneas.', 'Imprima em 100% (tamanho real, sem ajustar à página) e meça as duas linhas.', '100%（実際のサイズ、ページに合わせない）で印刷し、2本の線を測ってください。', 'Imprimez à 100 % (taille réelle, sans ajuster à la page), puis mesurez les deux lignes.')
 t('ZOOM_CALIBRATE_HOW', 'Hold a bank card to the screen and make the outline exactly its size, then Save.', 'Apoya una tarjeta bancaria en la pantalla y ajusta el contorno a su tamaño exacto; después, Guardar.', 'Encoste um cartão bancário na tela e ajuste o contorno ao tamanho exato dele; depois, Salvar.', '銀行カードを画面に当て、枠がちょうど同じ大きさになるよう調整して「保存」を押してください。', 'Posez une carte bancaire sur l’écran, ajustez le contour à sa taille exacte, puis Enregistrer.')
 t('ZOOM_TRUE_SIZE_VIEW', 'True size 1:1', 'Tamaño real 1:1', 'Tamanho real 1:1', '実寸 1:1', 'Taille réelle 1:1')
 
@@ -525,6 +541,7 @@ t('ZOOM_PAGES_LETTER', 'Letter', 'Carta', 'Carta', 'レター', 'Lettre US')
 t('ZOOM_PAGES_SQUARE', 'Square', 'Cuadradas', 'Quadradas', '正方形', 'Carrées')
 t('ZOOM_PAGES_ADD', 'Add a page', 'Añadir página', 'Adicionar página', 'ページを追加', 'Ajouter une page')
 t('ZOOM_PAGES_ADDED', 'Page {0} added', 'Página {0} añadida', 'Página {0} adicionada', '{0} ページ目を追加しました', 'Page {0} ajoutée')
+t('ZOOM_PAGES_FULL', 'This notebook is full: it has the most pages a notebook can have ({0})', 'Este cuaderno está lleno: tiene el máximo de páginas que puede tener un cuaderno ({0})', 'Este caderno está cheio: já tem o máximo de páginas que um caderno pode ter ({0})', 'このノートはいっぱいです。ノートに入れられる最大のページ数（{0}）に達しています', 'Ce cahier est plein : il a le nombre maximal de pages qu’un cahier peut avoir ({0})')
 t('ZOOM_PAGES_SIZE_FIRST', 'Choose a page size first: this canvas has no pages yet', 'Elige antes un tamaño de página: este lienzo aún no tiene páginas', 'Escolha antes um tamanho de página: esta tela ainda não tem páginas', '先にページサイズを選んでください（このキャンバスにはまだページがありません）', 'Choisissez d’abord une taille de page : cette toile n’a pas encore de pages')
 t('ZOOM_PAGES_ENDLESS', 'Endless', 'Sin fin', 'Sem fim', '無限', 'Sans fin')
 # A notebook's pages strip (0.1.92): a page held, then let go — its buttons.
@@ -538,6 +555,7 @@ t('ZOOM_AUDIO_STARTED', 'Recording: what you write now is linked to what is said
 t('ZOOM_AUDIO_SAVED', 'Recording saved ({0})', 'Grabación guardada ({0})', 'Gravação salva ({0})', '録音を保存しました ({0})', 'Enregistrement sauvegardé ({0})')
 t('ZOOM_AUDIO_NO_MIC', 'The microphone could not be opened', 'No se pudo abrir el micrófono', 'Não foi possível abrir o microfone', 'マイクを開けませんでした', 'Impossible d’ouvrir le micro')
 t('ZOOM_AUDIO_DENIED', 'To record, allow {APP} to use the microphone in your device’s Settings', 'Para grabar, permite que {APP} use el micrófono en los Ajustes del dispositivo', 'Para gravar, permita que {APP} use o microfone nas Configurações do dispositivo', '録音するには、端末の設定で {APP} にマイクの使用を許可してください', 'Pour enregistrer, autorisez {APP} à utiliser le micro dans les Réglages de l’appareil')
+t('ZOOM_AUDIO_LOST', 'Part of the recording was lost while {APP} was busy: there is silence in its place', 'Se perdió parte de la grabación mientras {APP} no podía atenderla: en su lugar hay silencio', 'Parte da gravação se perdeu enquanto {APP} não podia atendê-la: no lugar dela há silêncio', '{APP} が処理中だったため、録音の一部が失われました。その部分は無音になっています', 'Une partie de l’enregistrement a été perdue pendant que {APP} ne pouvait pas l’écouter : un silence la remplace')
 t('ZOOM_AUDIO_REPLAY', 'Replay ink', 'Repetir la tinta', 'Reproduzir a tinta', 'インクを再現', 'Rejouer l’encre')
 t('ZOOM_AUDIO_DELETE_ASK', 'Delete?', '¿Borrar?', 'Excluir?', '削除しますか?', 'Supprimer ?')
 t('ZOOM_AUDIO_DELETED', 'Recording deleted', 'Grabación borrada', 'Gravação excluída', '録音を削除しました', 'Enregistrement supprimé')
@@ -738,6 +756,15 @@ t('ZOOM_INSERT_PARTS', 'Circuit parts', 'Componentes', 'Componentes', '電子部
 t('ZOOM_CIRCUIT_WIRE_HOW', 'Drag from a pin to a pin; end on a wire to join it there', 'Arrastra de un pin a otro; termina sobre un cable para unirlo ahí', 'Arraste de um pino a outro; termine sobre um fio para ligá-lo ali', 'ピンからピンへドラッグ。配線の上で離すとそこで接続します', 'Glissez d’une broche à une autre ; finissez sur un fil pour le relier là')
 t('ZOOM_CIRCUIT_RUNNING', 'Simulating: tap switches, buttons and inputs; a board’s pin goes input, high, low, blinking', 'Simulando: toca interruptores, pulsadores y entradas; el pin de una placa pasa por entrada, alto, bajo, parpadeo', 'Simulando: toque interruptores, botões e entradas; o pino de uma placa passa por entrada, alto, baixo, piscando', 'シミュレーション中: スイッチ・ボタン・入力をタップ。ボードのピンは 入力→HIGH→LOW→点滅', 'Simulation : touchez interrupteurs, boutons et entrées ; la broche d’une carte passe par entrée, haut, bas, clignotant')
 t('ZOOM_CIRCUIT_FAILED', 'The circuit can’t be solved: look for sources joined straight to each other, or a short', 'No se puede resolver el circuito: busca fuentes unidas directamente entre sí, o un cortocircuito', 'Não é possível resolver o circuito: procure fontes ligadas direto entre si, ou um curto', '回路を解けません: 電源どうしの直結やショートがないか確認してください', 'Le circuit ne peut pas être résolu : cherchez des sources reliées directement, ou un court-circuit')
+# What a part tapped as the circuit plays now does (circuit.h's fude_zoom_circuit_tap_word): a switch; a board's pin
+# ({0}: its name, as "D13"); a light sensor's light ({0}: a number of lux), also its tag and its slider in Play.
+t('ZOOM_SWITCH_ON', 'Switch on', 'Interruptor encendido', 'Interruptor ligado', 'スイッチ：オン', 'Interrupteur en marche')
+t('ZOOM_SWITCH_OFF', 'Switch off', 'Interruptor apagado', 'Interruptor desligado', 'スイッチ：オフ', 'Interrupteur à l’arrêt')
+t('ZOOM_PIN_HIGH', '{0}: high', '{0}: alto', '{0}: alto', '{0}: HIGH', '{0} : haut')
+t('ZOOM_PIN_LOW', '{0}: low', '{0}: bajo', '{0}: baixo', '{0}: LOW', '{0} : bas')
+t('ZOOM_PIN_BLINK', '{0}: blinking', '{0}: parpadeo', '{0}: piscando', '{0}: 点滅', '{0} : clignotant')
+t('ZOOM_PIN_INPUT', '{0}: input', '{0}: entrada', '{0}: entrada', '{0}: 入力', '{0} : entrée')
+t('ZOOM_LUX', '{0} lux', '{0} lux', '{0} lux', '{0} ルクス', '{0} lux')
 # A part's limits (limits.h, limitsform.h): its card, and what Play says when a part goes past them.
 t('ZOOM_LIMITS', 'Limits', 'Límites', 'Limites', '定格', 'Limites')
 t('ZOOM_LIMITS_TITLE', 'Limits: {0}', 'Límites: {0}', 'Limites: {0}', '{0}の定格', 'Limites : {0}')
@@ -844,6 +871,7 @@ t('ZOOM_MAKE_PART', 'Make part', 'Crear pieza', 'Criar peça', 'パーツにす�
 t('ZOOM_PLAY_LOCKED', 'Stop the simulation to edit', 'Para la simulación para editar', 'Pare a simulação para editar', '編集するにはシミュレーションを止めてください', 'Arrêtez la simulation pour modifier')
 t('ZOOM_PART_DEFAULT', 'Part {0}', 'Pieza {0}', 'Peça {0}', 'パーツ {0}', 'Pièce {0}')
 t('ZOOM_PART_MADE', 'Made “{0}”: {1} inputs, {2} outputs', 'Creada «{0}»: {1} entradas, {2} salidas', 'Criada «{0}»: {1} entradas, {2} saídas', '「{0}」を作りました：入力 {1}、出力 {2}', '« {0} » créée : {1} entrées, {2} sorties')
+t('ZOOM_PART_NOT_SAVED', '“{0}” could not be saved: it will be missing next time', 'No se pudo guardar «{0}»: faltará la próxima vez', 'Não foi possível salvar «{0}»: vai faltar da próxima vez', '「{0}」を保存できませんでした。次に開いたときには残っていません', 'Impossible d’enregistrer « {0} » : elle manquera la prochaine fois')
 t('ZOOM_PART_NOTHING', 'No logic in the lasso to make a part of', 'No hay lógica en el lazo para crear una pieza', 'Não há lógica no laço para criar uma peça', '投げ縄の中にパーツにするロジックがありません', 'Aucune logique dans le lasso pour créer une pièce')
 t('ZOOM_PART_NO_PORTS', 'Mark its inputs with logic inputs and its outputs with logic probes', 'Marca sus entradas con entradas lógicas y sus salidas con sondas', 'Marque as entradas com entradas lógicas e as saídas com sondas', '入力をロジック入力で、出力をロジックプローブで示してください', 'Marquez ses entrées avec des entrées logiques et ses sorties avec des sondes')
 
@@ -1102,18 +1130,18 @@ t('ZOOM_CUSTOM_RENAME', 'Rename', 'Renombrar', 'Renomear', '名前を変更', 'R
 t('ZOOM_CUSTOM_DELETE_SURE', 'Delete “{0}”?', '¿Borrar «{0}»?', 'Apagar «{0}»?', '「{0}」を削除しますか？', 'Supprimer « {0} » ?')
 t('ZOOM_CUSTOM_DELETED', '“{0}” deleted', '«{0}» borrado', '«{0}» apagado', '「{0}」を削除しました', '« {0} » supprimé')
 t('ZOOM_CUSTOM_RENAMED', 'Renamed “{0}”', 'Renombrado a «{0}»', 'Renomeado para «{0}»', '「{0}」に名前を変更しました', 'Renommé « {0} »')
+t('ZOOM_CUSTOM_NOT_RENAMED', '“{0}” could not be renamed: its file could not be saved', 'No se pudo renombrar «{0}»: no se pudo guardar su archivo', 'Não foi possível renomear «{0}»: não foi possível salvar o arquivo', '「{0}」の名前を変更できませんでした。ファイルを保存できませんでした', 'Impossible de renommer « {0} » : son fichier n’a pas pu être enregistré')
 t('ZOOM_CUSTOM_NAME', 'Its name', 'Su nombre', 'Seu nome', '名前', 'Son nom')
 t('ZOOM_TEMPLATE_EDITING_PART', 'Inside “{0}”: what you change here, every one of it on every canvas does; Back returns', 'Dentro de «{0}»: lo que cambies aquí lo hará cada una de ellas en cada lienzo; Atrás vuelve', 'Dentro de «{0}»: o que mudar aqui, cada uma delas em cada tela fará; Voltar retorna', '「{0}」の中身：ここでの変更は、すべてのキャンバスのすべての「{0}」に反映されます。戻るで戻ります', 'Dans « {0} » : ce que vous changez ici, chacune d’elles le fera sur chaque toile ; Retour revient')
 t('ZOOM_TEMPLATE_EDITING_PIECE', 'Editing “{0}”: what is here is kept as it, from now on; Back returns', 'Editando «{0}»: lo que haya aquí se guarda como tal a partir de ahora; Atrás vuelve', 'Editando «{0}»: o que estiver aqui fica guardado como ele a partir de agora; Voltar retorna', '「{0}」を編集中：ここにあるものがこれから「{0}」として保存されます。戻るで戻ります', 'Modification de « {0} » : ce qui est ici est gardé comme elle désormais ; Retour revient')
 t('ZOOM_TEMPLATE_PART_UPDATED', '“{0}” updated everywhere: {1} inputs, {2} outputs', '«{0}» actualizada en todas partes: {1} entradas, {2} salidas', '«{0}» atualizada em todo lugar: {1} entradas, {2} saídas', '「{0}」をすべての場所で更新しました：入力 {1}、出力 {2}', '« {0} » mise à jour partout : {1} entrées, {2} sorties')
 t('ZOOM_TEMPLATE_PIECE_UPDATED', '“{0}” kept as it is now', '«{0}» guardada tal como está ahora', '«{0}» guardada como está agora', '「{0}」を今の状態で保存しました', '« {0} » gardée telle qu’elle est maintenant')
+t('ZOOM_TEMPLATE_PIECE_NOT_SAVED', '“{0}” could not be saved as it is now: next time it will be as it was before', 'No se pudo guardar «{0}» tal como está ahora: la próxima vez estará como antes', 'Não foi possível salvar «{0}» como está agora: da próxima vez estará como antes', '「{0}」を今の状態で保存できませんでした。次に開いたときは前の状態に戻ります', 'Impossible d’enregistrer « {0} » telle qu’elle est maintenant : la prochaine fois, elle sera comme avant')
 t('ZOOM_TEMPLATE_NOT_UPDATED', '“{0}” not updated: it needs logic inputs and probes, and parts between them', '«{0}» no actualizada: necesita entradas y sondas lógicas, y piezas entre ellas', '«{0}» não atualizada: precisa de entradas e sondas lógicas, e peças entre elas', '「{0}」は更新されませんでした：論理入力とプローブ、その間の部品が必要です', '« {0} » non mise à jour : il faut des entrées et des sondes logiques, et des pièces entre elles')
 
 # Settings' Display (0.1.58): the frame rate on the screen.
 t('ZOOM_DISPLAY', 'DISPLAY', 'PANTALLA', 'TELA', '表示', 'AFFICHAGE')
 t('ZOOM_SHOW_FPS', 'Frames per second, top right', 'Fotogramas por segundo, arriba a la derecha', 'Quadros por segundo, no canto superior direito', 'フレームレート（右上）', 'Images par seconde, en haut à droite')
-t('ZOOM_OFF', 'Off', 'No', 'Não', 'オフ', 'Non')
-t('ZOOM_ON', 'On', 'Sí', 'Sim', 'オン', 'Oui')
 
 # The library's Shapes and Brackets (0.1.85).
 t('ZOOM_LIB_SHAPES', 'Shapes', 'Formas', 'Formas', '図形', 'Formes')

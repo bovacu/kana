@@ -55,9 +55,9 @@ int main(int argc, char** argv) {
     for(int k = 0; k < 30; k++) {
         c8 note[32];
         snprintf(note, sizeof(note), "step %d", k);
-        fude_crash_note(note);
+        rde_crash_note(note);
     }
-    fude_crash_note("drawing a stroke");
+    rde_crash_note("drawing a stroke");
     const pid_t child = fork();
     if(child == 0) {
         raise(SIGABRT);
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
     CHECK(strstr(report, "App: Test 1.0") != NULL && strstr(report, "Device: Test Tablet, TestOS 14") != NULL);
     CHECK(strstr(report, "What: SIGABRT") != NULL && strstr(report, "Where:\n  #0 ") != NULL);
     CHECK(strstr(report, "Notes:\n") != NULL && strstr(report, "drawing a stroke\n") != NULL && strstr(report, "step 29\n") != NULL);
-    CHECK(strstr(report, "step 6\n") == NULL && strstr(report, "started\n") == NULL);   // (the last FUDE_CRASH_NOTES only)
+    CHECK(strstr(report, "step 6\n") == NULL && strstr(report, "started\n") == NULL);   // (the last RDE_CRASH_NOTES only)
     remove("./saves/crash_report.txt");
     // A death on screen with no report: the next start says so (a second run of this program).
     fude_crash_session(true);

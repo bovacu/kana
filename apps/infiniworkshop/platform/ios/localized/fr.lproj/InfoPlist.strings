@@ -1,3 +1,4 @@
 /* The camera prompt (scanning pages to draw on), in fr. UTF-8. */
 "NSCameraUsageDescription" = "InfiniWorkshop numérise des pages avec l’appareil photo pour que vous puissiez dessiner dessus.";
 "CFBundleDisplayName" = "InfiniWorkshop";
+"NSPhotoLibraryAddUsageDescription" = "InfiniWorkshop enregistre dans votre photothèque les images et les vidéos que vous exportez.";

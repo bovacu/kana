@@ -1,0 +1,116 @@
+# Hanzi (Hanzi Learn!): Chinese characters, written by hand.
+# Everything RDE's builder needs to make it, on every platform. The ten apps' files are alike line for line;
+# docs/architecture.md, "The builds", says why each line is there. Build through tools/build/app.sh, which gives the
+# builder the version from src/version.h (its one place):
+#   zsh tools/build/app.sh hanzi [command] [profile]  e.g. hanzi, hanzi install android, hanzi run sim
+# Paths are from this file's folder.
+
+[project]
+# Its description, and every file of its layers: the drawing core, the study layer, its language.
+sources = hanzi.c
+          ../../fude/drawing/*/*.c ../../fude/drawing/*/*.m
+          ../../fude/study/*/*.c   ../../fude/study/*/*.m
+          ../../fude/lang/zh/*.c   ../../fude/lang/zh/*.m
+# A platform's own files are named after it. Android's (JNI) are out everywhere else; [macos] and [android] say theirs.
+exclude = ../../fude/**/*_android.c ../../fude/drawing/base/android.c
+include = ../../fude src
+# A call to a function nothing declares is an error: C would guess its type.
+flags   = -Wall -Wextra -Werror=implicit-function-declaration
+assets  = assets/
+output  = ../../build/hanzi/
+default_profile = debug
+
+[macos]
+exclude   += ../../fude/**/*_ios.m
+frameworks = CoreFoundation CoreGraphics ImageIO Foundation PDFKit CoreText
+# A Mac package (`builder package`): not released, but RDE's test plan packages one (its part C).
+bundle_id  = com.rde.hanzi
+app_name   = Hanzi
+icon       = platform/ios/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+
+[windows]
+exclude += ../../fude/**/*.m
+
+[android]
+exclude      = ../../fude/**/*.m        # (=: Android's own files are back in)
+output       = ../../build/hanzi-android/
+package_name = com.rde.hanzi
+app_name     = "Hanzi Learn!"
+icon         = platform/ios/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+api_level    = 37
+abis         = armv8a
+java         = ../../fude/android/java ../../fude/android/java_study
+# ML Kit, pinned. No `dependencies`: the lock has lines added by hand, which the builder's resolver would drop.
+dependencies_lock = platform/android/deps.lock
+dependency_cache  = ../../build/android_deps
+# The network: ML Kit's models (WAKE_LOCK: its downloads). The camera: Text from a photo.
+permissions   = internet network_state wake_lock camera
+file_provider = true
+# Without it, Android 11 and later show the app no text-to-speech engine.
+query_intents = android.intent.action.TTS_SERVICE
+
+[ios]
+package_name      = com.rde.hanzi
+app_name          = Hanzi
+plist             = platform/ios/Info.plist
+asset_catalog     = platform/ios/Assets.xcassets
+launch_storyboard = platform/ios/LaunchScreen.storyboard
+bundles           = platform/ios/localized
+# The system's frameworks the .m files use, besides those RDE links itself.
+link_flags = -framework PhotosUI -framework ImageIO -framework VisionKit -framework PDFKit -framework CoreText
+             -framework CoreImage -framework Accelerate -framework Network
+
+# The Mac's: the developer's build, which reads the look flags (COMMANDS.txt).
+[profile debug]
+config = debug
+
+# A release takes no launch arguments.
+[profile release]
+config = release
+
+# A release that does, to measure it (--perf, --gate). Never shipped: it has a folder of its own.
+[profile measure : release]
+define.FUDE_ALLOW_ARGS =
+output = ../../build/hanzi-measure/
+
+[profile android]
+platform = android
+config   = release
+
+# Google Play's App Bundle.
+[profile bundle : android]
+aab = true
+
+# A release APK that takes launch arguments, to measure it on a tablet (--perf, --gate: RDE's activity reads them
+# from `adb shell am start ... --esa args`). Never shipped. An app of its own, beside the real one: its own id, so
+# its own empty saves (a measuring run draws into the canvas that is open), and its own key, made by the builder.
+[profile android-measure : android]
+define.FUDE_ALLOW_ARGS =
+output       = ../../build/hanzi-android-measure/
+package_name = com.rde.hanzi_measure
+app_name     = "Hanzi Learn! (measure)"
+
+# The iPad's, signed (FUDE_IOS_PROFILE: tools/build/app.sh). ML Kit (tools/mlkit/setup.py makes third_party/mlkit):
+# handwriting, translation, Chinese text in photos. A device's only: the Simulator has no ML Kit.
+[profile ios]
+platform    = ios
+config      = release
+output      = ../../build/hanzi-ios/
+frameworks  = ../../third_party/mlkit/frameworks/MLKitDigitalInkRecognition.framework
+              ../../third_party/mlkit/frameworks/MLKitCommon.framework
+              ../../third_party/mlkit/frameworks/MLKitMDD.framework
+              ../../third_party/mlkit/frameworks/MLKitTextRecognitionCommon.framework
+              ../../third_party/mlkit/frameworks/MLKitVision.framework
+              ../../third_party/mlkit/frameworks/MLImage.framework
+              ../../third_party/mlkit/frameworks/MLKitTranslate.framework
+              ../../third_party/mlkit/frameworks/MLKitNaturalLanguage.framework
+              ../../third_party/mlkit/frameworks/MLKitTextRecognitionChinese.framework
+bundles    += ../../third_party/mlkit/bundles ../../third_party/mlkit/ocr/zh
+include    += ../../third_party/mlkit/include
+link_flags += -L../../third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv
+
+# The Simulator's: debug, for the look flags (the store's screenshots).
+[profile sim]
+platform = ios_simulator
+config   = debug
+output   = ../../build/hanzi-simulator/

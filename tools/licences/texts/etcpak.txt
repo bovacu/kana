@@ -1,0 +1,6 @@
+TODO (owner): RDE's copy of etcpak (~/RDE/external/include/etcpak/: Dither.cpp,
+ProcessRGB.cpp, Tables.cpp and their headers) has no licence file and no
+copyright line, so neither is given here. Copy etcpak's own LICENSE file,
+verbatim, from the etcpak release RDE took these files from
+(https://github.com/wolfpld/etcpak) into tools/licences/texts/etcpak.txt, in
+place of this paragraph, and run python3 tools/licences/build.py again.

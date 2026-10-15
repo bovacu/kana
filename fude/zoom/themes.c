@@ -4,9 +4,18 @@
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
 
+// ===========================================================================
+// See themes.h.
+//
+// The three themes are fude_theme tables in full, each colour named by its field (theme.h says what each is for);
+// fude_zoom_themes_use copies them, with the core's Paper and Night, into the set the core is handed.
+// ===========================================================================
+
+// An opaque colour, and one with its alpha, for the tables below (undefined after them).
 #define C(_r, _g, _b)       (rde_color){ _r, _g, _b, 255 }
 #define CA(_r, _g, _b, _a)  (rde_color){ _r, _g, _b, _a }
 
+// Kraft: brown wrapping paper, dark ink, a burnt orange accent. In Washi's place.
 static const fude_theme FUDE_ZOOM_THEME_KRAFT = {
     .name = "Kraft",
     .page = C(226, 207, 172), .page_dots = C(190, 166, 126), .text = C(58, 42, 28), .text_soft = C(112, 90, 66),
@@ -15,7 +24,7 @@ static const fude_theme FUDE_ZOOM_THEME_KRAFT = {
     .sheet = C(240, 226, 198), .sheet_outline = C(170, 146, 108), .sheet_guide = C(204, 182, 146), .reference = CA(190, 90, 60, 70),
     .score_good = C(70, 128, 52), .score_fair = C(168, 110, 30), .score_poor = C(176, 58, 44),
     .select = C(168, 76, 26), .select_glow = CA(206, 120, 60, 80), .select_fill = CA(206, 120, 60, 22),
-    .eraser = C(176, 70, 50), .samples = C(60, 120, 160),
+    .samples = C(60, 120, 160),
     .surface = C(243, 232, 210), .surface_2 = C(230, 214, 184), .outline = C(206, 186, 150),
     .accent = C(176, 86, 30), .on_accent = C(255, 255, 255), .tint = CA(176, 86, 30, 36),
     .panel = C(243, 232, 210), .panel_border = C(206, 186, 150), .grip = C(160, 136, 100),
@@ -24,6 +33,7 @@ static const fude_theme FUDE_ZOOM_THEME_KRAFT = {
     .slider_track = C(206, 186, 150), .slider_fill = C(176, 86, 30), .slider_thumb = C(176, 86, 30), .swatch_border = C(206, 186, 150),
 };
 
+// Blueprint: a cyanotype's deep blue, white lines, a yellow accent. In Matcha's place.
 static const fude_theme FUDE_ZOOM_THEME_BLUEPRINT = {
     .name = "Blueprint",
     .page = C(20, 62, 120), .page_dots = C(64, 108, 170), .text = C(232, 240, 252), .text_soft = C(168, 192, 226),
@@ -32,7 +42,7 @@ static const fude_theme FUDE_ZOOM_THEME_BLUEPRINT = {
     .sheet = C(28, 74, 138), .sheet_outline = C(110, 150, 206), .sheet_guide = C(56, 102, 164), .reference = CA(255, 214, 90, 70),
     .score_good = C(120, 220, 150), .score_fair = C(255, 210, 90), .score_poor = C(255, 120, 110),
     .select = C(255, 214, 90), .select_glow = CA(255, 214, 90, 80), .select_fill = CA(255, 214, 90, 22),
-    .eraser = C(255, 130, 120), .samples = C(130, 210, 255),
+    .samples = C(130, 210, 255),
     .surface = C(24, 56, 104), .surface_2 = C(34, 72, 128), .outline = C(58, 98, 156),
     .accent = C(255, 204, 72), .on_accent = C(26, 40, 66), .tint = CA(255, 204, 72, 44),
     .panel = C(24, 56, 104), .panel_border = C(58, 98, 156), .grip = C(120, 150, 196),
@@ -41,6 +51,7 @@ static const fude_theme FUDE_ZOOM_THEME_BLUEPRINT = {
     .slider_track = C(58, 98, 156), .slider_fill = C(255, 204, 72), .slider_thumb = C(255, 204, 72), .swatch_border = C(58, 98, 156),
 };
 
+// Cutting mat: a self-healing mat's green, white lines, an amber accent. In Sakura's place.
 static const fude_theme FUDE_ZOOM_THEME_MAT = {
     .name = "Cutting mat",
     .page = C(30, 84, 66), .page_dots = C(88, 146, 120), .text = C(236, 244, 238), .text_soft = C(176, 204, 188),
@@ -49,7 +60,7 @@ static const fude_theme FUDE_ZOOM_THEME_MAT = {
     .sheet = C(38, 96, 76), .sheet_outline = C(120, 176, 150), .sheet_guide = C(66, 124, 102), .reference = CA(255, 196, 80, 70),
     .score_good = C(140, 230, 160), .score_fair = C(255, 206, 90), .score_poor = C(255, 126, 110),
     .select = C(255, 196, 80), .select_glow = CA(255, 196, 80, 80), .select_fill = CA(255, 196, 80, 22),
-    .eraser = C(255, 130, 110), .samples = C(140, 220, 255),
+    .samples = C(140, 220, 255),
     .surface = C(26, 70, 56), .surface_2 = C(36, 88, 70), .outline = C(64, 116, 96),
     .accent = C(244, 186, 64), .on_accent = C(28, 48, 38), .tint = CA(244, 186, 64, 44),
     .panel = C(26, 70, 56), .panel_border = C(64, 116, 96), .grip = C(120, 160, 140),
@@ -61,9 +72,12 @@ static const fude_theme FUDE_ZOOM_THEME_MAT = {
 #undef C
 #undef CA
 
+// The set handed to the core, and each one's name (a FUDE_TEXT_), in the core's places: fude_theme_use keeps
+// pointing at them, so they live for the whole run.
 RDE_INTERNAL fude_theme fude_zoom_themes[FUDE_THEME_COUNT];
 RDE_INTERNAL u32        fude_zoom_theme_texts[FUDE_THEME_COUNT];
 
+// See the header.
 void fude_zoom_themes_use(void) {
     fude_zoom_themes[FUDE_THEME_PAPER]  = *fude_theme_core(FUDE_THEME_PAPER);
     fude_zoom_themes[FUDE_THEME_WASHI]  = FUDE_ZOOM_THEME_KRAFT;

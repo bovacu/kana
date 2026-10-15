@@ -290,8 +290,8 @@ static void case_opamp(void) {
 }
 
 // A 555 astable (R1 1 kΩ, R2 10 kΩ, C 1 µF, 9 V) against its datasheet: high for 0.693 (R1 + R2) C, low for 0.693 R2 C.
-// And at a servo's 50 Hz with a 1.5 ms pulse? (Not a 555's: its high is always the longer.) Its edges measured where the
-// output crosses half the supply, over several periods.
+// And at a servo's 50 Hz with a 1.5 ms pulse? (Not a 555's: its high is always the longer.) Its edges measured where
+// the output crosses half the supply, over several periods.
 static void case_555(void) {
     printf("555 astable\n");
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
@@ -336,8 +336,8 @@ static void case_555(void) {
     }
     high /= (f64)(nh > 0u ? nh : 1u);
     low  /= (f64)(nl > 0u ? nl : 1u);
-    // (its discharge transistor's 10 Ω on, as a real one's saturates: R1 holds DISCH 89 mV up, the low that much longer than
-    // the datasheet's ideal 0.693 R2 C)
+    // (its discharge transistor's 10 Ω on, as a real one's saturates: R1 holds DISCH 89 mV up, the low that much longer
+    // than the datasheet's ideal 0.693 R2 C)
     const f64 vsat = 9.0 * 10.0 / (1e3 + 10.0);
     const f64 want_high = 0.693 * 11e3 * 1e-6, want_low = log((6.0 - vsat) / (3.0 - vsat)) * 10e3 * 1e-6;
     printf("  %-34s ours %12.6g  paper    %12.6g\n", "high (ms)", high * 1e3, want_high * 1e3);

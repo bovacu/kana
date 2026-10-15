@@ -2,33 +2,45 @@
 
 #include "zoom/units.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
+// ===========================================================================
+// See units.h, which has the grammar.
+//
+// Laid out as: the units, the variables' table, the reader, and the writer. The reader is a recursive descent parser,
+// one function a level of the grammar, from the bottom up: fude_zoom_units_number_token (a number, mixed number or
+// quotient), fude_zoom_units_primary (a number, a variable or a bracketed sum), fude_zoom_units_postfix (its unit,
+// and a number in feet's inches), fude_zoom_units_unary (signs), fude_zoom_units_product (* / × ÷) and
+// fude_zoom_units_sum (+ - −). Each value carries whether it is a measure or a plain number, combined by
+// fude_zoom_units_combine; a parse stops at the first error and records it. Brackets and signs count toward
+// FUDE_ZOOM_UNITS_DEEPEST, so no text can nest the reader deeper than that. The writer counts whole steps of the
+// precision in a u64, so the digits and fractions it writes are exact; a coarser step is taken when they would pass
+// 2^53, and past 2^53 whole units it writes a short power of ten instead.
+// ===========================================================================
 
 // The fields: what a measure is in each, and which units it takes.
 #define FUDE_ZOOM_UNITS_FIELD_LENGTH 0u
 #define FUDE_ZOOM_UNITS_FIELD_ANGLE  1u
 #define FUDE_ZOOM_UNITS_FIELD_NUMBER 2u
 
-// What read_unit finds, beyond the length units: degrees, a word that is no
-// unit, or nothing that looks like a unit.
+// What fude_zoom_units_read_unit finds, beyond the length units: degrees, a word that is no unit, or nothing that
+// looks like a unit.
 #define FUDE_ZOOM_UNITS_DEGREE FUDE_ZOOM_UNIT_COUNT
 #define FUDE_ZOOM_UNITS_WORD   (FUDE_ZOOM_UNIT_COUNT + 1u)
 #define FUDE_ZOOM_UNITS_NONE   0xFFu
 
-#define FUDE_ZOOM_UNITS_DEEPEST 64u
+#define FUDE_ZOOM_UNITS_DEEPEST 64u                  // brackets and signs nested at most (units.h's RANGE error)
 #define FUDE_ZOOM_UNITS_EXACT   9007199254740992.0   // 2^53: every whole number below it is a double
 
-// The powers of ten a double holds exactly: a decimal is its digits over one,
-// a single rounding, so 9.525 reads as the double nearest 9.525.
+// The powers of ten a double holds exactly: a decimal is its digits over one, a single rounding, so 9.525 reads as
+// the double nearest 9.525.
 static const f64 FUDE_ZOOM_UNITS_TEN[23] = {
     1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
     1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
 };
 
+// The length units' words, in FUDE_ZOOM_UNIT_'s order, as typed (in any case).
 static const c8* const FUDE_ZOOM_UNITS_WORDS[FUDE_ZOOM_UNIT_COUNT] = { "mm", "cm", "m", "in", "ft" };
 
+// See the header.
 f64 fude_zoom_unit_mm(FUDE_ZOOM_UNIT_ _u) {
     switch(_u) {
         case FUDE_ZOOM_UNIT_MM: return 1.0;
@@ -40,6 +52,7 @@ f64 fude_zoom_unit_mm(FUDE_ZOOM_UNIT_ _u) {
     }
 }
 
+// See the header.
 const c8* fude_zoom_unit_suffix(FUDE_ZOOM_UNIT_ _u) {
     switch(_u) {
         case FUDE_ZOOM_UNIT_MM: return "mm";
@@ -51,25 +64,29 @@ const c8* fude_zoom_unit_suffix(FUDE_ZOOM_UNIT_ _u) {
     }
 }
 
+// Returns 10 to the _n: from the exact table from 0 to 22, else from rde_math_pow_f64.
 RDE_INTERNAL f64 fude_zoom_units_ten(i32 _n) {
-    return _n >= 0 && _n <= 22 ? FUDE_ZOOM_UNITS_TEN[_n] : pow(10.0, (f64)_n);
+    return _n >= 0 && _n <= 22 ? FUDE_ZOOM_UNITS_TEN[_n] : rde_math_pow_f64(10.0, (f64)_n);
 }
 
 // --- names ------------------------------------------------------------------
 
-// ASCII only: a locale must not change what a name matches.
+// Returns _c in lower case, ASCII only: a locale must not change what a name matches.
 RDE_INTERNAL c8 fude_zoom_units_lower(c8 _c) {
     return _c >= 'A' && _c <= 'Z' ? (c8)(_c + ('a' - 'A')) : _c;
 }
 
+// Returns whether _c can begin a name or a unit word: a letter or '_'.
 RDE_INTERNAL b8 fude_zoom_units_word_start(c8 _c) {
     return (_c >= 'A' && _c <= 'Z') || (_c >= 'a' && _c <= 'z') || _c == '_';
 }
 
+// Returns whether _c can go on in a name: a letter, '_' or a digit.
 RDE_INTERNAL b8 fude_zoom_units_word_part(c8 _c) {
     return fude_zoom_units_word_start(_c) || (_c >= '0' && _c <= '9');
 }
 
+// Returns whether the _n bytes at _a are the whole of the string _b, in any case.
 RDE_INTERNAL b8 fude_zoom_units_same(const c8* _a, u32 _n, const c8* _b) {
     for(u32 _i = 0; _i < _n; _i++) {
         if(_b[_i] == 0 || fude_zoom_units_lower(_a[_i]) != fude_zoom_units_lower(_b[_i])) {
@@ -79,7 +96,7 @@ RDE_INTERNAL b8 fude_zoom_units_same(const c8* _a, u32 _n, const c8* _b) {
     return _b[_n] == 0;
 }
 
-// Which unit word _n bytes at _s are; FUDE_ZOOM_UNITS_WORD if none.
+// Returns which unit word the _n bytes at _s are, or FUDE_ZOOM_UNITS_WORD when they are none.
 RDE_INTERNAL u8 fude_zoom_units_unit_word(const c8* _s, u32 _n) {
     for(u8 _u = 0; _u < FUDE_ZOOM_UNIT_COUNT; _u++) {
         if(fude_zoom_units_same(_s, _n, FUDE_ZOOM_UNITS_WORDS[_u])) {
@@ -89,6 +106,8 @@ RDE_INTERNAL u8 fude_zoom_units_unit_word(const c8* _s, u32 _n) {
     return FUDE_ZOOM_UNITS_WORD;
 }
 
+// Returns the variable named by the _n bytes at _s, in any case, or NULL (also when there is no table). The pointer
+// is into the table; it is not const so fude_zoom_vars_set can change what it finds.
 RDE_INTERNAL fude_zoom_var* fude_zoom_units_lookup(const fude_zoom_vars* _v, const c8* _s, u32 _n) {
     if(_v == NULL) {
         return NULL;
@@ -101,8 +120,10 @@ RDE_INTERNAL fude_zoom_var* fude_zoom_units_lookup(const fude_zoom_vars* _v, con
     return NULL;
 }
 
+// See the header. The name must start with a letter or '_' and go on in letters, digits and '_'; a new one goes at
+// the table's end, and one already there keeps its place but takes the new name's case.
 b8 fude_zoom_vars_set(fude_zoom_vars* _v, const c8* _name, f64 _value, b8 _length) {
-    if(_v == NULL || _name == NULL || !isfinite(_value) || !fude_zoom_units_word_start(_name[0])) {
+    if(_v == NULL || _name == NULL || !rde_math_is_finite_f64(_value) || !fude_zoom_units_word_start(_name[0])) {
         return false;
     }
     u32 _n = 0;
@@ -123,54 +144,59 @@ b8 fude_zoom_vars_set(fude_zoom_vars* _v, const c8* _name, f64 _value, b8 _lengt
         }
         _var = &_v->vars[_v->count++];
     }
-    memset(_var->name, 0, sizeof _var->name);
-    memcpy(_var->name, _name, _n);
+    rde_memset(_var->name, 0, sizeof _var->name);
+    rde_memcpy(_var->name, _name, _n);
     _var->value  = _value;
     _var->length = _length;
     return true;
 }
 
+// See the header.
 const fude_zoom_var* fude_zoom_vars_find(const fude_zoom_vars* _v, const c8* _name) {
-    return _name != NULL ? fude_zoom_units_lookup(_v, _name, (u32)strlen(_name)) : NULL;
+    return _name != NULL ? fude_zoom_units_lookup(_v, _name, (u32)rde_strlen(_name)) : NULL;
 }
 
+// See the header.
 b8 fude_zoom_vars_remove(fude_zoom_vars* _v, const c8* _name) {
     const fude_zoom_var* _var = fude_zoom_vars_find(_v, _name);
     if(_var == NULL) {
         return false;
     }
     const u32 _i = (u32)(_var - _v->vars);
-    memmove(&_v->vars[_i], &_v->vars[_i + 1u], (usize)(_v->count - _i - 1u) * sizeof(fude_zoom_var));
+    rde_memmove(&_v->vars[_i], &_v->vars[_i + 1u], (usize)(_v->count - _i - 1u) * sizeof(fude_zoom_var));
     _v->count--;
     return true;
 }
 
 // --- reading ----------------------------------------------------------------
 
+// A value as it is read: a number, and what kind it is (units.h's KINDS).
 typedef struct {
     f64 v;
     b8  measure;   // a length (mm) or an angle (degrees), as the field has it; else plain
 } fude_zoom_units_value;
 
+// The reader's state while it goes through one text.
 typedef struct {
     const c8*             text;
-    u32                   at;
-    u8                    field;
+    u32                   at;      // the byte read next
+    u8                    field;   // FUDE_ZOOM_UNITS_FIELD_
     f64                   plain;   // a plain number's worth in the field's measure: the default unit's mm, or 1
-    u32                   depth;
-    const fude_zoom_vars* vars;
-    fude_zoom_units_error error;
+    u32                   depth;   // brackets and signs open now, up to FUDE_ZOOM_UNITS_DEEPEST
+    const fude_zoom_vars* vars;    // may be NULL: no variables
+    fude_zoom_units_error error;   // the first error met
 } fude_zoom_units_parser;
 
+// Records error _code at byte _at, and returns false, so a reader can return it straight away.
 RDE_INTERNAL b8 fude_zoom_units_fail(fude_zoom_units_parser* _p, FUDE_ZOOM_UNITS_ERROR_ _code, u32 _at) {
     _p->error.code = _code;
     _p->error.at   = _at;
     return false;
 }
 
-// The bytes of _token if the text has it at _at, else 0.
+// Returns the length of _token when the text has it at _at, else 0.
 RDE_INTERNAL u32 fude_zoom_units_is(const c8* _t, u32 _at, const c8* _token) {
-    const u32 _n = (u32)strlen(_token);
+    const u32 _n = (u32)rde_strlen(_token);
     for(u32 _i = 0; _i < _n; _i++) {
         if(_t[_at + _i] != _token[_i]) {
             return 0;
@@ -179,7 +205,8 @@ RDE_INTERNAL u32 fude_zoom_units_is(const c8* _t, u32 _at, const c8* _token) {
     return _n;
 }
 
-// Past spaces: ASCII ones, and the no-break ones a phone puts in.
+// Returns where the text goes on past spaces at _at: ASCII ones (tabs and line breaks too), and the no-break ones
+// (U+00A0, U+202F) a phone puts in.
 RDE_INTERNAL u32 fude_zoom_units_skip(const c8* _t, u32 _at) {
     for(;;) {
         if(_t[_at] == ' ' || _t[_at] == '\t' || _t[_at] == '\n' || _t[_at] == '\r') {
@@ -192,19 +219,19 @@ RDE_INTERNAL u32 fude_zoom_units_skip(const c8* _t, u32 _at) {
     }
 }
 
+// Returns whether _c is an ASCII digit.
 RDE_INTERNAL b8 fude_zoom_units_digit(c8 _c) {
     return _c >= '0' && _c <= '9';
 }
 
-// Does a number start at _at: a digit, or a point with a digit after it?
+// Returns whether a number starts at _at: a digit, or a point ('.' or ',') with a digit after it.
 RDE_INTERNAL b8 fude_zoom_units_number_at(const c8* _t, u32 _at) {
     return fude_zoom_units_digit(_t[_at]) || ((_t[_at] == '.' || _t[_at] == ',') && fude_zoom_units_digit(_t[_at + 1u]));
 }
 
-// A decimal at _at: its value, where it ends, and whether it had no point.
-// The first 19 figures that count are kept in a whole number; later ones
-// before the point only scale it, later ones after it are past what a double
-// holds anyway.
+// Reads a decimal at _at: its value into *_out, where it ends into *_end, and whether it had no point into *_whole.
+// Returns false when no number starts there. The first 19 figures that count are kept in a whole number (19 always
+// fit a u64); later ones before the point only scale it, later ones after it are past what a double holds anyway.
 RDE_INTERNAL b8 fude_zoom_units_decimal(const c8* _t, u32 _at, f64* _out, u32* _end, b8* _whole) {
     if(!fude_zoom_units_number_at(_t, _at)) {
         return false;
@@ -236,7 +263,8 @@ RDE_INTERNAL b8 fude_zoom_units_decimal(const c8* _t, u32 _at, f64* _out, u32* _
     return true;
 }
 
-// A fraction written tight at _at, both parts whole numbers: 3/8.
+// Reads a fraction written tight at _at, both parts whole numbers (3/8), into *_top and *_bottom, and where it ends
+// into *_end. Returns false when there is none there.
 RDE_INTERNAL b8 fude_zoom_units_fraction(const c8* _t, u32 _at, f64* _top, f64* _bottom, u32* _end) {
     u32 _mid;
     b8  _whole;
@@ -246,20 +274,21 @@ RDE_INTERNAL b8 fude_zoom_units_fraction(const c8* _t, u32 _at, f64* _top, f64* 
     return fude_zoom_units_digit(_t[_mid + 1u]) && fude_zoom_units_decimal(_t, _mid + 1u, _bottom, _end, &_whole) && _whole;
 }
 
-// Does a '*' '/' '×' '÷' come next? Then 1-3/8 is not read as a mixed number.
+// Returns whether a '*' '/' '×' '÷' comes next, spaces aside; then 1-3/8 is not read as a mixed number.
 RDE_INTERNAL b8 fude_zoom_units_product_next(const c8* _t, u32 _at) {
     _at = fude_zoom_units_skip(_t, _at);
     return _t[_at] == '*' || _t[_at] == '/' || fude_zoom_units_is(_t, _at, "\xC3\x97") || fude_zoom_units_is(_t, _at, "\xC3\xB7");
 }
 
-// A number: a decimal, a mixed number (1-3/8, 1 3/8) or a quotient (3/8, 1200/3).
+// Reads a number at the parser's place into *_out: a decimal, a mixed number (1-3/8, 1 3/8) or a quotient (3/8,
+// 1200/3), and moves past it. Fails for a quotient over 0 and for a value that is not finite.
 RDE_INTERNAL b8 fude_zoom_units_number_token(fude_zoom_units_parser* _p, f64* _out) {
     const c8* _t = _p->text;
     f64 _a;
     u32 _end;
     b8  _whole;
     fude_zoom_units_decimal(_t, _p->at, &_a, &_end, &_whole);
-    if(!isfinite(_a)) {
+    if(!rde_math_is_finite_f64(_a)) {
         return fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _p->at);
     }
     if(_whole) {
@@ -285,7 +314,7 @@ RDE_INTERNAL b8 fude_zoom_units_number_token(fude_zoom_units_parser* _p, f64* _o
             return fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_ZERO, _end);
         }
         *_out = _a / _b;
-        if(!isfinite(*_out)) {
+        if(!rde_math_is_finite_f64(*_out)) {
             return fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _p->at);
         }
         _p->at = _bend;
@@ -296,9 +325,8 @@ RDE_INTERNAL b8 fude_zoom_units_number_token(fude_zoom_units_parser* _p, f64* _o
     return true;
 }
 
-// What unit, if any, is written at _at (its bytes into *_n): a length unit, a
-// degree, a word that is no unit, or NONE. _name: a word goes on through
-// digits (a variable's name); after a number it stops at one, so 2ft3in is
+// Returns what unit, if any, is written at _at (its bytes into *_n): a length unit, a degree, a word that is no unit,
+// or NONE. _name: a word goes on through digits (a variable's name); after a number it stops at one, so 2ft3in is
 // feet and inches.
 RDE_INTERNAL u8 fude_zoom_units_read_unit(const c8* _t, u32 _at, b8 _name, u32* _n) {
     *_n = 0;
@@ -332,7 +360,8 @@ RDE_INTERNAL u8 fude_zoom_units_read_unit(const c8* _t, u32 _at, b8 _name, u32* 
     return FUDE_ZOOM_UNITS_NONE;
 }
 
-// A unit on a value: allowed if the field takes it and the value has none yet.
+// Puts a unit on a value, which becomes a measure (a length is turned into mm). Fails when the field does not take
+// the unit, or the value is a measure already.
 RDE_INTERNAL b8 fude_zoom_units_apply(fude_zoom_units_parser* _p, fude_zoom_units_value* _v, u8 _unit, u32 _at) {
     const b8 _fits = _unit == FUDE_ZOOM_UNITS_DEGREE ? _p->field == FUDE_ZOOM_UNITS_FIELD_ANGLE
                    : _unit < FUDE_ZOOM_UNIT_COUNT     ? _p->field == FUDE_ZOOM_UNITS_FIELD_LENGTH
@@ -349,7 +378,8 @@ RDE_INTERNAL b8 fude_zoom_units_apply(fude_zoom_units_parser* _p, fude_zoom_unit
 
 RDE_INTERNAL b8 fude_zoom_units_sum(fude_zoom_units_parser* _p, fude_zoom_units_value* _v);
 
-// A number, a variable or a bracketed sum. *_kind: 0 a number, 1 a group, 2 a variable.
+// Reads a number, a variable or a bracketed sum into *_v. *_kind: 0 a number, 1 a group, 2 a variable. A length
+// variable outside a length field is an error.
 RDE_INTERNAL b8 fude_zoom_units_primary(fude_zoom_units_parser* _p, fude_zoom_units_value* _v, u8* _kind) {
     const c8* _t = _p->text;
     _p->at = fude_zoom_units_skip(_t, _p->at);
@@ -399,7 +429,7 @@ RDE_INTERNAL b8 fude_zoom_units_primary(fude_zoom_units_parser* _p, fude_zoom_un
     return fude_zoom_units_fail(_p, _unit != FUDE_ZOOM_UNITS_NONE ? FUDE_ZOOM_UNITS_ERROR_UNIT : FUDE_ZOOM_UNITS_ERROR_SYNTAX, _at);
 }
 
-// A primary and its unit, and after a number in feet, its inches.
+// Reads a primary and its unit, and after a number in feet, its inches. A second unit after the first is an error.
 RDE_INTERNAL b8 fude_zoom_units_postfix(fude_zoom_units_parser* _p, fude_zoom_units_value* _v) {
     const c8* _t = _p->text;
     u8 _kind;
@@ -412,8 +442,8 @@ RDE_INTERNAL b8 fude_zoom_units_postfix(fude_zoom_units_parser* _p, fude_zoom_un
         return true;
     }
     if(_kind == 2u) {
-        // stock mm: a variable has its unit already, or is plain and wants brackets.
-        // Any other word after it is two operands with nothing between them.
+        // stock mm: a variable has its unit already, or is plain and wants brackets. Any other word after it is two
+        // operands with nothing between them, left for the caller to refuse.
         return _unit == FUDE_ZOOM_UNITS_WORD ? true : fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_UNIT, _at);
     }
     if(!fude_zoom_units_apply(_p, _v, _unit, _at)) {
@@ -421,10 +451,9 @@ RDE_INTERNAL b8 fude_zoom_units_postfix(fude_zoom_units_parser* _p, fude_zoom_un
     }
     _p->at = _at + _n;
     if(_unit == FUDE_ZOOM_UNIT_FT && _kind == 0u) {
-        // The inches: a number next (1' 6", 1'6), or a tight hyphen and a
-        // number (the drawing office's 1'-6"). Like 1-3/8, a hyphen is a
-        // subtraction after all if a product follows (2'-6*2) or the number
-        // has a unit of its own other than inches (2'-6mm).
+        // The inches: a number next (1' 6", 1'6), or a tight hyphen and a number (the drawing office's 1'-6"). Like
+        // 1-3/8, a hyphen is a subtraction after all if a product follows (2'-6*2) or the number has a unit of its
+        // own other than inches (2'-6mm).
         const u32 _feet = _p->at;
         const b8  _dash = _t[_feet] == '-' && fude_zoom_units_number_at(_t, _feet + 1u);
         const u32 _in   = _dash ? _feet + 1u : fude_zoom_units_skip(_t, _feet);
@@ -458,6 +487,7 @@ RDE_INTERNAL b8 fude_zoom_units_postfix(fude_zoom_units_parser* _p, fude_zoom_un
     return true;
 }
 
+// Reads a signed value: any number of '+', '-' and '−' before a postfix, each nesting one deeper.
 RDE_INTERNAL b8 fude_zoom_units_unary(fude_zoom_units_parser* _p, fude_zoom_units_value* _v) {
     const c8* _t = _p->text;
     _p->at = fude_zoom_units_skip(_t, _p->at);
@@ -478,7 +508,8 @@ RDE_INTERNAL b8 fude_zoom_units_unary(fude_zoom_units_parser* _p, fude_zoom_unit
     return true;
 }
 
-// _a op _b by the kinds' rules (units.h), into _a. _at: the operator, for errors.
+// Works out _a op _b by the kinds' rules (units.h) into _a; _op is '+', '-', '*' or '/'. _at: the operator, for
+// errors. Fails on measure × measure, plain ÷ measure, a division by 0, or a result that is not finite.
 RDE_INTERNAL b8 fude_zoom_units_combine(fude_zoom_units_parser* _p, fude_zoom_units_value* _a, fude_zoom_units_value _b, c8 _op, u32 _at) {
     switch(_op) {
         case '+':
@@ -512,9 +543,10 @@ RDE_INTERNAL b8 fude_zoom_units_combine(fude_zoom_units_parser* _p, fude_zoom_un
             _a->measure = _a->measure && !_b.measure;
             break;
     }
-    return isfinite(_a->v) ? true : fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _at);
+    return rde_math_is_finite_f64(_a->v) ? true : fude_zoom_units_fail(_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _at);
 }
 
+// Reads unaries joined by * / × ÷, left to right.
 RDE_INTERNAL b8 fude_zoom_units_product(fude_zoom_units_parser* _p, fude_zoom_units_value* _v) {
     const c8* _t = _p->text;
     if(!fude_zoom_units_unary(_p, _v)) {
@@ -541,6 +573,7 @@ RDE_INTERNAL b8 fude_zoom_units_product(fude_zoom_units_parser* _p, fude_zoom_un
     }
 }
 
+// Reads products joined by + - −, left to right.
 RDE_INTERNAL b8 fude_zoom_units_sum(fude_zoom_units_parser* _p, fude_zoom_units_value* _v) {
     const c8* _t = _p->text;
     if(!fude_zoom_units_product(_p, _v)) {
@@ -565,6 +598,9 @@ RDE_INTERNAL b8 fude_zoom_units_sum(fude_zoom_units_parser* _p, fude_zoom_units_
     }
 }
 
+// Reads the whole of _text as a sum in a field of kind _field into *_out (left alone on failure), a plain result taken
+// as _plain of the field's measure, and writes what went wrong to *_error (may be NULL). Anything left after the sum
+// is a syntax error.
 RDE_INTERNAL b8 fude_zoom_units_parse(const c8* _text, u8 _field, f64 _plain, const fude_zoom_vars* _vars, f64* _out, fude_zoom_units_error* _error) {
     fude_zoom_units_parser _p = { _text, 0u, _field, _plain, 0u, _vars, { FUDE_ZOOM_UNITS_OK, 0u } };
     fude_zoom_units_value  _v = { 0.0, false };
@@ -584,7 +620,7 @@ RDE_INTERNAL b8 fude_zoom_units_parse(const c8* _text, u8 _field, f64 _plain, co
                 fude_zoom_units_fail(&_p, FUDE_ZOOM_UNITS_ERROR_SYNTAX, _p.at);
             } else {
                 const f64 _result = _v.measure ? _v.v : _v.v * _plain;
-                _ok = isfinite(_result) ? true : fude_zoom_units_fail(&_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _p.at);
+                _ok = rde_math_is_finite_f64(_result) ? true : fude_zoom_units_fail(&_p, FUDE_ZOOM_UNITS_ERROR_RANGE, _p.at);
                 if(_ok) {
                     *_out = _result;
                 }
@@ -597,48 +633,52 @@ RDE_INTERNAL b8 fude_zoom_units_parse(const c8* _text, u8 _field, f64 _plain, co
     return _ok;
 }
 
+// See the header. A plain number is _unit's millimetres, or millimetres when _unit is none.
 b8 fude_zoom_units_length(const c8* _text, FUDE_ZOOM_UNIT_ _unit, const fude_zoom_vars* _vars, f64* _mm, fude_zoom_units_error* _error) {
     const f64 _plain = fude_zoom_unit_mm(_unit) > 0.0 ? fude_zoom_unit_mm(_unit) : 1.0;
     return fude_zoom_units_parse(_text, FUDE_ZOOM_UNITS_FIELD_LENGTH, _plain, _vars, _mm, _error);
 }
 
+// See the header. A plain number is in degrees.
 b8 fude_zoom_units_angle(const c8* _text, const fude_zoom_vars* _vars, f64* _degrees, fude_zoom_units_error* _error) {
     return fude_zoom_units_parse(_text, FUDE_ZOOM_UNITS_FIELD_ANGLE, 1.0, _vars, _degrees, _error);
 }
 
+// See the header.
 b8 fude_zoom_units_number(const c8* _text, const fude_zoom_vars* _vars, f64* _out, fude_zoom_units_error* _error) {
     return fude_zoom_units_parse(_text, FUDE_ZOOM_UNITS_FIELD_NUMBER, 1.0, _vars, _out, _error);
 }
 
 // --- saying -----------------------------------------------------------------
 
-// Whole tokens only, so a short buffer never ends inside a character.
+// Writes into the caller's buffer a whole token at a time, so a short buffer never ends inside a character.
 typedef struct {
     c8*   out;
     usize size;
-    usize n;
-    b8    full;
+    usize n;      // the bytes written so far, the 0 after them not counted
+    b8    full;   // a token did not fit: nothing more is written
 } fude_zoom_units_writer;
 
+// Appends _s whole, with its 0 after it, or nothing and nothing more once one did not fit.
 RDE_INTERNAL void fude_zoom_units_put(fude_zoom_units_writer* _w, const c8* _s) {
-    const usize _n = strlen(_s);
+    const usize _n = rde_strlen(_s);
     if(_w->full || _w->n + _n + 1u > _w->size) {
         _w->full = true;
         return;
     }
-    memcpy(_w->out + _w->n, _s, _n);
+    rde_memcpy(_w->out + _w->n, _s, _n);
     _w->n += _n;
     _w->out[_w->n] = 0;
 }
 
+// Appends a whole number.
 RDE_INTERNAL void fude_zoom_units_put_u64(fude_zoom_units_writer* _w, u64 _x) {
     c8 _s[24];
-    snprintf(_s, sizeof _s, "%llu", (unsigned long long)_x);
+    rde_snprintf(_s, sizeof _s, "%llu", (unsigned long long)_x);
     fude_zoom_units_put(_w, _s);
 }
 
-// _n steps of 1/_q as decimals (_q a power of ten): 175 of 1/100 is "1.75",
-// trailing zeros dropped.
+// Appends _n steps of 1/_q as decimals (_q a power of ten): 175 of 1/100 is "1.75", trailing zeros dropped.
 RDE_INTERNAL void fude_zoom_units_put_decimal(fude_zoom_units_writer* _w, u64 _n, u64 _q) {
     fude_zoom_units_put_u64(_w, _n / _q);
     u64 _rest = _n % _q;
@@ -656,7 +696,8 @@ RDE_INTERNAL void fude_zoom_units_put_decimal(fude_zoom_units_writer* _w, u64 _n
     fude_zoom_units_put(_w, _s);
 }
 
-// _n steps of 1/_q as a whole and a reduced fraction: 22 of 1/16 is "1-3/8".
+// Appends _n steps of 1/_q (_q a power of two) as a whole and a reduced fraction: 22 of 1/16 is "1-3/8". The whole
+// is left out when it is 0 and there is a fraction.
 RDE_INTERNAL void fude_zoom_units_put_fraction(fude_zoom_units_writer* _w, u64 _n, u64 _q) {
     const u64 _whole = _n / _q;
     u64 _top = _n % _q, _bottom = _q;
@@ -669,28 +710,28 @@ RDE_INTERNAL void fude_zoom_units_put_fraction(fude_zoom_units_writer* _w, u64 _
     }
     if(_top > 0u) {
         c8 _s[48];
-        snprintf(_s, sizeof _s, "%s%llu/%llu", _whole > 0u ? "-" : "", (unsigned long long)_top, (unsigned long long)_bottom);
+        rde_snprintf(_s, sizeof _s, "%s%llu/%llu", _whole > 0u ? "-" : "", (unsigned long long)_top, (unsigned long long)_bottom);
         fude_zoom_units_put(_w, _s);
     }
 }
 
-// Past 2^53 of the unit, more than any drawing holds: four figures and a
-// power of ten, so the text stays short ("≈ 1.235e+20").
+// Appends a value past 2^53 of the unit, more than any drawing holds: four figures and a power of ten, so the text
+// stays short ("≈ 1.235e+20").
 RDE_INTERNAL void fude_zoom_units_put_huge(fude_zoom_units_writer* _w, f64 _x) {
     c8 _s[32];
-    snprintf(_s, sizeof _s, "\xE2\x89\x88 %.3e", _x);
+    rde_snprintf(_s, sizeof _s, "\xE2\x89\x88 %.3e", _x);
     fude_zoom_units_put(_w, _s);
 }
 
-// Is _shown what _x is, near enough to say so without ≈? 1e-9 of it, or of a
-// unit (a millimetre, a degree) when it is smaller: arithmetic's last bits
-// are not a rounding.
+// Returns whether _shown is what _x is, near enough to say so without ≈: within 1e-9 of it, or of a unit (a
+// millimetre, a degree) when it is smaller, since arithmetic's last bits are not a rounding.
 RDE_INTERNAL b8 fude_zoom_units_exact(f64 _shown, f64 _x) {
-    return fabs(_shown - _x) <= 1e-9 * fmax(1.0, fabs(_x));
+    return rde_math_abs_f64(_shown - _x) <= 1e-9 * rde_math_max_f64(1.0, rde_math_abs_f64(_x));
 }
 
-// Steps of 1/_q in _x, rounded, if they fit a double exactly; the step made
-// coarser till they do (a tenth, or a half), down to whole ones.
+// Writes into *_n how many steps of 1/_q are in _x, rounded, when they fit a double exactly; the step is made coarser
+// till they do (by ten, or by two for a fraction), down to whole ones, and *_q is changed to match. Returns false when
+// even whole ones do not fit.
 RDE_INTERNAL b8 fude_zoom_units_steps(f64 _x, u64* _q, b8 _fraction, u64* _n) {
     while(*_q > 1u && _x * (f64)*_q >= FUDE_ZOOM_UNITS_EXACT) {
         *_q = _fraction ? *_q / 2u : *_q / 10u;
@@ -698,16 +739,19 @@ RDE_INTERNAL b8 fude_zoom_units_steps(f64 _x, u64* _q, b8 _fraction, u64* _n) {
     if(_x * (f64)*_q >= FUDE_ZOOM_UNITS_EXACT) {
         return false;
     }
-    *_n = (u64)llround(_x * (f64)*_q);
+    *_n = (u64)rde_math_round_to_i64_f64(_x * (f64)*_q);
     return true;
 }
 
+// See the header. The value is rounded to whole steps of the precision first (in inches for feet and inches, so a
+// value is split into feet after it is rounded), and the sign, the ≈, the feet, the number and the unit are written
+// after.
 u32 fude_zoom_units_format(f64 _mm, const fude_zoom_units_style* _style, c8* _out, usize _size) {
     fude_zoom_units_writer _w = { _out, _size, 0u, false };
     if(_size > 0u) {
         _out[0] = 0;
     }
-    if(_style == NULL || !isfinite(_mm)) {
+    if(_style == NULL || !rde_math_is_finite_f64(_mm)) {
         return 0;
     }
     const FUDE_ZOOM_UNIT_ _unit = _style->unit < FUDE_ZOOM_UNIT_COUNT ? _style->unit : FUDE_ZOOM_UNIT_MM;
@@ -725,7 +769,7 @@ u32 fude_zoom_units_format(f64 _mm, const fude_zoom_units_style* _style, c8* _ou
     }
     const b8 _fraction = _den > 0u;
     u64 _q = _fraction ? _den : (u64)FUDE_ZOOM_UNITS_TEN[_style->decimals < FUDE_ZOOM_UNITS_DECIMALS ? _style->decimals : FUDE_ZOOM_UNITS_DECIMALS];
-    const f64 _x = fabs(_mm) / _per;
+    const f64 _x = rde_math_abs_f64(_mm) / _per;
     u64 _n = 0;
     if(!fude_zoom_units_steps(_x, &_q, _fraction, &_n)) {
         fude_zoom_units_put_huge(&_w, _mm < 0.0 ? -_x : _x);
@@ -736,7 +780,7 @@ u32 fude_zoom_units_format(f64 _mm, const fude_zoom_units_style* _style, c8* _ou
         return (u32)_w.n;
     }
     const f64 _shown = (f64)_n / (f64)_q * _per;
-    if(!fude_zoom_units_exact(_shown, fabs(_mm))) {
+    if(!fude_zoom_units_exact(_shown, rde_math_abs_f64(_mm))) {
         fude_zoom_units_put(&_w, "\xE2\x89\x88 ");
     }
     // No "-0": a value that rounds to nothing has no sign.
@@ -765,22 +809,23 @@ u32 fude_zoom_units_format(f64 _mm, const fude_zoom_units_style* _style, c8* _ou
     return (u32)_w.n;
 }
 
+// See the header. As fude_zoom_units_format, in degrees.
 u32 fude_zoom_units_format_angle(f64 _degrees, u8 _decimals, c8* _out, usize _size) {
     fude_zoom_units_writer _w = { _out, _size, 0u, false };
     if(_size > 0u) {
         _out[0] = 0;
     }
-    if(!isfinite(_degrees)) {
+    if(!rde_math_is_finite_f64(_degrees)) {
         return 0;
     }
     u64 _q = (u64)FUDE_ZOOM_UNITS_TEN[_decimals < FUDE_ZOOM_UNITS_DECIMALS ? _decimals : FUDE_ZOOM_UNITS_DECIMALS];
     u64 _n = 0;
-    if(!fude_zoom_units_steps(fabs(_degrees), &_q, false, &_n)) {
+    if(!fude_zoom_units_steps(rde_math_abs_f64(_degrees), &_q, false, &_n)) {
         fude_zoom_units_put_huge(&_w, _degrees);
         fude_zoom_units_put(&_w, "\xC2\xB0");
         return (u32)_w.n;
     }
-    if(!fude_zoom_units_exact((f64)_n / (f64)_q, fabs(_degrees))) {
+    if(!fude_zoom_units_exact((f64)_n / (f64)_q, rde_math_abs_f64(_degrees))) {
         fude_zoom_units_put(&_w, "\xE2\x89\x88 ");
     }
     if(_degrees < 0.0 && _n > 0u) {

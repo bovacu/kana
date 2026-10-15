@@ -5,6 +5,8 @@
 #include <string.h>
 static int fails = 0;
 #define CHECK(c) do { if(!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while(0)
+// One answer, a sitting of its own.
+static void answer(u32 key, b8 right, f32 quality) { const fude_review_answer a = { key, right, quality }; fude_reviews_answer(&a, 1u); }
 extern u32 fude_reviews_fake_today;
 
 int main(void) {
@@ -19,7 +21,7 @@ int main(void) {
     CHECK(n == FUDE_REVIEW_NEW_PER_DAY && out[0] == 0x4E00u && out[9] == 0x4E09u);
 
     // A right, cleanly: tomorrow. Today's room for new ones is one less.
-    fude_reviews_answer(0x4E00u, true, 0.9f);
+    answer(0x4E00u, true, 0.9f);
     CHECK(fude_reviews_due_day(0x4E00u) == 101u);
     n = fude_reviews_due(cands, 15, out, 64);
     CHECK(n == FUDE_REVIEW_NEW_PER_DAY - 1u && out[0] == 0x4E01u);
@@ -37,32 +39,32 @@ int main(void) {
     fude_reviews_fake_today = 101;
     n = fude_reviews_due(cands, 15, out, 64);
     CHECK(n >= 1u && out[0] == 0x4E00u);   // the due one first, then new ones
-    fude_reviews_answer(0x4E00u, true, 0.9f);
+    answer(0x4E00u, true, 0.9f);
     CHECK(fude_reviews_due_day(0x4E00u) == 104u);
 
     // Day 102: right early: nothing changes.
     fude_reviews_fake_today = 102;
-    fude_reviews_answer(0x4E00u, true, 0.9f);
+    answer(0x4E00u, true, 0.9f);
     CHECK(fude_reviews_due_day(0x4E00u) == 104u);
 
     // Day 104: right: the step grows past three days (3 x the ease).
     fude_reviews_fake_today = 104;
-    fude_reviews_answer(0x4E00u, true, 0.9f);
+    answer(0x4E00u, true, 0.9f);
     const u32 later = fude_reviews_due_day(0x4E00u);
     CHECK(later >= 104u + 7u && later <= 104u + 9u);
     printf("1 day, 3 days, then %u days\n", later - 104u);
 
     // Wrong: tomorrow again, and the steps start over.
     fude_reviews_fake_today = later;
-    fude_reviews_answer(0x4E00u, false, 0.0f);
+    answer(0x4E00u, false, 0.0f);
     CHECK(fude_reviews_due_day(0x4E00u) == later + 1u);
     fude_reviews_fake_today = later + 1u;
-    fude_reviews_answer(0x4E00u, true, 0.9f);
+    answer(0x4E00u, true, 0.9f);
     CHECK(fude_reviews_due_day(0x4E00u) == later + 2u);   // one day: the first step again
 
     // The longest waiting first: B due day 105, C due day 103 (both wrong then).
-    fude_reviews_fake_today = 102; fude_reviews_answer(0x4E02u, false, 0.0f);   // due 103
-    fude_reviews_fake_today = 104; fude_reviews_answer(0x4E01u, false, 0.0f);   // due 105
+    fude_reviews_fake_today = 102; answer(0x4E02u, false, 0.0f);   // due 103
+    fude_reviews_fake_today = 104; answer(0x4E01u, false, 0.0f);   // due 105
     fude_reviews_fake_today = 200;
     n = fude_reviews_due(cands, 15, out, 64);
     CHECK(n >= 3u && out[0] == 0x4E02u && out[1] == 0x4E01u);
@@ -72,6 +74,29 @@ int main(void) {
     fude_reviews_close();
     fude_reviews_open("saves/reviews.kana");
     CHECK(fude_reviews_due_day(0x4E00u) == a && fude_reviews_due_day(0x4E02u) == c && fude_reviews_due_day(0x4E0Eu) == 0u);
+
+    // A sitting's answers at once: each schedule moves, and all of them are in the file.
+    { fude_reviews_fake_today = 300;
+      const fude_review_answer sitting[3] = { { 0x4E10u, true, 0.9f }, { 0x4E11u, false, 0.0f }, { 0x4E12u, true, 0.4f } };
+      const u32 r0 = fude_reviews_revision();
+      fude_reviews_answer(sitting, 3u);
+      CHECK(fude_reviews_revision() != r0);
+      CHECK(fude_reviews_due_day(0x4E10u) == 301u && fude_reviews_due_day(0x4E11u) == 301u && fude_reviews_due_day(0x4E12u) == 301u);
+      fude_reviews_close(); fude_reviews_open("saves/reviews.kana");
+      CHECK(fude_reviews_due_day(0x4E10u) == 301u && fude_reviews_due_day(0x4E11u) == 301u && fude_reviews_due_day(0x4E12u) == 301u);
+      fude_reviews_answer(sitting, 0u); }   // none: nothing to do
+
+    // A file whose schedules are damaged is set aside and its backup read (save.h), not read as having none.
+    { fude_reviews_fake_today = 400;
+      fude_reviews_close(); fude_reviews_open("saves/damaged.kana");
+      answer(0x4E20u, true, 0.9f);   // saved: the file
+      answer(0x4E21u, true, 0.9f);   // saved again: the first is now the .bak
+      FILE* f = fopen("saves/damaged.kana", "r+b");
+      CHECK(f != NULL);
+      if(f != NULL) { const unsigned char big[4] = { 0xFF, 0xFF, 0xFF, 0x0F }; fseek(f, 20, SEEK_SET); fwrite(big, 1, 4, f); fclose(f); }   // 'RVWS' count
+      fude_reviews_close(); fude_reviews_open("saves/damaged.kana");
+      CHECK(fude_reviews_due_day(0x4E20u) != 0u && fude_reviews_due_day(0x4E21u) == 0u);
+      fude_reviews_close(); }
 
     // The real day is today's (no fake): a plausible day number.
     fude_reviews_fake_today = 0;

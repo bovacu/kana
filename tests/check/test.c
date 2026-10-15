@@ -1,4 +1,5 @@
 #include "study/screens/check.h"
+#include "study/handwriting/segment.h"
 #include "drawing/base/theme.h"
 #include <stdio.h>
 #include <string.h>
@@ -11,7 +12,6 @@ void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_ve
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return 1000.0; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 
 // Writes a character's reference strokes into an ink at canvas position (ox, oy), scale k, in _order.
 static void write_char(const fude_kanji_db* db, fude_ink* ink, u32 cp, f32 ox, f32 oy, f32 k, const u32* order) {
@@ -20,7 +20,7 @@ static void write_char(const fude_kanji_db* db, fude_ink* ink, u32 cp, f32 ox, f
         fude_kanji_stroke st; fude_kanji_stroke_at(db, &info, order ? order[o] : o, &st);
         rde_vec_2F pts[1024]; const u32 n = fude_glyph_stroke_points(&st, pts, NULL);
         ink->sample_time = 0.0; ink->zoom = 1.0f;
-        fude_ink_begin(ink, (rde_vec_2F){ ox + pts[0].x * k, oy - pts[0].y * k }, true, false);
+        fude_ink_begin(ink, (rde_vec_2F){ ox + pts[0].x * k, oy - pts[0].y * k }, true);
         for(u32 i = 1; i < n; i++) { ink->sample_time += 0.01; fude_ink_extend(ink, (rde_vec_2F){ ox + pts[i].x * k, oy - pts[i].y * k }); }
         fude_ink_end(ink);
     }
@@ -143,6 +143,28 @@ int main(int argc, char** argv) {
         CHECK(!fude_recognize_available() && !fude_recognize_start(&r, &ink) && !fude_recognize_poll(&r));   // no ML Kit here
     }
 
+    // A scribble of 70 strokes in one place (more than the matcher takes), then a character: the scribble is stepped
+    // over as one unread character, every stroke is in exactly one character, and the character after it is read.
+    {
+        fude_ink sc; fude_ink_init(&sc);
+        for(u32 i = 0; i < 70u; i++) {
+            sc.sample_time = 0.0; sc.zoom = 1.0f;
+            fude_ink_begin(&sc, (rde_vec_2F){ 10.0f + (f32)(i % 7u) * 6.0f, -10.0f - (f32)(i / 7u) * 6.0f }, true);
+            sc.sample_time += 0.01; fude_ink_extend(&sc, (rde_vec_2F){ 60.0f - (f32)(i % 7u) * 5.0f, -60.0f + (f32)(i / 7u) * 4.0f });
+            fude_ink_end(&sc);
+        }
+        write_char(&db, &sc, 0x5C71, 140.0f, 0.0f, 1.0f, NULL);   // 山
+        fude_segment seg; fude_segment_init(&seg);
+        const u32 n = fude_segment_read(&seg, &db, &cat, &sc, FUDE_SEGMENT_ACROSS);
+        const fude_segment_char* sch = (const fude_segment_char*)seg.chars.memory;
+        u32 covered = 0, unread = 0;
+        for(u32 i = 0; i < n; i++) { covered += sch[i].count; unread += sch[i].count > 64u && sch[i].candidate_count == 0u ? 1u : 0u; }
+        CHECK(n >= 2u && covered == 73u && unread == 1u);
+        CHECK(sch[n - 1u].candidate_count > 0u && cp_of(&db, sch[n - 1u].candidates[0].record) == 0x5C71);
+        printf("  a 70-stroke scribble and 山: %u characters, the last read as %X\n", n, n ? cp_of(&db, sch[n - 1u].candidates[0].record) : 0u);
+        fude_segment_destroy(&seg); fude_ink_destroy(&sc);
+    }
+
     // Nothing alive selected: not opened.
     fude_check_close(&c);
     fude_ink_erase_strokes(&ink2, all, 4);
@@ -150,6 +172,8 @@ int main(int argc, char** argv) {
 
     fude_ink_destroy(&ink); fude_ink_destroy(&ink2); fude_ink_destroy(&ink3); fude_ink_destroy(&ink4);
     fude_check_destroy(&c); fude_catalog_destroy(&cat); fude_match_release(); fude_kanji_unload(&db);
+    // A Check never made (zeroed) is destroyed without touching arrays it never had, as the other screens' are.
+    { fude_check z; memset(&z, 0, sizeof z); fude_check_destroy(&z); CHECK(!rde_arr_is_inited(&z.hits) && !rde_arr_is_inited(&z._points)); }
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

@@ -4,7 +4,12 @@ What the app ships and declares, and what has to be filled in outside the app.
 Written 2026-09-30 for ML Kit's handwriting; brought up to date 2026-10-02 for
 everything since (text from a photo, translation, the camera, reading aloud,
 vocabulary). The store texts and screenshots are in `store/`; the two web pages
-App Store Connect asks for are made by `tools/store/site.py` into `site/`.
+App Store Connect asks for are made into `site/` by the repository's
+`tools/store/site.py`, which writes every app's (2026-10-13). Checked against
+the code again on 2026-10-15, for Kana 0.5.4 (`src/version.h`). The store
+texts, the price question and the review notes are `store/listing.md`'s; the
+privacy and rating answers for every app are `docs/store_privacy_answers.md`'s.
+This file keeps what is Kana's alone: what it ships, declares and credits.
 
 ---
 
@@ -17,15 +22,20 @@ only (and are part of the device's own backups, which Apple handles). Export
 only where the learner sends it.
 
 **Google ML Kit** runs on the device for three things — handwriting
-(MLKitDigitalInkRecognition: Check, Copy as text, Save word, drawing to search),
-text in photos (MLKitTextRecognitionJapanese: Text from a photo) and translation
-(MLKitTranslate: Translate with Google). The writing, the photos and the text
-translated are read on the device; none of them is sent. While ML Kit is **on**
-(Settings › Handwriting › Read with Google ML Kit, on by default):
+(MLKitDigitalInkRecognition: Check, Copy as text, Save word, drawing to search,
+exams), printed text (MLKitTextRecognitionJapanese: Text from a photo, and the
+pages of a scanned or photographed document, read once so that Search and the
+lasso find their words) and translation (MLKitTranslate: Translate with Google).
+The writing, the photos, the pages and the text translated are read on the
+device; none of them is sent. While ML Kit is **on** (Settings › Handwriting ›
+Read with Google ML Kit, on by default):
 
-- The first time each is used, it **downloads its model** from Google:
-  handwriting about 20 MB; translation about 30 MB per target language (and
-  Japanese's); text recognition's Japanese model ships inside the app.
+- It **downloads its models** from Google: the handwriting model (about 20 MB)
+  as soon as Kana starts with ML Kit on, so at the first launch
+  (`fude/study/app/shell.c`, on iOS and Android alike), not at its first use; a
+  translation model (about 30 MB per language, Japanese's too) the first time a
+  translation is asked for; text recognition's Japanese model ships inside the
+  app and is never downloaded.
 - It **sends Google usage and diagnostics data** — what Google's
   [iOS data disclosure](https://developers.google.com/ml-kit/ios-data-disclosure)
   and its privacy manifests list:
@@ -41,10 +51,19 @@ translated are read on the device; none of them is sent. While ML Kit is **on**
 
 Switched **off**, ML Kit is never called: nothing is downloaded, nothing is
 sent, Kana reads handwriting on its own (less accurately: 52/60 characters
-against ML Kit's 60/60 on `data/samples/`), and Text from a photo and
-Translate with Google say they need it.
+against ML Kit's 60/60, measured on 2026-09-30 on handwritten samples that
+`data/samples/` no longer holds), and Text from a photo and Translate with
+Google say they need it. (On Android, Lectures › Scan pages is
+Google's document scanner, which runs in Play services: the switch does not
+cover it, and the policy says so.)
 
 **Reading aloud** uses iPadOS's own voices (AVSpeechSynthesizer), on the device.
+
+**Crash reports** stay on the device too. After a crash, the next launch
+offers an email draft to rde.apps.support@gmail.com with a short report in it
+(`fude/drawing/base/crash.c`, `fude/drawing/app/crashcard.c`), which the
+learner reads and sends from their own mail app, or not; either way the report
+is deleted. Nothing is uploaded.
 
 ## Permissions
 
@@ -55,6 +74,8 @@ Translate with Google say they need it.
 - **Photos: none.** The system's photo picker (PHPicker) hands over only the
   photos chosen (Text from a photo: one; Lectures › From Photos: any number);
   no library access, no prompt.
+- No microphone, location, contacts or tracking (`NSPrivacyTracking` is false
+  everywhere, so no App Tracking Transparency prompt).
 
 ## Bundled content
 
@@ -64,7 +85,7 @@ Translate with Google say they need it.
   the credit and the changes. CC BY 4.0 allows selling it inside the app; it
   forbids locking it (no DRM, no terms that restrict it). The credit is on its
   card and its first page, and in Settings › Licences › Lectures
-  (`assets/lectures/LICENSE-lectures.txt`). How it was made:
+  (`assets/lectures/LICENSE-lectures.txt`). How it was made: Kana's own
   `tools/lectures/make_jpn101.py`.
 - **Lectures:** Wikivoyage's Japanese phrasebook in English, Spanish, French
   and Portuguese (CC BY-SA 4.0, by Wikivoyage's contributors), text only, laid
@@ -73,8 +94,6 @@ Translate with Google say they need it.
   revisions and changes: their first pages and `LICENSE-lectures.txt`. How they
   were made: the repository's `tools/lectures/phrasebook.py` (and
   `html2pdf.swift`), which Hanzi's and Hangul's phrasebooks are made with too.
-- No microphone, location, contacts or tracking (`NSPrivacyTracking` is false
-  everywhere, so no App Tracking Transparency prompt).
 
 ## Privacy manifests (in the app)
 
@@ -109,29 +128,38 @@ For each of these types:
 | User Content | Other User Content | Analytics, App Functionality |
 | Other Data | Other Data Types | Analytics, App Functionality |
 
-This is exactly what ML Kit's manifests declare — checked again on 2026-10-02:
-`MLKitCommon`, `MLKitDigitalInkRecognition`, `MLKitTextRecognitionCommon`,
-`MLKitTranslate` and `MLKitNaturalLanguage` declare the same six, and
-`GoogleDataTransport` Other Diagnostic Data alone. If a newer ML Kit changes
-them, re-read the bundles' `PrivacyInfo.xcprivacy` after `setup.py`.
+This is exactly what ML Kit's manifests declare — checked again on 2026-10-02,
+and on 2026-10-13 for every app: `MLKitCommon`, `MLKitDigitalInkRecognition`,
+`MLKitTextRecognitionCommon`, `MLKitTranslate` and `MLKitNaturalLanguage`
+declare the same six, and `GoogleDataTransport` Other Diagnostic Data alone.
+If a newer ML Kit changes them, re-read the bundles' `PrivacyInfo.xcprivacy`
+after `setup.py`. Why these six and not fewer, what is left undeclared (crash
+reports among it) and why, and Google Play's Data safety answers:
+`docs/store_privacy_answers.md` §2 and §3.
 
 ## Privacy policy and support pages (URLs required)
 
-Written: `python3 tools/store/site.py` makes `site/privacy.html` (the policy)
-and `site/index.html` (help and support), each in the five languages (the
-reader's, or a choice at the top). `CONTACT` at the top of the script is the
-address both show (rde.apps.support@gmail.com); run the script again after
-changing it. Hosted on GitHub Pages: a public repository whose root holds the
-two files (or a `docs/` folder with them), Settings › Pages › Deploy from a
-branch, `main`, `/ (root)` or `/docs`; a minute later they are at
-`https://<user>.github.io/<repository>/`. Then give App Store Connect:
-- **Privacy Policy URL**: `…/privacy.html`
-- **Support URL**: `…/` (index.html)
+Written: `python3 tools/store/site.py kana` (the repository's tool, every app's)
+makes `site/privacy.html` (the policy) and `site/index.html` (help and
+support), each in the five languages (the reader's, or a choice at the top),
+with the menu names read from the app's own strings. `CONTACT` at the top of
+the script is the address both show (rde.apps.support@gmail.com); run the
+script again after changing it. Hosted on GitHub Pages, one repository for every
+app: `python3 tools/store/site.py --pages DIR` writes `DIR/<app>/` for each app
+and an index of them; push DIR's contents, Settings › Pages › Deploy from a
+branch, `main`, `/ (root)`; a minute later Kana's are at
+`https://<user>.github.io/<repository>/kana/`. Then App Store Connect gets the
+Privacy Policy URL and the Support URL (both in `store/listing.md`, Shared), and
+the support page's address goes in Kana's `faq_url` (`fude/drawing/app/info.h`),
+so that the side panel's FAQ link appears: until then it has none.
 
-The policy says what this file says: everything stays on the device; ML Kit's
-features, its downloads and its diagnostics (Google's privacy policy and the ML
-Kit terms linked); the switch that stops it all; the camera and the photo
-picker; reading aloud; the App Store's own data; children; changes; contact.
+The policy says what this file says, for iPad and Android: everything stays on
+the device, and in the device's own backups; Export; ML Kit's features, its
+downloads and its diagnostics (Google's data disclosures, privacy policy and ML
+Kit terms linked); the switch that stops it all; the camera, the document
+scanner (Apple's, or Google's on Android) and the photo pickers; reading aloud;
+crash reports (only an email the learner sends); links; the stores' own data;
+children; changes; contact.
 
 ## Licences and attribution (in the app)
 
@@ -147,11 +175,14 @@ practice sheets carry KanjiVG's credit at the foot of every page.
 |---|---|---|
 | Data | KanjiVG, KANJIDIC2, JMdict, JLPT, Tatoeba (CC BY 2.0 FR) | `assets/data/LICENSE-data.txt` |
 | Fonts | Roboto (Apache 2.0), Noto Sans JP (SIL OFL 1.1), Phosphor icons (MIT) | `assets/fonts/LICENSE-*.txt` |
-| Libraries | GTMSessionFetcher, GoogleDataTransport, GoogleUtilities, GoogleToolboxForMac, Promises (Apache 2.0); nanopb, minizip-ng (zlib); SSZipArchive (MIT) | `assets/licenses/libraries.txt` |
+| Libraries | every library built into Kana, each with its licence, by platform: the engine's (SDL3, FreeType, HarfBuzz, FriBidi, Box2D, LuaJIT, miniaudio, stb and the rest), Android's (AndroidX, PdfBox-Android, libc++) and ML Kit's iOS pods (GTMSessionFetcher, GoogleDataTransport, GoogleUtilities, GoogleToolboxForMac, Promises, nanopb, SSZipArchive with minizip-ng) | `assets/licenses/libraries.txt` |
 | ML Kit | Google's NOTICES for the software inside ML Kit, the translation disclaimer first | `assets/licenses/ml-kit-notices.txt` |
+| Lectures | the lectures' licences, credits and what Kana changed (above) | `assets/lectures/LICENSE-lectures.txt` |
 
-`setup.py` regenerates both files in `assets/licenses/`. Commit them; they
-ship with the app.
+`tools/mlkit/setup.py` writes `ml-kit-notices.txt` and, at its end, runs
+`tools/licences/build.py`, which writes `libraries.txt` (and every other app's)
+from the licence texts in `tools/licences/texts/`; `build.py --check` says
+whether a file is out of date. Commit them; they ship with the app.
 
 ## Still open before submitting
 
@@ -165,11 +196,17 @@ ship with the app.
 - [x] CONTACT set (rde.apps.support@gmail.com). [ ] **The pages hosted** on GitHub
       Pages, both URLs in App Store Connect.
 - [ ] **The App Store Connect record**: its Apple ID goes in `KANA_APP_STORE_ID`
-      (src/app/version.h) so Rate opens the write-review page; then the texts
+      (apps/kana/src/version.h) so Rate opens the write-review page; then the texts
       (`store/listing.md`), the screenshots (iPad 13-inch: `store/framed/`,
-      `store/README.md`), the age rating, the price.
+      `store/README.md`), the age rating (the answers drafted in
+      `docs/store_privacy_answers.md` §4), the price. The price is not decided
+      (`store/listing.md`, Price); the app's own Why it works offline already
+      says "One purchase", so it must change if Kana is not paid once.
 - [x] Export compliance: `ITSAppUsesNonExemptEncryption` false (HTTPS through
       Apple's networking only).
 - [x] A release build: optimised (-O3), the HUD and launch arguments ignored.
-- [ ] Android: ML Kit's .aar through the builder's `--android_dep`; the
-      translation, speech and document-import sides still to write.
+- [x] Android: ML Kit's .aar through the builder's `--android_dep`, and the
+      Android sides of handwriting (drawing/ink/mlkit_android.c), text in photos,
+      translation and speech (study/services/*_android.c) and document import
+      (drawing/app/import_android.c), all written. What remains for the stores is
+      in docs/release_checklist.md.

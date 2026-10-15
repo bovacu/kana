@@ -1,137 +1,54 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/doc/doc.h"
-#include "drawing/app/app.h"
-#include "drawing/base/save.h"
+#include "drawing/ink/pagefile.h"
 #include "drawing/base/kfile.h"
+#include "drawing/base/save.h"
 #include "drawing/base/utf8.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 #include "drawing/ink/notes.h"
-#include "drawing/widgets/draw.h"
-#include "drawing/widgets/kit.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "drawing/base/draw.h"
 
 // ===========================================================================
-// See doc.h. One piece is drawn at a time, on a thread started for it (RDE's
-// detached threads): the main thread hands it a job and looks each frame
-// whether it is done. A document let go while its piece is being drawn leaves
-// the job to the worker to finish and free (and the PDF with it, to close).
+// See doc.h.
+//
+// The worker (worker.h): one piece (a whole page, a sharp piece, or a page's picture for the reader) is drawn at a
+// time, on a thread started for it (RDE's detached threads). The document starts a piece when its worker is not busy
+// and takes it back each frame once drawn. When the document is let go while its piece is still being drawn, the piece
+// is left to the worker to finish and free, and to close the PDF with it.
+//
+// Order of work (fude_doc_next): the pages on screen are drawn whole first, nearest the middle first; once the view
+// has rested for FUDE_DOC_REST seconds, the part of each one on screen is drawn again at the screen's pixels; then the
+// pages within a screen above and below. Which whole pages are kept, and drawn, is the worker's to choose
+// (worker.h: fude_doc_wholes, from what fude_doc_wholes_plan sees of each page): the rest are let go there, and the
+// sharp pieces off screen by fude_doc_let_go.
+//
+// Reading: a few pages each frame are asked whether they have text of their own. Those with none are drawn
+// FUDE_DOC_READ_PX wide and handed to the app's picture reader, one at a time, nearest the view first (or the one a
+// lasso asked for). The lines it answers with are kept in memory and in the .lines file described below.
 // ===========================================================================
 
-#define FUDE_DOC_PILL_TIME 1.2    // the page pill: seconds shown after the view stops
+// The page pill ("3 / 24"): it is shown fully while the view moves and for FUDE_DOC_PILL_TIME seconds after it stops,
+// then fades out over FUDE_DOC_PILL_FADE seconds.
+#define FUDE_DOC_PILL_TIME 1.2    // Seconds the pill stays fully shown after the view stops.
 #define FUDE_DOC_PILL_FADE 0.35
 
-// What a job draws: a page whole, the sharp piece, or a page to read its text.
-typedef enum { FUDE_DOC_JOB_WHOLE = 0, FUDE_DOC_JOB_SHARP, FUDE_DOC_JOB_READ } FUDE_DOC_JOB_;
-
-// The read lines' file (kfile.h): kind 'LINS'; a 'PAGE' chunk for each page read —
-// u32 page, u32 count, then per line f32 x, y, w, h (points from the page's
-// top-left), its text (u16 length, the bytes). A page read with no line has its
-// chunk too: it is not read again.
+// The read lines' file, <name>.lines beside the canvas's own PDF (a kfile.h file): kind 'LINS', then a 'PAGE' chunk
+// for each page read. A chunk holds u32 page, u32 count, then for each line f32 x, y, w, h (its box in points from
+// the page's top-left) and its text (a u16 length, then the bytes, with no 0 at the end). A page read with no lines
+// still has its chunk, so it is not read again.
 #define FUDE_DOC_LINES_VERSION 1u
 #define FUDE_DOC_LINES_KIND    FUDE_TAG('L', 'I', 'N', 'S')
 #define FUDE_DOC_LINES_PAGE    FUDE_TAG('P', 'A', 'G', 'E')
 
-typedef struct fude_doc_job {
-    fude_pdf*  pdf;
-    b8         close_pdf;   // the document was let go: the worker closes the PDF too
-    u32        page;
-    u8         kind;        // FUDE_DOC_JOB_
-    rde_vec_2F from, size;  // the part of the page, in its points
-    u32        w, h;
-    f32        zoom;
-    b8         dark;
-    rde_color  paper, print;
-    rde_arr TYPE(u8) pixels;   // w * h * 4
-    b8         ok;
-    b8         done;        // the worker is through (under the mutex)
-    b8         orphaned;    // the main thread let it go (under the mutex)
-} fude_doc_job;
-
-RDE_INTERNAL rde_mutex fude_doc_mutex = NULL;
-
-// Typed views of its arrays (doc.h).
+// The document's pages and search matches as typed arrays (an rde_arr keeps its memory untyped).
 RDE_INTERNAL fude_doc_page*  fude_doc_pages(const fude_doc* _doc)   { return (fude_doc_page*)_doc->pages.memory; }
 RDE_INTERNAL fude_pdf_match* fude_doc_matches(const fude_doc* _doc) { return (fude_pdf_match*)_doc->matches.memory; }
 
-// --- the worker -----------------------------------------------------------------------------
-
-RDE_INTERNAL void fude_doc_job_free(fude_doc_job* _job) {
-    if(_job->close_pdf) {
-        fude_pdf_close(_job->pdf);
-    }
-    rde_arr_free(&_job->pixels);
-    free(_job);
-}
-
-// A dark theme's page: white paper in the paper colour, black print in the
-// print colour — by how light each pixel is, a little of its own colour kept.
-RDE_INTERNAL void fude_doc_darken(fude_doc_job* _job) {
-    const usize     _n     = (usize)_job->w * (usize)_job->h;
-    u8*             _p     = _job->pixels.memory;
-    const rde_color _paper = _job->paper;
-    const rde_color _print = _job->print;
-    for(usize _i = 0; _i < _n; _i++, _p += 4) {
-        const i32 _l    = ((i32)_p[0] * 77 + (i32)_p[1] * 150 + (i32)_p[2] * 29) >> 8;
-        const i32 _r    = (i32)_print.r + ((i32)_paper.r - (i32)_print.r) * _l / 255 + ((i32)_p[0] - _l) * 3 / 5;
-        const i32 _g    = (i32)_print.g + ((i32)_paper.g - (i32)_print.g) * _l / 255 + ((i32)_p[1] - _l) * 3 / 5;
-        const i32 _b    = (i32)_print.b + ((i32)_paper.b - (i32)_print.b) * _l / 255 + ((i32)_p[2] - _l) * 3 / 5;
-        _p[0]           = (u8)(_r < 0 ? 0 : _r > 255 ? 255 : _r);
-        _p[1]           = (u8)(_g < 0 ? 0 : _g > 255 ? 255 : _g);
-        _p[2]           = (u8)(_b < 0 ? 0 : _b > 255 ? 255 : _b);
-        _p[3]           = 255u;
-    }
-}
-
-// Rows turned over: a memory texture's first row is its bottom (pdf.h's, the top).
-RDE_INTERNAL void fude_doc_flip(fude_doc_job* _job) {
-    const usize _row = (usize)_job->w * 4u;
-    rde_arr     _tmp = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
-    rde_arr_resize(&_tmp, _row);
-    for(u32 _y = 0; _y < _job->h / 2u; _y++) {
-        u8* _a = _job->pixels.memory + (usize)_y * _row;
-        u8* _b = _job->pixels.memory + (usize)(_job->h - 1u - _y) * _row;
-        memcpy(_tmp.memory, _a, _row);
-        memcpy(_a, _b, _row);
-        memcpy(_b, _tmp.memory, _row);
-    }
-    rde_arr_free(&_tmp);
-}
-
-RDE_INTERNAL any fude_doc_work(rde_thread* _thread, any _data) {
-    RDE_UNUSED(_thread);
-    fude_doc_job* _job = (fude_doc_job*)_data;
-    _job->ok = fude_pdf_render(_job->pdf, _job->page, _job->from, _job->size, _job->w, _job->h, _job->pixels.memory);
-    if(_job->ok && _job->kind != FUDE_DOC_JOB_READ) {   // a picture to read stays as drawn: the top row first, its own colours
-        fude_doc_flip(_job);
-        if(_job->dark) {
-            fude_doc_darken(_job);
-        }
-    }
-    rde_mutex_lock(fude_doc_mutex);
-    const b8 _orphaned = _job->orphaned;
-    _job->done         = true;
-    rde_mutex_unlock(fude_doc_mutex);
-    if(_orphaned) {
-        fude_doc_job_free(_job);
-    }
-    return NULL;
-}
-
 // --- opening and letting go -------------------------------------------------------------------
 
-RDE_INTERNAL void fude_doc_tile_free(fude_doc_tile* _tile) {
-    if(_tile->texture != NULL) {
-        rde_memory_texture_destroy(_tile->texture);
-    }
-    memset(_tile, 0, sizeof(*_tile));
-}
-
+// Frees every page's textures, so they are drawn again: the theme or a page's turn changed, or the document closes.
 RDE_INTERNAL void fude_doc_drop_tiles(fude_doc* _doc) {
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
         fude_doc_tile_free(&fude_doc_pages(_doc)[_i].whole);
@@ -139,33 +56,21 @@ RDE_INTERNAL void fude_doc_drop_tiles(fude_doc* _doc) {
     }
 }
 
-// The piece being drawn let go: freed here when it is done, else by the worker
-// (closing the PDF too, when _with_pdf).
-RDE_INTERNAL void fude_doc_drop_job(fude_doc* _doc, b8 _with_pdf) {
-    fude_doc_job* _job = _doc->job;
-    _doc->job          = NULL;
-    if(_job == NULL) {
-        return;
-    }
-    rde_mutex_lock(fude_doc_mutex);
-    const b8 _done = _job->done;
-    if(!_done) {
-        _job->close_pdf = _with_pdf;
-        _job->orphaned  = true;
-    }
-    rde_mutex_unlock(fude_doc_mutex);
-    if(_done) {
-        _job->close_pdf = false;   // the caller closes it
-        fude_doc_job_free(_job);
-    } else if(_with_pdf) {
-        _doc->pdf = NULL;          // the worker's to close now
+// Lets go of the piece being drawn, as the document closes (worker.h: fude_doc_worker_drop). A finished piece is freed;
+// one still being drawn is left to the worker, which closes the PDF once it has finished drawing with it, so the PDF is
+// never closed under it: the document then forgets the PDF.
+RDE_INTERNAL void fude_doc_drop_job(fude_doc* _doc) {
+    if(fude_doc_worker_drop(&_doc->worker)) {
+        _doc->pdf = NULL;   // The worker closes it.
     }
 }
 
+// Closes the open document: stops a search, drops a reading in progress, lets go of the job, the textures and the
+// PDF, and empties the pages and read lines. The arrays themselves are kept for the next document.
 RDE_INTERNAL void fude_doc_close(fude_doc* _doc) {
     fude_doc_search_stop(_doc);
     if(_doc->reading != UINT32_MAX) {
-        _doc->reader_drain = true;   // its answer, when it comes, is no one's
+        _doc->reader_drain = true;   // Nobody wants its answer now; it is dropped when it comes.
     }
     _doc->reading       = UINT32_MAX;
     _doc->wanted        = UINT32_MAX;
@@ -175,7 +80,7 @@ RDE_INTERNAL void fude_doc_close(fude_doc* _doc) {
     if(rde_arr_is_inited(&_doc->lines)) {
         rde_arr_clear(&_doc->lines);
     }
-    fude_doc_drop_job(_doc, true);
+    fude_doc_drop_job(_doc);
     fude_doc_drop_tiles(_doc);
     if(_doc->pdf != NULL) {
         fude_pdf_close(_doc->pdf);
@@ -184,14 +89,18 @@ RDE_INTERNAL void fude_doc_close(fude_doc* _doc) {
     if(rde_arr_is_inited(&_doc->pages)) {
         rde_arr_clear(&_doc->pages);
         rde_arr_clear(&_doc->turned);
+        rde_arr_clear(&_doc->seen);
     }
-    _doc->page_count = 0;
-    _doc->path[0]    = 0;
-    _doc->failed     = false;
+    _doc->page_count  = 0;
+    _doc->path[0]     = 0;
+    _doc->failed      = false;
+    _doc->turns_taken = false;   // The next document takes the canvas's turns afresh.
 }
 
 // --- the read lines' file ---------------------------------------------------------------------
 
+// Writes every page read so far, with its lines, to the .lines file (its format is at the top of this file). Does
+// nothing for a book of the app's, whose lines are not kept.
 RDE_INTERNAL void fude_doc_lines_save(fude_doc* _doc) {
     if(_doc->lines_path[0] == 0) {
         return;
@@ -219,36 +128,25 @@ RDE_INTERNAL void fude_doc_lines_save(fude_doc* _doc) {
             fude_put_f32(&_b, _lines[_i].from.y);
             fude_put_f32(&_b, _lines[_i].size.x);
             fude_put_f32(&_b, _lines[_i].size.y);
-            const u32 _len = (u32)strlen(_lines[_i].text);
+            const u32 _len = (u32)rde_strlen(_lines[_i].text);
             fude_put_u16(&_b, (u16)_len);
             fude_put_data(&_b, _lines[_i].text, _len);
         }
         fude_chunk_end(&_b, _chunk);
     }
     if(!fude_bytes_write_and_free(&_b, _doc->lines_path, NULL)) {
-        rde_log_level(RDE_LOG_LEVEL_WARNING, "fude: the document's read text could not be saved (%s)", _doc->lines_path);
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "document: the document's read text could not be saved (%s)", _doc->lines_path);
     }
 }
 
-// Where its read lines are kept — beside its PDF, when that is the learner's own
-// (in the save folder) — and those read before.
-RDE_INTERNAL void fude_doc_lines_load(fude_doc* _doc) {
-    _doc->lines_path[0] = 0;
-    const c8*   _dir = fude_save_dir();
-    const usize _n   = strlen(_doc->path);
-    if(strncmp(_doc->path, _dir, strlen(_dir)) != 0 || _n < 4u || strcmp(&_doc->path[_n - 4u], ".pdf") != 0) {
-        return;   // a book of the app's: not kept (they have text of their own)
-    }
-    snprintf(_doc->lines_path, sizeof(_doc->lines_path), "%.*s.lines", (i32)(_n - 4u), _doc->path);
-    if(!rde_file_exists(_doc->lines_path)) {
-        return;
-    }
-    u32         _size = 0;
-    u8*         _data = fude_file_read(_doc->lines_path, &_size);
-    fude_reader _r    = fude_reader_make(_data, _size);
-    if(_data == NULL || !fude_read_header(&_r, FUDE_DOC_LINES_VERSION, FUDE_DOC_LINES_KIND)) {
-        fude_file_free(_data);
-        return;
+// fude_save_load's reader for the .lines file (its format is at the top of this file): adds each page's lines to the
+// document and marks the page read. Returns false only when the file is not a .lines file at all (then nothing was
+// added, and the file is set aside and its backup tried); a damaged page further in is skipped.
+RDE_INTERNAL b8 fude_doc_lines_read(const u8* _data, u32 _size, any _user) {
+    fude_doc*   _doc = (fude_doc*)_user;
+    fude_reader _r   = fude_reader_make(_data, _size);
+    if(!fude_read_header(&_r, FUDE_DOC_LINES_VERSION, FUDE_DOC_LINES_KIND)) {
+        return false;
     }
     u32         _tag;
     fude_reader _c;
@@ -272,62 +170,89 @@ RDE_INTERNAL void fude_doc_lines_load(fude_doc* _doc) {
                 break;
             }
             const u32 _keep = _len < FUDE_DOC_LINE_TEXT - 1u ? _len : FUDE_DOC_LINE_TEXT - 1u;
-            memcpy(_line.text, &_c.data[_c.pos], _keep);
+            rde_memcpy(_line.text, &_c.data[_c.pos], _keep);
             _line.text[_keep] = 0;
             _c.pos += _len;
             rde_arr_add(&_doc->lines, &_line);
         }
         fude_doc_pages(_doc)[_page].text = FUDE_DOC_TEXT_READ;
     }
-    fude_file_free(_data);
+    return true;
 }
 
-// The pages one under the other, each as the PDF has it, turned as the canvas says.
+// Decides where the open document's read lines are kept, and loads those read before. They are kept beside the PDF
+// (<name>.lines) only when the PDF is the learner's own, in the save folder. They are read as every saved file is
+// (save.h: the file, else its backup; a damaged one set aside), so a damaged file costs at most the last page read.
+RDE_INTERNAL void fude_doc_lines_load(fude_doc* _doc) {
+    _doc->lines_path[0] = 0;
+    const c8*   _dir = fude_save_dir();
+    const usize _n   = rde_strlen(_doc->path);
+    if(rde_strncmp(_doc->path, _dir, rde_strlen(_dir)) != 0 || _n < 4u || rde_strcmp(&_doc->path[_n - 4u], ".pdf") != 0) {
+        return;   // A book of the app's: its lines are not kept, since its books have text of their own.
+    }
+    rde_snprintf(_doc->lines_path, sizeof(_doc->lines_path), "%.*s.lines", (i32)(_n - 4u), _doc->path);
+    fude_save_load(_doc->lines_path, fude_doc_lines_read, _doc);   // (MISSING: nothing read yet; CORRUPT: read again)
+}
+
+// Lays the pages out one under the other, from canvas y 0 down, FUDE_DOC_PAGE_GAP apart. Each is FUDE_DOC_PAGE_W wide
+// and as tall as its shape in the PDF, turned as the canvas says, makes it.
 RDE_INTERNAL void fude_doc_layout(fude_doc* _doc) {
     f32 _top = 0.0f;
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
         fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
         _p->points        = fude_pdf_page_size(_doc->pdf, _i);
-        _p->size          = (rde_vec_2F){ FUDE_DOC_PAGE_W, FUDE_DOC_PAGE_W * _p->points.y / fmaxf(1.0f, _p->points.x) };
+        _p->size          = (rde_vec_2F){ FUDE_DOC_PAGE_W, FUDE_DOC_PAGE_W * _p->points.y / rde_math_max_f32(1.0f, _p->points.x) };
         _p->top           = _top;
         _top             -= _p->size.y + FUDE_DOC_PAGE_GAP;
     }
 }
 
+// Opens the PDF at _path, lays out its pages and loads the lines read in its pictures before. When it cannot be
+// opened, its path is still kept and failed is set, so it is not tried again each frame.
 RDE_INTERNAL void fude_doc_open(fude_doc* _doc, const c8* _path) {
-    snprintf(_doc->path, sizeof(_doc->path), "%s", _path);
-    _doc->pdf    = fude_pdf_open(_path);
+    rde_snprintf(_doc->path, sizeof(_doc->path), "%s", _path);
+    _doc->pdf = fude_pdf_open(_path);
+    // A PDF with no pages is refused like one that does not open: everything below lays out, draws and scrolls
+    // pages, and counts on there being at least one (the last page's bottom, the page in the middle of the view).
+    if(_doc->pdf != NULL && fude_pdf_page_count(_doc->pdf) == 0u) {
+        fude_pdf_close(_doc->pdf);
+        _doc->pdf = NULL;
+    }
     _doc->failed = _doc->pdf == NULL;
     if(_doc->pdf == NULL) {
-        rde_log_level(RDE_LOG_LEVEL_WARNING, "fude: the document %s could not be opened", _path);
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "document: the document %s could not be opened, or has no pages", _path);
         return;
     }
     _doc->page_count = fude_pdf_page_count(_doc->pdf);
-    rde_arr_resize(&_doc->pages, _doc->page_count);    // all zero: emptied when it was let go
+    rde_arr_resize(&_doc->pages, _doc->page_count);    // All zero: emptied when the last one was let go.
     rde_arr_resize(&_doc->turned, _doc->page_count);
+    rde_arr_resize(&_doc->seen, _doc->page_count);
     fude_doc_layout(_doc);
     _doc->moved_at = rde_engine_get_time_now();
     fude_doc_lines_load(_doc);
 }
 
+// See the header. The first call also makes the mutex that every worker shares (worker.h).
 void fude_doc_init(fude_doc* _doc) {
-    memset(_doc, 0, sizeof(*_doc));
+    rde_memset(_doc, 0, sizeof(*_doc));
     _doc->lines   = rde_arr_new(sizeof(fude_doc_line), rde_memory_allocator_get_default_std());
     _doc->pages   = rde_arr_new(sizeof(fude_doc_page), rde_memory_allocator_get_default_std());
     _doc->turned  = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    _doc->seen    = rde_arr_new(sizeof(fude_doc_seen), rde_memory_allocator_get_default_std());
     _doc->reading = UINT32_MAX;
     _doc->wanted  = UINT32_MAX;
-    if(fude_doc_mutex == NULL) {
-        fude_doc_mutex = rde_mutex_create();
-    }
+    fude_doc_worker_init(&_doc->worker);
 }
 
+// See the header. The arrays of matches and of one page's read lines are made only when first needed, so they are
+// freed only when they were made.
 void fude_doc_destroy(fude_doc* _doc) {
     fude_doc_close(_doc);
-    if(rde_arr_is_inited(&_doc->lines)) {   // made together (fude_doc_init)
+    if(rde_arr_is_inited(&_doc->lines)) {   // These four are made together, in fude_doc_init.
         rde_arr_free(&_doc->lines);
         rde_arr_free(&_doc->pages);
         rde_arr_free(&_doc->turned);
+        rde_arr_free(&_doc->seen);
     }
     if(rde_arr_is_inited(&_doc->matches)) {
         rde_arr_free(&_doc->matches);
@@ -337,212 +262,164 @@ void fude_doc_destroy(fude_doc* _doc) {
     }
 }
 
-b8 fude_doc_path(const fude_app* _app, u32 _canvas, u8 _document, c8* _out, usize _size) {
-    _out[0] = 0;
-    if(_document == 0u) {
-        return false;
-    }
-    if(_document == FUDE_NOTE_DOCUMENT_OWN) {
-        fude_notes_document_path(_canvas, _out, _size);
-        return true;
-    }
-    const fude_extension* _ext = fude_app_ext(_app);
-    for(u32 _i = 0; _i < _ext->library_count; _i++) {
-        if(_ext->library[_i].id == _document) {
-            snprintf(_out, _size, "%s", _ext->library[_i].file);
-            return true;
-        }
-    }
-    return false;
-}
-
 // --- each frame -------------------------------------------------------------------------------
 
-// The canvas in view: [_min, _max] (canvas units).
+// The part of the canvas in view _v on a window _window pixels in size, as the box _min-_max in canvas units.
 RDE_INTERNAL void fude_doc_in_view(fude_view _v, rde_vec_2I _window, rde_vec_2F* _min, rde_vec_2F* _max) {
-    const f32 _z = fmaxf(_v.zoom, 1e-4f);
+    const f32 _z = rde_math_max_f32(_v.zoom, 1e-4f);
     *_min = (rde_vec_2F){ (-(f32)_window.x * 0.5f - _v.offset.x) / _z, (-(f32)_window.y * 0.5f - _v.offset.y) / _z };
     *_max = (rde_vec_2F){ ((f32)_window.x * 0.5f - _v.offset.x) / _z, ((f32)_window.y * 0.5f - _v.offset.y) / _z };
 }
 
+// Whether page _p reaches into the band of canvas y from _y0 up to _y1.
 RDE_INTERNAL b8 fude_doc_page_between(const fude_doc_page* _p, f32 _y0, f32 _y1) {
     return _p->top >= _y0 && _p->top - _p->size.y <= _y1;
 }
 
-// A finished piece onto the GPU (or dropped: it failed); a page to read handed
-// to the app's reader.
-RDE_INTERNAL void fude_doc_take(fude_doc* _doc, fude_app* _app) {
-    fude_doc_job* _job = _doc->job;
-    if(_job == NULL) {
+// Takes the worker's piece once it is drawn (one drawn the old way, the theme changed meanwhile, is thrown away by the
+// worker). A drawn piece goes onto the GPU as its page's whole or sharp tile (a piece that failed to draw is dropped);
+// a page's picture to read is handed to the app's reader.
+RDE_INTERNAL void fude_doc_take(fude_doc* _doc, const fude_doc_place* _at) {
+    fude_doc_piece* _piece = fude_doc_worker_take(&_doc->worker);
+    if(_piece == NULL) {
         return;
     }
-    rde_mutex_lock(fude_doc_mutex);
-    const b8 _done = _job->done;
-    rde_mutex_unlock(fude_doc_mutex);
-    if(!_done) {
-        return;
-    }
-    _doc->job = NULL;
-    if(_job->kind == FUDE_DOC_JOB_READ) {
-        const fude_extension* _ext = fude_app_ext(_app);
-        if(_job->ok && _job->page < _doc->page_count && _ext->picture_read != NULL && _ext->picture_read(_job->pixels.memory, _job->w, _job->h)) {
-            fude_doc_pages(_doc)[_job->page].text = FUDE_DOC_TEXT_READING;
-            _doc->reading                = _job->page;
-            _doc->read_w                 = _job->w;
+    if(_piece->kind == FUDE_DOC_PIECE_READ) {
+        if(_piece->ok && _piece->page < _doc->page_count && _at->picture_read != NULL && _at->picture_read(_piece->pixels.memory, _piece->w, _piece->h)) {
+            fude_doc_pages(_doc)[_piece->page].text = FUDE_DOC_TEXT_READING;
+            _doc->reading                = _piece->page;
+            _doc->read_w                 = _piece->w;
+            _doc->read_h                 = _piece->h;
+        } else if(!_piece->ok && _piece->page < _doc->page_count) {
+            // This page's picture could not be drawn, so it has nothing to read: the reader goes on to the other pages,
+            // and the page is not saved as read (FUDE_DOC_TEXT_FAILED), so the next opening tries it again.
+            fude_doc_pages(_doc)[_piece->page].text = FUDE_DOC_TEXT_FAILED;
         } else {
-            _doc->reader_off = true;   // it cannot now (ML Kit off, not here): not asked again while this one is open
+            // The reader cannot take it now (for example ML Kit, Kana's reader, is off or not on this device), so it
+            // is not asked again while this document is open.
+            _doc->reader_off = true;   // Stop asking the reader for this document.
         }
-    } else if(_job->ok && _job->page < _doc->page_count) {
-        fude_doc_page* _p    = &fude_doc_pages(_doc)[_job->page];
-        fude_doc_tile* _tile = _job->kind == FUDE_DOC_JOB_SHARP ? &_p->sharp : &_p->whole;
-        fude_doc_tile_free(_tile);
-        _tile->texture = rde_memory_texture_create(_job->w, _job->h, 4u, NULL);
-        memcpy(rde_memory_texture_get_pixels(_tile->texture), _job->pixels.memory, (usize)_job->w * (usize)_job->h * 4u);
-        rde_texture_parameters _params = RDE_DEFAULT_TEXTURE_PARAMETERS;
-        _params.wrap_s                 = RDE_TEXTURE_PARAMETER_TYPE_WRAP_CLAMP_TO_EDGE;
-        _params.wrap_t                 = RDE_TEXTURE_PARAMETER_TYPE_WRAP_CLAMP_TO_EDGE;
-        _params.generate_mipmap        = _job->kind == FUDE_DOC_JOB_WHOLE;   // a whole page is seen small too
-        rde_memory_texture_gpu_upload(_tile->texture, &_params);
-        _tile->from = _job->from;
-        _tile->size = _job->size;
-        _tile->zoom = _job->zoom;
+    } else if(_piece->ok && _piece->page < _doc->page_count) {
+        fude_doc_page* _p = &fude_doc_pages(_doc)[_piece->page];
+        fude_doc_tile_take(_piece->kind == FUDE_DOC_PIECE_SHARP ? &_p->sharp : &_p->whole, _piece);
     }
-    _job->close_pdf = false;
-    fude_doc_job_free(_job);
+    fude_doc_piece_free(_piece);
 }
 
+// Starts the worker on a new piece: draw the part of page _page at _from of _size (points) into _w x _h pixels, as a
+// whole page, a sharp piece for _zoom, or a picture to read (_kind, FUDE_DOC_PIECE_).
 RDE_INTERNAL void fude_doc_start(fude_doc* _doc, u32 _page, u8 _kind, rde_vec_2F _from, rde_vec_2F _size, u32 _w, u32 _h, f32 _zoom) {
-    fude_doc_job* _job = (fude_doc_job*)calloc(1, sizeof(fude_doc_job));
-    _job->pdf          = _doc->pdf;
-    _job->page         = _page;
-    _job->kind         = _kind;
-    _job->from         = _from;
-    _job->size         = _size;
-    _job->w            = _w;
-    _job->h            = _h;
-    _job->zoom         = _zoom;
-    _job->dark         = _doc->dark;
-    _job->paper        = _doc->paper;
-    _job->print        = _doc->print;
-    const usize _bytes = (usize)_w * (usize)_h * 4u;
-    _job->pixels       = rde_arr_new_with_capacity(sizeof(u8), _bytes + 1u, rde_memory_allocator_get_default_std());   // + 1: room enough not to grow
-    rde_arr_add_n(&_job->pixels, _bytes);   // drawn over whole: not cleared
-    _doc->job = _job;
-    rde_thread_run_detached(fude_doc_work, _job, NULL);
+    fude_doc_worker_start(&_doc->worker, _doc->pdf, _page, _kind, _from, _size, _w, _h, _zoom);
 }
 
-// The next piece: the pages on screen whole (nearest the middle first); then,
-// the view resting, their sharp pieces; then the pages a screen above and below.
-RDE_INTERNAL void fude_doc_next(fude_doc* _doc, fude_view _v, rde_vec_2I _window, b8 _resting) {
+// Sees each page from view _v on a window _window pixels in size (worker.h: fude_doc_seen: on screen, within a screen
+// above or below, or away; how far its middle is from the screen's; how wide it is on screen, the same for every page)
+// and has fude_doc_wholes choose the whole pages to keep, freeing the others, and the next to draw: the page on screen
+// into *_screen, the near one into *_near (UINT32_MAX: none).
+RDE_INTERNAL void fude_doc_wholes_plan(fude_doc* _doc, fude_view _v, rde_vec_2I _window, u32* _screen, u32* _near) {
     rde_vec_2F _min, _max;
     fude_doc_in_view(_v, _window, &_min, &_max);
-    const f32 _mid  = (_min.y + _max.y) * 0.5f;
-    const f32 _high = _max.y - _min.y;
-
-    i32 _best = -1;
-    f32 _far  = 1e30f;
+    const f32      _mid  = (_min.y + _max.y) * 0.5f;
+    const f32      _high = _max.y - _min.y;
+    const f32      _px   = _v.zoom * FUDE_DOC_PAGE_W * FUDE_DOC_SCALE;   // (every page is FUDE_DOC_PAGE_W wide)
+    fude_doc_seen* _seen = (fude_doc_seen*)_doc->seen.memory;
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
-        const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-        if(_p->whole.texture == NULL && fude_doc_page_between(_p, _min.y, _max.y)) {
-            const f32 _d = fabsf(_p->top - _p->size.y * 0.5f - _mid);
-            if(_d < _far) {
-                _far  = _d;
-                _best = (i32)_i;
-            }
-        }
+        fude_doc_page* _p     = &fude_doc_pages(_doc)[_i];
+        const u8       _where = fude_doc_page_between(_p, _min.y, _max.y) ? FUDE_DOC_ON_SCREEN :
+                                fude_doc_page_between(_p, _min.y - _high, _max.y + _high) ? FUDE_DOC_NEAR : FUDE_DOC_AWAY;
+        _seen[_i] = (fude_doc_seen){ &_p->whole, _p->points, rde_math_abs_f32(_p->top - _p->size.y * 0.5f - _mid), _px, _i, _where };
     }
-    if(_best >= 0) {
-        const fude_doc_page* _p = &fude_doc_pages(_doc)[_best];
-        const u32            _h = (u32)fmaxf(1.0f, (f32)FUDE_DOC_WHOLE_PX * _p->points.y / fmaxf(1.0f, _p->points.x));
-        fude_doc_start(_doc, (u32)_best, FUDE_DOC_JOB_WHOLE, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_DOC_WHOLE_PX, _h, 0.0f);
+    fude_doc_wholes(_seen, _doc->page_count, _screen, _near);
+}
+
+// Starts drawing page _page whole, at its size on screen in view _v (worker.h: fude_doc_whole_size); its tile keeps the
+// width level it was drawn for.
+RDE_INTERNAL void fude_doc_start_whole(fude_doc* _doc, u32 _page, fude_view _v) {
+    const fude_doc_page* _p = &fude_doc_pages(_doc)[_page];
+    u32                  _level, _w, _h;
+    fude_doc_whole_size(_p->points, _v.zoom * FUDE_DOC_PAGE_W * FUDE_DOC_SCALE, &_level, &_w, &_h);
+    fude_doc_start(_doc, _page, FUDE_DOC_PIECE_WHOLE, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, _w, _h, (f32)_level);
+}
+
+// Starts drawing the next piece, by need: the page on screen to draw whole (_screen, nearest the middle first, as
+// fude_doc_wholes chose it); then, once the view rests (_resting), the pages' sharp pieces; then the page within a
+// screen above or below to draw whole (_near), so scrolling finds them drawn.
+RDE_INTERNAL void fude_doc_next(fude_doc* _doc, fude_view _v, rde_vec_2I _window, b8 _resting, u32 _screen, u32 _near) {
+    if(_screen != UINT32_MAX) {
+        fude_doc_start_whole(_doc, _screen, _v);
         return;
     }
-
-    // Sharp: where the screen has more pixels for a page than its whole picture.
-    if(_resting && _v.zoom * FUDE_DOC_PAGE_W * FUDE_DOC_SCALE > (f32)FUDE_DOC_WHOLE_PX * 1.15f) {
-        for(u32 _i = 0; _i < _doc->page_count; _i++) {
-            const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-            if(!fude_doc_page_between(_p, _min.y, _max.y)) {
-                continue;
-            }
-            // The page on screen (canvas units), and that in its points.
-            const f32 _x0 = fmaxf(-_p->size.x * 0.5f, _min.x), _x1 = fminf(_p->size.x * 0.5f, _max.x);
-            const f32 _y0 = fmaxf(_p->top - _p->size.y, _min.y), _y1 = fminf(_p->top, _max.y);
-            if(_x1 - _x0 < 1.0f || _y1 - _y0 < 1.0f) {
-                continue;
-            }
-            const f32        _k    = _p->points.x / _p->size.x;
-            const rde_vec_2F _from = { (_x0 + _p->size.x * 0.5f) * _k, (_p->top - _y1) * _k };
-            const rde_vec_2F _size = { (_x1 - _x0) * _k, (_y1 - _y0) * _k };
-            const fude_doc_tile* _s = &_p->sharp;
-            if(_s->texture != NULL && fabsf(_s->zoom - _v.zoom) <= _v.zoom * 0.02f && _s->from.x <= _from.x + 0.5f && _s->from.y <= _from.y + 0.5f &&
-               _s->from.x + _s->size.x >= _from.x + _size.x - 0.5f && _s->from.y + _s->size.y >= _from.y + _size.y - 0.5f) {
-                continue;   // it has this one already
-            }
-            f32 _w = (_x1 - _x0) * _v.zoom * FUDE_DOC_SCALE;
-            f32 _h = (_y1 - _y0) * _v.zoom * FUDE_DOC_SCALE;
-            const f32 _over = fmaxf(_w, _h) / (f32)FUDE_DOC_SHARP_MAX;
-            if(_over > 1.0f) {
-                _w /= _over;
-                _h /= _over;
-            }
-            if(_w < 8.0f || _h < 8.0f) {
-                continue;
-            }
-            fude_doc_start(_doc, _i, FUDE_DOC_JOB_SHARP, _from, _size, (u32)_w, (u32)_h, _v.zoom);
-            return;
-        }
-    }
-
-    // Ahead: a screen above and below.
-    for(u32 _i = 0; _i < _doc->page_count; _i++) {
+    rde_vec_2F _min, _max;
+    fude_doc_in_view(_v, _window, &_min, &_max);
+    const f32 _px = _v.zoom * FUDE_DOC_PAGE_W * FUDE_DOC_SCALE;
+    for(u32 _i = 0; _resting && _i < _doc->page_count; _i++) {
         const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-        if(_p->whole.texture == NULL && fude_doc_page_between(_p, _min.y - _high, _max.y + _high)) {
-            const u32 _h = (u32)fmaxf(1.0f, (f32)FUDE_DOC_WHOLE_PX * _p->points.y / fmaxf(1.0f, _p->points.x));
-            fude_doc_start(_doc, _i, FUDE_DOC_JOB_WHOLE, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_DOC_WHOLE_PX, _h, 0.0f);
-            return;
+        if(!fude_doc_page_between(_p, _min.y, _max.y)) {
+            continue;
         }
+        // A sharp piece is needed only where the screen gives a page more pixels than its whole picture has (over 15%
+        // more, so a small zoom does not draw it again).
+        u32 _level, _whole_w, _whole_h;
+        fude_doc_whole_size(_p->points, _px, &_level, &_whole_w, &_whole_h);
+        if(_px <= (f32)_whole_w * 1.15f) {
+            continue;
+        }
+        // The part of the page on screen, in canvas units, and then the same in the page's points.
+        const f32 _x0 = rde_math_max_f32(-_p->size.x * 0.5f, _min.x), _x1 = rde_math_min_f32(_p->size.x * 0.5f, _max.x);
+        const f32 _y0 = rde_math_max_f32(_p->top - _p->size.y, _min.y), _y1 = rde_math_min_f32(_p->top, _max.y);
+        if(_x1 - _x0 < 1.0f || _y1 - _y0 < 1.0f) {
+            continue;
+        }
+        const f32        _k    = _p->points.x / _p->size.x;
+        const rde_vec_2F _from = { (_x0 + _p->size.x * 0.5f) * _k, (_p->top - _y1) * _k };
+        const rde_vec_2F _size = { (_x1 - _x0) * _k, (_y1 - _y0) * _k };
+        const fude_doc_tile* _s = &_p->sharp;
+        if(_s->texture != NULL && rde_math_abs_f32(_s->zoom - _v.zoom) <= _v.zoom * 0.02f && _s->from.x <= _from.x + 0.5f && _s->from.y <= _from.y + 0.5f &&
+           _s->from.x + _s->size.x >= _from.x + _size.x - 0.5f && _s->from.y + _s->size.y >= _from.y + _size.y - 0.5f) {
+            continue;   // Its sharp piece already covers this part, at this zoom (within 2%).
+        }
+        // Its size in pixels, shrunk to fit FUDE_DOC_SHARP_MAX; a sliver under 8 pixels is not worth drawing.
+        f32 _w = (_x1 - _x0) * _v.zoom * FUDE_DOC_SCALE;
+        f32 _h = (_y1 - _y0) * _v.zoom * FUDE_DOC_SCALE;
+        const f32 _over = rde_math_max_f32(_w, _h) / (f32)FUDE_DOC_SHARP_MAX;
+        if(_over > 1.0f) {
+            _w /= _over;
+            _h /= _over;
+        }
+        if(_w < 8.0f || _h < 8.0f) {
+            continue;
+        }
+        fude_doc_start(_doc, _i, FUDE_DOC_PIECE_SHARP, _from, _size, (u32)_w, (u32)_h, _v.zoom);
+        return;
+    }
+    if(_near != UINT32_MAX) {
+        fude_doc_start_whole(_doc, _near, _v);
     }
 }
 
-// What is far from the view let go: sharp pieces off screen; whole pages beyond
-// the FUDE_DOC_KEEP nearest.
+// Frees the sharp pieces of the pages off screen. (The whole pages far from the view are let go by
+// fude_doc_wholes_plan.)
 RDE_INTERNAL void fude_doc_let_go(fude_doc* _doc, fude_view _v, rde_vec_2I _window) {
     rde_vec_2F _min, _max;
     fude_doc_in_view(_v, _window, &_min, &_max);
-    const f32 _mid  = (_min.y + _max.y) * 0.5f;
-    u32       _kept = 0;
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
         fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
         if(!fude_doc_page_between(_p, _min.y, _max.y)) {
             fude_doc_tile_free(&_p->sharp);
         }
-        _kept += _p->whole.texture != NULL ? 1u : 0u;
-    }
-    while(_kept > FUDE_DOC_KEEP) {
-        i32 _farthest = -1;
-        f32 _far      = -1.0f;
-        for(u32 _i = 0; _i < _doc->page_count; _i++) {
-            const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-            const f32            _d = fabsf(_p->top - _p->size.y * 0.5f - _mid);
-            if(_p->whole.texture != NULL && _d > _far) {
-                _far      = _d;
-                _farthest = (i32)_i;
-            }
-        }
-        if(_farthest < 0) {
-            break;
-        }
-        fude_doc_tile_free(&fude_doc_pages(_doc)[_farthest].whole);
-        _kept--;
     }
 }
 
 // --- reading pages without text of their own ---------------------------------------------
 
-// A few pages asked whether they have text of their own (PDFKit): those with
-// none are to be read.
+// Asks the next four pages whether they have text of their own (pdf.h: PDFKit on Apple's, PDFBox on Android), and
+// marks those with none to be read. Only a few are asked each frame, so a long document does not stall one frame, and
+// none before the PDF's text is ready (fude_pdf_text_prepare: Android's PDFBox opens it on a thread of its own), so
+// the first question never waits for the opening.
 RDE_INTERNAL void fude_doc_probe(fude_doc* _doc) {
+    if(_doc->probe >= _doc->page_count || !fude_pdf_text_prepare(_doc->pdf)) {
+        return;
+    }
     for(u32 _k = 0; _k < 4u && _doc->probe < _doc->page_count; _k++, _doc->probe++) {
         fude_doc_page* _p = &fude_doc_pages(_doc)[_doc->probe];
         if(_p->text == FUDE_DOC_TEXT_UNKNOWN) {
@@ -551,64 +428,68 @@ RDE_INTERNAL void fude_doc_probe(fude_doc* _doc) {
     }
 }
 
-// The next page to read: the one wanted (a lasso's), else the nearest the view.
+// Starts drawing the next page to read: the one a lasso asked for (wanted), else the page waiting to be read that is
+// nearest the middle of the view. Its picture is FUDE_DOC_READ_PX wide and at most FUDE_DOC_READ_MAX_H pixels tall.
 RDE_INTERNAL void fude_doc_read_next(fude_doc* _doc, fude_view _v) {
     i32       _best = -1;
     f32       _far  = 1e30f;
-    const f32 _mid  = -_v.offset.y / fmaxf(_v.zoom, 1e-4f);
+    const f32 _mid  = -_v.offset.y / rde_math_max_f32(_v.zoom, 1e-4f);
     if(_doc->wanted < _doc->page_count && fude_doc_pages(_doc)[_doc->wanted].text == FUDE_DOC_TEXT_TO_READ) {
         _best = (i32)_doc->wanted;
     }
     for(u32 _i = 0; _best < 0 && _i < _doc->page_count; _i++) {
         const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-        const f32            _d = fabsf(_p->top - _p->size.y * 0.5f - _mid);
+        const f32            _d = rde_math_abs_f32(_p->top - _p->size.y * 0.5f - _mid);
         if(_p->text == FUDE_DOC_TEXT_TO_READ && _d < _far) {
             _far  = _d;
             _best = (i32)_i;
         }
     }
-    for(u32 _i = 0; _best >= 0 && _i < 1u; _i++) {
+    if(_best >= 0) {
         const fude_doc_page* _p = &fude_doc_pages(_doc)[_best];
-        const u32            _h = (u32)fminf(2400.0f, fmaxf(1.0f, (f32)FUDE_DOC_READ_PX * _p->points.y / fmaxf(1.0f, _p->points.x)));
-        fude_doc_start(_doc, (u32)_best, FUDE_DOC_JOB_READ, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_DOC_READ_PX, _h, 0.0f);
+        const u32            _h = (u32)rde_math_min_f32((f32)FUDE_DOC_READ_MAX_H, rde_math_max_f32(1.0f, (f32)FUDE_DOC_READ_PX * _p->points.y / rde_math_max_f32(1.0f, _p->points.x)));
+        fude_doc_start(_doc, (u32)_best, FUDE_DOC_PIECE_READ, (rde_vec_2F){ 0.0f, 0.0f }, _p->points, FUDE_DOC_READ_PX, _h, 0.0f);
     }
 }
 
-// The reader's answer for the page being read: its lines kept (in the page's
-// points), the page read; kept on disk at once.
-RDE_INTERNAL void fude_doc_read_take(fude_doc* _doc, fude_app* _app) {
-    const fude_extension* _ext = fude_app_ext(_app);
-    if(_ext->picture_lines == NULL) {
+// Takes the reader's answer for the page being read, once it has come: its lines are turned from the picture's
+// pixels into the page's points and kept, the page is marked read, and the lines file is saved at once. An answer no
+// longer wanted (reader_drain) is taken and dropped.
+RDE_INTERNAL void fude_doc_read_take(fude_doc* _doc, const fude_doc_place* _at) {
+    if(_at->picture_lines == NULL) {
         return;
     }
     if(!rde_arr_is_inited(&_doc->read_lines)) {
         _doc->read_lines = rde_arr_new(sizeof(fude_doc_line), rde_memory_allocator_get_default_std());
-        rde_arr_resize(&_doc->read_lines, FUDE_DOC_READ_MAX);
     }
-    fude_doc_line* _read  = (fude_doc_line*)_doc->read_lines.memory;
-    u32            _count = 0;
+    rde_arr_clear(&_doc->read_lines);
     if(_doc->reader_drain) {
-        if(_ext->picture_lines(_read, FUDE_DOC_READ_MAX, &_count)) {
-            _doc->reader_drain = false;   // a document let go: dropped
+        if(_at->picture_lines(&_doc->read_lines)) {
+            _doc->reader_drain = false;   // It was for a document let go, or a page turned since: dropped.
         }
         return;
     }
-    if(_doc->reading == UINT32_MAX || !_ext->picture_lines(_read, FUDE_DOC_READ_MAX, &_count)) {
+    if(_doc->reading == UINT32_MAX || !_at->picture_lines(&_doc->read_lines)) {
         return;
     }
-    const u32            _page = _doc->reading;
-    const fude_doc_page* _p    = &fude_doc_pages(_doc)[_page];
-    const f32            _k    = _p->points.x / (f32)(_doc->read_w > 0u ? _doc->read_w : 1u);   // pixels to points
-    for(u32 _i = 0; _i < _count && _i < FUDE_DOC_READ_MAX; _i++) {
+    const u32            _page  = _doc->reading;
+    const fude_doc_page* _p     = &fude_doc_pages(_doc)[_page];
+    // Points per pixel, across and down: a page much taller than it is wide was drawn squeezed down to
+    // FUDE_DOC_READ_MAX_H, so its two scales differ.
+    const f32            _kx    = _p->points.x / (f32)(_doc->read_w > 0u ? _doc->read_w : 1u);
+    const f32            _ky    = _p->points.y / (f32)(_doc->read_h > 0u ? _doc->read_h : 1u);
+    const fude_doc_line* _read  = (const fude_doc_line*)_doc->read_lines.memory;
+    const u32            _count = (u32)rde_arr_length(&_doc->read_lines);
+    for(u32 _i = 0; _i < _count; _i++) {
         fude_doc_line _line = _read[_i];
         if(_line.text[0] == 0) {
             continue;
         }
         _line.page   = _page;
-        _line.from.x *= _k;
-        _line.from.y *= _k;
-        _line.size.x *= _k;
-        _line.size.y *= _k;
+        _line.from.x *= _kx;
+        _line.from.y *= _ky;
+        _line.size.x *= _kx;
+        _line.size.y *= _ky;
         rde_arr_add(&_doc->lines, &_line);
     }
     fude_doc_pages(_doc)[_page].text = FUDE_DOC_TEXT_READ;
@@ -617,9 +498,10 @@ RDE_INTERNAL void fude_doc_read_take(fude_doc* _doc, fude_app* _app) {
     fude_doc_lines_save(_doc);
 }
 
-// Are pages still to be read (by a reader that can)?
-RDE_INTERNAL b8 fude_doc_reading_left(const fude_doc* _doc, const fude_app* _app) {
-    if(_doc->reader_off || fude_app_ext(_app)->picture_read == NULL) {
+// Whether pages are still to be read (or not yet asked whether they have text), with a reader there that can read
+// them. A search is not done until they are, since their text may match too.
+RDE_INTERNAL b8 fude_doc_reading_left(const fude_doc* _doc, const fude_doc_place* _at) {
+    if(_doc->reader_off || _at->picture_read == NULL) {
         return false;
     }
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
@@ -631,32 +513,7 @@ RDE_INTERNAL b8 fude_doc_reading_left(const fude_doc* _doc, const fude_app* _app
     return false;
 }
 
-// _hay's code points, as a lower-case ASCII search sees them: _needle's next
-// place from byte _from (-1: none).
-RDE_INTERNAL i32 fude_doc_find_in(const c8* _hay, const c8* _needle, usize _from) {
-    const usize _n = strlen(_needle);
-    if(_n == 0u) {
-        return -1;
-    }
-    for(usize _i = _from; _hay[_i] != 0; _i++) {
-        usize _k = 0;
-        while(_k < _n && _hay[_i + _k] != 0) {
-            c8 _a = _hay[_i + _k], _b = _needle[_k];
-            _a = (_a >= 'A' && _a <= 'Z') ? (c8)(_a - 'A' + 'a') : _a;
-            _b = (_b >= 'A' && _b <= 'Z') ? (c8)(_b - 'A' + 'a') : _b;
-            if(_a != _b) {
-                break;
-            }
-            _k++;
-        }
-        if(_k == _n) {
-            return (i32)_i;
-        }
-    }
-    return -1;
-}
-
-// Code points in _s's first _bytes bytes.
+// Counts the characters (UTF-8 code points) in the first _bytes bytes of _s, stopping at its end.
 RDE_INTERNAL u32 fude_doc_chars(const c8* _s, usize _bytes) {
     u32 _n = 0;
     for(usize _i = 0; _i < _bytes && _s[_i] != 0; _i++) {
@@ -665,17 +522,20 @@ RDE_INTERNAL u32 fude_doc_chars(const c8* _s, usize _bytes) {
     return _n;
 }
 
-// The search's matches in the read lines, after the PDF's own: each as the part
-// of its line its characters take (the line's width shared out evenly).
+// Adds the search's matches in the read lines after the PDF's own, up to FUDE_PDF_MATCHES in all. They are compared as
+// the PDF's own search compares (fude_utf8_find: case, accents and full-width forms alike), and each is found after the
+// one before, as the PDF's are. A read line has a box but no place for each character, so a match's box is the part
+// of the line's width its characters take, as if every character were the same width.
 RDE_INTERNAL void fude_doc_search_lines(fude_doc* _doc) {
     const fude_doc_line* _lines = (const fude_doc_line*)_doc->lines.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_doc->lines) && _doc->match_count < FUDE_PDF_MATCHES; _i++) {
         const fude_doc_line* _l     = &_lines[_i];
-        const u32            _total = fude_doc_chars(_l->text, strlen(_l->text));
-        for(i32 _at = fude_doc_find_in(_l->text, _doc->query, 0u); _at >= 0 && _doc->match_count < FUDE_PDF_MATCHES;
-            _at = fude_doc_find_in(_l->text, _doc->query, (usize)_at + 1u)) {
+        const u32            _total = fude_doc_chars(_l->text, rde_strlen(_l->text));
+        usize                _end   = 0;
+        for(i32 _at = fude_utf8_find(_l->text, _doc->query, 0u, &_end); _at >= 0 && _doc->match_count < FUDE_PDF_MATCHES;
+            _at = fude_utf8_find(_l->text, _doc->query, _end, &_end)) {
             const u32 _before = fude_doc_chars(_l->text, (usize)_at);
-            const u32 _len    = fude_doc_chars(&_l->text[_at], strlen(_doc->query));
+            const u32 _len    = fude_doc_chars(&_l->text[_at], _end - (usize)_at);
             const f32 _each   = _l->size.x / (f32)(_total > 0u ? _total : 1u);
             fude_pdf_match* _m = &fude_doc_matches(_doc)[_doc->match_count++];
             _m->page = _l->page;
@@ -685,92 +545,98 @@ RDE_INTERNAL void fude_doc_search_lines(fude_doc* _doc) {
     }
 }
 
-void fude_doc_update(fude_doc* _doc, fude_app* _app) {
-    _doc->frame++;
+// See the header. The steps below run in this order each frame. A step that changes how the pages look (a page
+// turned, the theme changed) drops their textures and the piece being drawn, so they are drawn again.
+void fude_doc_update(fude_doc* _doc, const fude_doc_place* _at) {
     if(_doc->reader_drain) {
-        fude_doc_read_take(_doc, _app);   // a reading of a document let go: dropped when it comes
+        fude_doc_read_take(_doc, _at);   // A reading for a document let go is dropped when it comes.
     }
-    // The open canvas's document: another one, this one opened.
-    const fude_note* _note = fude_notes_find(_app->notes, _app->notes->open);
-    c8               _want[RDE_MAX_PATH];
-    if(_note == NULL || _note->kind != FUDE_NOTE_CANVAS || !fude_doc_path(_app, _note->id, _note->document, _want, sizeof(_want))) {
-        _want[0] = 0;
-    }
-    if(strcmp(_want, _doc->path) != 0) {
+    // When the open canvas names another document, the one open is closed and the new one opened.
+    if(rde_strcmp(_at->path, _doc->path) != 0) {
         fude_doc_close(_doc);
-        if(_want[0] != 0) {
-            fude_doc_open(_doc, _want);
+        if(_at->path[0] != 0) {
+            fude_doc_open(_doc, _at->path);
         }
     }
     if(_doc->pdf == NULL) {
-        fude_canvas_set_reader(_app->canvas, false, 0.0f, 0.0f);
+        fude_canvas_set_reader(_at->canvas, false, 0.0f, 0.0f);
         return;
     }
-    // Pages without text of their own read, one at a time (when the app reads pictures).
-    _doc->reader_off = _doc->reader_off || fude_app_ext(_app)->picture_read == NULL;   // an app that reads no pictures
+    // Pages without text of their own are read one at a time, when the app reads pictures.
+    _doc->reader_off = _doc->reader_off || _at->picture_read == NULL;   // An app that reads no pictures.
     if(!_doc->reader_off) {
         fude_doc_probe(_doc);
-        fude_doc_read_take(_doc, _app);
+        fude_doc_read_take(_doc, _at);
     }
-    // A search's matches, as they come — the PDF's own, then the read pages' —
-    // the first one shown.
+    // A search's matches are gathered again each frame as they come in, the PDF's own first, then those in the read
+    // pages; the first one is shown as soon as it comes.
     if(_doc->searching) {
         b8        _done  = false;
         const u32 _had   = _doc->match_count;
         _doc->match_count = fude_pdf_find_matches(_doc->pdf, fude_doc_matches(_doc), FUDE_PDF_MATCHES, &_done);
         fude_doc_search_lines(_doc);
-        _doc->search_done = _done && !fude_doc_reading_left(_doc, _app);
+        _doc->search_done = _done && !fude_doc_reading_left(_doc, _at);
         if(_had == 0u && _doc->match_count > 0u) {
             _doc->match_at = 0u;
-            fude_doc_search_step(_doc, _app->canvas, 0);
+            fude_doc_search_step(_doc, _at->canvas, 0);
         }
     }
-    // The pages turned as the canvas says (its page: canvas.h): laid out again,
-    // drawn again.
-    b8 _turns_changed = false;
-    u8* _turned = (u8*)_doc->turned.memory;
-    for(u32 _i = 0; _i < _doc->page_count; _i++) {
-        const u8 _q = fude_page_turned(&_app->canvas->page, _i);
-        if(_q != _turned[_i]) {
-            _turned[_i] = _q;
-            fude_pdf_set_turn(_doc->pdf, _i, _q);
-            _turns_changed = true;
+    // When the canvas's turns (its page, canvas.h) have moved on since the document took them, or it has just
+    // opened, each page's turn is looked at again. A page whose turn changed is told to the PDF, and the pages are laid
+    // out and drawn again. A search is stopped, since its matches were placed on the pages as they were. A PDF must
+    // not be drawn while it turns (pdf.h), so a turn waits for the piece being drawn (a frame or two), and no new piece
+    // is started meanwhile: the turn cannot be put off for good by one piece after another.
+    // A piece still being drawn while a turn waits shows the pages as they were: it is thrown away when taken (a page's
+    // picture for the reader would be read the old way round, and its lines placed on the turned page).
+    u8* _turned       = (u8*)_doc->turned.memory;
+    b8  _turn_waiting = !_doc->turns_taken || _doc->turns_seen != _at->canvas->page.revision;
+    if(_turn_waiting && fude_doc_worker_busy(&_doc->worker)) {
+        fude_doc_worker_forget(&_doc->worker);
+    }
+    if(_turn_waiting && !fude_doc_worker_busy(&_doc->worker)) {
+        b8 _changed = false;
+        for(u32 _i = 0; _i < _doc->page_count; _i++) {
+            const u8 _q = fude_page_turned(&_at->canvas->page, _i);
+            if(_q != _turned[_i]) {
+                _turned[_i] = _q;
+                fude_pdf_set_turn(_doc->pdf, _i, _q);
+                _changed = true;
+            }
         }
+        _doc->turns_seen  = _at->canvas->page.revision;
+        _doc->turns_taken = true;
+        if(_changed) {
+            fude_doc_drop_tiles(_doc);
+            fude_doc_layout(_doc);
+            fude_doc_search_stop(_doc);
+        }
+        _turn_waiting = false;
     }
-    if(_turns_changed) {
-        fude_doc_drop_job(_doc, false);   // nothing of a page being drawn as it was (the worker keeps the PDF)
-        fude_doc_drop_tiles(_doc);
-        fude_doc_layout(_doc);
-        fude_doc_search_stop(_doc);
-    }
-    // The view a reader's (canvas.h): kept on the pages.
+    // The canvas's view is a reader's (canvas.h): kept on the pages, from the first page's top to the last's bottom.
     const fude_doc_page* _last = &fude_doc_pages(_doc)[_doc->page_count - 1u];
-    fude_canvas_set_reader(_app->canvas, true, FUDE_DOC_PAGE_W, _last->top - _last->size.y);
-    // A dark theme: the pages in its colours (drawn again when it changes).
-    const fude_theme* _t     = fude_theme_active();
-    const b8          _dark  = 0.299f * (f32)_t->page.r + 0.587f * (f32)_t->page.g + 0.114f * (f32)_t->page.b < 128.0f;
-    const rde_color   _paper = _dark ? fude_kit_shade(_t->page, 10) : (rde_color){ 255, 255, 255, 255 };
-    if(_dark != _doc->dark || memcmp(&_paper, &_doc->paper, sizeof(_paper)) != 0 || memcmp(&_t->text, &_doc->print, sizeof(_t->text)) != 0) {
-        fude_doc_drop_job(_doc, false);
+    fude_canvas_set_reader(_at->canvas, true, FUDE_DOC_PAGE_W, _last->top - _last->size.y);
+    // In a dark theme the pages are drawn in its colours (worker.h: fude_doc_worker_colours). When those change, the
+    // pages are drawn again, and the piece being drawn in the old ones is thrown away when done.
+    if(fude_doc_worker_colours(&_doc->worker)) {
         fude_doc_drop_tiles(_doc);
-        _doc->dark  = _dark;
-        _doc->paper = _paper;
-        _doc->print = _t->text;
     }
-    // The view resting, or moving.
-    const fude_view _v   = _app->canvas->view;
+    // Note when the view last moved, to tell when it has come to rest (FUDE_DOC_REST) and how long to show the pill.
+    const fude_view _v   = _at->canvas->view;
     const f64       _now = rde_engine_get_time_now();
     if(_v.zoom != _doc->seen_view.zoom || _v.offset.x != _doc->seen_view.offset.x || _v.offset.y != _doc->seen_view.offset.y) {
         _doc->seen_view = _v;
         _doc->moved_at  = _now;
     }
-    const rde_vec_2I _window = rde_window_get_size(_app->window);
-    fude_doc_take(_doc, _app);
-    if(_doc->job == NULL) {
-        fude_doc_next(_doc, _v, _window, _now - _doc->moved_at >= FUDE_DOC_REST);
+    // The whole pages to keep and to draw are chosen each frame, so those no longer kept are let go at once.
+    const rde_vec_2I _window = rde_window_get_size(_at->window);
+    fude_doc_take(_doc, _at);
+    u32 _screen, _near;
+    fude_doc_wholes_plan(_doc, _v, _window, &_screen, &_near);
+    if(!fude_doc_worker_busy(&_doc->worker) && !_turn_waiting) {
+        fude_doc_next(_doc, _v, _window, _now - _doc->moved_at >= FUDE_DOC_REST, _screen, _near);
     }
-    // Nothing to draw: a page to read (one at a time).
-    if(_doc->job == NULL && _doc->reading == UINT32_MAX && !_doc->reader_drain && !_doc->reader_off && fude_app_ext(_app)->picture_read != NULL) {
+    // When there is nothing to draw, a page's picture is drawn for the reader, one page at a time.
+    if(!fude_doc_worker_busy(&_doc->worker) && !_turn_waiting && _doc->reading == UINT32_MAX && !_doc->reader_drain && !_doc->reader_off && _at->picture_read != NULL) {
         fude_doc_read_next(_doc, _v);
     }
     fude_doc_let_go(_doc, _v, _window);
@@ -778,12 +644,12 @@ void fude_doc_update(fude_doc* _doc, fude_app* _app) {
 
 // --- drawing ----------------------------------------------------------------------------------
 
-// A tile over its part of page _p, on screen.
+// Draws a tile over its part of page _p, on screen in view _v (nothing when it is not drawn yet).
 RDE_INTERNAL void fude_doc_draw_tile(const fude_doc_page* _p, const fude_doc_tile* _tile, fude_view _v) {
     if(_tile->texture == NULL) {
         return;
     }
-    const f32        _k      = _p->size.x / fmaxf(1.0f, _p->points.x);   // canvas units to a point
+    const f32        _k      = _p->size.x / rde_math_max_f32(1.0f, _p->points.x);   // Canvas units per point.
     const rde_vec_2F _c      = { -_p->size.x * 0.5f + (_tile->from.x + _tile->size.x * 0.5f) * _k, _p->top - (_tile->from.y + _tile->size.y * 0.5f) * _k };
     const rde_vec_2F _screen = { _tile->size.x * _k * _v.zoom, _tile->size.y * _k * _v.zoom };
     const rde_texture* _tex  = rde_memory_texture_get_texture(_tile->texture);
@@ -792,6 +658,7 @@ RDE_INTERNAL void fude_doc_draw_tile(const fude_doc_page* _p, const fude_doc_til
                                     (rde_vec_2F){ _screen.x / (f32)_px.x, _screen.y / (f32)_px.y }, 0.0f, (rde_color){ 255, 255, 255, 255 });
 }
 
+// See the header. A page not drawn yet shows as blank paper; its whole picture and then its sharp piece go over it.
 void fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _window) {
     if(_doc->pdf == NULL) {
         return;
@@ -805,22 +672,23 @@ void fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _wi
         if(!fude_doc_page_between(_p, _min.y, _max.y)) {
             continue;
         }
-        // The sheet (blank until it is drawn), its edge, then the pictures.
+        // Its edge (a rectangle 3 units larger, in the outline colour), the sheet (blank until the page is drawn),
+        // then the pictures.
         const rde_vec_2F _c    = { _v.offset.x, (_p->top - _p->size.y * 0.5f) * _v.zoom + _v.offset.y };
         const rde_vec_2F _size = { _p->size.x * _v.zoom, _p->size.y * _v.zoom };
         rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(_c.x), _c.y - 1.5f }, (rde_vec_2F){ _size.x + 3.0f, _size.y + 3.0f }, _t->outline);
-        rde_rendering_2d_draw_rectangle(fude_draw_at(_c), _size, _doc->paper);
+        rde_rendering_2d_draw_rectangle(fude_draw_at(_c), _size, _doc->worker.paper);
         fude_doc_draw_tile(_p, &_p->whole, _v);
         fude_doc_draw_tile(_p, &_p->sharp, _v);
     }
-    // A search's matches, marked; the one shown more strongly, outlined.
+    // A search's matches are marked in the accent colour; the one shown is marked more strongly and outlined.
     for(u32 _m = 0; _doc->searching && _m < _doc->match_count; _m++) {
         const fude_pdf_match* _match = &fude_doc_matches(_doc)[_m];
         if(_match->page >= _doc->page_count || !fude_doc_page_between(&fude_doc_pages(_doc)[_match->page], _min.y, _max.y)) {
             continue;
         }
         const fude_doc_page* _p = &fude_doc_pages(_doc)[_match->page];
-        const f32            _k = _p->size.x / fmaxf(1.0f, _p->points.x) * _v.zoom;   // points to screen units
+        const f32            _k = _p->size.x / rde_math_max_f32(1.0f, _p->points.x) * _v.zoom;   // Screen units/point.
         const rde_vec_2F     _c = { (-_p->size.x * 0.5f) * _v.zoom + _v.offset.x + (_match->from.x + _match->size.x * 0.5f) * _k,
                                     _p->top * _v.zoom + _v.offset.y - (_match->from.y + _match->size.y * 0.5f) * _k };
         const rde_vec_2F     _s = { _match->size.x * _k + 4.0f, _match->size.y * _k + 4.0f };
@@ -835,13 +703,14 @@ void fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _wi
 
 // --- reading its text, searching it, going to a page --------------------------------------------
 
+// The number of pages, 0 when no document is open.
 u32 fude_doc_page_count(const fude_doc* _doc) {
     return _doc->pdf != NULL ? _doc->page_count : 0u;
 }
 
-// A read page's text inside the box (points from its top-left: _a-_b): each
-// line it crosses (half its height in it, at least), the characters of it the
-// box takes (the line's width shared out evenly), a line each.
+// Writes the text of read page _page inside the box _a-_b (points from the page's top-left) into _out, a line each,
+// and returns the bytes written. A line counts when at least half its height is in the box. Of it, the characters
+// whose middle is in the box are taken, as if the characters shared the line's width evenly.
 RDE_INTERNAL usize fude_doc_read_text_in(const fude_doc* _doc, u32 _page, rde_vec_2F _a, rde_vec_2F _b, c8* _out, usize _size) {
     const fude_doc_line* _lines = (const fude_doc_line*)_doc->lines.memory;
     usize                _n     = 0;
@@ -850,11 +719,11 @@ RDE_INTERNAL usize fude_doc_read_text_in(const fude_doc* _doc, u32 _page, rde_ve
         if(_l->page != _page) {
             continue;
         }
-        const f32 _over = fminf(_b.y, _l->from.y + _l->size.y) - fmaxf(_a.y, _l->from.y);
+        const f32 _over = rde_math_min_f32(_b.y, _l->from.y + _l->size.y) - rde_math_max_f32(_a.y, _l->from.y);
         if(_over < _l->size.y * 0.5f) {
             continue;
         }
-        const u32 _total = fude_doc_chars(_l->text, strlen(_l->text));
+        const u32 _total = fude_doc_chars(_l->text, rde_strlen(_l->text));
         const f32 _each  = _l->size.x / (f32)(_total > 0u ? _total : 1u);
         usize     _start = _n;
         u32       _c     = 0;
@@ -863,7 +732,7 @@ RDE_INTERNAL usize fude_doc_read_text_in(const fude_doc* _doc, u32 _page, rde_ve
             fude_utf8_next(&_p);
             const f32 _mid = _l->from.x + _each * ((f32)_c + 0.5f);
             if(_mid >= _a.x && _mid <= _b.x) {
-                memcpy(&_out[_n], _from, (usize)(_p - _from));
+                rde_memcpy(&_out[_n], _from, (usize)(_p - _from));
                 _n += (usize)(_p - _from);
             }
         }
@@ -875,6 +744,7 @@ RDE_INTERNAL usize fude_doc_read_text_in(const fude_doc* _doc, u32 _page, rde_ve
     return _n;
 }
 
+// See the header. Line breaks and spaces at the end are trimmed.
 usize fude_doc_text_in(fude_doc* _doc, rde_vec_2F _min, rde_vec_2F _max, c8* _out, usize _size, b8* _pending) {
     usize _n = 0;
     if(_size > 0) {
@@ -888,16 +758,16 @@ usize fude_doc_text_in(fude_doc* _doc, rde_vec_2F _min, rde_vec_2F _max, c8* _ou
         if(!fude_doc_page_between(_p, _min.y, _max.y)) {
             continue;
         }
-        // The box on this page, in its points from its top-left.
-        const f32 _x0 = fmaxf(_min.x, -_p->size.x * 0.5f), _x1 = fminf(_max.x, _p->size.x * 0.5f);
-        const f32 _y0 = fmaxf(_min.y, _p->top - _p->size.y), _y1 = fminf(_max.y, _p->top);
+        // The part of the box on this page, in the page's points from its top-left.
+        const f32 _x0 = rde_math_max_f32(_min.x, -_p->size.x * 0.5f), _x1 = rde_math_min_f32(_max.x, _p->size.x * 0.5f);
+        const f32 _y0 = rde_math_max_f32(_min.y, _p->top - _p->size.y), _y1 = rde_math_min_f32(_max.y, _p->top);
         if(_x1 <= _x0 || _y1 <= _y0) {
             continue;
         }
-        const f32        _k    = _p->points.x / fmaxf(1.0f, _p->size.x);
+        const f32        _k    = _p->points.x / rde_math_max_f32(1.0f, _p->size.x);
         const rde_vec_2F _from = { (_x0 + _p->size.x * 0.5f) * _k, (_p->top - _y1) * _k };
         const rde_vec_2F _box  = { (_x1 - _x0) * _k, (_y1 - _y0) * _k };
-        if(_p->text == FUDE_DOC_TEXT_UNKNOWN) {
+        if(_p->text == FUDE_DOC_TEXT_UNKNOWN && fude_pdf_text_prepare(_doc->pdf)) {
             _p->text = fude_pdf_page_has_text(_doc->pdf, _i) ? FUDE_DOC_TEXT_OWN : FUDE_DOC_TEXT_TO_READ;
         }
         if(_n > 0u && _out[_n - 1u] != '\n') {
@@ -906,10 +776,11 @@ usize fude_doc_text_in(fude_doc* _doc, rde_vec_2F _min, rde_vec_2F _max, c8* _ou
         }
         if(_p->text == FUDE_DOC_TEXT_OWN) {
             _n += fude_pdf_text_in(_doc->pdf, _i, _from, _box, &_out[_n], _size - _n);
-        } else if(_p->text == FUDE_DOC_TEXT_READ) {
+        } else if(_p->text == FUDE_DOC_TEXT_READ || _p->text == FUDE_DOC_TEXT_FAILED) {
+            // (a page whose picture failed has no lines: nothing comes, and nothing is waited for)
             _n += fude_doc_read_text_in(_doc, _i, _from, (rde_vec_2F){ _from.x + _box.x, _from.y + _box.y }, &_out[_n], _size - _n);
-        } else if(!_doc->reader_off) {
-            // Still to be read: next (then ask again).
+        } else if(!_doc->reader_off || _p->text == FUDE_DOC_TEXT_UNKNOWN) {
+            // Still to be read, or the PDF's text still being opened: it is read next, and the caller asks again.
             if(_pending != NULL) {
                 *_pending = true;
             }
@@ -924,8 +795,8 @@ usize fude_doc_text_in(fude_doc* _doc, rde_vec_2F _min, rde_vec_2F _max, c8* _ou
     return _n;
 }
 
-// The canvas box _min-_max in the middle of the screen (across only when zoomed
-// in past 100%: the reader's frame keeps it otherwise), at the zoom there is.
+// Scrolls so the canvas box _min-_max is in the middle of the screen, keeping the zoom. Across, this shows only when
+// zoomed in past 100%; otherwise the reader's frame (canvas.h) keeps the pages where they are.
 RDE_INTERNAL void fude_doc_show_box(fude_canvas* _canvas, rde_vec_2F _min, rde_vec_2F _max) {
     fude_view* _v = &_canvas->view;
     _v->offset.y  = -(_min.y + _max.y) * 0.5f * _v->zoom;
@@ -933,6 +804,7 @@ RDE_INTERNAL void fude_doc_show_box(fude_canvas* _canvas, rde_vec_2F _min, rde_v
     _canvas->coasting = false;
 }
 
+// See the header. The page's top goes FUDE_CANVAS_READER_TOP below the top of the safe area, under the menu button.
 void fude_doc_go_to_page(fude_doc* _doc, fude_canvas* _canvas, u32 _page) {
     if(_doc->pdf == NULL || _doc->page_count == 0u) {
         return;
@@ -941,9 +813,10 @@ void fude_doc_go_to_page(fude_doc* _doc, fude_canvas* _canvas, u32 _page) {
     const fude_canvas_reader* _r = &_canvas->reader;
     _canvas->coasting      = false;
     _canvas->view.offset.y = (f32)_r->window.y * 0.5f - (f32)_r->safe.y - FUDE_CANVAS_READER_TOP - _p->top * _canvas->view.zoom;
-    _doc->moved_at         = rde_engine_get_time_now();   // the pill says where
+    _doc->moved_at         = rde_engine_get_time_now();   // Show the pill, so it says which page this is.
 }
 
+// See the header. The array of matches is made the first time, with room for FUDE_PDF_MATCHES.
 void fude_doc_search(fude_doc* _doc, const c8* _query) {
     fude_doc_search_stop(_doc);
     if(_doc->pdf == NULL || _query == NULL || _query[0] == 0) {
@@ -957,10 +830,11 @@ void fude_doc_search(fude_doc* _doc, const c8* _query) {
     _doc->search_done = false;
     _doc->match_count = 0u;
     _doc->match_at    = 0u;
-    snprintf(_doc->query, sizeof(_doc->query), "%s", _query);
+    rde_snprintf(_doc->query, sizeof(_doc->query), "%s", _query);
     fude_pdf_find_start(_doc->pdf, _query);
 }
 
+// See the header. Scrolls to the match shown; a _step of 0 shows the current one again.
 void fude_doc_search_step(fude_doc* _doc, fude_canvas* _canvas, i32 _step) {
     if(!_doc->searching || _doc->match_count == 0u) {
         return;
@@ -971,12 +845,13 @@ void fude_doc_search_step(fude_doc* _doc, fude_canvas* _canvas, i32 _step) {
         return;
     }
     const fude_doc_page* _p = &fude_doc_pages(_doc)[_m->page];
-    const f32            _k = _p->size.x / fmaxf(1.0f, _p->points.x);
+    const f32            _k = _p->size.x / rde_math_max_f32(1.0f, _p->points.x);
     fude_doc_show_box(_canvas, (rde_vec_2F){ -_p->size.x * 0.5f + _m->from.x * _k, _p->top - (_m->from.y + _m->size.y) * _k },
                       (rde_vec_2F){ -_p->size.x * 0.5f + (_m->from.x + _m->size.x) * _k, _p->top - _m->from.y * _k });
     _doc->moved_at = rde_engine_get_time_now();
 }
 
+// Ends the search, telling the PDF to stop too, and forgets its matches.
 void fude_doc_search_stop(fude_doc* _doc) {
     if(_doc->searching && _doc->pdf != NULL) {
         fude_pdf_find_stop(_doc->pdf);
@@ -987,17 +862,17 @@ void fude_doc_search_stop(fude_doc* _doc) {
     _doc->match_at    = 0u;
 }
 
+// See the header. *_done is also true when there is no search.
 u32 fude_doc_search_count(const fude_doc* _doc, u32* _at, b8* _done) {
     *_at   = _doc->match_at;
     *_done = !_doc->searching || _doc->search_done;
     return _doc->searching ? _doc->match_count : 0u;
 }
 
-u32 fude_doc_page_at(const fude_doc* _doc, fude_view _view);
-
-// The page in the middle of the screen (from 0).
+// The page in the middle of the screen in view _v, counting from 0: the first page whose bottom, less half the gap
+// below it, is at or below the middle of the screen. Past the end it is the last page.
 RDE_INTERNAL u32 fude_doc_page_in_middle(const fude_doc* _doc, fude_view _v) {
-    const f32 _mid = -_v.offset.y / fmaxf(_v.zoom, 1e-4f);
+    const f32 _mid = -_v.offset.y / rde_math_max_f32(_v.zoom, 1e-4f);
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
         if(_mid >= fude_doc_pages(_doc)[_i].top - fude_doc_pages(_doc)[_i].size.y - FUDE_DOC_PAGE_GAP * 0.5f) {
             return _i;
@@ -1006,105 +881,54 @@ RDE_INTERNAL u32 fude_doc_page_in_middle(const fude_doc* _doc, fude_view _v) {
     return _doc->page_count > 0 ? _doc->page_count - 1u : 0u;
 }
 
-void fude_doc_render_pill(fude_doc* _doc, const fude_app* _app, rde_window* _window) {
+// See the header. The pill sits near the bottom of the screen, above the safe area, and fades out over
+// FUDE_DOC_PILL_FADE seconds once FUDE_DOC_PILL_TIME has passed since the view last moved.
+void fude_doc_render_pill(fude_doc* _doc, fude_view _view, rde_font* _font, f32 _font_px, rde_window* _window) {
     const f64 _age = rde_engine_get_time_now() - _doc->moved_at;
-    if(_doc->pdf == NULL || _doc->page_count < 2u || _app->font == NULL || _age >= FUDE_DOC_PILL_TIME + FUDE_DOC_PILL_FADE) {
+    if(_doc->pdf == NULL || _doc->page_count < 2u || _font == NULL || _age >= FUDE_DOC_PILL_TIME + FUDE_DOC_PILL_FADE) {
         return;
     }
     const f32 _fade = _age <= FUDE_DOC_PILL_TIME ? 1.0f : 1.0f - (f32)((_age - FUDE_DOC_PILL_TIME) / FUDE_DOC_PILL_FADE);
     c8        _text[512];
-    FUDE_TEXTF(_text, FUDE_TEXT_OF_N, FUDE_TN(fude_doc_page_in_middle(_doc, _app->canvas->view) + 1u), FUDE_TN(_doc->page_count));
+    FUDE_TEXTF(_text, FUDE_TEXT_OF_N, FUDE_TN(fude_doc_page_in_middle(_doc, _view) + 1u), FUDE_TN(_doc->page_count));
     const f32         _px     = 18.0f;
-    const f32         _w      = fude_draw_text_width(_app->font, _app->font_px, _text, _px);
+    const f32         _w      = fude_draw_text_width(_font, _font_px, _text, _px);
     const fude_theme* _t      = fude_theme_active();
     const rde_vec_2I  _size   = rde_window_get_size(_window);
-    const rde_vec_4I  _safe   = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
-    const rde_vec_2F  _pill   = { fmaxf(72.0f, _w + 32.0f), 40.0f };
+    const rde_vec_4I  _safe   = rde_window_get_safe_area_insets(_window);   // Left, top, right, bottom.
+    const rde_vec_2F  _pill   = { rde_math_max_f32(72.0f, _w + 32.0f), 40.0f };
     const rde_vec_2F  _center = { 0.0f, -(f32)_size.y * 0.5f + (f32)_safe.w + 16.0f + _pill.y * 0.5f };
     rde_color _back = _t->panel;
     _back.a         = (u8)((f32)_back.a * _fade);
     rde_rendering_2d_draw_rounded_rectangle(fude_draw_at(_center), _pill, 1.0f, 8u, _back, NULL);
     rde_color _ink = _t->button_text;
     _ink.a         = (u8)((f32)_ink.a * _fade);
-    fude_draw_text(_app->font, _app->font_px, _text, _center.x - _w * 0.5f, _center.y - _px * 0.36f, _px, _ink);
+    fude_draw_text(_font, _font_px, _text, _center.x - _w * 0.5f, _center.y - _px * 0.36f, _px, _ink);
 }
 
 // --- new canvases -------------------------------------------------------------------------------
 
+// See the header.
 fude_view fude_doc_first_view(rde_window* _window) {
     const rde_vec_2I _size = rde_window_get_size(_window);
-    const rde_vec_4I _safe = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const rde_vec_4I _safe = rde_window_get_safe_area_insets(_window);   // Left, top, right, bottom.
     fude_view        _v;
-    _v.zoom   = fude_canvas_reader_fit(FUDE_DOC_PAGE_W, _size, _safe);   // 100%: the pages' width across the screen
-    _v.offset = (rde_vec_2F){ (f32)(_safe.x - _safe.z) * 0.5f, (f32)_size.y * 0.5f - (f32)_safe.y - FUDE_CANVAS_READER_TOP };   // the first page's top under the menu button
+    _v.zoom   = fude_canvas_reader_fit(FUDE_DOC_PAGE_W, _size, _safe);   // 100%: the pages' width across the screen.
+    _v.offset = (rde_vec_2F){ (f32)(_safe.x - _safe.z) * 0.5f, (f32)_size.y * 0.5f - (f32)_safe.y - FUDE_CANVAS_READER_TOP };   // First page's top under the menu.
     return _v;
 }
 
-u32 fude_doc_new_canvas(fude_app* _app, u8 _document, const c8* _own, const c8* _name, u32 _parent) {
-    const u32 _id = fude_notes_add(_app->notes, FUDE_NOTE_CANVAS, _parent, _name);
-    if(_id == 0u) {
-        return 0u;
-    }
-    if(_document == FUDE_NOTE_DOCUMENT_OWN) {
-        c8 _to[RDE_MAX_PATH];
-        fude_notes_document_path(_id, _to, sizeof(_to));
-        if(_own == NULL || !rde_file_copy(_own, _to) || !rde_file_exists(_to)) {
-            fude_notes_remove(_app->notes, _id);
-            return 0u;
-        }
-    }
-    fude_notes_set_document(_app->notes, _id, _document);
-    // Its page: nothing written yet, the first page's width on screen, no paper.
-    fude_ink* _ink = (fude_ink*)calloc(1, sizeof(fude_ink));
-    fude_ink_init(_ink);
-    c8 _path[RDE_MAX_PATH];
-    fude_notes_canvas_path(_id, _path, sizeof(_path));
-    const fude_page _page = { .paper = FUDE_PAPER_NONE };
-    fude_save_document(_path, _ink, fude_doc_first_view(_app->window), _page, NULL);
-    fude_ink_destroy(_ink);
-    free(_ink);
-    fude_notes_open(_app->notes, _id);
-    return _id;
-}
-
-u32 fude_doc_open_book(fude_app* _app, const fude_doc_book* _book, const c8* _folder_name) {
-    // The canvas there is; else the folder the library's others are in.
-    b8  _found  = false;
-    u32 _folder = 0u;
-    for(u32 _i = 0; _i < (u32)rde_arr_length(&_app->notes->notes); _i++) {
-        const fude_note* _n = &((const fude_note*)_app->notes->notes.memory)[_i];
-        if(_n->kind != FUDE_NOTE_CANVAS || _n->document < 2u) {
-            continue;
-        }
-        if(_n->document == _book->id) {
-            fude_notes_open(_app->notes, _n->id);
-            return _n->id;
-        }
-        if(!_found) {
-            _found  = true;
-            _folder = _n->parent;
-        }
-    }
-    // None: a folder at the top named so (the one made before, emptied since), else a new one.
-    for(u32 _i = 0; !_found && _folder_name != NULL && _i < (u32)rde_arr_length(&_app->notes->notes); _i++) {
-        const fude_note* _n = &((const fude_note*)_app->notes->notes.memory)[_i];
-        if(_n->kind == FUDE_NOTE_FOLDER && _n->parent == 0u && strcmp(_n->name, _folder_name) == 0) {
-            _found  = true;
-            _folder = _n->id;
-        }
-    }
-    if(!_found && _folder_name != NULL) {
-        _folder = fude_notes_add(_app->notes, FUDE_NOTE_FOLDER, 0u, _folder_name);
-    }
-    return fude_doc_new_canvas(_app, _book->id, NULL, fude_text(_book->title), _folder);
-}
-
+// See the header: the page in the middle of _view.
 u32 fude_doc_page_at(const fude_doc* _doc, fude_view _view) {
     return fude_doc_page_in_middle(_doc, _view);
 }
 
 // --- written out ------------------------------------------------------------------------------
 
+// See the header. Each page is copied from the PDF, then the ink over it: the marker's strokes first, under the rest,
+// as on the canvas. A stroke is taken for a page when its bounds touch the page. Then the page's read text goes in
+// unseen. Copying a page draws the PDF on this thread, so the piece the worker is drawing, if any, is waited for first
+// (pdf.h: one thread at a time); no other starts before the next frame.
 b8 fude_doc_export(fude_doc* _doc, const fude_ink* _ink, const c8* _out) {
     if(_doc->pdf == NULL || _ink == NULL) {
         return false;
@@ -1113,19 +937,20 @@ b8 fude_doc_export(fude_doc* _doc, const fude_ink* _ink, const c8* _out) {
     if(_w == NULL) {
         return false;
     }
-    // Scratch: a stroke's points, in a page's points.
+    fude_doc_worker_wait(&_doc->worker);
+    // Scratch arrays for one stroke's points and radii, in the page's points.
     rde_arr TYPE(rde_vec_2F) _point_list  = rde_arr_new(sizeof(rde_vec_2F), rde_memory_allocator_get_default_std());
     rde_arr TYPE(f32)        _radius_list = rde_arr_new(sizeof(f32), rde_memory_allocator_get_default_std());
-    const rde_color _ink_colour = fude_theme_get(FUDE_THEME_PAPER)->ink;   // white paper: the light theme's ink
+    const rde_color _ink_colour = fude_theme_get(FUDE_THEME_PAPER)->ink;   // White paper: the light theme's ink.
     for(u32 _i = 0; _i < _doc->page_count; _i++) {
         const fude_doc_page* _p = &fude_doc_pages(_doc)[_i];
-        const f32            _k = _p->points.x / fmaxf(1.0f, _p->size.x);   // canvas units to points
+        const f32            _k = _p->points.x / rde_math_max_f32(1.0f, _p->size.x);   // Points per canvas unit.
         fude_pdf_write_page(_w, _doc->pdf, _i);
-        // The marker's strokes first, under the rest — as on the page.
+        // Two passes: the marker's strokes first, under the rest, as they are on the canvas.
         for(u32 _pass = 0; _pass < 2u; _pass++) {
             for(u32 _s = 0; _s < fude_ink_stroke_count(_ink); _s++) {
                 const fude_ink_stroke* _stroke = fude_ink_stroke_at(_ink, _s);
-                if(!_stroke->alive || _stroke->eraser || _stroke->point_count == 0u || _stroke->marker != (_pass == 0u) ||
+                if(!_stroke->alive || _stroke->point_count == 0u || _stroke->marker != (_pass == 0u) ||
                    _stroke->bounds_max.x < -_p->size.x * 0.5f || _stroke->bounds_min.x > _p->size.x * 0.5f ||
                    _stroke->bounds_max.y < _p->top - _p->size.y || _stroke->bounds_min.y > _p->top) {
                     continue;
@@ -1141,8 +966,8 @@ b8 fude_doc_export(fude_doc* _doc, const fude_ink* _ink, const c8* _out) {
                 for(u32 _q = 0; _q < _stroke->point_count; _q++) {
                     const rde_vec_2F _at = { (_pts[_q].position.x + _p->size.x * 0.5f) * _k, (_p->top - _pts[_q].position.y) * _k };
                     const f32        _r  = _pts[_q].radius * _k;
-                    // The marker: its points a good part of its width apart, each the
-                    // middle of the samples between (as fude_ink_render draws it).
+                    // The marker keeps only points a good part of its width apart (FUDE_INK_MARKER_STEP radii), each
+                    // the average of the samples since the last one kept, as fude_ink_render draws it.
                     if(_stroke->marker && _n > 0u) {
                         const b8  _end = _q + 1u == _stroke->point_count;
                         const f32 _dx  = _at.x - _points[_n - 1u].x, _dy = _at.y - _points[_n - 1u].y;
@@ -1168,7 +993,7 @@ b8 fude_doc_export(fude_doc* _doc, const fude_ink* _ink, const c8* _out) {
                 fude_pdf_write_stroke(_w, _points, _radii, _n, _colour, _stroke->marker);
             }
         }
-        // What was read in its picture, unseen.
+        // The text read in the page's picture goes in unseen, so a PDF reader can find it.
         const fude_doc_line* _lines = (const fude_doc_line*)_doc->lines.memory;
         for(u32 _l = 0; _p->text == FUDE_DOC_TEXT_READ && _l < (u32)rde_arr_length(&_doc->lines); _l++) {
             if(_lines[_l].page == _i) {
@@ -1184,24 +1009,25 @@ b8 fude_doc_export(fude_doc* _doc, const fude_ink* _ink, const c8* _out) {
 
 // --- a page turned -------------------------------------------------------------------------------
 
+// What fude_doc_turn_point needs to move the ink when a page is turned a quarter.
 typedef struct {
     const fude_doc* doc;
-    u32             page;      // the page turned
-    f32             top;       // its top (canvas y), its height before and after
+    u32             page;      // The page turned.
+    f32             top;       // Its top (canvas y); then its height before and after the turn.
     f32             h_old, h_new;
-    u32*            owner;     // each stroke's page (by where its middle is)
+    u32*            owner;     // Each stroke's page, by where the middle of its bounds is.
 } fude_doc_turning;
 
-// A point of ink: on the page turned, turned with it (a quarter clockwise about
-// its top-left, then as wide as the pages again); on a page after it, moved by
-// how much shorter or taller it became.
+// Moves one point of ink (fude_ink_remap's hook). On the page turned, it turns with the page: a quarter clockwise
+// about the page's top-left, then scaled so the page is as wide as the pages again. On a page after it, it moves by
+// how much shorter or taller the turned page became.
 RDE_INTERNAL void fude_doc_turn_point(any _user, u32 _stroke, fude_ink_point* _point) {
     const fude_doc_turning* _t = (const fude_doc_turning*)_user;
     const u32               _p = _t->owner[_stroke];
     if(_p == _t->page) {
-        const f32 _f  = FUDE_DOC_PAGE_W / fmaxf(1.0f, _t->h_old);
-        const f32 _px = _point->position.x + FUDE_DOC_PAGE_W * 0.5f;   // from its top-left, across...
-        const f32 _py = _t->top - _point->position.y;                    // ...and down
+        const f32 _f  = FUDE_DOC_PAGE_W / rde_math_max_f32(1.0f, _t->h_old);
+        const f32 _px = _point->position.x + FUDE_DOC_PAGE_W * 0.5f;   // From the page's top-left, across...
+        const f32 _py = _t->top - _point->position.y;                    // ...and down.
         _point->position = (rde_vec_2F){ _f * (_t->h_old - _py) - FUDE_DOC_PAGE_W * 0.5f, _t->top - _f * _px };
         _point->radius  *= _f;
     } else if(_p != UINT32_MAX && _p > _t->page) {
@@ -1209,21 +1035,21 @@ RDE_INTERNAL void fude_doc_turn_point(any _user, u32 _stroke, fude_ink_point* _p
     }
 }
 
-b8 fude_doc_turn_page(fude_doc* _doc, fude_app* _app, u32 _page) {
+// See the header. The new layout itself comes on the next fude_doc_update, which follows the canvas's page.
+b8 fude_doc_turn_page(fude_doc* _doc, fude_canvas* _canvas, fude_ink* _ink, u32 _page) {
     if(_doc->pdf == NULL || _page >= _doc->page_count) {
         return false;
     }
     const fude_doc_page* _p = &fude_doc_pages(_doc)[_page];
-    if(!fude_page_turn_more(&_app->canvas->page, _page)) {
+    if(!fude_page_turn_more(&_canvas->page, _page)) {
         return false;
     }
-    // Which page each stroke is on: the band round each page down to the next one's.
-    fude_ink*        _ink   = _app->ink;
+    // Which page each stroke is on: a page owns the band from its top down to halfway into the gap below it.
     const u32        _count = fude_ink_stroke_count(_ink);
-    fude_doc_turning _t     = { _doc, _page, _p->top, _p->size.y, FUDE_DOC_PAGE_W * _p->points.x / fmaxf(1.0f, _p->points.y), NULL };
+    fude_doc_turning _t     = { _doc, _page, _p->top, _p->size.y, FUDE_DOC_PAGE_W * _p->points.x / rde_math_max_f32(1.0f, _p->points.y), NULL };
     rde_arr TYPE(u32) _owner = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     rde_arr_resize(&_owner, _count);
-    _t.owner = (u32*)_owner.memory;   // not grown again: kept while it is remapped
+    _t.owner = (u32*)_owner.memory;   // Safe to keep: the array does not grow while the ink is remapped.
     for(u32 _s = 0; _s < _count; _s++) {
         const fude_ink_stroke* _stroke = fude_ink_stroke_at(_ink, _s);
         const f32              _mid    = (_stroke->bounds_min.y + _stroke->bounds_max.y) * 0.5f;
@@ -1237,7 +1063,7 @@ b8 fude_doc_turn_page(fude_doc* _doc, fude_app* _app, u32 _page) {
     }
     fude_ink_remap(_ink, fude_doc_turn_point, &_t);
     rde_arr_free(&_owner);
-    // Its text read from its picture: read again, upright now.
+    // Its text read from its picture is dropped and read again, since the page is upright now.
     fude_doc_line* _lines = (fude_doc_line*)_doc->lines.memory;
     u32            _kept  = 0;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_doc->lines); _i++) {
@@ -1247,14 +1073,15 @@ b8 fude_doc_turn_page(fude_doc* _doc, fude_app* _app, u32 _page) {
     }
     rde_arr_resize(&_doc->lines, _kept);
     if(_doc->reading == _page) {
-        _doc->reader_drain = true;   // read the way it was: dropped when it comes
+        _doc->reader_drain = true;   // It was read the old way, so it is dropped when it comes.
         _doc->reading      = UINT32_MAX;
     }
-    if(fude_doc_pages(_doc)[_page].text == FUDE_DOC_TEXT_READ || fude_doc_pages(_doc)[_page].text == FUDE_DOC_TEXT_READING) {
+    const u8 _was = fude_doc_pages(_doc)[_page].text;
+    if(_was == FUDE_DOC_TEXT_READ || _was == FUDE_DOC_TEXT_READING || _was == FUDE_DOC_TEXT_FAILED) {
         fude_doc_pages(_doc)[_page].text = FUDE_DOC_TEXT_UNKNOWN;
         _doc->probe             = _page < _doc->probe ? _page : _doc->probe;
         fude_doc_lines_save(_doc);
     }
     fude_doc_search_stop(_doc);
-    return true;   // laid out again on the next update (it follows the canvas's page)
+    return true;   // Laid out again on the next update, which follows the canvas's page.
 }

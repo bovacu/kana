@@ -3,6 +3,10 @@
 In order. Each item says what it is, what it needs, and what is still open.
 Tick an item when it has been seen working on the iPad, not when it compiles.
 
+**A record now (2026-10-15).** This was Kana's working list until 2026-10-12, before the other apps shared its code.
+The live lists are `docs/quality_plan.md` (the code) and `docs/release_checklist.md` (the stores, the devices, and
+what only Borja can do). What was still open here is carried there, or its status is written below.
+
 ---
 
 ## 1. Check free writing — design §4, without ML Kit
@@ -655,9 +659,10 @@ a server): export / import instead. Built in this order:
       turns it back on. No palm rejection while it is on. [ ] On the iPad.
 - [x] The camera's prompt in the five languages; the app declares them
       (CFBundleLocalizations, platform/ios/localized/*.lproj): the store lists them.
-- [x] Privacy policy and support pages, five languages: tools/store/site.py →
-      site/; CONTACT rde.apps.support@gmail.com. [ ] site/ on GitHub Pages, the
-      two URLs in App Store Connect.
+- [x] Privacy policy and support pages, five languages: tools/store/site.py (the
+      repository's, every app's since 2026-10-13) → site/; CONTACT
+      rde.apps.support@gmail.com. [ ] site/ on GitHub Pages, the two URLs in App
+      Store Connect.
 - [x] The store texts in five languages, the age-rating answers, the review
       notes: store/listing.md.
 - [x] The screenshot framer: tools/store/screenshots.py (iPad shots → 13-inch,
@@ -698,10 +703,11 @@ The layers, the screen interface, the widgets, the language layer: docs/architec
       stand-ins (tests/support/; 17 copies before). The UI strings' source
       (tools/text/strings.py) and the icons' bearings (tools/icons/bearings.py)
       too — both lived only in a scratch folder.
-- [ ] Windows and Android built from the new lists (delete build/ first, once:
-      the builder links every object left in obj/).
+- [x] Android built from the new lists (tools/build/sources.sh, used by tools/android/build.sh; tools/build/mac.sh
+      clears obj/ when an app's list changes). Windows is not built (2026-10-15: no Windows release planned).
 - [ ] On the iPad: every screen's row, the side panel, a language change.
-- [ ] When the second app starts: the language layer (lang.h) — docs/architecture.md.
+- [x] When the second app starts: the language layer — fude/lang/<code> behind fude/study's lang.h, one per
+      language (docs/architecture.md, "The language layer").
 
 ## 10h. The shared code, untied from Kana (Borja, 2026-10-02: "extract all the common things ... for a Mandarin Chinese App, and a Korean App"; "extract the canvas free drawing, side panel and toolbar widgets to make the infinite diagram + drawing app")
 
@@ -735,10 +741,12 @@ docs/architecture.md has how it fits together and how to start a new app.
       every time), the very first launch, the iOS release build.
 - [ ] On the iPad: the camera on the toolbar, Copy as text and Translate on a
       selection, Paste text and Text from a photo on a long press, Rate, Your data.
-- [ ] The engine's iOS debug library is older than rde_pen_listen_double_tap and
+- [x] (No longer so: the engine is built for iOS again with each build, tools/build/ios.sh engine.) The engine's
+      iOS debug library is older than rde_pen_listen_double_tap and
       rde_mobile_open_review_page: an iOS debug build needs `./builder --engine
       --ios --debug` first (the release library has them).
-- [ ] Draw on a device: its own bundle id, icon, Info.plist; its build lists.
+- [x] (Dropped.) Draw on a device: its own bundle id, icon, Info.plist; its build lists. Draw is not released: it
+      is built on the Mac only, to show the drawing core builds on its own (tools/check/build_all.sh).
 - [x] The app's name in one place (src/version.h: KANA_NAME), the rest from it: the
       window's title, the backup's name and extension, the save folder on a device
       (the id, info.h), and the strings' {APP} (filled in by the strings tool).
@@ -837,9 +845,9 @@ docs/architecture.md has how it fits together and how to start a new app.
       what is written on it turns with it, the pages after move with their ink; a
       scanned page is read again upright.
 - [ ] On the iPad: a scan read (lasso, Search), the phrasebook, Share as PDF, Turn page (Borja).
-- [ ] Android: PdfRenderer behind pdf.h; Windows: a renderer to choose (PDFium?).
-- [ ] Next: export a document with its ink as a PDF (to share); the page's text
-      (lasso a PDF's words to look them up).
+- [x] Android behind pdf.h (fude/android/java/com/rde/fude/FudePdf.java, FudePdfBox.java). Windows: not built.
+- [x] A document exported with its ink as a PDF: Share as PDF (DOC_EXPORT).
+- [ ] Next: the page's text (lasso a PDF's words to look them up).
 
 ## 11. Release polish
 

@@ -27,6 +27,9 @@
     <!-- The document camera (the core's import: pages scanned to draw on). -->
     <key>NSMicrophoneUsageDescription</key>
     <string>InfiNote records what is said while you write, so a tap on your writing plays it back.</string>
+    <!-- The share sheet's Save Image and Save Video (an exported picture or video into Photos). -->
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>InfiNote saves the pictures and videos you export to your photo library.</string>
     <key>NSCameraUsageDescription</key>
     <string>InfiNote scans pages with the camera, so you can draw on them.</string>
     <key>CFBundleDevelopmentRegion</key>

@@ -23,7 +23,6 @@ void rde_rendering_end_clipping_rect(void) {}
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 1133, 744 }; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return g_now; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 
 static fude_kanji_db db;
 static const f32 TOP = 372.0f - 32.0f, BOTTOM = -372.0f + 120.0f;
@@ -121,8 +120,39 @@ int main(int argc, char** argv) {
     const u32 due[2] = { taberu, nihon };
     fude_wordexam_open_review(&e, due, 2); frame(&e);
     CHECK(e.review && e.stage == FUDE_WORDEXAM_WRITING && e.count == 2u && e.items[0].word == taberu);
-    fude_wordexam_close(&e);
+    // Undo has no limit: 600 strokes in a box (more than the 512 it once noted), every one taken back.
+    { fude_wordexam_item* it = &e.items[e.current];
+      const rde_vec_2F c = { e.boxes_tl.x + e.box * 0.5f, e.boxes_tl.y - e.box * 0.5f };
+      CHECK(it->records[0] != UINT32_MAX);
+      for(u32 s = 0; s < 600u; s++) {
+          g_now += 0.02;
+          fude_wordexam_pointer_down(&e, c, true, g_now);
+          fude_wordexam_pointer_moved(&e, (rde_vec_2F){ c.x + 10.0f, c.y - 5.0f }, g_now + 0.01);
+          fude_wordexam_pointer_up(&e, g_now + 0.01);
+      }
+      CHECK(fude_ink_alive_strokes(&it->ink[0]) == 600u);
+      for(u32 s = 0; s < 600u; s++) fude_wordexam_undo(&e);
+      CHECK(fude_ink_alive_strokes(&it->ink[0]) == 0u);
+      // Closed with the pen down in a box: the stroke is ended, not left open in its ink.
+      fude_wordexam_pointer_down(&e, c, true, g_now);
+      fude_wordexam_pointer_moved(&e, (rde_vec_2F){ c.x + 10.0f, c.y - 5.0f }, g_now + 0.01);
+      CHECK(e.pen && it->ink[0].drawing);
+      fude_wordexam_close(&e);
+      CHECK(!e.pen && !it->ink[0].drawing && fude_ink_alive_strokes(&it->ink[0]) == 1u); }
     CHECK(!e.open);
+
+    // Done before every box was read (the last word's not even started): the exam is kept all the same, the boxes left
+    // read by the matcher at once.
+    fude_wordexam_open_review(&e, due, 2); frame(&e);
+    for(u32 i = 0; i < e.count; i++) {
+        const fude_wordexam_item* it = &e.items[e.current];
+        for(u32 b = 0; b < it->count; b++) if(it->records[b] != UINT32_MAX) write_in(&e, b, it->chars[b]);
+        fude_wordexam_next(&e);
+        if(i + 1u < e.count) frame(&e);
+    }
+    CHECK(e.stage == FUDE_WORDEXAM_RESULTS && !e.kept && !fude_wordexam_graded(&e));
+    fude_wordexam_close(&e);
+    CHECK(e.kept && fude_wordexam_graded(&e) && e.items[0].correct && e.items[1].correct);
 
     // Character notes.
     fude_charnotes_open(NULL);
@@ -135,9 +165,14 @@ int main(int argc, char** argv) {
     CHECK(fude_charnotes_count() == 3u && strcmp(fude_charnote_get(0x672B), "long top line: the end") == 0);
     fude_charnote_set(0x672A, "");
     CHECK(fude_charnotes_count() == 2u && fude_charnote_get(0x672A)[0] == 0);
-    char longn[1000]; memset(longn, 0, sizeof longn); for(int i = 0; i < 200; i++) strcat(longn, "語");
+    // A note as long as the card takes (FUDE_CHARNOTE_CHARS characters, here of 3 bytes) is kept whole; a longer
+    // text is cut at a whole character.
+    char longn[4000]; memset(longn, 0, sizeof longn); for(u32 i = 0; i < FUDE_CHARNOTE_CHARS; i++) strcat(longn, "語");
     fude_charnote_set(0x8A9E, longn);
-    CHECK(strlen(fude_charnote_get(0x8A9E)) <= FUDE_CHARNOTE_TEXT - 1u && strlen(fude_charnote_get(0x8A9E)) % 3u == 0u);
+    CHECK(strcmp(fude_charnote_get(0x8A9E), longn) == 0);
+    for(u32 i = 0; i < 400u; i++) strcat(longn, "語");   // 1740 bytes
+    fude_charnote_set(0x8A9E, longn);
+    CHECK(strlen(fude_charnote_get(0x8A9E)) <= FUDE_CHARNOTE_TEXT - 1u && strlen(fude_charnote_get(0x8A9E)) % 3u == 0u && strlen(fude_charnote_get(0x8A9E)) > FUDE_CHARNOTE_CHARS * 3u);
     system("mkdir -p saves");
     fude_charnotes_close(); fude_charnotes_open("saves/charnotes.kana");
     fude_charnote_set(0x5F85, "wait (彳 on the left)");

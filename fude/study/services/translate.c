@@ -3,27 +3,27 @@
 #include "study/services/translate.h"
 #include "lang/lang.h"
 #include "drawing/base/text.h"
-#include "study/services/mlkit.h"
-#include "drawing/widgets/draw.h"
-
-#include <stdio.h>
-#include <string.h>
+#include "drawing/ink/mlkit.h"
+#include "drawing/base/draw.h"
 
 // ===========================================================================
-// See translate.h. What every platform shares: the language translations go
-// into, the Settings switch, and the demo; the platform does the rest.
+// See translate.h. What every platform shares: the language translations go into, the Settings switch, the demo,
+// the badge, and the box where answers wait for their askers. The platform files do the rest, through the
+// fude_translate_platform_ calls; the stand-ins for platforms with no translator are at the end of this file.
 // ===========================================================================
 
 #if defined(RDE_DEBUG)
-// The demo: the texts asked for, answered one a poll.
+// The demo (debug builds only): the texts asked for wait in an rde_ring_buffer of FUDE_TRANSLATE_DEMO_QUEUE (made on
+// first use, on the std allocator, kept for the run; a text asked for while it is full gets no ticket), and one is
+// answered each poll. Tickets count up from 1, since 0 means no ticket.
 #define FUDE_TRANSLATE_DEMO_QUEUE 256u
+typedef struct { u32 ticket; b8 into_studied; c8 text[256]; } fude_translate_demo_asked;
 RDE_INTERNAL b8  fude_translate_demo_on = false;
 RDE_INTERNAL u32 fude_translate_demo_next = 1u;
-RDE_INTERNAL u32 fude_translate_demo_head = 0u;
-RDE_INTERNAL u32 fude_translate_demo_count = 0u;
-RDE_INTERNAL struct { u32 ticket; b8 into_studied; c8 text[256]; } fude_translate_demo_queue[FUDE_TRANSLATE_DEMO_QUEUE];
+RDE_INTERNAL rde_ring_buffer fude_translate_demo_queue;   // fude_translate_demo_asked, oldest first
 #endif
 
+// See the header. Does nothing in a release build.
 void fude_translate_demo(b8 _on) {
 #if defined(RDE_DEBUG)
     fude_translate_demo_on = _on;
@@ -32,6 +32,7 @@ void fude_translate_demo(b8 _on) {
 #endif
 }
 
+// Whether the demo is on; never in a release build.
 RDE_INTERNAL b8 fude_translate_demoing(void) {
 #if defined(RDE_DEBUG)
     return fude_translate_demo_on;
@@ -40,9 +41,11 @@ RDE_INTERNAL b8 fude_translate_demoing(void) {
 #endif
 }
 
-// The two badges (translate.h), loaded once.
+// The two badges (translate.h), the colour one first and the white one for a dark theme, each loaded the first time
+// it is needed and kept for the run.
 RDE_INTERNAL rde_texture* fude_translate_badges[2];
 
+// See the header.
 rde_texture* fude_translate_badge(b8 _dark) {
     const u32 _b = _dark ? 1u : 0u;
     if(fude_translate_badges[_b] == NULL) {
@@ -51,6 +54,7 @@ rde_texture* fude_translate_badge(b8 _dark) {
     return fude_translate_badges[_b];
 }
 
+// See the header. Draws nothing when the badge's PNG could not be loaded.
 void fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark) {
     const u32 _b = _dark ? 1u : 0u;
     if(fude_translate_badge(_dark) == NULL) {
@@ -62,10 +66,12 @@ void fude_translate_draw_badge(f32 _left, f32 _y, b8 _dark) {
                                     (rde_color){ 255, 255, 255, 255 });
 }
 
+// See the header. The demo counts as a translator.
 b8 fude_translate_available(void) {
     return fude_translate_demoing() || fude_translate_platform_available();
 }
 
+// See the header. The app's own language when ML Kit knows it, else English.
 const c8* fude_translate_target(void) {
     const c8* _ui;
     switch(fude_text_language()) {
@@ -77,9 +83,10 @@ const c8* fude_translate_target(void) {
         case RDE_LANGUAGE_KO_KR: _ui = "ko"; break;
         default:                 _ui = "en"; break;
     }
-    return strcmp(_ui, fude_lang_code()) == 0 ? "en" : _ui;   // the app in the language it teaches: English
+    return rde_strcmp(_ui, fude_lang_code()) == 0 ? "en" : _ui;   // App shown in the language it teaches: English.
 }
 
+// See the header. Unavailable while ML Kit is switched off; always ready in the demo.
 FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to) {
     if(fude_translate_demoing()) {
         return FUDE_TRANSLATE_READY;
@@ -90,26 +97,33 @@ FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to) {
     return fude_translate_platform_state(_from, _to);
 }
 
+// See the header. Nothing happens in the demo or while ML Kit is switched off.
 void fude_translate_prepare(const c8* _from, const c8* _to) {
     if(!fude_translate_demoing() && fude_mlkit_enabled() && _from != NULL && _to != NULL) {
         fude_translate_platform_prepare(_from, _to);
     }
 }
 
+// See the header. In the demo the text is queued instead (0 when the queue is full).
 u32 fude_translate_text(const c8* _text, const c8* _from, const c8* _to) {
     if(_text == NULL || _from == NULL || _to == NULL) {
         return 0u;
     }
 #if defined(RDE_DEBUG)
     if(fude_translate_demo_on) {
-        if(fude_translate_demo_count == FUDE_TRANSLATE_DEMO_QUEUE) {
+        if(!rde_ring_buffer_is_inited(&fude_translate_demo_queue)) {
+            fude_translate_demo_queue = rde_ring_buffer_new(sizeof(fude_translate_demo_asked), FUDE_TRANSLATE_DEMO_QUEUE, rde_memory_allocator_get_default_std());
+        }
+        if(rde_ring_buffer_is_full(&fude_translate_demo_queue)) {
             return 0u;
         }
-        const u32 _at = (fude_translate_demo_head + fude_translate_demo_count++) % FUDE_TRANSLATE_DEMO_QUEUE;
-        fude_translate_demo_queue[_at].ticket        = fude_translate_demo_next++;
-        fude_translate_demo_queue[_at].into_studied = strcmp(_to, fude_lang_code()) == 0;
-        snprintf(fude_translate_demo_queue[_at].text, sizeof(fude_translate_demo_queue[_at].text), "%s", _text);
-        return fude_translate_demo_queue[_at].ticket;
+        fude_translate_demo_asked _asked;
+        rde_memset(&_asked, 0, sizeof(_asked));
+        _asked.ticket       = fude_translate_demo_next++;
+        _asked.into_studied = rde_strcmp(_to, fude_lang_code()) == 0;
+        rde_snprintf(_asked.text, sizeof(_asked.text), "%s", _text);
+        rde_ring_buffer_try_push(&fude_translate_demo_queue, (const any)&_asked);
+        return _asked.ticket;
     }
 #endif
     if(fude_translate_state(_from, _to) != FUDE_TRANSLATE_READY) {
@@ -118,25 +132,26 @@ u32 fude_translate_text(const c8* _text, const c8* _from, const c8* _to) {
     return fude_translate_platform_text(_text, _from, _to);
 }
 
+// Takes the next answer that has come in, from the demo or the platform: its ticket into *_ticket and its text into
+// _out. Returns false when none has come.
 RDE_INTERNAL b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
 #if defined(RDE_DEBUG)
     if(fude_translate_demo_on) {
-        if(fude_translate_demo_count == 0u) {
+        fude_translate_demo_asked _asked;
+        if(!rde_ring_buffer_is_inited(&fude_translate_demo_queue) || !rde_ring_buffer_pop_into(&fude_translate_demo_queue, (any)&_asked)) {
             return false;
         }
-        const u32 _at = fude_translate_demo_head;
-        fude_translate_demo_head = (fude_translate_demo_head + 1u) % FUDE_TRANSLATE_DEMO_QUEUE;
-        fude_translate_demo_count--;
-        *_ticket = fude_translate_demo_queue[_at].ticket;
-        // A stand-in long enough to wrap, and an empty answer now and then (a
-        // line that could not be translated).
+        *_ticket = _asked.ticket;
+        // A stand-in long enough to wrap onto a second line, and an empty answer every fifth ticket, as for a line
+        // that could not be translated. It names no language of its own, so it serves every app: into the language
+        // taught, the text itself with that language's code after it ("本 → ja").
         if(*_ticket % 5u == 0u) {
             _out[0] = 0;
-        } else if(fude_translate_demo_queue[_at].into_studied) {
-            snprintf(_out, _size, "\xE3\x80\x8C%s\xE3\x80\x8D\xE3\x81\xAE\xE8\xA8\xB3\xE3\x81\xA7\xE3\x81\x99\xE3\x80\x82", fude_translate_demo_queue[_at].text);   // 「…」の訳です。
+        } else if(_asked.into_studied) {
+            rde_snprintf(_out, _size, "%s \xE2\x86\x92 %s", _asked.text, fude_lang_code());   // →
         } else {
-            snprintf(_out, _size, "A stand-in translation of %s (%zu bytes of Japanese), long enough to need a second line.",
-                     fude_translate_demo_queue[_at].text, strlen(fude_translate_demo_queue[_at].text));
+            rde_snprintf(_out, _size, "A stand-in translation of %s (%zu bytes of %s), long enough to need a second line.",
+                         _asked.text, rde_strlen(_asked.text), fude_lang_code());
         }
         return true;
     }
@@ -145,30 +160,38 @@ RDE_INTERNAL b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
 }
 
 // --- the answers, each to its asker ---------------------------------------------------
-// Taken from the platform as they come, kept until their askers take them: each
-// asker takes only its own, so several can wait at once (a word card over Into
-// Japanese). One nobody takes (its asker gone) is dropped when the box is full.
+// Answers are taken from the platform as they come and kept in a box until their askers take them. Each asker takes
+// only its own, so several can wait at once (Kana: a word card over Into Japanese). When the box is full, the oldest
+// answer is dropped, since nobody took it (its asker has gone).
+//
+// Why a fixed box is safe: the bound is what throws away the answers nobody will take (an asker that went before its
+// answer came: Text from a photo closed while translating), which would otherwise pile up for the whole run. The
+// askers keep few tickets on their way: Text from a photo FUDE_SCAN_TRANSLATE_AT_ONCE (4), the translator, the page's
+// card and the word card one each, the developer's look harness 4: 11 at most. Each asker takes its answer the frame
+// after it comes, while it is up, so an answer that is waited for is always among the newest few, and the oldest one
+// dropped from a box of 32 is one that nobody is waiting for.
 
-#define FUDE_TRANSLATE_BOX 32u
+#define FUDE_TRANSLATE_BOX 32u   // Answers kept at most, waiting for their askers (see above).
 RDE_INTERNAL struct { u32 ticket; c8 text[FUDE_TRANSLATE_TEXT]; } fude_translate_box[FUDE_TRANSLATE_BOX];
 RDE_INTERNAL u32 fude_translate_box_count = 0u;
 
+// See the header. First moves every answer that has come into the box, then looks there for _ticket's.
 b8 fude_translate_take(u32 _ticket, c8* _out, usize _size) {
     u32 _in;
     c8  _answer[FUDE_TRANSLATE_TEXT];
     while(fude_translate_poll(&_in, _answer, sizeof(_answer))) {
         if(fude_translate_box_count == FUDE_TRANSLATE_BOX) {
-            memmove(&fude_translate_box[0], &fude_translate_box[1], sizeof(fude_translate_box[0]) * (FUDE_TRANSLATE_BOX - 1u));
+            rde_memmove(&fude_translate_box[0], &fude_translate_box[1], sizeof(fude_translate_box[0]) * (FUDE_TRANSLATE_BOX - 1u));
             fude_translate_box_count--;
         }
         fude_translate_box[fude_translate_box_count].ticket = _in;
-        memcpy(fude_translate_box[fude_translate_box_count].text, _answer, sizeof(_answer));
+        rde_memcpy(fude_translate_box[fude_translate_box_count].text, _answer, sizeof(_answer));
         fude_translate_box_count++;
     }
     for(u32 _i = 0; _i < fude_translate_box_count && _ticket != 0u; _i++) {
         if(fude_translate_box[_i].ticket == _ticket) {
-            snprintf(_out, _size, "%s", fude_translate_box[_i].text);
-            memmove(&fude_translate_box[_i], &fude_translate_box[_i + 1u], sizeof(fude_translate_box[0]) * (fude_translate_box_count - _i - 1u));
+            rde_snprintf(_out, _size, "%s", fude_translate_box[_i].text);
+            rde_memmove(&fude_translate_box[_i], &fude_translate_box[_i + 1u], sizeof(fude_translate_box[0]) * (fude_translate_box_count - _i - 1u));
             fude_translate_box_count--;
             return true;
         }
@@ -177,25 +200,30 @@ b8 fude_translate_take(u32 _ticket, c8* _out, usize _size) {
 }
 
 // --- not here ---------------------------------------------------------------------------
-// Every platform but iOS (translate_ios.m) and Android (translate_android.c): no translator yet.
+// The stand-ins for every platform but an iOS device (translate_ios.m) and Android (translate_android.c), where there
+// is no translator yet. ML Kit runs on a device only, not in the iOS Simulator.
 
-#if (!defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)) && !defined(RDE_PLATFORM_ANDROID)   // ML Kit: a device's (iOS, Android: *_android.c), not the Simulator's
+#if (!defined(RDE_PLATFORM_IOS) || defined(RDE_PLATFORM_IOS_SIMULATOR)) && !defined(RDE_PLATFORM_ANDROID)   // Stand-ins
 
+// No translator here.
 b8 fude_translate_platform_available(void) {
     return false;
 }
 
+// Every pair is unavailable here.
 FUDE_TRANSLATE_STATE_ fude_translate_platform_state(const c8* _from, const c8* _to) {
     RDE_UNUSED(_from);
     RDE_UNUSED(_to);
     return FUDE_TRANSLATE_UNAVAILABLE;
 }
 
+// Nothing to download here.
 void fude_translate_platform_prepare(const c8* _from, const c8* _to) {
     RDE_UNUSED(_from);
     RDE_UNUSED(_to);
 }
 
+// Nothing can be translated here: no ticket.
 u32 fude_translate_platform_text(const c8* _text, const c8* _from, const c8* _to) {
     RDE_UNUSED(_text);
     RDE_UNUSED(_from);
@@ -203,6 +231,7 @@ u32 fude_translate_platform_text(const c8* _text, const c8* _from, const c8* _to
     return 0u;
 }
 
+// No answer ever comes here.
 b8 fude_translate_platform_poll(u32* _ticket, c8* _out, usize _size) {
     RDE_UNUSED(_ticket);
     RDE_UNUSED(_out);

@@ -24,7 +24,6 @@ void rde_mobile_request_permission(RDE_MOBILE_PERMISSION_ p, rde_mobile_permissi
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return 1000.0; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 
 // A memory texture is its size and pixels here; its "texture" is itself.
 struct rde_memory_texture { u32 w, h; u8* pixels; };
@@ -122,6 +121,48 @@ int main(void) {
     const fude_textscan_result broken = { NULL, 0, 1000, 500, lines, 3 };
     fude_scan_show(&s, &broken); CHECK(s.stage == FUDE_SCAN_EMPTY && s.message == FUDE_TEXT_SCAN_FAILED);
 
+    // (The platforms once kept 256 lines of a reading at most, and Write's buffer was made for them. A reading keeps
+    // every line now, textscan.h, and the screen's buffer is as big as they need: the block below still checks those
+    // 256 lines as it did, and the one after it more than that.)
+    #define FUDE_TEXTSCAN_LINES 256u
+    #define FUDE_SCAN_TEXT_MAX  (FUDE_TEXTSCAN_LINES * FUDE_TEXTSCAN_TEXT)
+    // Write holds every line a reading can keep: FUDE_TEXTSCAN_LINES of them, each as long as one can be, all fit in
+    // FUDE_SCAN_TEXT_MAX bytes (the screen's buffer once held a quarter of that, and dropped the rest).
+    { static fude_textscan_line full[FUDE_TEXTSCAN_LINES];
+      static c8 all[FUDE_SCAN_TEXT_MAX];
+      for(u32 i = 0; i < FUDE_TEXTSCAN_LINES; i++) {
+          memset(full[i].text, 'a' + (int)(i % 26u), FUDE_TEXTSCAN_TEXT - 1u); full[i].text[FUDE_TEXTSCAN_TEXT - 1u] = 0;
+          full[i].corners[0] = (rde_vec_2F){ 0, (f32)i };      full[i].corners[1] = (rde_vec_2F){ 900, (f32)i };
+          full[i].corners[2] = (rde_vec_2F){ 900, (f32)i + 1 }; full[i].corners[3] = (rde_vec_2F){ 0, (f32)i + 1 };
+      }
+      const fude_textscan_result many = { jpeg, 4, 1000, 500, full, FUDE_TEXTSCAN_LINES };
+      fude_scan_show(&s, &many); CHECK(fude_scan_kept(&s) == FUDE_TEXTSCAN_LINES);
+      fude_scan_write(&s);
+      CHECK(fude_scan_take_text(&s, all, sizeof all));
+      u32 breaks = 0; for(const c8* c = all; *c != 0; c++) breaks += *c == '\n' ? 1u : 0u;
+      CHECK(breaks == FUDE_TEXTSCAN_LINES - 1u && strlen(all) == FUDE_TEXTSCAN_LINES * (FUDE_TEXTSCAN_TEXT - 1u) + breaks);
+      CHECK(all[strlen(all) - 1u] == 'a' + (int)((FUDE_TEXTSCAN_LINES - 1u) % 26u)); }   // the last line is there, whole
+    #undef FUDE_SCAN_TEXT_MAX
+    #undef FUDE_TEXTSCAN_LINES
+    // A reading of 1000 lines keeps them all, and fude_scan_text_size is the room writing them all takes: with it every
+    // line is written, in order; two bytes short of it, the last line is left out, whole.
+    { const u32 n = 1000u;
+      fude_textscan_line* lots = calloc(n, sizeof *lots);
+      for(u32 i = 0; i < n; i++) {
+          snprintf(lots[i].text, sizeof lots[i].text, "line %u", i);
+          lots[i].corners[0] = (rde_vec_2F){ 0, 0.4f * (f32)i };          lots[i].corners[1] = (rde_vec_2F){ 900, 0.4f * (f32)i };
+          lots[i].corners[2] = (rde_vec_2F){ 900, 0.4f * (f32)i + 0.4f }; lots[i].corners[3] = (rde_vec_2F){ 0, 0.4f * (f32)i + 0.4f };
+      }
+      const fude_textscan_result thousand = { jpeg, 4, 1000, 500, lots, n };
+      fude_scan_show(&s, &thousand); CHECK(fude_scan_kept(&s) == n);
+      const usize need = fude_scan_text_size(&s);
+      c8* text = malloc(need);
+      fude_scan_write(&s); CHECK(fude_scan_take_text(&s, text, need));
+      u32 breaks = 0; for(const c8* c = text; *c != 0; c++) breaks += *c == '\n' ? 1u : 0u;
+      CHECK(breaks == n - 1u && strncmp(text, "line 0\nline 1\n", 14) == 0 && strcmp(text + strlen(text) - 9u, "\nline 999") == 0);
+      fude_scan_write(&s); CHECK(fude_scan_take_text(&s, text, need - 2u) && strstr(text, "line 999") == NULL && strstr(text, "line 998") != NULL);
+      free(text); free(lots); }
+
     // The library is not here (the desktop): nothing waits.
     fude_scan_photos(&s); fude_scan_update(&s, 0.016f);
     CHECK(s.stage != FUDE_SCAN_WAITING);
@@ -205,6 +246,27 @@ int main(void) {
     g_textures = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(g_textures == 1 && s.picture_scale == full_scale);   // (this photo is as wide as the screen: the same scale either way)
     fude_scan_destroy(&s);
+    // The demo's queue (an rde_ring_buffer of 256): tickets one after another, a text asked for while it is full gets
+    // none, and the answers come out oldest first — into the box of 32, which keeps the newest (the oldest dropped).
+    {
+        u32 tickets[256];
+        b8 in_turn = true;
+        for(u32 i = 0; i < 256u; i++) {
+            tickets[i] = fude_translate_text("x", "ja", "en");
+            in_turn = in_turn && tickets[i] != 0u && (i == 0u || tickets[i] == tickets[i - 1u] + 1u);
+        }
+        CHECK(in_turn);
+        CHECK(fude_translate_text("x", "ja", "en") == 0u);   // (full)
+        c8 answer[FUDE_TRANSLATE_TEXT];
+        CHECK(fude_translate_take(tickets[255], answer, sizeof answer));    // (every answer taken in; the newest kept)
+        CHECK(!fude_translate_take(tickets[0], answer, sizeof answer));     // (the oldest dropped from the box)
+        CHECK(fude_translate_take(tickets[255 - 31], answer, sizeof answer));
+        CHECK(!fude_translate_take(tickets[255 - 32], answer, sizeof answer));
+        const u32 more = fude_translate_text("x", "ja", "en");
+        CHECK(more == tickets[255] + 1u);                                   // (room again: the next ticket)
+        CHECK(fude_translate_take(more, answer, sizeof answer));
+        for(u32 i = 0; i < 256u; i++) fude_translate_take(tickets[i], answer, sizeof answer);   // (the box emptied)
+    }
     fude_translate_demo(false);
 
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);

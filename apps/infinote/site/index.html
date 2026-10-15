@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>InfiNote — Help and support</title>
+<style>
+:root { --page:#f6f3ec; --ink:#1d1d22; --soft:#5f5f6b; --line:#ddd8cc; --card:#fffdf8; --accent:#3b6fe0; --on-accent:#fff; }
+@media (prefers-color-scheme: dark) { :root { --page:#17181c; --ink:#ececf0; --soft:#a3a3ae; --line:#2e3038; --card:#1f2026; --accent:#7ea2ff; --on-accent:#10131a; } }
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body { margin:0; background:var(--page); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif; overflow-wrap:break-word; }
+:lang(ja) { font-family:-apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif; }
+:lang(zh) { font-family:-apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+:lang(ko) { font-family:-apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; word-break:keep-all; }
+:lang(th) { font-family:-apple-system, "Thonburi", "Noto Sans Thai", "Leelawadee UI", sans-serif; line-height:1.8; }
+:lang(hi) { font-family:-apple-system, "Kohinoor Devanagari", "Noto Sans Devanagari", "Nirmala UI", sans-serif; line-height:1.8; }
+:lang(ar) { font-family:-apple-system, "Geeza Pro", "Noto Naskh Arabic", "Noto Sans Arabic", "Segoe UI", sans-serif; line-height:1.9; }
+main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+header { display:flex; align-items:center; gap:14px; margin-bottom:8px; }
+.mark { width:44px; height:44px; border-radius:11px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:24px; line-height:1; flex:none; }
+h1 { font-size:26px; line-height:1.25; margin:0; }
+h2 { font-size:21px; line-height:1.3; margin:8px 0 4px; }
+h3 { font-size:17px; line-height:1.35; margin:28px 0 4px; }
+.card h3 { margin-top:20px; }
+ul { padding-inline-start:22px; }
+li { margin:6px 0; }
+.soft { color:var(--soft); font-size:14px; }
+nav.langs { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 22px; }
+nav.langs a { padding:6px 12px; border-radius:999px; border:1px solid var(--line); color:var(--ink); text-decoration:none; font-size:14px; }
+nav.langs a.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+a { color:var(--accent); }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+section.lang { display:none; }
+section.lang.on { display:block; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:2px 18px 14px; margin-top:18px; }
+footer { margin-top:40px; border-top:1px solid var(--line); padding-top:14px; }
+</style>
+</head>
+<body>
+<main>
+<header><div class="mark" aria-hidden="true">∞</div><h1><bdi>InfiNote</bdi></h1></header>
+<nav class="langs" aria-label="Languages"><a id="l-en" href="#en" hreflang="en" lang="en">English</a><a id="l-es" href="#es" hreflang="es" lang="es">Español</a><a id="l-pt" href="#pt" hreflang="pt-BR" lang="pt-BR">Português</a><a id="l-fr" href="#fr" hreflang="fr" lang="fr">Français</a></nav>
+<noscript><style>section.lang { display:block; border-top:1px solid var(--line); margin-top:24px; }</style></noscript>
+<section class="lang" id="s-en" lang="en" dir="ltr" data-title="InfiNote — Help and support">
+<h2>Help and support</h2>
+<p>InfiNote is a notebook for iPad and Android tablets: write and draw on pages, or on a canvas you can zoom into without end, with your PDFs, maths and diagrams, and recordings linked to what you write.</p>
+<div class="card">
+<h3>Where do I start?</h3>
+<p>On the home screen, New notebook starts a notebook of pages. Write and draw with the tools on the bar, and zoom in anywhere for more room: there is no end to it. Pages changes the page size, or turns the notebook into one canvas without edges (Endless).</p>
+<h3>Do I need an Apple Pencil or a stylus?</h3>
+<p>No. With the hand on the toolbar on, one finger draws and two move and zoom the canvas; InfiNote starts that way. With an Apple Pencil, or a stylus on Android, it switches by itself: the pen draws and fingers move the canvas.</p>
+<h3>Does InfiNote work offline?</h3>
+<p>Yes. It needs the internet only once: the first time you use To text or the handwriting search in Find, to download Google ML Kit’s handwriting model. On Android, transcribing needs it once too, to download the speech model (about 57 MB).</p>
+<h3>How do I record a lecture with my notes?</h3>
+<p>Tap the microphone on the bar (Record) and write: what you write is linked to what is being said at that moment. Later, tap your writing to hear what was said then. Recordings lists the canvas’s recordings, to play them, replay the ink as it was written, or delete them.</p>
+<h3>Can InfiNote turn a recording into text?</h3>
+<p>On Android, yes: in Recordings, Transcribe writes out what a recording says, and Live text does it while you record; As text or As handwriting then puts it on the canvas. It all happens on the device, after a one-time download of the speech model (about 57 MB) that InfiNote asks you about first. On iPad, not yet.</p>
+<h3>Can my handwriting become text?</h3>
+<p>Yes: lasso it and choose To text (one undo brings the handwriting back). Find finds words in your typed text and in your handwriting, in this canvas and in your others. Both read handwriting with Google ML Kit, on your device, in the language the app is shown in. If To text is missing, Read with Google ML Kit is off in Settings › Handwriting.</p>
+<h3>How do I bring in a PDF or a photo?</h3>
+<p>Insert › PDF opens a PDF as a canvas of its own, to write on. Insert › Photos or Files puts pictures on the canvas.</p>
+<h3>How do I share or print my work?</h3>
+<p>Export offers Image, Drawing (SVG), Document (PDF), Print 1:1 (A4), Print 1:1 (Letter), Zoom video (MP4) and Areas (PDF). Each is made on your device and handed to the system’s share sheet, to save, print or send.</p>
+<h3>Where is my work kept? Can I move it to a new device?</h3>
+<p>On your device, and in its iCloud Backup or Google backup when those are on. To keep a copy yourself, or to move to another iPad or tablet: Settings › Your data › Export, then Import on the other one (it replaces what is there). The file works on iPad and Android alike.</p>
+<h3>What does InfiNote send, and to whom?</h3>
+<p>Your work stays on your device. Google ML Kit reads your handwriting on the device for To text and Find: when you use them, it downloads its model and sends Google anonymous diagnostics. To switch ML Kit off: Settings › Handwriting › Read with Google ML Kit. On Android, transcribing downloads the speech model once, from Hugging Face. Everything else is in the <a href="privacy.html#en">privacy policy</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Write to <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. If something goes wrong, tell us your device’s model and system version, and what you were doing.</p>
+<footer><a href="privacy.html#en">Privacy policy</a></footer>
+</section>
+<section class="lang" id="s-es" lang="es" dir="ltr" data-title="InfiNote — Ayuda y soporte">
+<h2>Ayuda y soporte</h2>
+<p>InfiNote es un cuaderno para iPad y tabletas Android: escribe y dibuja en páginas, o en un lienzo en el que puedes acercarte sin fin, con tus PDF, matemáticas y diagramas, y grabaciones unidas a lo que escribes.</p>
+<div class="card">
+<h3>¿Por dónde empiezo?</h3>
+<p>En la pantalla de inicio, Nuevo cuaderno crea un cuaderno de páginas. Escribe y dibuja con las herramientas de la barra, y acércate donde quieras para tener más sitio: no tiene fin. Páginas cambia el tamaño de las páginas, o convierte el cuaderno en un lienzo sin bordes (Sin fin).</p>
+<h3>¿Necesito un Apple Pencil o un lápiz óptico?</h3>
+<p>No. Con la mano de la barra activada, un dedo dibuja y dos mueven el lienzo y hacen zoom; así empieza InfiNote. Si usas un Apple Pencil, o un lápiz óptico en Android, cambia a él automáticamente: dibuja el lápiz y los dedos mueven el lienzo.</p>
+<h3>¿InfiNote funciona sin conexión?</h3>
+<p>Sí. Solo hace falta internet una vez: la primera vez que usas A texto o la búsqueda en la escritura a mano de Buscar, para descargar el modelo de escritura de Google ML Kit. En Android, transcribir también lo necesita una vez, para descargar el modelo de voz (unos 57 MB).</p>
+<h3>¿Cómo grabo una clase junto con mis notas?</h3>
+<p>Toca el micrófono de la barra (Grabar) y escribe: lo que escribes queda unido a lo que se dice en ese momento. Después, toca lo que escribiste para oír lo que se decía entonces. Grabaciones muestra las grabaciones del lienzo, para escucharlas, ver cómo se escribió la tinta o borrarlas.</p>
+<h3>¿InfiNote puede pasar una grabación a texto?</h3>
+<p>En Android, sí: en Grabaciones, Transcribir escribe lo que dice una grabación, y Texto en vivo lo hace mientras grabas; luego Como texto o A mano lo pone en el lienzo. Todo se hace en el dispositivo, tras descargar una sola vez el modelo de voz (unos 57 MB), sobre lo que InfiNote te pregunta antes. En el iPad, todavía no.</p>
+<h3>¿Mi escritura a mano puede pasar a texto?</h3>
+<p>Sí: rodéala con el lazo y elige A texto (con deshacer vuelve la escritura). Buscar encuentra palabras en tus textos y en tu escritura a mano, en este lienzo y en los demás. Los dos leen la escritura con Google ML Kit, en tu dispositivo, en el idioma en que ves la app. Si no aparece A texto, es que Leer con Google ML Kit está desactivado en Ajustes › Escritura.</p>
+<h3>¿Cómo traigo un PDF o una foto?</h3>
+<p>Insertar › PDF abre un PDF como un lienzo propio, para escribir encima. Insertar › Fotos o Archivos pone imágenes en el lienzo.</p>
+<h3>¿Cómo comparto o imprimo lo que hago?</h3>
+<p>Exportar ofrece Imagen, Dibujo (SVG), Documento (PDF), Imprimir 1:1 (A4), Imprimir 1:1 (Carta), Vídeo de zoom (MP4) y Zonas (PDF). Cada uno se crea en tu dispositivo y pasa al menú de compartir del sistema, para guardarlo, imprimirlo o enviarlo.</p>
+<h3>¿Dónde se guarda lo que hago? ¿Puedo pasarlo a otro dispositivo?</h3>
+<p>En tu dispositivo, y en su copia en iCloud o de Google si las tienes activadas. Para guardar una copia por tu cuenta, o para pasarlo a otro iPad o tableta: Ajustes › Tus datos › Exportar, y luego Importar en el otro (sustituye lo que haya en él). El archivo sirve igual en iPad que en Android.</p>
+<h3>¿Qué envía InfiNote, y a quién?</h3>
+<p>Lo que haces se queda en tu dispositivo. Google ML Kit lee tu escritura a mano en el dispositivo para A texto y Buscar: cuando los usas, descarga su modelo y envía a Google diagnósticos anónimos. Para desactivar ML Kit: Ajustes › Escritura › Leer con Google ML Kit. En Android, transcribir descarga una vez el modelo de voz, de Hugging Face. Todo lo demás está en la <a href="privacy.html#es">política de privacidad</a>.</p>
+</div>
+<h3>Contacto</h3>
+<p>Escribe a <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Si algo falla, cuéntanos el modelo de tu dispositivo, la versión del sistema y qué estabas haciendo.</p>
+<footer><a href="privacy.html#es">Política de privacidad</a></footer>
+</section>
+<section class="lang" id="s-pt" lang="pt-BR" dir="ltr" data-title="InfiNote — Ajuda e suporte">
+<h2>Ajuda e suporte</h2>
+<p>O InfiNote é um caderno para iPad e tablets Android: escreva e desenhe em páginas, ou numa tela que você pode aproximar sem fim, com seus PDFs, matemática e diagramas, e gravações ligadas ao que você escreve.</p>
+<div class="card">
+<h3>Por onde eu começo?</h3>
+<p>Na tela inicial, Novo caderno cria um caderno de páginas. Escreva e desenhe com as ferramentas da barra, e aproxime onde quiser para ter mais espaço: não tem fim. Páginas muda o tamanho das páginas, ou transforma o caderno numa tela sem bordas (Sem fim).</p>
+<h3>Preciso de um Apple Pencil ou de uma caneta?</h3>
+<p>Não. Com a mão da barra ligada, um dedo desenha e dois movem e aproximam a tela; o InfiNote começa assim. Se você usar um Apple Pencil, ou uma caneta no Android, ele muda sozinho: a caneta desenha e os dedos movem a tela.</p>
+<h3>O InfiNote funciona offline?</h3>
+<p>Sim. A internet só é necessária uma vez: na primeira vez que você usa Para texto ou a busca na escrita à mão de Buscar, para baixar o modelo de escrita do Google ML Kit. No Android, transcrever também precisa dela uma vez, para baixar o modelo de voz (cerca de 57 MB).</p>
+<h3>Como gravo uma aula junto com minhas notas?</h3>
+<p>Toque no microfone da barra (Gravar) e escreva: o que você escreve fica ligado ao que está sendo dito naquele momento. Depois, toque no que escreveu para ouvir o que era dito então. Gravações mostra as gravações da tela, para ouvi-las, rever a tinta sendo escrita ou excluí-las.</p>
+<h3>O InfiNote consegue transformar uma gravação em texto?</h3>
+<p>No Android, sim: em Gravações, Transcrever escreve o que uma gravação diz, e Texto ao vivo faz isso enquanto você grava; depois, Como texto ou À mão coloca o texto na tela. Tudo acontece no dispositivo, depois de baixar uma única vez o modelo de voz (cerca de 57 MB), o que o InfiNote pergunta antes. No iPad, ainda não.</p>
+<h3>Minha escrita à mão pode virar texto?</h3>
+<p>Sim: selecione-a com o laço e escolha Para texto (desfazer traz a escrita de volta). Buscar encontra palavras nos seus textos e na sua escrita à mão, nesta tela e nas outras. Os dois leem a escrita com o Google ML Kit, no seu dispositivo, no idioma em que o app está. Se Para texto não aparecer, Ler com o Google ML Kit está desligado em Configurações › Escrita.</p>
+<h3>Como trago um PDF ou uma foto?</h3>
+<p>Inserir › PDF abre um PDF como uma tela própria, para escrever por cima. Inserir › Fotos ou Arquivos coloca imagens na tela.</p>
+<h3>Como compartilho ou imprimo o que faço?</h3>
+<p>Exportar oferece Imagem, Desenho (SVG), Documento (PDF), Imprimir 1:1 (A4), Imprimir 1:1 (Carta), Vídeo de zoom (MP4) e Áreas (PDF). Cada um é feito no seu dispositivo e vai para o menu de compartilhamento do sistema, para salvar, imprimir ou enviar.</p>
+<h3>Onde fica o que eu faço? Posso passar para outro dispositivo?</h3>
+<p>No seu dispositivo, e no backup do iCloud ou do Google quando estão ativados. Para guardar uma cópia você mesmo, ou para passar para outro iPad ou tablet: Configurações › Seus dados › Exportar, e depois Importar no outro (substitui o que houver nele). O arquivo serve tanto no iPad quanto no Android.</p>
+<h3>O que o InfiNote envia, e para quem?</h3>
+<p>O que você faz fica no seu dispositivo. O Google ML Kit lê sua escrita à mão no dispositivo para Para texto e Buscar: quando você os usa, ele baixa seu modelo e envia ao Google diagnósticos anônimos. Para desligar o ML Kit: Configurações › Escrita › Ler com o Google ML Kit. No Android, transcrever baixa o modelo de voz uma vez, do Hugging Face. Todo o resto está na <a href="privacy.html#pt">política de privacidade</a>.</p>
+</div>
+<h3>Contato</h3>
+<p>Escreva para <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Se algo der errado, informe o modelo do seu dispositivo, a versão do sistema e o que você estava fazendo.</p>
+<footer><a href="privacy.html#pt">Política de privacidade</a></footer>
+</section>
+<section class="lang" id="s-fr" lang="fr" dir="ltr" data-title="InfiNote — Aide et assistance">
+<h2>Aide et assistance</h2>
+<p>InfiNote est un carnet pour iPad et tablettes Android : écrivez et dessinez sur des pages, ou sur une toile où zoomer sans fin, avec vos PDF, des maths et des diagrammes, et des enregistrements liés à ce que vous écrivez.</p>
+<div class="card">
+<h3>Par où commencer ?</h3>
+<p>Sur l’écran d’accueil, Nouveau cahier crée un cahier de pages. Écrivez et dessinez avec les outils de la barre, et zoomez n’importe où pour avoir plus de place : c’est sans fin. Pages change la taille des pages, ou fait du cahier une seule toile sans bords (Sans fin).</p>
+<h3>Faut-il un Apple Pencil ou un stylet ?</h3>
+<p>Non. Avec la main de la barre activée, un doigt dessine et deux déplacent la toile et zooment ; c’est ainsi que l’app démarre. Avec un Apple Pencil, ou un stylet sur Android, elle bascule d’elle-même : le stylet dessine et les doigts déplacent la toile.</p>
+<h3>InfiNote fonctionne-t-il hors ligne ?</h3>
+<p>Oui. Il ne faut internet qu’une fois : la première fois que vous utilisez En texte ou la recherche dans l’écriture manuscrite de Rechercher, pour télécharger le modèle d’écriture de Google ML Kit. Sur Android, la transcription en a besoin une fois aussi, pour télécharger le modèle vocal (environ 57 Mo).</p>
+<h3>Comment enregistrer un cours avec mes notes ?</h3>
+<p>Touchez le micro de la barre (Enregistrer) et écrivez : ce que vous écrivez est lié à ce qui se dit à ce moment-là. Plus tard, touchez ce que vous avez écrit pour entendre ce qui se disait alors. Enregistrements liste les enregistrements de la toile, pour les écouter, revoir l’encre s’écrire ou les supprimer.</p>
+<h3>InfiNote peut-il transformer un enregistrement en texte ?</h3>
+<p>Sur Android, oui : dans Enregistrements, Transcrire écrit ce que dit un enregistrement, et Texte en direct le fait pendant que vous enregistrez ; En texte ou Manuscrit le pose ensuite sur la toile. Tout se fait sur l’appareil, après un téléchargement unique du modèle vocal (environ 57 Mo), que l’app vous demande d’abord d’accepter. Sur iPad, pas encore.</p>
+<h3>Mon écriture manuscrite peut-elle devenir du texte ?</h3>
+<p>Oui : entourez-la au lasso et choisissez En texte (une annulation rend l’écriture). Rechercher trouve des mots dans vos textes et dans votre écriture manuscrite, dans cette toile et dans les autres. Tous deux lisent l’écriture avec Google ML Kit, sur votre appareil, dans la langue de l’app. Si En texte n’apparaît pas, c’est que Lire avec Google ML Kit est désactivé dans Réglages › Écriture.</p>
+<h3>Comment importer un PDF ou une photo ?</h3>
+<p>Insérer › PDF ouvre un PDF dans une toile à part, pour écrire dessus. Insérer › Photos ou Fichiers pose des images sur la toile.</p>
+<h3>Comment partager ou imprimer mon travail ?</h3>
+<p>Exporter propose Image, Dessin (SVG), Document (PDF), Imprimer 1:1 (A4), Imprimer 1:1 (Lettre US), Vidéo de zoom (MP4) et Zones (PDF). Chacun est créé sur votre appareil et passe par la feuille de partage du système, pour l’enregistrer, l’imprimer ou l’envoyer.</p>
+<h3>Où est enregistré mon travail ? Puis-je le passer sur un autre appareil ?</h3>
+<p>Sur votre appareil, et dans sa sauvegarde iCloud ou Google si elle est activée. Pour en garder une copie vous-même, ou pour passer à un autre iPad ou à une autre tablette : Réglages › Vos données › Exporter, puis Importer sur l’autre (cela remplace ce qui s’y trouve). Le fichier sert aussi bien sur iPad que sur Android.</p>
+<h3>Qu’envoie InfiNote, et à qui ?</h3>
+<p>Votre travail reste sur votre appareil. Google ML Kit lit votre écriture manuscrite sur l’appareil pour En texte et Rechercher : quand vous vous en servez, il télécharge son modèle et envoie à Google des diagnostics anonymes. Pour désactiver ML Kit : Réglages › Écriture › Lire avec Google ML Kit. Sur Android, la transcription télécharge une fois le modèle vocal, depuis Hugging Face. Tout le reste se trouve dans la <a href="privacy.html#fr">politique de confidentialité</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Écrivez à <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. En cas de problème, indiquez le modèle de votre appareil, la version du système et ce que vous faisiez.</p>
+<footer><a href="privacy.html#fr">Politique de confidentialité</a></footer>
+</section>
+</main>
+<script>
+(function(){
+  var codes = ['en','es','pt','fr'], pick = (location.hash || '').slice(1);
+  if(codes.indexOf(pick) < 0) {
+    var langs = navigator.languages || [navigator.language || 'en'];
+    for(var i = 0; i < langs.length && codes.indexOf(pick) < 0; i++) { pick = (langs[i] || '').slice(0, 2).toLowerCase(); }
+  }
+  if(codes.indexOf(pick) < 0) { pick = 'en'; }
+  function show(c){
+    codes.forEach(function(x){
+      var s = document.getElementById('s-' + x), l = document.getElementById('l-' + x), on = x === c;
+      s.classList.toggle('on', on);
+      l.classList.toggle('on', on);
+      if(on) {
+        l.setAttribute('aria-current', 'true');
+        document.documentElement.lang = s.getAttribute('lang');
+        document.documentElement.dir = s.getAttribute('dir');
+        document.title = s.getAttribute('data-title');
+      } else {
+        l.removeAttribute('aria-current');
+      }
+    });
+  }
+  codes.forEach(function(c){ document.getElementById('l-' + c).addEventListener('click', function(e){ e.preventDefault(); history.replaceState(null, '', '#' + c); show(c); }); });
+  show(pick);
+})();
+</script>
+</body>
+</html>

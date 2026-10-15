@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Arabic Learn! — Help and support</title>
+<style>
+:root { --page:#f6f3ec; --ink:#1d1d22; --soft:#5f5f6b; --line:#ddd8cc; --card:#fffdf8; --accent:#3b6fe0; --on-accent:#fff; }
+@media (prefers-color-scheme: dark) { :root { --page:#17181c; --ink:#ececf0; --soft:#a3a3ae; --line:#2e3038; --card:#1f2026; --accent:#7ea2ff; --on-accent:#10131a; } }
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body { margin:0; background:var(--page); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif; overflow-wrap:break-word; }
+:lang(ja) { font-family:-apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif; }
+:lang(zh) { font-family:-apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+:lang(ko) { font-family:-apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; word-break:keep-all; }
+:lang(th) { font-family:-apple-system, "Thonburi", "Noto Sans Thai", "Leelawadee UI", sans-serif; line-height:1.8; }
+:lang(hi) { font-family:-apple-system, "Kohinoor Devanagari", "Noto Sans Devanagari", "Nirmala UI", sans-serif; line-height:1.8; }
+:lang(ar) { font-family:-apple-system, "Geeza Pro", "Noto Naskh Arabic", "Noto Sans Arabic", "Segoe UI", sans-serif; line-height:1.9; }
+main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+header { display:flex; align-items:center; gap:14px; margin-bottom:8px; }
+.mark { width:44px; height:44px; border-radius:11px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:24px; line-height:1; flex:none; }
+h1 { font-size:26px; line-height:1.25; margin:0; }
+h2 { font-size:21px; line-height:1.3; margin:8px 0 4px; }
+h3 { font-size:17px; line-height:1.35; margin:28px 0 4px; }
+.card h3 { margin-top:20px; }
+ul { padding-inline-start:22px; }
+li { margin:6px 0; }
+.soft { color:var(--soft); font-size:14px; }
+nav.langs { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 22px; }
+nav.langs a { padding:6px 12px; border-radius:999px; border:1px solid var(--line); color:var(--ink); text-decoration:none; font-size:14px; }
+nav.langs a.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+a { color:var(--accent); }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+section.lang { display:none; }
+section.lang.on { display:block; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:2px 18px 14px; margin-top:18px; }
+footer { margin-top:40px; border-top:1px solid var(--line); padding-top:14px; }
+</style>
+</head>
+<body>
+<main>
+<header><div class="mark" aria-hidden="true">ع</div><h1><bdi>Arabic Learn!</bdi></h1></header>
+<nav class="langs" aria-label="Languages"><a id="l-en" href="#en" hreflang="en" lang="en">English</a><a id="l-es" href="#es" hreflang="es" lang="es">Español</a><a id="l-pt" href="#pt" hreflang="pt-BR" lang="pt-BR">Português</a><a id="l-ar" href="#ar" hreflang="ar" lang="ar">العربية</a><a id="l-fr" href="#fr" hreflang="fr" lang="fr">Français</a></nav>
+<noscript><style>section.lang { display:block; border-top:1px solid var(--line); margin-top:24px; }</style></noscript>
+<section class="lang" id="s-en" lang="en" dir="ltr" data-title="Arabic Learn! — Help and support">
+<h2>Help and support</h2>
+<p>Arabic Learn! teaches you to write Arabic by hand: every letter stroke by stroke, from right to left, in each of the forms it takes in a word; words to read and listen to, your own vocabulary, exams and reviews — on iPad and Android tablets, with a pen or your finger, offline.</p>
+<div class="card">
+<h3>Where do I start?</h3>
+<p>Open the menu at the top left: it has everything to study, and Reviews, Vocabulary, Lectures, Exams and Statistics. Pick a letter to see its strokes in order, then write it: Arabic Learn! reads what you write and tells you how well it went. Tutorial, in the same menu, shows the first steps again.</p>
+<h3>Do I need an Apple Pencil or a stylus?</h3>
+<p>No. With the hand on the toolbar on, one finger writes and two move the page. With an Apple Pencil, or a stylus on Android, Arabic Learn! switches to it by itself: the pen writes, fingers move the page, and your hand can rest on the screen.</p>
+<h3>Does Arabic Learn! work offline?</h3>
+<p>Yes. Google ML Kit’s handwriting model (about 20 MB) downloads once, when Arabic Learn! first starts, and each language’s model for Translate with Google the first time you translate; after that, everything works offline.</p>
+<h3>Where is my work kept? Can I move it to a new device?</h3>
+<p>On your device, and in its iCloud Backup or Google backup when those are on. To keep a copy yourself, or to move to another iPad or tablet: Settings › Your data › Export, then Import on the other one (it replaces what is there). The file works on iPad and Android alike.</p>
+<h3>My handwriting is not read well</h3>
+<p>In Settings › Handwriting, Read with Google ML Kit should be on and its model downloaded (it needs the internet once). With it off, Arabic Learn! reads handwriting on its own, less accurately.</p>
+<h3>Can Arabic Learn! read text from a book or a sign?</h3>
+<p>Not yet: Google ML Kit cannot read printed Arabic text, so Text from a photo is not available. You can still bring pages in to read and write on: Lectures › Scan pages or From Photos.</p>
+<h3>How do I translate?</h3>
+<p>Lasso your writing and choose Translate with Google to read it in your language. In Vocabulary, Translate with Google goes the other way: type in your language and get it in Arabic, with its words to save or practise. It all happens on your device: each language’s model (about 30 MB) downloads once, then works offline.</p>
+<h3>There is no voice, or it sounds robotic</h3>
+<p>Arabic Learn! reads aloud with your device’s own voices. On iPad: for a clearer voice, download an Arabic one in Settings › Accessibility › Spoken Content › Voices. On Android, install a Arabic voice for the text-to-speech engine (Speech Services by Google, for example) in the system settings; when there is none, Set up the voice in Arabic Learn! opens them for you.</p>
+<h3>How do reviews work?</h3>
+<p>Mark letters as Studying: Reviews brings each one back when it is due, the next day, then three days later, then longer each time you write it right, and sooner when you do not. New ones join at most ten a day, so marking many at once does not flood the next day. The words you save have their own reviews, in Vocabulary.</p>
+<h3>Can I print practice sheets?</h3>
+<p>Yes: Sheet, in a letter’s page, in Select mode or in Vocabulary, makes a PDF to print or share.</p>
+<h3>What does Arabic Learn! send, and to whom?</h3>
+<p>Your work stays on your device. Google ML Kit, which reads handwriting and translates on the device, downloads its models and sends Google anonymous diagnostics while it is on: Settings › Handwriting › Read with Google ML Kit switches it off. Everything else is in the <a href="privacy.html#en">privacy policy</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Write to <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. If something goes wrong, tell us your device’s model and system version, and what you were doing.</p>
+<footer><a href="privacy.html#en">Privacy policy</a></footer>
+</section>
+<section class="lang" id="s-es" lang="es" dir="ltr" data-title="Arabic Learn! — Ayuda y soporte">
+<h2>Ayuda y soporte</h2>
+<p>Arabic Learn! te enseña a escribir árabe a mano: cada letra trazo a trazo, de derecha a izquierda, en cada una de las formas que toma en una palabra; palabras para leer y escuchar, tu propio vocabulario, exámenes y repasos — en iPad y tabletas Android, con lápiz o con el dedo, sin conexión.</p>
+<div class="card">
+<h3>¿Por dónde empiezo?</h3>
+<p>Abre el menú de arriba a la izquierda: tiene todo para estudiar, además de Repasos, Vocabulario, Lecciones, Exámenes y Estadísticas. Elige una letra para ver sus trazos en orden y luego escribe tú: Arabic Learn! lee lo que escribes y te dice qué tal te ha salido. Tutorial, en el mismo menú, vuelve a mostrarte los primeros pasos.</p>
+<h3>¿Necesito un Apple Pencil o un lápiz óptico?</h3>
+<p>No. Con la mano de la barra activada, un dedo escribe y dos mueven la página. Si usas un Apple Pencil, o un lápiz óptico en Android, Arabic Learn! cambia a él automáticamente: escribe el lápiz, los dedos mueven la página y puedes apoyar la mano en la pantalla.</p>
+<h3>¿Arabic Learn! funciona sin conexión?</h3>
+<p>Sí. El modelo de escritura de Google ML Kit (unos 20 MB) se descarga una vez, la primera vez que abres Arabic Learn!, y el modelo de cada idioma para Traducir con Google, la primera vez que traduces; después, todo funciona sin conexión.</p>
+<h3>¿Dónde se guarda lo que hago? ¿Puedo pasarlo a otro dispositivo?</h3>
+<p>En tu dispositivo, y en su copia en iCloud o de Google si las tienes activadas. Para guardar una copia por tu cuenta, o para pasarlo a otro iPad o tableta: Ajustes › Tus datos › Exportar, y luego Importar en el otro (sustituye lo que haya en él). El archivo sirve igual en iPad que en Android.</p>
+<h3>No reconoce bien mi escritura</h3>
+<p>En Ajustes › Escritura, Leer con Google ML Kit debe estar activado y su modelo descargado (necesita internet una vez). Desactivado, Arabic Learn! lee la escritura por su cuenta, con menos precisión.</p>
+<h3>¿Arabic Learn! puede leer el texto de un libro o de un cartel?</h3>
+<p>Todavía no: Google ML Kit no sabe leer texto impreso en árabe, así que Texto de una foto no está disponible. Aun así, puedes traer páginas para leer y escribir encima: Lecciones › Escanear páginas o De Fotos.</p>
+<h3>¿Cómo traduzco?</h3>
+<p>Rodea tu escritura con el lazo y elige Traducir con Google para leerla en tu idioma. En Vocabulario, Traducir con Google va al revés: escribe en tu idioma y obtenlo en árabe, con sus palabras para guardar o practicar. Todo se hace en tu dispositivo: el modelo de cada idioma (unos 30 MB) se descarga una vez y después funciona sin conexión.</p>
+<h3>No hay voz, o suena robótica</h3>
+<p>Arabic Learn! lee en voz alta con las voces de tu dispositivo. En el iPad: para una voz más clara, descarga una en árabe en Ajustes › Accesibilidad › Contenido leído › Voces. En Android, instala una voz en árabe para el motor de texto a voz (por ejemplo, Servicios de voz de Google) en los ajustes del sistema; si no hay ninguna, Configurar la voz, en Arabic Learn!, te los abre.</p>
+<h3>¿Cómo funcionan los repasos?</h3>
+<p>Marca letras como Estudiando: Repasos te los trae cuando toca, al día siguiente, luego a los tres días, y cada vez más tarde si los escribes bien; antes si no. Los nuevos entran como mucho de diez en diez al día, para que marcar muchos a la vez no te llene el día siguiente. Las palabras que guardas tienen sus propios repasos, en Vocabulario.</p>
+<h3>¿Puedo imprimir hojas de práctica?</h3>
+<p>Sí: Hoja, en la página de una letra, en el modo Seleccionar o en Vocabulario, crea un PDF para imprimir o compartir.</p>
+<h3>¿Qué envía Arabic Learn!, y a quién?</h3>
+<p>Lo que haces se queda en tu dispositivo. Google ML Kit, que lee la escritura y traduce en el dispositivo, descarga sus modelos y envía a Google diagnósticos anónimos mientras está activado: Ajustes › Escritura › Leer con Google ML Kit lo desactiva. Todo lo demás está en la <a href="privacy.html#es">política de privacidad</a>.</p>
+</div>
+<h3>Contacto</h3>
+<p>Escribe a <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Si algo falla, cuéntanos el modelo de tu dispositivo, la versión del sistema y qué estabas haciendo.</p>
+<footer><a href="privacy.html#es">Política de privacidad</a></footer>
+</section>
+<section class="lang" id="s-pt" lang="pt-BR" dir="ltr" data-title="Arabic Learn! — Ajuda e suporte">
+<h2>Ajuda e suporte</h2>
+<p>O Arabic Learn! ensina você a escrever árabe à mão: cada letra traço a traço, da direita para a esquerda, em cada uma das formas que ela toma numa palavra; palavras para ler e ouvir, seu próprio vocabulário, testes e revisões — no iPad e em tablets Android, com caneta ou com o dedo, offline.</p>
+<div class="card">
+<h3>Por onde eu começo?</h3>
+<p>Abra o menu no canto superior esquerdo: ele tem tudo para estudar, além de Revisões, Vocabulário, Lições, Testes e Estatísticas. Escolha uma letra para ver os traços na ordem e depois escreva você: o Arabic Learn! lê o que você escreve e diz como foi. Tutorial, no mesmo menu, mostra de novo os primeiros passos.</p>
+<h3>Preciso de um Apple Pencil ou de uma caneta?</h3>
+<p>Não. Com a mão da barra ligada, um dedo escreve e dois movem a página. Se você usar um Apple Pencil, ou uma caneta no Android, o Arabic Learn! muda para ela sozinho: a caneta escreve, os dedos movem a página e você pode apoiar a mão na tela.</p>
+<h3>O Arabic Learn! funciona offline?</h3>
+<p>Sim. O modelo de escrita do Google ML Kit (cerca de 20 MB) é baixado uma vez, na primeira vez que o Arabic Learn! é aberto, e o modelo de cada idioma para Traduzir com o Google, na primeira vez que você traduz; depois disso, tudo funciona offline.</p>
+<h3>Onde fica o que eu faço? Posso passar para outro dispositivo?</h3>
+<p>No seu dispositivo, e no backup do iCloud ou do Google quando estão ativados. Para guardar uma cópia você mesmo, ou para passar para outro iPad ou tablet: Configurações › Seus dados › Exportar, e depois Importar no outro (substitui o que houver nele). O arquivo serve tanto no iPad quanto no Android.</p>
+<h3>Minha escrita não é bem reconhecida</h3>
+<p>Em Configurações › Escrita, Ler com o Google ML Kit deve estar ligado e o modelo baixado (precisa de internet uma vez). Desligado, o Arabic Learn! lê a escrita por conta própria, com menos precisão.</p>
+<h3>O Arabic Learn! consegue ler o texto de um livro ou de uma placa?</h3>
+<p>Ainda não: o Google ML Kit não sabe ler texto impresso em árabe, então Texto de uma foto não está disponível. Mesmo assim, você pode trazer páginas para ler e escrever por cima: Lições › Escanear páginas ou De Fotos.</p>
+<h3>Como eu traduzo?</h3>
+<p>Selecione sua escrita com o laço e escolha Traduzir com o Google para lê-la no seu idioma. Em Vocabulário, Traduzir com o Google faz o caminho inverso: digite no seu idioma e receba em árabe, com as palavras para salvar ou praticar. Tudo acontece no seu dispositivo: o modelo de cada idioma (cerca de 30 MB) é baixado uma vez e depois funciona offline.</p>
+<h3>Não tem voz, ou ela soa robótica</h3>
+<p>O Arabic Learn! lê em voz alta com as vozes do seu dispositivo. No iPad: para uma voz mais clara, baixe uma em árabe em Ajustes › Acessibilidade › Conteúdo Falado › Vozes. No Android, instale uma voz em árabe para o mecanismo de conversão de texto em voz (por exemplo, Serviços de fala do Google) nas configurações do sistema; se não houver nenhuma, Configurar a voz, no Arabic Learn!, as abre para você.</p>
+<h3>Como funcionam as revisões?</h3>
+<p>Marque letras como Estudando: Revisões traz cada um de volta no momento certo, no dia seguinte, depois em três dias, e cada vez mais tarde quando você acerta; mais cedo quando erra. Os novos entram no máximo dez por dia, para que marcar muitos de uma vez não lote o dia seguinte. As palavras que você salva têm revisões próprias, em Vocabulário.</p>
+<h3>Posso imprimir folhas de prática?</h3>
+<p>Sim: Folha, na página de uma letra, no modo Selecionar ou em Vocabulário, cria um PDF para imprimir ou compartilhar.</p>
+<h3>O que o Arabic Learn! envia, e para quem?</h3>
+<p>O que você faz fica no seu dispositivo. O Google ML Kit, que lê a escrita e traduz no dispositivo, baixa seus modelos e envia ao Google diagnósticos anônimos enquanto está ligado: Configurações › Escrita › Ler com o Google ML Kit o desliga. Todo o resto está na <a href="privacy.html#pt">política de privacidade</a>.</p>
+</div>
+<h3>Contato</h3>
+<p>Escreva para <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Se algo der errado, informe o modelo do seu dispositivo, a versão do sistema e o que você estava fazendo.</p>
+<footer><a href="privacy.html#pt">Política de privacidade</a></footer>
+</section>
+<section class="lang" id="s-ar" lang="ar" dir="rtl" data-title="Arabic Learn!‎ — المساعدة والدعم">
+<h2>المساعدة والدعم</h2>
+<p>يعلّمك <bdi>Arabic Learn!</bdi> كتابة العربية بخط اليد: كل حرف ضربةً بعد ضربة، من اليمين إلى اليسار، في كل شكل يتخذه داخل الكلمة، مع كلمات تقرؤها وتستمع إليها، ومفرداتك الخاصة، والاختبارات والمراجعات — على iPad والأجهزة اللوحية العاملة بنظام Android، بالقلم أو بالإصبع، ودون اتصال بالإنترنت.</p>
+<div class="card">
+<h3>من أين أبدأ؟</h3>
+<p>افتح القائمة في أعلى الشاشة: فيها كل ما تحتاجه للدراسة، ومعها «المراجعات» و«المفردات» و«الدروس» و«الاختبارات» و«الإحصاءات». اختر حرفًا لترى ضرباته بالترتيب، ثم اكتبه بنفسك: يقرأ <bdi>Arabic Learn!</bdi> ما تكتبه ويخبرك بمدى إتقانك. ويعرض «الشرح التعليمي» في القائمة نفسها الخطوات الأولى من جديد.</p>
+<h3>هل أحتاج إلى Apple Pencil أو قلم إلكتروني؟</h3>
+<p>لا. عند تفعيل زر اليد في شريط الأدوات، تكتب بإصبع واحد وتحرّك الصفحة بإصبعين. ومع Apple Pencil، أو قلم إلكتروني على Android، يتحول <bdi>Arabic Learn!</bdi> إليه تلقائيًا: يكتب القلم، وتحرّك الأصابع الصفحة، ويمكنك إسناد يدك على الشاشة.</p>
+<h3>هل يعمل <bdi>Arabic Learn!</bdi> دون اتصال بالإنترنت؟</h3>
+<p>نعم. يُنزَّل نموذج خط اليد من Google ML Kit (نحو ٢٠ ميغابايت) مرة واحدة عند تشغيل <bdi>Arabic Learn!</bdi> أول مرة، ونموذج كل لغة لـ«الترجمة عبر Google» أول مرة تترجم فيها؛ وبعد ذلك يعمل كل شيء دون اتصال.</p>
+<h3>أين يُحفظ عملي؟ وهل يمكنني نقله إلى جهاز جديد؟</h3>
+<p>على جهازك، وفي نسخ iCloud الاحتياطي أو النسخ الاحتياطي من Google إذا كان مفعّلًا. للاحتفاظ بنسخة بنفسك، أو للانتقال إلى iPad أو جهاز لوحي آخر، استخدم «الإعدادات › بياناتك › تصدير»، ثم «استيراد» على الجهاز الآخر (يستبدل ما عليه). ويصلح الملف على iPad وAndroid على حد سواء.</p>
+<h3>لا يُقرأ خط يدي جيدًا</h3>
+<p>في «الإعدادات › الكتابة اليدوية»، يجب أن يكون خيار «القراءة باستخدام Google ML Kit» مفعّلًا ونموذجه منزّلًا (يحتاج إلى الإنترنت مرة واحدة). وإذا كان متوقفًا، يقرأ <bdi>Arabic Learn!</bdi> خط اليد بنفسه، بدقة أقل.</p>
+<h3>هل يستطيع <bdi>Arabic Learn!</bdi> قراءة نص من كتاب أو لافتة؟</h3>
+<p>ليس بعد: لا يستطيع Google ML Kit حتى الآن قراءة النص العربي المطبوع، لذا لا تتوفر ميزة «نص من صورة». لكن يمكنك إضافة صفحات لتقرأها وتكتب عليها: الدروس › مسح ضوئي أو من الصور.</p>
+<h3>كيف أترجم؟</h3>
+<p>أحِط ما كتبته بـ«أداة التحديد» واختر «الترجمة عبر Google» لتقرأه بالإنجليزية (عند استخدام التطبيق بالعربية تكون الترجمة بين العربية والإنجليزية). وفي «المفردات» يعمل زر «الترجمة عبر Google» في الاتجاه المعاكس: اكتب بالإنجليزية واحصل على العربية، مع كلماتها لتحفظها أو تتدرب عليها. يحدث كل ذلك على جهازك: يُنزَّل نموذج كل لغة (نحو ٣٠ ميغابايت) مرة واحدة، ثم يعمل دون اتصال.</p>
+<h3>لا يوجد صوت، أو يبدو الصوت آليًا</h3>
+<p>يقرأ <bdi>Arabic Learn!</bdi> بصوت عالٍ بأصوات جهازك. على iPad: لصوت أوضح، نزّل صوتًا عربيًا من الإعدادات › تسهيلات الاستخدام › المحتوى المنطوق › الأصوات. وعلى Android، ثبّت صوتًا عربيًا لمحرك تحويل النص إلى كلام (مثل خدمات الكلام من Google) في إعدادات النظام؛ وإن لم يوجد صوت، يفتح لك زر «إعداد الصوت» في <bdi>Arabic Learn!</bdi> تلك الإعدادات.</p>
+<h3>كيف تعمل المراجعات؟</h3>
+<p>ضع علامة «قيد الدراسة» على الحروف: تعيد شاشة «المراجعات» كل حرف عندما يحين موعده، في اليوم التالي، ثم بعد ثلاثة أيام، ثم بعد مدة أطول في كل مرة تكتبه فيها صحيحًا، وأقرب إن أخطأت. ولا تدخل الحروف الجديدة إلا عشرةً في اليوم على الأكثر، حتى لا يزدحم اليوم التالي إذا وضعت علامات على كثير منها دفعة واحدة. وللكلمات التي تحفظها مراجعاتها الخاصة في «المفردات».</p>
+<h3>هل يمكنني طباعة أوراق تدريب؟</h3>
+<p>نعم: ينشئ زر «ورقة»، في صفحة أي حرف، أو في وضع «تحديد»، أو في «المفردات»، ملف PDF للطباعة أو المشاركة.</p>
+<h3>ماذا يرسل <bdi>Arabic Learn!</bdi>، وإلى من؟</h3>
+<p>يبقى عملك على جهازك. أما Google ML Kit، الذي يقرأ خط اليد ويترجم على الجهاز، فينزّل نماذجه ويرسل إلى Google بيانات تشخيص مجهولة الهوية ما دام مفعّلًا: يمكنك إيقافه من الإعدادات › الكتابة اليدوية › القراءة باستخدام Google ML Kit. وكل ما عدا ذلك تجده في <a href="privacy.html#ar">سياسة الخصوصية</a>.</p>
+</div>
+<h3>التواصل</h3>
+<p>راسلنا على <bdi><a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a></bdi>. وإذا حدثت مشكلة، فأخبرنا بطراز جهازك وإصدار النظام وما كنت تفعله.</p>
+<footer><a href="privacy.html#ar">سياسة الخصوصية</a></footer>
+</section>
+<section class="lang" id="s-fr" lang="fr" dir="ltr" data-title="Arabic Learn! — Aide et assistance">
+<h2>Aide et assistance</h2>
+<p>Arabic Learn! vous apprend à écrire l’arabe à la main : chaque lettre trait par trait, de droite à gauche, dans chacune des formes qu’elle prend dans un mot ; des mots à lire et à écouter, votre propre vocabulaire, examens et révisions — sur iPad et tablettes Android, au stylet ou du doigt, hors ligne.</p>
+<div class="card">
+<h3>Par où commencer ?</h3>
+<p>Ouvrez le menu en haut à gauche : il a tout pour étudier, plus Révisions, Vocabulaire, Leçons, Examens et Statistiques. Choisissez une lettre pour voir ses traits dans l’ordre, puis écrivez à votre tour : l’app lit ce que vous écrivez et vous dit comment c’était. Tutoriel, dans le même menu, remontre les premiers pas.</p>
+<h3>Faut-il un Apple Pencil ou un stylet ?</h3>
+<p>Non. Avec la main de la barre activée, un doigt écrit et deux déplacent la page. Avec un Apple Pencil, ou un stylet sur Android, l’app bascule d’elle-même : le stylet écrit, les doigts déplacent la page, et vous pouvez poser la main sur l’écran.</p>
+<h3>Arabic Learn! fonctionne-t-il hors ligne ?</h3>
+<p>Oui. Le modèle d’écriture de Google ML Kit (environ 20 Mo) se télécharge une fois, au premier lancement de l’app, et le modèle de chaque langue pour Traduire avec Google, la première fois que vous traduisez ; ensuite, tout fonctionne hors ligne.</p>
+<h3>Où est enregistré mon travail ? Puis-je le passer sur un autre appareil ?</h3>
+<p>Sur votre appareil, et dans sa sauvegarde iCloud ou Google si elle est activée. Pour en garder une copie vous-même, ou pour passer à un autre iPad ou à une autre tablette : Réglages › Vos données › Exporter, puis Importer sur l’autre (cela remplace ce qui s’y trouve). Le fichier sert aussi bien sur iPad que sur Android.</p>
+<h3>Mon écriture est mal reconnue</h3>
+<p>Dans Réglages › Écriture, Lire avec Google ML Kit doit être activé et son modèle téléchargé (il faut internet une fois). Désactivé, l’app lit l’écriture par elle-même, moins précisément.</p>
+<h3>Arabic Learn! peut-il lire le texte d’un livre ou d’un panneau ?</h3>
+<p>Pas encore : Google ML Kit ne sait pas lire le texte imprimé en arabe, donc Texte d’une photo n’est pas disponible. Vous pouvez quand même importer des pages à lire et à annoter : Leçons › Numériser des pages ou Depuis Photos.</p>
+<h3>Comment traduire ?</h3>
+<p>Entourez votre écriture au lasso et choisissez Traduire avec Google pour la lire dans votre langue. Dans Vocabulaire, Traduire avec Google va dans l’autre sens : tapez dans votre langue et obtenez le résultat en arabe, avec ses mots à enregistrer ou à travailler. Tout se fait sur votre appareil : le modèle de chaque langue (environ 30 Mo) se télécharge une fois, puis fonctionne hors ligne.</p>
+<h3>Il n’y a pas de voix, ou elle semble robotique</h3>
+<p>L’app lit à voix haute avec les voix de votre appareil. Sur iPad : pour une voix plus claire, téléchargez-en une en arabe dans Réglages › Accessibilité › Contenu énoncé › Voix. Sur Android, installez une voix pour l’arabe dans le moteur de synthèse vocale (Services vocaux de Google, par exemple), dans les réglages du système ; s’il n’y en a aucune, Configurer la voix, dans Arabic Learn!, vous les ouvre.</p>
+<h3>Comment fonctionnent les révisions ?</h3>
+<p>Marquez des lettres En cours : Révisions vous les ramène au bon moment, le lendemain, puis trois jours plus tard, et de plus en plus tard à chaque bonne réponse ; plus tôt sinon. Les nouveaux arrivent au plus dix par jour, pour qu’en marquer beaucoup d’un coup ne surcharge pas le lendemain. Les mots que vous enregistrez ont leurs propres révisions, dans Vocabulaire.</p>
+<h3>Puis-je imprimer des feuilles d’entraînement ?</h3>
+<p>Oui : Feuille, sur la page d’une lettre, en mode Sélectionner ou dans Vocabulaire, crée un PDF à imprimer ou à partager.</p>
+<h3>Qu’envoie Arabic Learn!, et à qui ?</h3>
+<p>Votre travail reste sur votre appareil. Google ML Kit, qui lit l’écriture et traduit sur l’appareil, télécharge ses modèles et envoie à Google des diagnostics anonymes tant qu’il est activé : Réglages › Écriture › Lire avec Google ML Kit le désactive. Tout le reste se trouve dans la <a href="privacy.html#fr">politique de confidentialité</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Écrivez à <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. En cas de problème, indiquez le modèle de votre appareil, la version du système et ce que vous faisiez.</p>
+<footer><a href="privacy.html#fr">Politique de confidentialité</a></footer>
+</section>
+</main>
+<script>
+(function(){
+  var codes = ['en','es','pt','ar','fr'], pick = (location.hash || '').slice(1);
+  if(codes.indexOf(pick) < 0) {
+    var langs = navigator.languages || [navigator.language || 'en'];
+    for(var i = 0; i < langs.length && codes.indexOf(pick) < 0; i++) { pick = (langs[i] || '').slice(0, 2).toLowerCase(); }
+  }
+  if(codes.indexOf(pick) < 0) { pick = 'en'; }
+  function show(c){
+    codes.forEach(function(x){
+      var s = document.getElementById('s-' + x), l = document.getElementById('l-' + x), on = x === c;
+      s.classList.toggle('on', on);
+      l.classList.toggle('on', on);
+      if(on) {
+        l.setAttribute('aria-current', 'true');
+        document.documentElement.lang = s.getAttribute('lang');
+        document.documentElement.dir = s.getAttribute('dir');
+        document.title = s.getAttribute('data-title');
+      } else {
+        l.removeAttribute('aria-current');
+      }
+    });
+  }
+  codes.forEach(function(c){ document.getElementById('l-' + c).addEventListener('click', function(e){ e.preventDefault(); history.replaceState(null, '', '#' + c); show(c); }); });
+  show(pick);
+})();
+</script>
+</body>
+</html>

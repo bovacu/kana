@@ -2,28 +2,39 @@
 
 #include "study/models/charnote.h"
 #include "drawing/base/kfile.h"
-
-#include <stdio.h>
-#include <string.h>
+#include "drawing/base/save.h"
+#include "drawing/base/utf8.h"
 
 // ===========================================================================
-// See charnote.h. A few hundred notes at most: an array sorted by code point.
+// See charnote.h.
+//
+// The notes are one array sorted by code point, so a note is found by binary search and a new one is inserted in its
+// place. There are a few hundred notes at most, so moving the rest of the array on an insert costs nothing. Each note
+// keeps its text in a fixed buffer of FUDE_CHARNOTE_TEXT bytes, which keeps the array's items all the same size.
 // ===========================================================================
 
+// The file's format version, and the four-character tags of its kind and of its one chunk (the layout is in
+// charnote.h).
 #define FUDE_CHARNOTES_VERSION 1u
 #define FUDE_CHARNOTES_KIND    FUDE_TAG('C', 'N', 'O', 'T')
 #define FUDE_CHARNOTES_CHUNK   FUDE_TAG('C', 'N', 'T', 'S')
 
+// One note: the character's code point and the note's text, in UTF-8 and NUL-terminated.
 typedef struct {
     u32 codepoint;
     c8  text[FUDE_CHARNOTE_TEXT];
 } fude_charnote;
 
+// The notes, sorted by code point. The array is created on first use (fude_charnotes_ensure), so the notes work in
+// memory without a file, as the tests use them.
 static rde_arr TYPE(fude_charnote) fude_charnotes_all;
 static b8                          fude_charnotes_ready   = false;
+// The file the notes are saved to, or "" to keep them in memory only.
 static c8                          fude_charnotes_path[RDE_MAX_PATH];
+// Goes up on every change; fude_charnotes_revision returns it.
 static u32                         fude_charnotes_changes = 0;
 
+// Creates the notes' array the first time it is needed.
 RDE_INTERNAL void fude_charnotes_ensure(void) {
     if(!fude_charnotes_ready) {
         fude_charnotes_all   = rde_arr_new(sizeof(fude_charnote), rde_memory_allocator_get_default_std());
@@ -31,18 +42,8 @@ RDE_INTERNAL void fude_charnotes_ensure(void) {
     }
 }
 
-// _s (_len bytes) into _out, cut at a whole character.
-RDE_INTERNAL void fude_charnotes_copy(c8* _out, usize _size, const c8* _s, usize _len) {
-    usize _n = _len < _size - 1u ? _len : _size - 1u;
-    while(_n > 0 && _n < _len && ((u8)_s[_n] & 0xC0u) == 0x80u) {
-        _n--;
-    }
-    if(_n > 0) {
-        memcpy(_out, _s, _n);
-    }
-    _out[_n] = 0;
-}
-
+// Finds _codepoint's note by binary search. When it has one, sets *_found to true and returns its index; otherwise
+// sets *_found to false and returns the index where its note would be inserted to keep the array sorted.
 RDE_INTERNAL u32 fude_charnotes_find(u32 _codepoint, b8* _found) {
     const fude_charnote* _n  = (const fude_charnote*)fude_charnotes_all.memory;
     u32                  _lo = 0;
@@ -55,6 +56,9 @@ RDE_INTERNAL u32 fude_charnotes_find(u32 _codepoint, b8* _found) {
     return _lo;
 }
 
+// Counts a change and, when the notes have a file, writes the whole file again. The buffer starts with room for about
+// 64 bytes a note and grows when the notes are longer. A file that cannot be written is logged; the notes stay in
+// memory all the same.
 RDE_INTERNAL void fude_charnotes_save(void) {
     fude_charnotes_changes++;
     if(fude_charnotes_path[0] == 0) {
@@ -67,40 +71,27 @@ RDE_INTERNAL void fude_charnotes_save(void) {
     fude_put_u32(&_b, _count);
     const fude_charnote* _n = (const fude_charnote*)fude_charnotes_all.memory;
     for(u32 _i = 0; _i < _count; _i++) {
-        const u32 _len = (u32)strlen(_n[_i].text);
+        const u32 _len = (u32)rde_strlen(_n[_i].text);
         fude_put_u32(&_b, _n[_i].codepoint);
         fude_put_u16(&_b, (u16)_len);
         fude_put_data(&_b, _n[_i].text, _len);
     }
     fude_chunk_end(&_b, _chunk);
     if(!fude_bytes_write_and_free(&_b, fude_charnotes_path, NULL)) {
-        rde_log_level(RDE_LOG_LEVEL_WARNING, "kana: could not save the character notes (%s)", fude_charnotes_path);
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "character notes: could not save the character notes (%s)", fude_charnotes_path);
     }
 }
 
-void fude_charnotes_open(const c8* _path) {
-    fude_charnotes_ensure();
+// Reads the character notes file's bytes into the notes, starting from no notes; fude_save_load (save.h) calls it, a
+// second time for the .bak when the main file fails. Unknown chunks are skipped, a note that runs past the chunk's end
+// stops the reading, and an empty note or a second note on the same character is dropped. Returns false when the
+// header is not that of a character notes file of this version.
+RDE_INTERNAL b8 fude_charnotes_read(const u8* _data, u32 _size, any _user) {
+    RDE_UNUSED(_user);
     rde_arr_clear(&fude_charnotes_all);
-    snprintf(fude_charnotes_path, sizeof(fude_charnotes_path), "%s", _path != NULL ? _path : "");
-    fude_charnotes_changes++;
-    if(_path == NULL) {
-        return;
-    }
-    c8 _from[RDE_MAX_PATH];
-    snprintf(_from, sizeof(_from), "%s", _path);
-    if(!rde_file_exists(_from)) {
-        snprintf(_from, sizeof(_from), "%s.bak", _path);
-        if(!rde_file_exists(_from)) {
-            return;   // none written yet
-        }
-    }
-    u32         _size = 0;
-    u8*         _data = fude_file_read(_from, &_size);
-    fude_reader _r    = fude_reader_make(_data, _size);
-    if(_data == NULL || !fude_read_header(&_r, FUDE_CHARNOTES_VERSION, FUDE_CHARNOTES_KIND)) {
-        fude_file_free(_data);
-        fude_file_set_aside(_from);
-        return;
+    fude_reader _r = fude_reader_make(_data, _size);
+    if(!fude_read_header(&_r, FUDE_CHARNOTES_VERSION, FUDE_CHARNOTES_KIND)) {
+        return false;
     }
     u32         _tag;
     fude_reader _chunk;
@@ -116,7 +107,7 @@ void fude_charnotes_open(const c8* _path) {
             if(!_chunk.ok || _len > _chunk.size - _chunk.pos) {
                 break;
             }
-            fude_charnotes_copy(_n.text, sizeof(_n.text), (const c8*)&_chunk.data[_chunk.pos], _len);
+            fude_utf8_copy(_n.text, sizeof(_n.text), (const c8*)&_chunk.data[_chunk.pos], _len);
             _chunk.pos += _len;
             b8        _found;
             const u32 _at = fude_charnotes_find(_n.codepoint, &_found);
@@ -125,9 +116,22 @@ void fude_charnotes_open(const c8* _path) {
             }
         }
     }
-    fude_file_free(_data);
+    return true;
 }
 
+// Replaces the notes with those saved at _path (none for NULL). See the header.
+void fude_charnotes_open(const c8* _path) {
+    fude_charnotes_ensure();
+    rde_arr_clear(&fude_charnotes_all);
+    rde_snprintf(fude_charnotes_path, sizeof(fude_charnotes_path), "%s", _path != NULL ? _path : "");
+    fude_charnotes_changes++;
+    if(_path == NULL) {
+        return;
+    }
+    fude_save_load(_path, fude_charnotes_read, NULL);   // When nothing has been saved yet, there are no notes.
+}
+
+// Frees the notes and forgets the path, without saving.
 void fude_charnotes_close(void) {
     if(fude_charnotes_ready) {
         rde_arr_free(&fude_charnotes_all);
@@ -137,6 +141,7 @@ void fude_charnotes_close(void) {
     fude_charnotes_changes++;
 }
 
+// Returns _codepoint's note, or "" when it has none. See the header for how long the pointer stays valid.
 const c8* fude_charnote_get(u32 _codepoint) {
     if(!fude_charnotes_ready) {
         return "";
@@ -146,14 +151,16 @@ const c8* fude_charnote_get(u32 _codepoint) {
     return _found ? ((const fude_charnote*)fude_charnotes_all.memory)[_at].text : "";
 }
 
+// Sets, replaces or (with an empty text) removes _codepoint's note, and saves the file when something changed. A text
+// equal to the current note changes nothing and is not saved again.
 void fude_charnote_set(u32 _codepoint, const c8* _text) {
     fude_charnotes_ensure();
-    // Without the spaces and line breaks around it.
+    // Trim the spaces and line breaks around the text.
     const c8* _s = _text != NULL ? _text : "";
     while(*_s == ' ' || *_s == '\n') {
         _s++;
     }
-    usize _len = strlen(_s);
+    usize _len = rde_strlen(_s);
     while(_len > 0 && (_s[_len - 1u] == ' ' || _s[_len - 1u] == '\n')) {
         _len--;
     }
@@ -167,10 +174,10 @@ void fude_charnote_set(u32 _codepoint, const c8* _text) {
         return;
     }
     fude_charnote _n = { .codepoint = _codepoint };
-    fude_charnotes_copy(_n.text, sizeof(_n.text), _s, _len);
+    fude_utf8_copy(_n.text, sizeof(_n.text), _s, _len);
     if(_found) {
         fude_charnote* _old = &((fude_charnote*)fude_charnotes_all.memory)[_at];
-        if(strcmp(_old->text, _n.text) == 0) {
+        if(rde_strcmp(_old->text, _n.text) == 0) {
             return;
         }
         *_old = _n;
@@ -180,10 +187,12 @@ void fude_charnote_set(u32 _codepoint, const c8* _text) {
     fude_charnotes_save();
 }
 
+// Returns how many characters have a note.
 u32 fude_charnotes_count(void) {
     return fude_charnotes_ready ? (u32)rde_arr_length(&fude_charnotes_all) : 0u;
 }
 
+// Returns the change counter, which goes up on every change so a view knows when to look at the notes again.
 u32 fude_charnotes_revision(void) {
     return fude_charnotes_changes;
 }

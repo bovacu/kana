@@ -4,7 +4,7 @@
 #include <string.h>
 static int fails = 0;
 #define CHECK(c) do { if(!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while(0)
-static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) { fude_ink_begin(k, (rde_vec_2F){ x0, y }, true, false); for(u32 i = 1; i < n; i++) { k->sample_time += 0.01; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); } fude_ink_end(k); }
+static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) { fude_ink_begin(k, (rde_vec_2F){ x0, y }, true); for(u32 i = 1; i < n; i++) { k->sample_time += 0.01; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); } fude_ink_end(k); }
 int main(void) {
     fude_ink a, b; fude_ink_init(&a); fude_ink_init(&b);
     stroke(&a, 10, 100, 20); stroke(&a, 10, 50, 10);           // square 0: 2 strokes, square size 200
@@ -58,6 +58,17 @@ int main(void) {
     { FILE* f = fopen(path, "r+b"); fseek(f, 0, SEEK_END); long n = ftell(f); ftruncate(fileno(f), n - 7); fclose(f); }
     CHECK(fude_history_load(&h, 0x6728) && h.sessions.count == 1 && h.squares.count == 2 && h.points.count == 30);
     fude_history_destroy(&h);
+
+    // A square scribbled with 300 strokes: saved with its first 256 (what reading takes), so the session is read back
+    // rather than dropped every time.
+    { fude_ink busy; fude_ink_init(&busy);
+      for(u32 i = 0; i < 300u; i++) stroke(&busy, 10, (f32)(i % 150u) + 10.0f, 3);
+      fude_score one[1]; memset(one, 0, sizeof one); one[0].score = 10;
+      const fude_ink* dd[1] = { &busy };
+      CHECK(fude_history_save(0x5C71, 1759150200ull, 1, one, dd, 200.0f));
+      fude_history h2; fude_history_init(&h2);
+      CHECK(fude_history_load(&h2, 0x5C71) && h2.sessions.count == 1 && h2.squares.count == 1 && h2.strokes.count == 256);
+      fude_history_destroy(&h2); fude_ink_destroy(&busy); }
 
     fude_ink_destroy(&a); fude_ink_destroy(&b);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);

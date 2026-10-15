@@ -3,36 +3,33 @@
 #include "study/handwriting/guide.h"
 #include "drawing/base/text.h"
 #include "study/handwriting/match.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
-// See guide.h. Distances are KanjiVG units (the box is 109), between strokes
-// resampled evenly (match.h) — in place, not fitted: the model is there to
-// follow, so where the stroke goes counts.
+// See guide.h.
+//
+// Distances are in KanjiVG units (the box is 109), between strokes resampled evenly (match.h). They are measured in
+// place, not after a fit, because the model is there to follow, so where the stroke goes counts.
 // ===========================================================================
 
 #define FUDE_GUIDE_CLOSE_TRACE  10.0f   // a traced stroke this close (mean distance) is right
-#define FUDE_GUIDE_CLOSE_HINT   13.0f   // ...one written from its start dot alone
-#define FUDE_GUIDE_OTHER        0.7f    // another stroke this much closer than the expected one: it was that one
-#define FUDE_GUIDE_BACKWARDS    3.0f    // backwards must be closer by this to say so
-#define FUDE_GUIDE_SHORT        12.0f   // strokes shorter than this: no arrow, no "backwards" (a dot has no way)
+#define FUDE_GUIDE_CLOSE_HINT   13.0f   // ...and one written from its start dot alone
+#define FUDE_GUIDE_OTHER        0.7f    // another stroke this much closer than the expected one means it was that one
+#define FUDE_GUIDE_BACKWARDS    3.0f    // backwards must be closer by this to be called backwards
+#define FUDE_GUIDE_SHORT        12.0f   // shorter strokes get no arrow and no "backwards": a dot has no direction
 #define FUDE_GUIDE_PAUSE        1.2     // seconds a finished step shows its tick
 #define FUDE_GUIDE_FADE         0.9     // seconds a wrong stroke takes to fade
-#define FUDE_GUIDE_DEMO_DELAY   0.15    // before a stroke starts writing itself
+#define FUDE_GUIDE_DEMO_DELAY   0.15    // seconds before a stroke starts writing itself
 
+// Returns _c with its alpha multiplied by _alpha (clamped to 0..255).
 RDE_INTERNAL rde_color fude_guide_alpha(rde_color _c, f32 _alpha) {
-    _c.a = (u8)fmaxf(0.0f, fminf(255.0f, (f32)_c.a * _alpha));
+    _c.a = (u8)rde_math_max_f32(0.0f, rde_math_min_f32(255.0f, (f32)_c.a * _alpha));
     return _c;
 }
 
-// Reference stroke _index: its points (KanjiVG units, Y down) into _points
-// (FUDE_GLYPH_MAX_POINTS), resampled into _resampled (may be NULL); how many
-// points, 0 when there is no such stroke.
+// Gets reference stroke _index: its points (KanjiVG units, Y down) into _points (FUDE_GLYPH_MAX_POINTS of room), and
+// resampled into _resampled (may be NULL). Returns how many points, or 0 when there is no such stroke.
 RDE_INTERNAL u32 fude_guide_reference(const fude_guide* _guide, u32 _index, fude_kanji_stroke* _stroke, rde_vec_2F* _points, f32* _length,
                                      fude_match_stroke* _resampled) {
     if(_index >= _guide->info.strokes || !fude_kanji_stroke_at(_guide->db, &_guide->info, _index, _stroke)) {
@@ -45,12 +42,12 @@ RDE_INTERNAL u32 fude_guide_reference(const fude_guide* _guide, u32 _index, fude
     return _n;
 }
 
-// The point _s along a polyline's length.
+// Returns the point _s units along a polyline's length (its last point when _s is past its end).
 RDE_INTERNAL rde_vec_2F fude_guide_along(const rde_vec_2F* _p, u32 _n, f32 _s) {
     for(u32 _i = 1; _i < _n; _i++) {
         const f32 _dx  = _p[_i].x - _p[_i - 1].x;
         const f32 _dy  = _p[_i].y - _p[_i - 1].y;
-        const f32 _seg = sqrtf(_dx * _dx + _dy * _dy);
+        const f32 _seg = rde_math_sqrt_f32(_dx * _dx + _dy * _dy);
         if(_s <= _seg && _seg > 0.0f) {
             const f32 _t = _s / _seg;
             return (rde_vec_2F){ _p[_i - 1].x + _dx * _t, _p[_i - 1].y + _dy * _t };
@@ -60,13 +57,15 @@ RDE_INTERNAL rde_vec_2F fude_guide_along(const rde_vec_2F* _p, u32 _n, f32 _s) {
     return _p[_n > 0 ? _n - 1 : 0];
 }
 
+// Starts step 1 of a character (see the header).
 void fude_guide_start(fude_guide* _guide, const fude_kanji_db* _db, const fude_kanji_info* _info, f64 _now) {
-    memset(_guide, 0, sizeof(*_guide));
+    rde_memset(_guide, 0, sizeof(*_guide));
     _guide->db   = _db;
     _guide->info = *_info;
     fude_guide_restart(_guide, _now);
 }
 
+// Starts the current step again from its first stroke.
 void fude_guide_restart(fude_guide* _guide, f64 _now) {
     _guide->next           = 0;
     _guide->misses         = 0;
@@ -76,11 +75,13 @@ void fude_guide_restart(fude_guide* _guide, f64 _now) {
     _guide->rejected_count = 0;
 }
 
+// Moves on to the next step; after the last (recall), recall starts again.
 RDE_INTERNAL void fude_guide_next_stage(fude_guide* _guide, f64 _now) {
     _guide->stage = _guide->stage + 1 < FUDE_GUIDE_STAGE_COUNT ? (FUDE_GUIDE_STAGE_)(_guide->stage + 1) : FUDE_GUIDE_RECALL;
     fude_guide_restart(_guide, _now);
 }
 
+// Moves a finished step on to the next once it has shown its tick for FUDE_GUIDE_PAUSE seconds.
 b8 fude_guide_update(fude_guide* _guide, f64 _now) {
     if(_guide->stage_done_at > 0.0 && _now - _guide->stage_done_at >= FUDE_GUIDE_PAUSE) {
         fude_guide_next_stage(_guide, _now);
@@ -89,6 +90,7 @@ b8 fude_guide_update(fude_guide* _guide, f64 _now) {
     return false;
 }
 
+// Moves a finished step on now, because the pen came down.
 b8 fude_guide_skip_pause(fude_guide* _guide, f64 _now) {
     if(_guide->stage_done_at > 0.0) {
         fude_guide_next_stage(_guide, _now);
@@ -97,6 +99,7 @@ b8 fude_guide_skip_pause(fude_guide* _guide, f64 _now) {
     return false;
 }
 
+// Undo took the last stroke back: in steps 1 and 2, the stroke before is the one to write again.
 void fude_guide_took_back(fude_guide* _guide, f64 _now) {
     if(_guide->stage != FUDE_GUIDE_RECALL && _guide->next > 0) {
         _guide->next--;
@@ -107,18 +110,20 @@ void fude_guide_took_back(fude_guide* _guide, f64 _now) {
     }
 }
 
+// Checks the ink's last stroke against the one to write (see the header). Strokes of more than FUDE_GUIDE_MAX_POINTS
+// points are cut.
 FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _units, f64 _now) {
     const u32 _count = fude_ink_stroke_count(_ink);
     if(_count == 0) {
         return FUDE_GUIDE_KEPT;
     }
 
-    // Recalling: nothing to check until it is all there.
+    // When recalling, there is nothing to check until the whole character is there.
     if(_guide->stage == FUDE_GUIDE_RECALL) {
         return fude_ink_alive_strokes(_ink) >= _guide->info.strokes ? FUDE_GUIDE_COMPLETE : FUDE_GUIDE_KEPT;
     }
     if(_guide->next >= _guide->info.strokes || _guide->stage_done_at > 0.0) {
-        return FUDE_GUIDE_KEPT;   // (the step is done: the caller moved on before writing)
+        return FUDE_GUIDE_KEPT;   // the step is done: the caller normally moves on as the pen comes down
     }
 
     // The stroke, in KanjiVG's units (Y down), resampled.
@@ -127,13 +132,16 @@ FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _un
     static rde_vec_2F      _drawn_points[FUDE_GUIDE_MAX_POINTS];
     const u32              _n      = _stroke->point_count < FUDE_GUIDE_MAX_POINTS ? _stroke->point_count : FUDE_GUIDE_MAX_POINTS;
     const f32              _k      = FUDE_KANJI_BOX / _units;
+    if(_n == 0) {
+        return FUDE_GUIDE_KEPT;   // nothing to check (a stroke written has its first point from fude_ink_begin)
+    }
     for(u32 _i = 0; _i < _n; _i++) {
         _drawn_points[_i] = (rde_vec_2F){ _ip[_i].position.x * _k, FUDE_KANJI_BOX - _ip[_i].position.y * _k };
     }
     fude_match_stroke _drawn;
-    fude_match_resample_points(_drawn_points, _n > 0 ? _n : 1u, &_drawn);
+    fude_match_resample_points(_drawn_points, _n, &_drawn);
 
-    // Against the one expected, and the ones still to come.
+    // It is compared with the stroke expected, and with the ones still to come (to tell a stroke written too early).
     static rde_vec_2F  _ref_points[FUDE_GLYPH_MAX_POINTS];
     fude_kanji_stroke  _ref_stroke;
     fude_match_stroke  _ref;
@@ -153,7 +161,7 @@ FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _un
         if(fude_guide_reference(_guide, _j, &_s, _ref_points, NULL, &_r) == 0) {
             continue;
         }
-        const f32 _d = fminf(fude_match_points_distance(&_drawn, &_r, false), fude_match_points_distance(&_drawn, &_r, true));
+        const f32 _d = rde_math_min_f32(fude_match_points_distance(&_drawn, &_r, false), fude_match_points_distance(&_drawn, &_r, true));
         if(_d <= _other_dist) {
             _other      = _j;
             _other_dist = _d;
@@ -161,12 +169,12 @@ FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _un
     }
 
     const u32 _number = _guide->next + 1u;
-    if(_other != UINT32_MAX && _other_dist < FUDE_GUIDE_OTHER * fminf(_forward, _close)) {
+    if(_other != UINT32_MAX && _other_dist < FUDE_GUIDE_OTHER * rde_math_min_f32(_forward, _close)) {
         FUDE_TEXTF(_guide->message, FUDE_TEXT_GUIDE_WRONG_STROKE, FUDE_TN(_other + 1u), FUDE_TN(_number));
     } else if(_length >= FUDE_GUIDE_SHORT && _backward + FUDE_GUIDE_BACKWARDS < _forward && _backward <= _close) {
         FUDE_TEXTF(_guide->message, FUDE_TEXT_GUIDE_BACKWARDS, FUDE_TN(_number));
     } else if(_forward <= _close) {
-        // Right: it stays.
+        // Right: it stays, and the next stroke is the one to write.
         _guide->next++;
         _guide->misses     = 0;
         _guide->shown_at   = _now;
@@ -181,7 +189,8 @@ FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _un
         FUDE_TEXTF(_guide->message, FUDE_TEXT_GUIDE_WATCH, FUDE_TN(_number));
     }
 
-    // Wrong: it flashes red and goes, and the stroke to write shows itself again.
+    // Wrong: it flashes red and goes, and the stroke to write shows itself again. The stroke is kept in square units,
+    // Y up, for fading out.
     const f32 _back = _units / FUDE_KANJI_BOX;
     _guide->rejected_count = _n;
     for(u32 _i = 0; _i < _n; _i++) {
@@ -196,26 +205,27 @@ FUDE_GUIDE_RESULT_ fude_guide_stroke(fude_guide* _guide, fude_ink* _ink, f32 _un
 
 // --- drawing -----------------------------------------------------------------------
 
+// Turns a point in KanjiVG units (Y down) into the screen, with the square's top-left at _tl.
 RDE_INTERNAL rde_vec_2F fude_guide_screen(rde_vec_2F _tl, f32 _scale, rde_vec_2F _p) {
     return (rde_vec_2F){ _tl.x + _p.x * _scale, _tl.y - _p.y * _scale };
 }
 
-// An arrow beside the start of a stroke, the way it goes: along its first part,
-// set off to one side so it does not cover where the pen goes.
+// Draws an arrow beside the start of a stroke, the way it goes: along its first part, set off to one side so that it
+// does not cover where the pen goes. Lengths are in KanjiVG units.
 RDE_INTERNAL void fude_guide_arrow(const rde_vec_2F* _p, u32 _n, f32 _length, rde_vec_2F _tl, f32 _scale, rde_color _color) {
-    const f32  _s0     = fminf(_length * 0.12f, 6.0f);
-    const f32  _s1     = fminf(_length * 0.65f, _s0 + 24.0f);
+    const f32  _s0     = rde_math_min_f32(_length * 0.12f, 6.0f);
+    const f32  _s1     = rde_math_min_f32(_length * 0.65f, _s0 + 24.0f);
     const f32  _offset = 7.0f;
     const u32  _steps  = 10;
     rde_vec_2F _line[11];
     rde_vec_2F _tip_dir = { 1.0f, 0.0f };
     for(u32 _i = 0; _i <= _steps; _i++) {
         const f32  _s = _s0 + (_s1 - _s0) * (f32)_i / (f32)_steps;
-        const rde_vec_2F _a = fude_guide_along(_p, _n, fmaxf(0.0f, _s - 1.5f));
+        const rde_vec_2F _a = fude_guide_along(_p, _n, rde_math_max_f32(0.0f, _s - 1.5f));
         const rde_vec_2F _b = fude_guide_along(_p, _n, _s + 1.5f);
         f32 _dx = _b.x - _a.x;
         f32 _dy = _b.y - _a.y;
-        const f32 _d = sqrtf(_dx * _dx + _dy * _dy);
+        const f32 _d = rde_math_sqrt_f32(_dx * _dx + _dy * _dy);
         if(_d > 0.0f) {
             _dx /= _d;
             _dy /= _d;
@@ -227,22 +237,24 @@ RDE_INTERNAL void fude_guide_arrow(const rde_vec_2F* _p, u32 _n, f32 _length, rd
         const rde_vec_2F _at = fude_guide_along(_p, _n, _s);
         _line[_i] = fude_guide_screen(_tl, _scale, (rde_vec_2F){ _at.x - _dy * _offset, _at.y + _dx * _offset });
     }
-    const f32 _width = fmaxf(1.2f, _scale * 0.7f);
+    const f32 _width = rde_math_max_f32(1.2f, _scale * 0.7f);
     fude_draw_stroke_even(_line, _steps + 1u, _width, _color);
 
-    // The head: two short lines back from the tip.
+    // The head: two short lines back from the tip, at 2.6 radians (about 150 degrees) from its direction.
     const f32  _head = 4.5f * _scale;
     const rde_vec_2F _tip = _line[_steps];
-    const rde_vec_2F _dir = { _tip_dir.x, -_tip_dir.y };   // on screen, Y up
-    const f32 _c = cosf(2.6f), _s = sinf(2.6f);
+    const rde_vec_2F _dir = { _tip_dir.x, -_tip_dir.y };   // on screen, Y goes up
+    const f32 _c = rde_math_cos_f32(2.6f), _s = rde_math_sin_f32(2.6f);
     const rde_vec_2F _l = { _dir.x * _c - _dir.y * _s, _dir.x * _s + _dir.y * _c };
     const rde_vec_2F _r = { _dir.x * _c + _dir.y * _s, -_dir.x * _s + _dir.y * _c };
     fude_draw_line(_tip, (rde_vec_2F){ _tip.x + _l.x * _head, _tip.y + _l.y * _head }, _width, _color);
     fude_draw_line(_tip, (rde_vec_2F){ _tip.x + _r.x * _head, _tip.y + _r.y * _head }, _width, _color);
 }
 
+// Declared here so that fude_guide_render can come first.
 RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _scale, f32 _pen, f64 _now);
 
+// Draws the help under the ink (see the header). Recall shows a blank square.
 void fude_guide_render(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _size, f64 _now) {
     const f32         _scale = _size / FUDE_KANJI_BOX;
     const f32         _pen   = FUDE_GLYPH_WIDTH * _scale * 0.5f;
@@ -250,13 +262,13 @@ void fude_guide_render(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f
     if(_guide->stage == FUDE_GUIDE_RECALL) {
         return;   // a blank square
     }
-    // Never mirrored, as a character is (glyph.h).
+    // The help is never mirrored, as a character is not (glyph.h).
     fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);
     fude_guide_render_steps(_guide, _glyph, _tl, _scale, _pen, _now);
     fude_draw_keep_end();
 }
 
-// fude_guide_render's character and the stroke to write, inside its kept box.
+// Draws fude_guide_render's character and the stroke to write, inside its kept box.
 RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph, rde_vec_2F _tl, f32 _scale, f32 _pen, f64 _now) {
     const fude_theme* _theme = fude_theme_active();
     const f32         _size  = _scale * FUDE_KANJI_BOX;
@@ -275,13 +287,12 @@ RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph
         return;
     }
 
-    // Tracing, the stroke to write stands out from the rest.
+    // When tracing, the stroke to write stands out from the rest.
     if(_guide->stage == FUDE_GUIDE_TRACE) {
         fude_glyph_stroke(_glyph, &_stroke, _tl, _scale, _pen, 1.0f, fude_guide_alpha(_theme->ink, 0.3f));
     }
 
-    // It writes itself: tracing, whenever it becomes the one to write; with only
-    // the dot, after a miss.
+    // The stroke writes itself: when tracing, whenever it becomes the one to write; with only the dot, after a miss.
     if(_guide->stage == FUDE_GUIDE_TRACE || _guide->misses > 0) {
         const f64 _duration = FUDE_GLYPH_STROKE_BASE + FUDE_GLYPH_STROKE_PER * (f64)_length;
         const f64 _t        = (_now - _guide->shown_at - FUDE_GUIDE_DEMO_DELAY) / _duration;
@@ -291,16 +302,17 @@ RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph
         }
     }
 
-    // Where it starts, and (tracing) which way it goes.
+    // Where it starts, and (when tracing) which way it goes.
     if(_guide->stage == FUDE_GUIDE_TRACE && _length >= FUDE_GUIDE_SHORT) {
         fude_guide_arrow(_points, _n, _length, _tl, _scale, fude_guide_alpha(_theme->pen_tip, 0.8f));
     }
-    rde_rendering_2d_draw_circle(fude_draw_at(fude_guide_screen(_tl, _scale, _points[0])), fmaxf(4.0f, _pen * 1.6f), 24, _theme->pen_tip, NULL);
+    rde_rendering_2d_draw_circle(fude_draw_at(fude_guide_screen(_tl, _scale, _points[0])), rde_math_max_f32(4.0f, _pen * 1.6f), 24, _theme->pen_tip, NULL);
 }
 
+// Draws the wrong stroke fading out and a finished step's tick, over the ink (see the header), never mirrored.
 void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _units, f64 _now) {
     const fude_theme* _theme = fude_theme_active();
-    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);   // as fude_guide_render
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);   // as in fude_guide_render
 
     // The wrong stroke, red, fading out.
     const f64 _since = _now - _guide->rejected_at;
@@ -314,9 +326,9 @@ void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _
                               fude_guide_alpha(_theme->score_poor, (f32)(1.0 - _since / FUDE_GUIDE_FADE)));
     }
 
-    // A step done: a tick over the square.
+    // A step done: a tick over the square, fading in over a quarter of a second.
     if(_guide->stage_done_at > 0.0) {
-        const f32        _in = (f32)fmin(1.0, (_now - _guide->stage_done_at) / 0.25);
+        const f32        _in = (f32)rde_math_min_f64(1.0, (_now - _guide->stage_done_at) / 0.25);
         const rde_vec_2F _c  = { _tl.x + _size * 0.5f, _tl.y - _size * 0.5f };
         const f32        _u  = _size * 0.22f;
         const rde_color  _g  = fude_guide_alpha(_theme->score_good, _in);
@@ -329,16 +341,17 @@ void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _
     fude_draw_keep_end();
 }
 
+// Writes the line under the square (see the header).
 void fude_guide_prompt(const fude_guide* _guide, c8* _out, usize _size) {
     const u32 _total  = _guide->info.strokes;
     const u32 _number = _guide->next + 1u < _total ? _guide->next + 1u : _total;
     switch(_guide->stage) {
         case FUDE_GUIDE_TRACE:
-            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "%s", fude_text(FUDE_TEXT_GUIDE_STEP1_DONE)); }
+            if(_guide->stage_done_at > 0.0) { rde_snprintf(_out, _size, "%s", fude_text(FUDE_TEXT_GUIDE_STEP1_DONE)); }
             else                           { fude_text_format(_out, _size, FUDE_TEXT_GUIDE_STEP1, (const fude_text_arg[]){ FUDE_TN(_number), FUDE_TN(_total) }, 2u); }
             break;
         case FUDE_GUIDE_HINT:
-            if(_guide->stage_done_at > 0.0) { snprintf(_out, _size, "%s", fude_text(FUDE_TEXT_GUIDE_STEP2_DONE)); }
+            if(_guide->stage_done_at > 0.0) { rde_snprintf(_out, _size, "%s", fude_text(FUDE_TEXT_GUIDE_STEP2_DONE)); }
             else                           { fude_text_format(_out, _size, FUDE_TEXT_GUIDE_STEP2, (const fude_text_arg[]){ FUDE_TN(_number), FUDE_TN(_total) }, 2u); }
             break;
         default:

@@ -1,16 +1,22 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
-# The UI strings' generator, for every app: each layer's strings (fude/drawing/
-# strings.py, the core's; fude/study/strings.py, a study app's) and the app's
-# own, in that order, become the app's
+# The UI strings' generator, for every app:
+#
+#   python3 tools/strings/build.py <app>...   # after changing an app's strings
+#   python3 tools/strings/build.py all        # after changing a layer's: every app that has it
+#   ... --allow-untranslated                  # a study app whose language lacks some strings yet: Japanese stays
+#                                             # its fourth language (without it, a missing string is an error)
+#
+# Each layer's strings, in the order the app is built from them (APPS: the core's,
+# fude/drawing/strings.py; a study app's, fude/study/strings.py and its
+# language's, fude/lang/<code>/strings.py; a canvas app's, fude/zoom/strings.py),
+# then the app's own (apps/<app>/tools/strings.py, when it has any), become the
+# app's
 #   src/text_ids.h            the ids, in order (FUDE_TEXT_ID(X) lines)
 #   assets/text/strings.rdel  RDE's localization file, one block per language
 # once every language is checked to have every id with the same placeholders.
-#
-# An app's tools/strings.py (Kana's: apps/kana/tools/strings.py) reads the layers
-# it is built from (layer), adds its own (t), may give a lower layer's string
-# other words (o; a layer may too: the study's Your data says what a study app
-# keeps), then writes.
+# A file of strings is rows: t() adds one, o() gives a lower layer's other words
+# (a layer may too: the study's Your data says what a study app keeps).
 #
 # {APP} in a text is the app's name, filled in as it is written: the one in the
 # app's src/version.h (#define KANA_NAME "Kana"), the name its C code shows too.
@@ -18,11 +24,12 @@
 # A row: t('ID', English, Spanish, Portuguese (Brazil), Japanese, French).
 #
 # The fourth language is the one the app teaches (a learner may use the app in it
-# as practice): Japanese, unless the app's tool calls fourth() with its own —
-# Hanzi's Chinese, Hangul's Korean — read from files beside the layers'
-# (fude/drawing/strings_zh.py...) of rows x('ID', text). It takes Japanese's place
-# only once every string has one; until then Japanese stays, and how many are
-# missing is printed.
+# as practice): Japanese, unless the app's language says its own (language(), in
+# fude/lang/<code>/strings.py: Hanzi's Chinese, Hangul's Korean...), read from
+# files beside each layer's and the app's (strings_zh.py...) of rows x('ID',
+# text). It takes Japanese's place only once every string has one; until then
+# Japanese stays, and how many are missing is printed. An app that teaches none
+# (the canvas apps) has no fourth.
 # Messages use RDE's placeholders: {0} plain, {0,plural, one{...} other{...}}
 # (# is the count). An apostrophe quotes the next character in RDE, so the
 # texts use the typographic one (’) instead.
@@ -37,11 +44,13 @@ LOCALES = {
     'FR-FR': ['@plural = n > 1', '@decimal = ,', '@group =  '],
 }
 NAMES = {'EN-US': 'English', 'ES-ES': 'Spanish', 'PT-BR': 'Portuguese (Brazil)', 'JA-JP': 'Japanese', 'FR-FR': 'French'}
+LOCALES_BASE, NAMES_BASE = dict(LOCALES), dict(NAMES)
 
 T = []          # [id, en, es, pt, ja, fr], in order
 OVERRIDDEN = set()
 FOURTH = None   # the app's own fourth language (fourth()): [tag, name, locale lines, {id: text}]
 NO_FOURTH = False   # an app that teaches no language (no_fourth()): the fourth not written
+ALLOW_UNTRANSLATED = False   # --allow-untranslated: a study app missing strings in its language keeps Japanese
 
 P = lambda one, other: '{0,plural, one{%s} other{%s}}' % (one, other)
 
@@ -61,7 +70,14 @@ def o(i, en, es, pt, ja, fr):
 
 # A layer's strings (a file of t() rows, and o() for a lower layer's), read in.
 def layer(path):
-    exec(open(path, encoding='utf-8').read(), {'t': t, 'o': o, 'P': P})
+    exec(open(path, encoding='utf-8').read(), {'t': t, 'o': o, 'P': P, 'language': language})
+
+# The language a study app teaches, as its fourth (fude/lang/<code>/strings.py): its tag ('ZH-CN'), its name and its
+# locale lines (['@plural = 1']).
+LANGUAGE = None
+def language(tag, name, locale):
+    global LANGUAGE
+    LANGUAGE = (tag, name, locale)
 
 # The app's fourth language in place of Japanese: its tag ('ZH-CN'), its name, its
 # locale lines (['@plural = 1']) and its files (one per layer, read in order: a
@@ -117,6 +133,12 @@ def write(_app_dir, _tool):
     if FOURTH is not None:
         tag, name, locale, rows = FOURTH
         missing = [row[0] for row in T if row[0] not in rows]
+        if missing and not ALLOW_UNTRANSLATED:
+            # An error, not a note: the app would otherwise be built with Japanese in its own language's place (it
+            # happened once, unnoticed until the screenshots). --allow-untranslated keeps Japanese for a work in progress.
+            print('%s: %d of %d strings not translated yet: %s' % (name, len(missing), len(T), ', '.join(missing)))
+            print('  add them to its strings_<code>.py files, or pass --allow-untranslated to build with Japanese as the fourth language')
+            sys.exit(1)
         if missing:
             print('%s: %d of %d strings still to translate (%s...): Japanese stays the fourth language' % (name, len(missing), len(T), ', '.join(missing[:3])))
         else:
@@ -155,3 +177,54 @@ def write(_app_dir, _tool):
             for row in T:
                 f.write('%s=%s\n' % (row[0], row[1 + k]))
     print(len(T), 'strings,', len(L) - (1 if NO_FOURTH else 0), 'languages')
+
+# --- the apps -----------------------------------------------------------------------------------
+
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+
+# Each app's layers, in order (the folders under fude/ its code is built from: its apps/<app>/<app>.rdeproj), and
+# whether it teaches a language.
+STUDY = ['drawing', 'study']
+CANVAS = ['drawing', 'zoom']
+APPS = {
+    'draw':           (['drawing'], True),   # (the core alone: its fourth is Japanese, as the core's strings have it)
+    'kana':           (STUDY + ['lang/ja'], True),
+    'hanzi':          (STUDY + ['lang/zh'], True),
+    'hangul':         (STUDY + ['lang/ko'], True),
+    'thai':           (STUDY + ['lang/th'], True),
+    'hindi':          (STUDY + ['lang/hi'], True),
+    'arabic':         (STUDY + ['lang/ar'], True),
+    'sketching':      (CANVAS, False),
+    'infinote':       (CANVAS, False),
+    'infiniworkshop': (CANVAS, False),
+}
+
+def build(app):
+    global T, OVERRIDDEN, FOURTH, NO_FOURTH, LANGUAGE, L, LOCALES, NAMES
+    T, OVERRIDDEN, FOURTH, NO_FOURTH, LANGUAGE = [], set(), None, False, None
+    L = ['EN-US', 'ES-ES', 'PT-BR', 'JA-JP', 'FR-FR']
+    LOCALES = dict(LOCALES_BASE)
+    NAMES = dict(NAMES_BASE)
+    layers, teaches = APPS[app]
+    app_dir = os.path.join(ROOT, 'apps', app)
+    files = [os.path.join(ROOT, 'fude', l, 'strings.py') for l in layers]
+    own = os.path.join(app_dir, 'tools', 'strings.py')
+    for path in files + ([own] if os.path.exists(own) else []):
+        layer(path)
+    if not teaches:
+        no_fourth()
+    elif LANGUAGE is not None:
+        code = layers[-1].split('/')[-1]
+        fourth(*LANGUAGE, [os.path.join(ROOT, 'fude', l, 'strings_%s.py' % code) for l in layers] +
+                          [os.path.join(app_dir, 'tools', 'strings_%s.py' % code)])
+    print('%-15s' % app, end=' ')
+    write(app_dir, 'tools/strings/build.py %s' % app)
+
+if __name__ == '__main__':
+    sys.dont_write_bytecode = True
+    ALLOW_UNTRANSLATED = '--allow-untranslated' in sys.argv
+    asked = [a for a in sys.argv[1:] if not a.startswith('--')] or ['all']
+    for app in (list(APPS) if asked == ['all'] else asked):
+        if app not in APPS:
+            print('no such app:', app, '(one of: all, %s)' % ', '.join(APPS)); sys.exit(1)
+        build(app)

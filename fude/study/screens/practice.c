@@ -2,39 +2,42 @@
 
 #include "study/screens/practice.h"
 #include "lang/lang.h"
+#include "drawing/base/clock.h"
 #include "drawing/base/text.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
 // ===========================================================================
 // See practice.h.
+//
+// Every square's ink is made once, in fude_practice_init, and emptied again rather than freed. strokes_in records,
+// for each stroke in the order written, the square it went in, so Undo can take back the last stroke whichever square
+// it is in. In a set, set_results keeps each character's average from this run, for the summary.
 // ===========================================================================
 
+// The layout's sizes, in screen points (MARGIN from the screen's sides; the squares and the demo at their largest).
 #define FUDE_PRACTICE_MARGIN     16.0f
-#define FUDE_PRACTICE_GAP        14.0f     // between squares
-#define FUDE_PRACTICE_LABEL_H    40.0f     // score and feedback under a square
+#define FUDE_PRACTICE_GAP        14.0f     // The space between squares.
+#define FUDE_PRACTICE_LABEL_H    40.0f     // The room under a square for its score and feedback.
 #define FUDE_PRACTICE_SQUARE_MAX 190.0f
 #define FUDE_PRACTICE_DEMO_MAX   190.0f
-#define FUDE_PRACTICE_DEMO_REST  1.5       // seconds the finished demo rests before writing again
-#define FUDE_PRACTICE_GUIDED_MAX 620.0f    // guided: the one square's size at most
-#define FUDE_PRACTICE_GUIDED_TEXT 86.0f    // ...and the room under it for the step (two lines, wrapped) and what the stroke got
+#define FUDE_PRACTICE_DEMO_REST  1.5       // The seconds the finished demo rests before it writes again.
+#define FUDE_PRACTICE_GUIDED_MAX 620.0f    // Guided: the one square's largest size.
+#define FUDE_PRACTICE_GUIDED_TEXT 86.0f    // Guided: the room under it for the step (two lines) and the result.
 
 // The width of the pen in a square's units: the reference's own stroke width.
 #define FUDE_PRACTICE_PEN_RADIUS (FUDE_PRACTICE_UNITS * FUDE_GLYPH_WIDTH / FUDE_KANJI_BOX * 0.5f)
 
+// Makes an empty square ink, drawn at the practice pen's fixed width.
 RDE_INTERNAL void fude_practice_fresh_ink(fude_ink* _ink) {
     fude_ink_init(_ink);
     _ink->constant_radius = FUDE_PRACTICE_PEN_RADIUS;
 }
 
+// Sets Practice up closed, with FUDE_PRACTICE_DEFAULT_SQUARES squares and an empty ink for each possible square.
 void fude_practice_init(fude_practice* _practice, const fude_kanji_db* _db) {
-    memset(_practice, 0, sizeof(*_practice));
+    rde_memset(_practice, 0, sizeof(*_practice));
     _practice->db         = _db;
     _practice->squares    = FUDE_PRACTICE_DEFAULT_SQUARES;
     _practice->writing    = -1;
@@ -47,6 +50,7 @@ void fude_practice_init(fude_practice* _practice, const fude_kanji_db* _db) {
     }
 }
 
+// Frees every square's ink, the arrays and the glyph cache, and zeroes Practice.
 void fude_practice_destroy(fude_practice* _practice) {
     for(u32 _i = 0; _i < FUDE_PRACTICE_MAX_SQUARES; _i++) {
         fude_ink_destroy(&_practice->inks[_i]);
@@ -58,40 +62,43 @@ void fude_practice_destroy(fude_practice* _practice) {
         }
     }
     fude_glyph_destroy(&_practice->glyph);
-    memset(_practice, 0, sizeof(*_practice));
+    rde_memset(_practice, 0, sizeof(*_practice));
 }
 
-// Guided, only the first square is used.
+// Returns how many squares are in use: when guided only the first, else the count shown.
 RDE_INTERNAL u32 fude_practice_square_count(const fude_practice* _practice) {
     return _practice->guided ? 1u : _practice->squares;
 }
 
-// Every square emptied (and its mark gone); the status stays.
+// Empties every square and forgets its score and the guided feedback; the status line stays.
 RDE_INTERNAL void fude_practice_clear_squares(fude_practice* _practice) {
     for(u32 _i = 0; _i < FUDE_PRACTICE_MAX_SQUARES; _i++) {
         fude_ink_destroy(&_practice->inks[_i]);
         fude_practice_fresh_ink(&_practice->inks[_i]);
     }
     rde_arr_clear(&_practice->strokes_in);
-    memset(_practice->scores, 0, sizeof(_practice->scores));
+    rde_memset(_practice->scores, 0, sizeof(_practice->scores));
     _practice->scored      = false;
     _practice->changed     = false;
     _practice->writing     = -1;
     _practice->feedback[0] = 0;
 }
 
+// Empties every square and the status line; when guided, the step starts again.
 void fude_practice_clear(fude_practice* _practice) {
     fude_practice_clear_squares(_practice);
     _practice->status[0] = 0;
     if(_practice->guided) {
-        fude_guide_restart(&_practice->guide, rde_engine_get_time_now());   // the step again
+        fude_guide_restart(&_practice->guide, fude_clock_now());   // The same step, from its start.
     }
 }
 
+// Returns whether it is guided and on a step that is not scored (any step before writing from memory).
 b8 fude_practice_guiding(const fude_practice* _practice) {
     return _practice->guided && _practice->guide.stage != FUDE_GUIDE_RECALL;
 }
 
+// Turns guided mode on or off, ending a stroke still being drawn; the squares are cleared, and guided starts at step 1.
 void fude_practice_set_guided(fude_practice* _practice, b8 _guided) {
     if(_practice->writing >= 0) {
         fude_practice_pen_up(_practice);
@@ -99,23 +106,25 @@ void fude_practice_set_guided(fude_practice* _practice, b8 _guided) {
     _practice->guided = _guided;
     fude_practice_clear(_practice);
     if(_guided) {
-        fude_guide_start(&_practice->guide, _practice->db, &_practice->info, rde_engine_get_time_now());
+        fude_guide_start(&_practice->guide, _practice->db, &_practice->info, fude_clock_now());
     }
 }
 
+// When guided and the pen is up, lets the guide move on; a finished step goes on to the next on a clean square.
 void fude_practice_update(fude_practice* _practice) {
-    if(_practice->open && _practice->guided && _practice->writing < 0 && fude_guide_update(&_practice->guide, rde_engine_get_time_now())) {
-        fude_practice_clear_squares(_practice);   // the next step, on a clean square
+    if(_practice->open && _practice->guided && _practice->writing < 0 && fude_guide_update(&_practice->guide, fude_clock_now())) {
+        fude_practice_clear_squares(_practice);   // The next step starts on a clean square.
     }
 }
 
-// Squares cleared, the demo restarted, the history re-read: one character.
+// Loads character _record: the squares cleared, the demo started again, its history's summary read again, and when
+// guided, the guide started on it. Returns false when there is no character data or no such record.
 RDE_INTERNAL b8 fude_practice_load(fude_practice* _practice, u32 _record) {
     if(_practice->db == NULL || !fude_kanji_at(_practice->db, _record, &_practice->info)) {
         return false;
     }
     _practice->record      = _record;
-    _practice->demo_start  = rde_engine_get_time_now();
+    _practice->demo_start  = fude_clock_now();
     _practice->demo_done   = 0.0;
     _practice->has_summary = fude_history_summarize(_practice->info.codepoint, &_practice->summary);
     fude_practice_clear(_practice);
@@ -125,6 +134,8 @@ RDE_INTERNAL b8 fude_practice_load(fude_practice* _practice, u32 _record) {
     return true;
 }
 
+// Opens on a copy of _records (cut to FUDE_PRACTICE_SET_MAX), none scored yet, on the first. Practice opens only when
+// the first character can be loaded.
 void fude_practice_open_set(fude_practice* _practice, const u32* _records, u32 _count) {
     if(_count == 0 || _practice->db == NULL) {
         return;
@@ -146,18 +157,23 @@ void fude_practice_open_set(fude_practice* _practice, const u32* _records, u32 _
     }
 }
 
+// Opens on one character, as a set of one.
 void fude_practice_open(fude_practice* _practice, u32 _record) {
     fude_practice_open_set(_practice, &_record, 1);
 }
 
+// Returns whether the set has more than one character.
 b8 fude_practice_in_set(const fude_practice* _practice) {
     return rde_arr_length(&_practice->set) > 1;
 }
 
+// Returns whether it is on the set's last character.
 b8 fude_practice_at_last(const fude_practice* _practice) {
     return _practice->set_position + 1u >= (u32)rde_arr_length(&_practice->set);
 }
 
+// Scores what was written and not yet scored (which saves it), then loads the next character of the set that can be
+// loaded; after the last, it shows the set's summary.
 void fude_practice_next(fude_practice* _practice) {
     if(!_practice->open || _practice->summary_open) {
         return;
@@ -166,8 +182,8 @@ void fude_practice_next(fude_practice* _practice) {
         fude_practice_pen_up(_practice);
     }
 
-    // Written and not scored: score it, which saves it — moving on loses nothing.
-    // (Guided, only a step 3 attempt counts: the others are help.)
+    // What was written and not scored is scored now, which saves it, so moving on loses nothing. When guided, only an
+    // attempt at step 3 counts, since the other steps are help.
     for(u32 _i = 0; _i < fude_practice_square_count(_practice) && _practice->changed && !fude_practice_guiding(_practice); _i++) {
         if(fude_ink_stroke_count(&_practice->inks[_i]) > 0) {
             fude_practice_score(_practice);
@@ -182,9 +198,10 @@ void fude_practice_next(fude_practice* _practice) {
             return;
         }
     }
-    _practice->summary_open = true;   // that was the last
+    _practice->summary_open = true;   // That was the last character.
 }
 
+// Returns how many of the set's characters were scored this run under FUDE_THEME_GRADE_GOOD.
 u32 fude_practice_weak_count(const fude_practice* _practice) {
     const f32* _results = (const f32*)_practice->set_results.memory;
     u32        _n       = 0;
@@ -194,19 +211,22 @@ u32 fude_practice_weak_count(const fude_practice* _practice) {
     return _n;
 }
 
+// A set's character with its average this run, for sorting the weakest first.
 typedef struct {
     u32 record;
     f32 result;
 } fude_practice_ranked;
 
-RDE_INTERNAL int fude_practice_by_result(const void* _a, const void* _b) {
+// rde_sort's order for fude_practice_ranked: the lowest average first.
+RDE_INTERNAL int fude_practice_by_result(const any _a, const any _b) {
     const f32 _x = ((const fude_practice_ranked*)_a)->result;
     const f32 _y = ((const fude_practice_ranked*)_b)->result;
     return _x < _y ? -1 : _x > _y ? 1 : 0;
 }
 
+// Opens a new set of the characters scored under good this run, the weakest first. With none, nothing happens.
 void fude_practice_weakest_again(fude_practice* _practice) {
-    // The ones under good, weakest first.
+    // The ones under good, the weakest first.
     const u32*           _records = (const u32*)_practice->set.memory;
     const f32*           _results = (const f32*)_practice->set_results.memory;
     fude_practice_ranked _ranked[FUDE_PRACTICE_SET_MAX];
@@ -219,7 +239,7 @@ void fude_practice_weakest_again(fude_practice* _practice) {
     if(_n == 0) {
         return;
     }
-    qsort(_ranked, _n, sizeof(_ranked[0]), fude_practice_by_result);
+    rde_sort(_ranked, _n, sizeof(_ranked[0]), fude_practice_by_result);
 
     u32 _weak[FUDE_PRACTICE_SET_MAX];
     for(u32 _i = 0; _i < _n; _i++) {
@@ -228,6 +248,7 @@ void fude_practice_weakest_again(fude_practice* _practice) {
     fude_practice_open_set(_practice, _weak, _n);
 }
 
+// Closes Practice, ending a stroke still being drawn.
 void fude_practice_close(fude_practice* _practice) {
     if(_practice->writing >= 0) {
         fude_practice_pen_up(_practice);
@@ -236,15 +257,19 @@ void fude_practice_close(fude_practice* _practice) {
     _practice->summary_open = false;
 }
 
+// Shows _count squares, kept between 1 and FUDE_PRACTICE_MAX_SQUARES.
 void fude_practice_set_squares(fude_practice* _practice, u32 _count) {
     _count = _count < 1u ? 1u : (_count > FUDE_PRACTICE_MAX_SQUARES ? FUDE_PRACTICE_MAX_SQUARES : _count);
 
-    // Squares that go away take their drawings with them.
+    // Squares that go away take their drawings and their scores with them, so a square that comes back is empty (and
+    // shows no old score).
     for(u32 _i = _count; _i < _practice->squares; _i++) {
         fude_ink_destroy(&_practice->inks[_i]);
         fude_practice_fresh_ink(&_practice->inks[_i]);
+        rde_memset(&_practice->scores[_i], 0, sizeof(_practice->scores[_i]));
+        _practice->scores[_i].empty = true;
     }
-    // ...and their strokes out of the undo order.
+    // Their strokes also leave the undo order.
     u8* _order = (u8*)_practice->strokes_in.memory;
     u32 _kept  = 0;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_practice->strokes_in); _i++) {
@@ -252,11 +277,13 @@ void fude_practice_set_squares(fude_practice* _practice, u32 _count) {
             _order[_kept++] = _order[_i];
         }
     }
-    _practice->strokes_in.count = _kept;   // rde_arr has no truncate: rde_arr_clear's operation, to a length
+    rde_arr_resize(&_practice->strokes_in, _kept);
 
     _practice->squares = _count;
 }
 
+// Takes back the last stroke, from whichever square it went in, unless the pen is down. That square's score no longer
+// shows, and the guide is told when guided.
 void fude_practice_undo(fude_practice* _practice) {
     const u32 _n = (u32)rde_arr_length(&_practice->strokes_in);
     if(_n == 0 || _practice->writing >= 0) {
@@ -264,22 +291,24 @@ void fude_practice_undo(fude_practice* _practice) {
     }
 
     const u8 _square = ((const u8*)_practice->strokes_in.memory)[_n - 1u];
-    _practice->strokes_in.count = _n - 1u;
+    rde_arr_resize(&_practice->strokes_in, _n - 1u);
     fude_ink_undo(&_practice->inks[_square]);
-    _practice->scores[_square].empty = true;   // its mark no longer matches its drawing
+    _practice->scores[_square].empty = true;   // Its score no longer matches its drawing.
     _practice->changed = true;
     if(_practice->guided) {
-        fude_guide_took_back(&_practice->guide, rde_engine_get_time_now());
+        fude_guide_took_back(&_practice->guide, fude_clock_now());
     }
 }
 
+// Scores every square in use, records the average for the set's summary, and saves the session to the history when
+// something was written since the last save. The status line says the average and whether it was saved.
 void fude_practice_score(fude_practice* _practice) {
     if(_practice->writing >= 0) {
         fude_practice_pen_up(_practice);
     }
 
     if(fude_practice_guiding(_practice)) {
-        return;   // steps 1 and 2 are help, not scored
+        return;   // Steps 1 and 2 are help, and are not scored.
     }
 
     const u32 _squares = fude_practice_square_count(_practice);
@@ -295,16 +324,16 @@ void fude_practice_score(fude_practice* _practice) {
     _practice->scored = true;
 
     if(_scored == 0) {
-        snprintf(_practice->status, sizeof(_practice->status), "%s", fude_text(FUDE_TEXT_PRACTICE_NOTHING));
+        rde_snprintf(_practice->status, sizeof(_practice->status), "%s", fude_text(FUDE_TEXT_PRACTICE_NOTHING));
         return;
     }
 
     const f32 _average = _sum / (f32)_scored;
     if(_practice->set_position < (u32)rde_arr_length(&_practice->set_results)) {
-        ((f32*)_practice->set_results.memory)[_practice->set_position] = _average;   // this run's, for the set's summary
+        ((f32*)_practice->set_results.memory)[_practice->set_position] = _average;   // For the set's summary.
     }
     if(!_practice->changed) {
-        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_ALREADY_SAVED, FUDE_TN(lroundf(_average)));
+        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_ALREADY_SAVED, FUDE_TN(rde_math_round_to_i64_f32(_average)));
         return;
     }
 
@@ -312,27 +341,28 @@ void fude_practice_score(fude_practice* _practice) {
     for(u32 _i = 0; _i < _squares; _i++) {
         _drawings[_i] = &_practice->inks[_i];
     }
-    const b8 _saved = fude_history_save(_practice->info.codepoint, (u64)time(NULL), _squares, _practice->scores,
+    const b8 _saved = fude_history_save(_practice->info.codepoint, (u64)rde_date_now_unix_seconds(), _squares, _practice->scores,
                                         _drawings, FUDE_PRACTICE_UNITS);
     if(_saved) {
         _practice->changed     = false;
         _practice->has_summary = fude_history_summarize(_practice->info.codepoint, &_practice->summary);
     }
     if(_practice->guided) {
-        snprintf(_practice->feedback, sizeof(_practice->feedback), "%s", _practice->scores[0].feedback);
-        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_FROM_MEMORY, FUDE_TN(lroundf(_average)), FUDE_TS(fude_text(_saved ? FUDE_TEXT_SAVED : FUDE_TEXT_NOT_SAVED)));
+        rde_snprintf(_practice->feedback, sizeof(_practice->feedback), "%s", _practice->scores[0].feedback);
+        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_FROM_MEMORY, FUDE_TN(rde_math_round_to_i64_f32(_average)), FUDE_TS(fude_text(_saved ? FUDE_TEXT_SAVED : FUDE_TEXT_NOT_SAVED)));
     } else {
         c8 _squares_n[512];
         FUDE_TEXTF(_squares_n, FUDE_TEXT_SQUARES_N, FUDE_TN(_scored));
-        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_AVERAGE, FUDE_TN(lroundf(_average)), FUDE_TS(_squares_n),
+        FUDE_TEXTF(_practice->status, FUDE_TEXT_PRACTICE_AVERAGE, FUDE_TN(rde_math_round_to_i64_f32(_average)), FUDE_TS(_squares_n),
                    FUDE_TS(fude_text(_saved ? FUDE_TEXT_SAVED : FUDE_TEXT_NOT_SAVED)));
     }
 }
 
-// --- the pen -----------------------------------------------------------------------
+// --- The pen ---------------------------------------------------------------------------------------------------------
 
+// Turns a screen point into square _square's own units.
 RDE_INTERNAL rde_vec_2F fude_practice_local(const fude_practice* _practice, u32 _square, rde_vec_2F _screen) {
-    // From the square's bottom-left corner, in its own units, kept inside it.
+    // From the square's bottom-left corner, FUDE_PRACTICE_UNITS across, clamped to the square.
     const f32 _k = FUDE_PRACTICE_UNITS / _practice->square_size;
     const rde_vec_2F _bl = { _practice->square_tl[_square].x, _practice->square_tl[_square].y - _practice->square_size };
     return (rde_vec_2F){
@@ -341,6 +371,8 @@ RDE_INTERNAL rde_vec_2F fude_practice_local(const fude_practice* _practice, u32 
     };
 }
 
+// Starts a stroke in the square the pen comes down in; outside every square nothing happens. When guided, the pen also
+// skips a pause between steps, or starts a new attempt from memory after one was scored.
 void fude_practice_pen_down(fude_practice* _practice, rde_vec_2F _screen) {
     _practice->writing = -1;
     if(_practice->square_size <= 0.0f) {
@@ -360,33 +392,35 @@ void fude_practice_pen_down(fude_practice* _practice, rde_vec_2F _screen) {
     }
 
     if(_practice->guided) {
-        const f64 _now = rde_engine_get_time_now();
+        const f64 _now = fude_clock_now();
         if(fude_guide_skip_pause(&_practice->guide, _now)) {
-            fude_practice_clear_squares(_practice);   // a step was done: the pen starts the next
+            fude_practice_clear_squares(_practice);   // A step was done, and the pen starts the next one.
             _practice->writing = 0;
         } else if(_practice->guide.stage == FUDE_GUIDE_RECALL && _practice->scored) {
-            fude_practice_clear_squares(_practice);   // a new attempt from memory
+            fude_practice_clear_squares(_practice);   // A new attempt from memory.
             _practice->status[0] = 0;
             _practice->writing   = 0;
         }
     }
 
     fude_ink* _ink = &_practice->inks[_practice->writing];
-    _ink->zoom = _practice->square_size / FUDE_PRACTICE_UNITS;   // the min step stays a screen unit
-    fude_ink_begin(_ink, fude_practice_local(_practice, (u32)_practice->writing, _screen), true, false);
+    _ink->zoom = _practice->square_size / FUDE_PRACTICE_UNITS;   // The ink's smallest step stays one screen unit.
+    fude_ink_begin(_ink, fude_practice_local(_practice, (u32)_practice->writing, _screen), true);
 
     u8 _square = (u8)_practice->writing;
     rde_arr_add(&_practice->strokes_in, &_square);
-    _practice->scores[_practice->writing].empty = true;   // written in again: its old mark is gone
+    _practice->scores[_practice->writing].empty = true;   // Written in again, so its old score goes.
     _practice->changed = true;
 }
 
+// Extends the stroke being written.
 void fude_practice_pen_moved(fude_practice* _practice, rde_vec_2F _screen) {
     if(_practice->writing >= 0) {
         fude_ink_extend(&_practice->inks[_practice->writing], fude_practice_local(_practice, (u32)_practice->writing, _screen));
     }
 }
 
+// Ends the stroke being written.
 void fude_practice_pen_up(fude_practice* _practice) {
     if(_practice->writing < 0) {
         return;
@@ -395,21 +429,22 @@ void fude_practice_pen_up(fude_practice* _practice) {
     fude_ink_end(_ink);
     _practice->writing = -1;
 
-    // Guided: checked as the pen lifts — a wrong stroke goes; the last stroke
-    // from memory is scored.
+    // When guided, the stroke is checked as the pen lifts: a wrong stroke is taken back (so it also leaves the undo
+    // order), and the last stroke written from memory scores the attempt.
     if(_practice->guided) {
-        const FUDE_GUIDE_RESULT_ _result = fude_guide_stroke(&_practice->guide, _ink, FUDE_PRACTICE_UNITS, rde_engine_get_time_now());
+        const FUDE_GUIDE_RESULT_ _result = fude_guide_stroke(&_practice->guide, _ink, FUDE_PRACTICE_UNITS, fude_clock_now());
         if(_result == FUDE_GUIDE_TAKEN_BACK && rde_arr_length(&_practice->strokes_in) > 0) {
-            _practice->strokes_in.count--;
+            rde_arr_remove(&_practice->strokes_in, rde_arr_length(&_practice->strokes_in) - 1u);
         } else if(_result == FUDE_GUIDE_COMPLETE) {
             fude_practice_score(_practice);
         }
     }
 }
 
-// --- drawing -----------------------------------------------------------------------
+// --- Drawing ---------------------------------------------------------------------------------------------------------
 
-// The end of a set: every character in it and how it went this run.
+// Draws the set's summary: how many were scored and their mean, how many are under good, and every character of the
+// set in a grid whose cells shrink (from 96 down to 48 points) until it fits, each with its average this run.
 RDE_INTERNAL void fude_practice_render_summary(fude_practice* _practice, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme   = fude_theme_active();
     const u32*        _records = (const u32*)_practice->set.memory;
@@ -429,34 +464,34 @@ RDE_INTERNAL void fude_practice_render_summary(fude_practice* _practice, rde_fon
     c8 _line[512];
     fude_draw_text(_font, _font_px, fude_text(FUDE_TEXT_SET_DONE), _left, _top - 32.0f, 24.0f, _theme->text);
     if(_done > 0) {
-        FUDE_TEXTF(_line, FUDE_TEXT_SET_SUMMARY, FUDE_TN(_done), FUDE_TN(_count), FUDE_TN(lroundf(_sum / (f32)_done)));
+        FUDE_TEXTF(_line, FUDE_TEXT_SET_SUMMARY, FUDE_TN(_done), FUDE_TN(_count), FUDE_TN(rde_math_round_to_i64_f32(_sum / (f32)_done)));
     } else {
-        snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_SET_NOTHING));
+        rde_snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_SET_NOTHING));
     }
     fude_draw_text(_font, _font_px, _line, _left, _top - 64.0f, 19.0f, _theme->text);
     if(_weak > 0) {
-        FUDE_TEXTF(_line, FUDE_TEXT_SET_WEAK, FUDE_TN(_weak), FUDE_TN(lroundf(FUDE_THEME_GRADE_GOOD)));
+        FUDE_TEXTF(_line, FUDE_TEXT_SET_WEAK, FUDE_TN(_weak), FUDE_TN(rde_math_round_to_i64_f32(FUDE_THEME_GRADE_GOOD)));
     } else if(_done > 0) {
-        snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_SET_ALL_GOOD));
+        rde_snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_SET_ALL_GOOD));
     } else {
         _line[0] = 0;
     }
     fude_draw_text(_font, _font_px, _line, _left, _top - 92.0f, 17.0f, _theme->text_soft);
 
-    // The set, in order, as big as fits the room left.
+    // The set, in order, as big as fits in the room left.
     const f32 _grid_top = _top - 112.0f;
     const f32 _width    = _right - _left;
     const f32 _height   = _grid_top - _bottom;
     f32       _cell     = 96.0f;
     u32       _cols     = 1;
     while(_cell > 48.0f) {
-        _cols = (u32)fmaxf(1.0f, floorf(_width / _cell));
+        _cols = (u32)rde_math_max_f32(1.0f, rde_math_floor_f32(_width / _cell));
         if((f32)((_count + _cols - 1u) / _cols) * _cell <= _height) {
             break;
         }
         _cell -= 4.0f;
     }
-    _cols = (u32)fmaxf(1.0f, floorf(_width / _cell));
+    _cols = (u32)rde_math_max_f32(1.0f, rde_math_floor_f32(_width / _cell));
 
     const f32 _glyph = _cell * 0.55f;
     for(u32 _i = 0; _i < _count; _i++) {
@@ -473,51 +508,22 @@ RDE_INTERNAL void fude_practice_render_summary(fude_practice* _practice, rde_fon
         fude_glyph_character(&_practice->glyph, _info.codepoint, (rde_vec_2F){ _x + (_cell - _glyph) * 0.5f, _y - _cell * 0.06f }, _glyph,
                              _results[_i] >= 0.0f ? _theme->ink : _theme->ghost);
         if(_results[_i] >= 0.0f) {
-            snprintf(_line, sizeof(_line), "%.0f", (f64)_results[_i]);
+            rde_snprintf(_line, sizeof(_line), "%.0f", (f64)_results[_i]);
             fude_draw_text(_font, _font_px, _line, _x + 6.0f, _y - _cell + 9.0f, 16.0f, fude_theme_grade(_results[_i]));
         }
     }
 }
 
-void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom) {
-    if(!_practice->open) {
-        return;
-    }
-
-    const rde_vec_2I _size   = rde_window_get_size(_window);
-    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
-    const f32        _left   = -(f32)_size.x * 0.5f + (f32)_insets.x + FUDE_PRACTICE_MARGIN;
-    const f32        _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_PRACTICE_MARGIN;
-    const f32        _width  = _right - _left;
-    const fude_kanji_info* _info = &_practice->info;
-
-    if(_practice->summary_open) {
-        _practice->square_size = 0.0f;   // no squares to write in
-        fude_practice_render_summary(_practice, _font, _font_px, _left, _right, _top, _bottom);
-        return;
-    }
-
-    // --- the demo: the character writing itself, over and over --------------------
-    const f32        _demo    = fminf(FUDE_PRACTICE_DEMO_MAX, _width * 0.3f);
-    const rde_vec_2F _demo_tl = { _left, _top - 8.0f };
-    fude_glyph_box(_demo_tl, _demo);
-    const f64 _now = rde_engine_get_time_now();
-    if(fude_glyph_writing(&_practice->glyph, _info, _demo_tl, _demo, _now - _practice->demo_start, _font, _font_px, 13.0f)) {
-        // Finished: rest a moment on the whole character, then write it again.
-        if(_practice->demo_done <= 0.0) {
-            _practice->demo_done = _now;
-        } else if(_now - _practice->demo_done > FUDE_PRACTICE_DEMO_REST) {
-            _practice->demo_start = _now;
-            _practice->demo_done  = 0.0;
-        }
-    }
-
-    // --- beside it: what it is, how it has gone before, how this one went ---------------
+// Draws, beside the demo, what the character is (Practice or Guided, its place in the set, its strokes and level), its
+// readings, its meanings, its history's summary and the status line. _left and _right are the page's edges, _top its
+// top, and _demo the demo's size.
+RDE_INTERNAL void fude_practice_render_about(fude_practice* _practice, const fude_kanji_info* _info, rde_font* _font, f32 _font_px, f32 _left, f32 _right,
+                                             f32 _top, f32 _demo) {
     const f32 _tx = _left + _demo + 20.0f;
     f32       _ty = _top - 30.0f;
     c8        _line[512];
     c8 _where[512];
-    snprintf(_where, sizeof(_where), "%s", fude_text(_practice->guided ? FUDE_TEXT_GUIDED : FUDE_TEXT_PRACTICE));
+    rde_snprintf(_where, sizeof(_where), "%s", fude_text(_practice->guided ? FUDE_TEXT_GUIDED : FUDE_TEXT_PRACTICE));
     if(fude_practice_in_set(_practice)) {
         FUDE_TEXTF(_where, FUDE_TEXT_OF_N, FUDE_TN(_practice->set_position + 1u), FUDE_TN(rde_arr_length(&_practice->set)));
     }
@@ -533,11 +539,11 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     fude_draw_text(_font, _font_px, _line, _tx, _ty, 22.0f, fude_theme_active()->text);
 
     _ty -= 38.0f;
-    const c8* _on  = fude_kanji_reading(_practice->db, _info, 0u);
-    const c8* _kun = fude_kanji_reading(_practice->db, _info, 1u);
-    if(_on[0] != 0 || _kun[0] != 0) {
-        const f32 _x = fude_glyph_reading(&_practice->glyph, _on, (rde_vec_2F){ _tx, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
-        fude_glyph_reading(&_practice->glyph, _kun, (rde_vec_2F){ _x + 18.0f, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
+    const c8* _first  = fude_kanji_reading(_practice->db, _info, 0u);   // The language's two kinds of reading (lang.h).
+    const c8* _second = fude_kanji_reading(_practice->db, _info, 1u);
+    if(_first[0] != 0 || _second[0] != 0) {
+        const f32 _x = fude_glyph_reading(&_practice->glyph, _first, (rde_vec_2F){ _tx, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
+        fude_glyph_reading(&_practice->glyph, _second, (rde_vec_2F){ _x + 18.0f, _ty + 22.0f }, 24.0f, _right, fude_theme_active()->ink, fude_theme_active()->text_soft);
         _ty -= 34.0f;
     }
     const c8* _meanings = fude_kanji_meanings(_practice->db, _info);
@@ -549,10 +555,10 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     if(_practice->has_summary) {
         c8 _sessions_n[512];
         FUDE_TEXTF(_sessions_n, FUDE_TEXT_SESSIONS_N, FUDE_TN(_practice->summary.sessions));
-        FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HISTORY, FUDE_TS(_sessions_n), FUDE_TN(lroundf(_practice->summary.best)), FUDE_TN(lroundf(_practice->summary.last)),
-                   FUDE_TN(lroundf(_practice->summary.first)));
+        FUDE_TEXTF(_line, FUDE_TEXT_PRACTICE_HISTORY, FUDE_TS(_sessions_n), FUDE_TN(rde_math_round_to_i64_f32(_practice->summary.best)), FUDE_TN(rde_math_round_to_i64_f32(_practice->summary.last)),
+                   FUDE_TN(rde_math_round_to_i64_f32(_practice->summary.first)));
     } else {
-        snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_NOT_PRACTISED));
+        rde_snprintf(_line, sizeof(_line), "%s", fude_text(FUDE_TEXT_NOT_PRACTISED));
     }
     fude_draw_text(_font, _font_px, _line, _tx, _ty, 17.0f, fude_theme_active()->text);
     _ty -= 30.0f;
@@ -560,59 +566,68 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     if(_practice->status[0] != 0) {
         fude_draw_text(_font, _font_px, _practice->status, _tx, _ty, 19.0f, fude_theme_active()->text);
     }
+}
 
-    // --- guided: one big square, the help in it, the step under it ---------------------
-    if(_practice->guided) {
-        const f32 _grid_top = _demo_tl.y - _demo - 24.0f;
-        f32       _square   = fminf(_width, _grid_top - _bottom - FUDE_PRACTICE_GUIDED_TEXT);
-        _square             = fmaxf(120.0f, fminf(_square, FUDE_PRACTICE_GUIDED_MAX));
-        const rde_vec_2F _tl = { (_left + _right) * 0.5f - _square * 0.5f, _grid_top };
-        _practice->square_tl[0] = _tl;
-        _practice->square_size  = _square;
+// Draws guided mode's one big square, as big as the room under the demo allows: the guide's help in it, the model
+// behind a scored attempt, what was written and its score; and under it the step, then what went wrong or what to do
+// again. It records the square's place for the pen. _size is the window's size; _left, _right and _width are the
+// page's edges and the width between them, and _bottom its bottom; _demo_tl and _demo are the demo's corner and size.
+RDE_INTERNAL void fude_practice_render_guided(fude_practice* _practice, const fude_kanji_info* _info, rde_font* _font, f32 _font_px, rde_vec_2I _size,
+                                              f32 _left, f32 _right, f32 _width, f32 _bottom, rde_vec_2F _demo_tl, f32 _demo) {
+    c8 _line[512];   // Each text drawn here is written into it first.
+    const f32 _grid_top = _demo_tl.y - _demo - 24.0f;
+    f32       _square   = rde_math_min_f32(_width, _grid_top - _bottom - FUDE_PRACTICE_GUIDED_TEXT);
+    _square             = rde_math_max_f32(120.0f, rde_math_min_f32(_square, FUDE_PRACTICE_GUIDED_MAX));
+    const rde_vec_2F _tl = { (_left + _right) * 0.5f - _square * 0.5f, _grid_top };
+    _practice->square_tl[0] = _tl;
+    _practice->square_size  = _square;
 
-        const f64         _now   = rde_engine_get_time_now();
-        const fude_theme* _theme = fude_theme_active();
-        const b8          _shown = _practice->scored && !_practice->scores[0].empty;   // a step 3 attempt, scored
-        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
-        fude_glyph_box(_tl, _square);
-        fude_guide_render(&_practice->guide, &_practice->glyph, _tl, _square, _now);
-        if(_shown) {
-            fude_glyph_character(&_practice->glyph, _info->codepoint, _tl, _square, _theme->reference);   // the model, behind
-        }
-        fude_ink_render(&_practice->inks[0], (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / FUDE_PRACTICE_UNITS,
-                        (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, _now, false);
-        fude_guide_render_over(&_practice->guide, _tl, _square, FUDE_PRACTICE_UNITS, _now);
-        if(_shown) {
-            snprintf(_line, sizeof(_line), "%.0f", (f64)_practice->scores[0].score);
-            fude_draw_text(_font, _font_px, _line, _tl.x + _square - 52.0f, _tl.y - 40.0f, 32.0f, fude_theme_grade(_practice->scores[0].score));
-        }
-        fude_draw_keep_end();
-
-        // The step, then what went wrong (or what to do again), wrapped from the
-        // square's left to the screen's right margin.
-        const f32 _tw = _right - _tl.x;
-        fude_guide_prompt(&_practice->guide, _line, sizeof(_line));
-        const u32 _step = fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _tl.y - _square - 26.0f, 16.0f,
-                                              fude_draw_text_balanced_width(_font, _font_px, _line, 16.0f, _tw), 21.0f, _theme->text);
-        const f32 _next = _tl.y - _square - 52.0f - (f32)(_step > 1u ? _step - 1u : 0u) * 21.0f;
-        if(_practice->guide.message[0] != 0) {
-            fude_draw_text_wrap(_font, _font_px, _practice->guide.message, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->score_poor);
-        } else if(_shown) {
-            FUDE_TEXTF(_line, FUDE_TEXT_WRITE_AGAIN, FUDE_TS(_practice->feedback));
-            fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->text_soft);
-        }
-        return;
+    const f64         _now   = fude_clock_now();
+    const fude_theme* _theme = fude_theme_active();
+    const b8          _shown = _practice->scored && !_practice->scores[0].empty;   // A scored attempt at step 3.
+    fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // Handwriting is never mirrored (draw.h).
+    fude_glyph_box(_tl, _square);
+    fude_guide_render(&_practice->guide, &_practice->glyph, _tl, _square, _now);
+    if(_shown) {
+        fude_glyph_character(&_practice->glyph, _info->codepoint, _tl, _square, _theme->reference);   // The model, behind.
     }
+    fude_ink_render(&_practice->inks[0], (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / FUDE_PRACTICE_UNITS,
+                    (rde_vec_2F){ (f32)_size.x * 0.5f, (f32)_size.y * 0.5f }, _now, false);
+    fude_guide_render_over(&_practice->guide, _tl, _square, FUDE_PRACTICE_UNITS, _now);
+    if(_shown) {
+        rde_snprintf(_line, sizeof(_line), "%.0f", (f64)_practice->scores[0].score);
+        fude_draw_text(_font, _font_px, _line, _tl.x + _square - 52.0f, _tl.y - 40.0f, 32.0f, fude_theme_grade(_practice->scores[0].score));
+    }
+    fude_draw_keep_end();
 
-    // --- the squares ------------------------------------------------------------------
+    // The step, then what went wrong (or what to do again), wrapped from the square's left edge to the screen's
+    // right margin.
+    const f32 _tw = _right - _tl.x;
+    fude_guide_prompt(&_practice->guide, _line, sizeof(_line));
+    const u32 _step = fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _tl.y - _square - 26.0f, 16.0f,
+                                          fude_draw_text_balanced_width(_font, _font_px, _line, 16.0f, _tw), 21.0f, _theme->text);
+    const f32 _next = _tl.y - _square - 52.0f - (f32)(_step > 1u ? _step - 1u : 0u) * 21.0f;
+    if(_practice->guide.message[0] != 0) {
+        fude_draw_text_wrap(_font, _font_px, _practice->guide.message, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->score_poor);
+    } else if(_shown) {
+        FUDE_TEXTF(_line, FUDE_TEXT_WRITE_AGAIN, FUDE_TS(_practice->feedback));
+        fude_draw_text_wrap(_font, _font_px, _line, _tl.x, _next, 16.0f, _tw, 21.0f, _theme->text_soft);
+    }
+}
+
+// Draws the squares in a grid under the demo, each with the model behind a scored square, what was written, its score
+// and its feedback, and records their places for the pen. _size is the window's size; _left and _width are the page's
+// left edge and width, and _bottom its bottom; _demo_tl and _demo are the demo's corner and size.
+RDE_INTERNAL void fude_practice_render_squares(fude_practice* _practice, const fude_kanji_info* _info, rde_font* _font, f32 _font_px, rde_vec_2I _size,
+                                               f32 _left, f32 _width, f32 _bottom, rde_vec_2F _demo_tl, f32 _demo) {
     const f32 _grid_top = _demo_tl.y - _demo - 24.0f;
     const f32 _room_h   = _grid_top - _bottom;
-    u32       _cols     = (u32)fmaxf(1.0f, floorf((_width + FUDE_PRACTICE_GAP) / (FUDE_PRACTICE_SQUARE_MAX * 0.8f + FUDE_PRACTICE_GAP)));
+    u32       _cols     = (u32)rde_math_max_f32(1.0f, rde_math_floor_f32((_width + FUDE_PRACTICE_GAP) / (FUDE_PRACTICE_SQUARE_MAX * 0.8f + FUDE_PRACTICE_GAP)));
     _cols               = _cols > _practice->squares ? _practice->squares : _cols;
     const u32 _rows     = (_practice->squares + _cols - 1u) / _cols;
-    f32       _square   = fminf(FUDE_PRACTICE_SQUARE_MAX, (_width - FUDE_PRACTICE_GAP * (f32)(_cols - 1u)) / (f32)_cols);
-    _square             = fminf(_square, (_room_h - (f32)_rows * (FUDE_PRACTICE_LABEL_H + FUDE_PRACTICE_GAP)) / (f32)_rows);
-    _square             = fmaxf(_square, 60.0f);
+    f32       _square   = rde_math_min_f32(FUDE_PRACTICE_SQUARE_MAX, (_width - FUDE_PRACTICE_GAP * (f32)(_cols - 1u)) / (f32)_cols);
+    _square             = rde_math_min_f32(_square, (_room_h - (f32)_rows * (FUDE_PRACTICE_LABEL_H + FUDE_PRACTICE_GAP)) / (f32)_rows);
+    _square             = rde_math_max_f32(_square, 60.0f);
     _practice->square_size = _square;
 
     const rde_vec_2F _half = { (f32)_size.x * 0.5f, (f32)_size.y * 0.5f };
@@ -623,7 +638,7 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
                                   _grid_top - (f32)_row * (_square + FUDE_PRACTICE_LABEL_H + FUDE_PRACTICE_GAP) };
         _practice->square_tl[_i] = _tl;
 
-        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // the writing is never mirrored (draw.h)
+        fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _square }, (rde_vec_2F){ _tl.x + _square, _tl.y }, true);   // Handwriting is never mirrored (draw.h).
         fude_glyph_box(_tl, _square);
 
         const fude_score* _s = &_practice->scores[_i];
@@ -634,11 +649,11 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
         }
 
         fude_ink_render(&_practice->inks[_i], (rde_vec_2F){ _tl.x, _tl.y - _square }, _square / FUDE_PRACTICE_UNITS,
-                        _half, rde_engine_get_time_now(), false);
+                        _half, fude_clock_now(), false);
 
         if(_show) {
             c8 _mark[8];
-            snprintf(_mark, sizeof(_mark), "%.0f", (f64)_s->score);
+            rde_snprintf(_mark, sizeof(_mark), "%.0f", (f64)_s->score);
             fude_draw_text(_font, _font_px, _mark, _tl.x + _square - 34.0f, _tl.y - 24.0f, 20.0f, fude_theme_grade(_s->score));
         }
         fude_draw_keep_end();
@@ -648,21 +663,76 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
     }
 }
 
-// --- the screen (screen.h): its rows, and what they do ------------------------------------
+// Draws the page: the demo and beside it the header, the readings, the meanings, the history's summary and the status
+// line; under them the squares, or when guided the one big square with the guide's help and its step. In the summary
+// it draws that instead. It records the squares' places for the pen.
+void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_font* _font, f32 _font_px, f32 _top, f32 _bottom) {
+    if(!_practice->open) {
+        return;
+    }
+
+    const rde_vec_2I _size   = rde_window_get_size(_window);
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // The order is left, top, right, bottom.
+    const f32        _left   = -(f32)_size.x * 0.5f + (f32)_insets.x + FUDE_PRACTICE_MARGIN;
+    const f32        _right  = (f32)_size.x * 0.5f - (f32)_insets.z - FUDE_PRACTICE_MARGIN;
+    const f32        _width  = _right - _left;
+    const fude_kanji_info* _info = &_practice->info;
+
+    if(_practice->summary_open) {
+        _practice->square_size = 0.0f;   // There are no squares to write in.
+        fude_practice_render_summary(_practice, _font, _font_px, _left, _right, _top, _bottom);
+        return;
+    }
+
+    // --- The demo: the character writing itself, over and over ---
+    const f32        _demo    = rde_math_min_f32(FUDE_PRACTICE_DEMO_MAX, _width * 0.3f);
+    const rde_vec_2F _demo_tl = { _left, _top - 8.0f };
+    fude_glyph_box(_demo_tl, _demo);
+    const f64 _now = fude_clock_now();
+    if(fude_glyph_writing(&_practice->glyph, _info, _demo_tl, _demo, _now - _practice->demo_start, _font, _font_px, 13.0f)) {
+        // Once finished, it rests on the whole character for FUDE_PRACTICE_DEMO_REST, then writes it again.
+        if(_practice->demo_done <= 0.0) {
+            _practice->demo_done = _now;
+        } else if(_now - _practice->demo_done > FUDE_PRACTICE_DEMO_REST) {
+            _practice->demo_start = _now;
+            _practice->demo_done  = 0.0;
+        }
+    }
+
+    // --- Beside it: what it is, how it went before, and how this session went ---
+    fude_practice_render_about(_practice, _info, _font, _font_px, _left, _right, _top, _demo);
+
+    // --- Guided: one big square with the help in it, and the step under it ---
+    if(_practice->guided) {
+        fude_practice_render_guided(_practice, _info, _font, _font_px, _size, _left, _right, _width, _bottom, _demo_tl, _demo);
+        return;
+    }
+
+    // --- The squares: as many columns as fit at 80% of their largest size, and as big as the room allows (at least
+    // 60 points) ---
+    fude_practice_render_squares(_practice, _info, _font, _font_px, _size, _left, _width, _bottom, _demo_tl, _demo);
+}
+
+// --- The screen (screen.h): its rows of buttons, and what they do ----------------------------------------------------
 
 #include "study/app/study.h"
-#include "drawing/widgets/icons.h"
+#include "drawing/base/icons.h"
 
+// The screen's render function, which calls fude_practice_render (screen.h).
 FUDE_SCREEN_RENDER(fude_practice, fude_practice)
 
-RDE_INTERNAL b8   fude_practice_screen_is_open(const void* _self) { return ((const fude_practice*)_self)->open; }
-RDE_INTERNAL void fude_practice_screen_close(void* _self) { fude_practice_close((fude_practice*)_self); }
-RDE_INTERNAL void fude_practice_screen_update(fude_app* _app, void* _self, f32 _dt) { RDE_UNUSED(_app); RDE_UNUSED(_dt); fude_practice_update((fude_practice*)_self); }   // guided: a finished step moves on
-// The pen writes (and the mouse; a finger with the hand on).
-RDE_INTERNAL void fude_practice_screen_down(void* _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); RDE_UNUSED(_now); fude_practice_pen_down((fude_practice*)_self, _at); }
-RDE_INTERNAL void fude_practice_screen_moved(void* _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_now); fude_practice_pen_moved((fude_practice*)_self, _at); }
-RDE_INTERNAL void fude_practice_screen_up(void* _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_at); RDE_UNUSED(_now); fude_practice_pen_up((fude_practice*)_self); }
+// The screen's is_open, close and update functions. Practice's pen functions have their own shape, so these are
+// written out rather than made by FUDE_SCREEN_ADAPTERS.
+RDE_INTERNAL b8   fude_practice_screen_is_open(const any _self) { return ((const fude_practice*)_self)->open; }
+RDE_INTERNAL void fude_practice_screen_close(any _self) { fude_practice_close((fude_practice*)_self); }
+RDE_INTERNAL void fude_practice_screen_update(fude_app* _app, any _self, f32 _dt) { RDE_UNUSED(_app); RDE_UNUSED(_dt); fude_practice_update((fude_practice*)_self); }   // Guided: a finished step moves on.
+// The pointer: it is a writing screen, so this is the pen (or the mouse, or a finger with the hand on).
+RDE_INTERNAL void fude_practice_screen_down(any _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); RDE_UNUSED(_now); fude_practice_pen_down((fude_practice*)_self, _at); }
+RDE_INTERNAL void fude_practice_screen_moved(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_now); fude_practice_pen_moved((fude_practice*)_self, _at); }
+RDE_INTERNAL void fude_practice_screen_up(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_at); RDE_UNUSED(_now); fude_practice_pen_up((fude_practice*)_self); }
 
+// The buttons that call one of Practice's functions: Back and Done close it; Undo, Clear, Score, Next and Weakest
+// again do what they say.
 FUDE_ROW_CALL(fude_practice_row_close, fude_practice, fude_practice_close)
 FUDE_ROW_CALL(fude_practice_row_undo,  fude_practice, fude_practice_undo)
 FUDE_ROW_CALL(fude_practice_row_clear, fude_practice, fude_practice_clear)
@@ -670,25 +740,29 @@ FUDE_ROW_CALL(fude_practice_row_score, fude_practice, fude_practice_score)
 FUDE_ROW_CALL(fude_practice_row_next,  fude_practice, fude_practice_next)
 FUDE_ROW_CALL(fude_practice_row_again, fude_practice, fude_practice_weakest_again)
 
-RDE_INTERNAL void fude_practice_row_fewer(fude_app* _app, void* _self, u32 _arg) {
+// Fewer: one square less, never under one.
+RDE_INTERNAL void fude_practice_row_fewer(fude_app* _app, any _self, u32 _arg) {
     fude_practice* _practice = (fude_practice*)_self;
     RDE_UNUSED(_app); RDE_UNUSED(_arg);
     fude_practice_set_squares(_practice, _practice->squares > 1u ? _practice->squares - 1u : 1u);
 }
 
-RDE_INTERNAL void fude_practice_row_more(fude_app* _app, void* _self, u32 _arg) {
+// More: one square more, up to FUDE_PRACTICE_MAX_SQUARES.
+RDE_INTERNAL void fude_practice_row_more(fude_app* _app, any _self, u32 _arg) {
     fude_practice* _practice = (fude_practice*)_self;
     RDE_UNUSED(_app); RDE_UNUSED(_arg);
     fude_practice_set_squares(_practice, _practice->squares + 1u);
 }
 
-RDE_INTERNAL void fude_practice_row_guided(fude_app* _app, void* _self, u32 _arg) {
+// Guided: turns guided mode on or off.
+RDE_INTERNAL void fude_practice_row_guided(fude_app* _app, any _self, u32 _arg) {
     fude_practice* _practice = (fude_practice*)_self;
     RDE_UNUSED(_app); RDE_UNUSED(_arg);
     fude_practice_set_guided(_practice, !_practice->guided);
 }
 
-// One character; a set (Next, Finish on the last); the set's summary.
+// The rows: one character's; a set's (with Next, which is Finish on the last); and the set's summary's. The enums are
+// each row's button indices.
 enum { FUDE_PRACTICE_ROW_ONE = 0, FUDE_PRACTICE_ROW_SET, FUDE_PRACTICE_ROW_SUMMARY };
 enum { FUDE_PRACTICE_ONE_BACK = 0, FUDE_PRACTICE_ONE_UNDO, FUDE_PRACTICE_ONE_CLEAR, FUDE_PRACTICE_ONE_SCORE, FUDE_PRACTICE_ONE_FEWER, FUDE_PRACTICE_ONE_MORE, FUDE_PRACTICE_ONE_GUIDED };
 enum { FUDE_PRACTICE_SET_BACK = 0, FUDE_PRACTICE_SET_UNDO, FUDE_PRACTICE_SET_CLEAR, FUDE_PRACTICE_SET_SCORE, FUDE_PRACTICE_SET_GUIDED, FUDE_PRACTICE_SET_NEXT };
@@ -716,15 +790,16 @@ static const fude_row_button FUDE_PRACTICE_SUMMARY[] = {
 };
 static const fude_row_def FUDE_PRACTICE_BUTTON_ROWS[] = { FUDE_ROW_DEF(FUDE_PRACTICE_ONE), FUDE_ROW_DEF(FUDE_PRACTICE_SET), FUDE_ROW_DEF(FUDE_PRACTICE_SUMMARY) };
 
-RDE_INTERNAL u32 fude_practice_screen_row(const void* _self) {
+// Which row is up: the summary's while it shows, else a set's or one character's.
+RDE_INTERNAL u32 fude_practice_screen_row(const any _self) {
     const fude_practice* _practice = (const fude_practice*)_self;
     return _practice->summary_open ? FUDE_PRACTICE_ROW_SUMMARY : fude_practice_in_set(_practice) ? FUDE_PRACTICE_ROW_SET : FUDE_PRACTICE_ROW_ONE;
 }
 
-// Guided shows it on (the squares' count means nothing then); Score only where
-// there is something to score (not guided steps 1 and 2, which are help); Next
-// is Finish on a set's last character; Weakest again needs something weak.
-RDE_INTERNAL void fude_practice_screen_faces(const void* _self, u32 _row, fude_row_face* _faces) {
+// How the buttons show: Guided is selected when on, and Fewer and More are greyed out then, since the squares' count
+// means nothing while guided. Score is greyed out on guided steps 1 and 2, which are help and not scored. Next is
+// Finish on a set's last character, and Weakest again is greyed out when nothing was weak.
+RDE_INTERNAL void fude_practice_screen_faces(const any _self, u32 _row, fude_row_face* _faces) {
     const fude_practice* _practice = (const fude_practice*)_self;
     const b8             _guiding  = fude_practice_guiding(_practice);
     if(_row == FUDE_PRACTICE_ROW_ONE) {

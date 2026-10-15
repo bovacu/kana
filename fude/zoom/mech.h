@@ -8,143 +8,181 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// MECHANISMS (Sketching's Mechanisms topic): linkages, gears, springs and
-// weights drawn as the diagram library's symbols (symbol.h's Mechanisms family)
-// and run as rigid bodies (RDE's 2D physics: mechsim, page.c).
+// Mechanisms: the parts of Sketching's Mechanisms topic (linkages, gears, springs, weights and more, drawn as the
+// diagram library's symbols: symbol.h's Mechanisms family), and the plan of how they are joined, which mechrun.h
+// runs as rigid bodies in RDE's 2D physics.
 //
-// A part's HOLES are where it is pinned: a hole over another part's hole is a
-// hinge between them; over a fixed pivot's, the part turns about the ground
-// there; over a motor's, it is turned (the motor's text: its speed, "30 rpm").
-// A spring's two ends pull the parts whose holes they are on toward its length
-// as it was drawn. Gears whose pitch circles touch turn each other (their teeth:
-// each gear's count, by its id — all of one tooth size, so any two mesh), the
-// smaller faster; a gear (or a pulley) nothing holds turns on an axle of its
-// own where it is. A gear on a rack moves it as far as the gear is over its
-// teeth: there the rack stops and lets the gear go on (turned back, it takes
-// the rack back). Meshed gears start with their teeth in each other's gaps (a
-// gear only on its axle turned the little it needs, a rack slid along itself
-// the little it needs). A weight or a crate falls; walls stay.
+// A part's HOLES are where it is pinned. A hole over another part's hole is a hinge between them; over a fixed
+// pivot's, the part turns about the ground there; over a motor's, the motor turns it (the motor's text gives its
+// speed, "30 rpm"). A spring's two ends pull the parts whose holes they are on toward its length as it was drawn.
+// Gears whose pitch circles touch turn each other, the smaller faster: each gear's tooth count comes from its id, and
+// all have one tooth size, so any two mesh. A gear (or a pulley) that nothing holds turns on an axle of its own where
+// it is. A gear on a rack moves the rack as long as the gear is over its teeth; past them the rack stops and lets the
+// gear turn on (turned back, the gear takes the rack back). Meshed gears start with their teeth in each other's gaps:
+// a gear held only by its axle is turned the little it needs, and a rack is slid along itself the little it needs. A
+// weight or a crate falls; walls stay.
 //
-// A ROPE holds what its ends are on — a body (anywhere on it), or still: a
-// pivot, a wall, a pulley's rim, or where it was drawn — and never stretches
-// past its length as drawn (it goes slack). Two ropes down either side of one
-// PULLEY are one rope over it: what one lets down, the other takes up (their
-// lengths together kept), the pulley turning with them.
+// A ROPE holds what its ends are on: a body (anywhere on it), or a still point (a pivot, a wall, a pulley's rim, or
+// where it was drawn). It never stretches past its length as drawn, and goes slack when shorter. Two ropes down either
+// side of one PULLEY are one rope over it: what one lets down, the other takes up (their lengths together are kept),
+// and the pulley turns with them.
 //
-// What is worked out here is the plan (which bodies, which hinges, springs,
-// ropes, gear meshes: pure, tested) and the ropes' sums (pure, tested); running
-// it is mechrun.h's.
+// Where it sits: `fude/zoom`, the canvas layer. symbol.c draws the parts with fude_zoom_mech_draw; page_mech.c builds
+// the plan from the canvas when Play starts, and mechrun.h runs it.
+// What is worked out here, the plan (which bodies, hinges, springs, ropes and gear meshes), is pure and tested on its
+// own; running it is mechrun.h's, on RDE's own joints (its gear, rope and pulley joints keep the meshes and the ropes,
+// so nothing here works out speeds or a rope's pull).
+// Main types: fude_zoom_mech_part is a static catalogue entry; fude_zoom_mech_plan is the caller's struct, set up by
+// fude_zoom_mech_plan_init, filled by fude_zoom_mech_plan_build and released by fude_zoom_mech_plan_destroy.
+// Threads: main thread only (fude_zoom_mech_of_kind's answers are kept in the topics' one table, symbol.h's
+// fude_zoom_symbol_topic_part, and building reads the scene).
+// Design: docs/infinite_canvas_design.md §28 (the first mechanisms), §33 (sliders and racks) and §55 (belts, cams,
+// ratchets, dampers and worms).
 // ===========================================================================
 
+// The kinds of mechanism part.
 typedef enum {
-    FUDE_ZOOM_MECH_LINK = 0,   // a bar: a hole each end
-    FUDE_ZOOM_MECH_PLATE,      // a triangle: three holes
+    FUDE_ZOOM_MECH_LINK = 0,   // a bar with a hole at each end
+    FUDE_ZOOM_MECH_PLATE,      // a triangle with three holes
     FUDE_ZOOM_MECH_GEAR,       // a spur gear: its hole in its middle, its teeth its part's
     FUDE_ZOOM_MECH_PIVOT,      // a fixed pivot (the ground)
     FUDE_ZOOM_MECH_MOTOR,      // a fixed pivot that turns what is pinned to it
-    FUDE_ZOOM_MECH_SPRING,     // between its two ends
+    FUDE_ZOOM_MECH_SPRING,     // a spring between its two ends
     FUDE_ZOOM_MECH_WEIGHT,     // a ball: it falls, it rolls
     FUDE_ZOOM_MECH_WHEEL,      // a wheel: its hole in its middle, it rolls
-    FUDE_ZOOM_MECH_WALL,       // fixed, solid
-    FUDE_ZOOM_MECH_PULLEY,     // a wheel ropes run over: on its own axle where it is
-    FUDE_ZOOM_MECH_ROPE,       // between its two ends: never longer than drawn
-    FUDE_ZOOM_MECH_CRATE,      // a box: it falls, it hangs (its mass its text)
+    FUDE_ZOOM_MECH_WALL,       // fixed and solid
+    FUDE_ZOOM_MECH_PULLEY,     // a wheel ropes run over, on its own axle where it is
+    FUDE_ZOOM_MECH_ROPE,       // a rope between its two ends, never longer than drawn
+    FUDE_ZOOM_MECH_CRATE,      // a box: it falls, it hangs (its text is its mass)
     FUDE_ZOOM_MECH_RAIL,       // a fixed guide: what slides along it, between its ends
-    FUDE_ZOOM_MECH_SLIDER,     // a block that slides along the rail it is on: its hole in its middle (a piston)
+    FUDE_ZOOM_MECH_SLIDER,     // a block that slides along the rail it is on, its hole in its middle (a piston)
     FUDE_ZOOM_MECH_RACK,       // a toothed bar sliding along its length: a gear on it turns as it goes
-    FUDE_ZOOM_MECH_PIN,        // a pin: whatever bodies are under it hinged there (one alone: to the ground, a nail)
-    FUDE_ZOOM_MECH_DRAWN,      // a drawing made a body (props.h): its own shape, its material
-    FUDE_ZOOM_MECH_SHAFT,      // a circuit's motor (circuit.h): its shaft in its middle — what is pinned there it turns, as the
-                               // circuit drives it, and is turned by (coupling.h)
-    FUDE_ZOOM_MECH_TRACER,     // a pen on what moves under it: the path its point takes drawn as it plays (mechrun.h)
-    FUDE_ZOOM_MECH_CRANK,      // a hand crank: a disc on an axle of its own, a handle hole at its rim — turned by hand as it plays
-    FUDE_ZOOM_MECH_PLUNGER,    // a circuit's solenoid (circuit.h): its plunger, sliding in and out of its coil — a hole at its
-                               // end; pulled in as the circuit drives it (coupling.h)
-    // (0.1.74: belts and chains, cams, ratchets, dampers, worms)
-    FUDE_ZOOM_MECH_BELT,       // a belt (or a chain: its text's or its id's) round the two turning parts its ends' middles are
-                               // on — a sprocket, a gear, a crank, a wheel on its axle —: the one turned as far along its rim as
-                               // the other, the same way (crossed, its text "crossed": the other way)
-    FUDE_ZOOM_MECH_SPROCKET,   // a toothed wheel a belt or a chain runs round: on its own axle where it is, its hole in its middle
-    FUDE_ZOOM_MECH_CAM,        // an eccentric cam: a disc turning about a hole off its middle — what rests on it rises and falls
-    FUDE_ZOOM_MECH_FOLLOWER,   // a cam's follower: a rod in a guide, its roller pressed along it (its spring) onto what is in front
+    FUDE_ZOOM_MECH_PIN,        // a pin hinging whatever bodies are under it (one alone: to the ground, as a nail)
+    FUDE_ZOOM_MECH_DRAWN,      // a drawing made into a body (props.h): its own shape, its material
+    // A circuit's motor (circuit.h), with its shaft in its middle: it turns what is pinned there as the circuit
+    // drives it, and is turned by it (coupling.h).
+    FUDE_ZOOM_MECH_SHAFT,      // a circuit motor's shaft
+    FUDE_ZOOM_MECH_TRACER,     // a pen on what moves under it, drawing its point's path as it plays (mechrun.h)
+    // A hand crank: a disc on an axle of its own, with a handle hole at its rim, turned by hand as it plays.
+    FUDE_ZOOM_MECH_CRANK,      // a hand crank
+    // A circuit's solenoid (circuit.h): its plunger slides in and out of its coil, with a hole at its end, and is
+    // pulled in as the circuit drives it (coupling.h).
+    FUDE_ZOOM_MECH_PLUNGER,    // a circuit solenoid's plunger
+    // (Added in 0.1.74: belts and chains, cams, ratchets, dampers and worms.)
+    // A belt, or a chain (by its symbol's id), round the two turning parts its ends' middles are on (a sprocket, a
+    // gear, a crank, a wheel on its axle). It turns one as far along its rim as the other, the same way; crossed (its
+    // text says "crossed"), the other way.
+    FUDE_ZOOM_MECH_BELT,       // a belt or a chain
+    FUDE_ZOOM_MECH_SPROCKET,   // a toothed wheel a belt or chain runs round, on its own axle, its hole in its middle
+    FUDE_ZOOM_MECH_CAM,        // an eccentric cam: a disc turning about a hole off its middle; what rests on it rises
+                               // and falls
+    // A cam's follower: a rod in a guide, its roller pressed along it (by its spring) onto what is in front of it.
+    FUDE_ZOOM_MECH_FOLLOWER,   // a cam's follower
     FUDE_ZOOM_MECH_RATCHET,    // a ratchet wheel: sawtooth teeth, free counter-clockwise past a pawl, held clockwise
     FUDE_ZOOM_MECH_PAWL,       // a pawl: a lever on its own pivot, pressed onto the ratchet its tip is at
-    FUDE_ZOOM_MECH_DAMPER,     // a dashpot between its two ends: as hard against them moving apart or together as they go
-    FUDE_ZOOM_MECH_WORM        // a worm turning at its text's speed ("60 rpm"), turning a gear on it a tooth a turn — and held by
-                               // it: a gear cannot turn a worm
+    // A dashpot between its two ends: it resists them moving apart or together, the harder the faster they go.
+    FUDE_ZOOM_MECH_DAMPER,     // a dashpot
+    // A worm turning at its text's speed ("60 rpm"), which turns a gear on it one tooth a turn and holds it: a gear
+    // cannot turn a worm.
+    FUDE_ZOOM_MECH_WORM        // a worm
 } FUDE_ZOOM_MECH_;
 
-// A hand crank's axle's friction unless its text says (N·m): let go, it stops within a few degrees — a pot's or an
-// encoder's shaft; "0.05", a flywheel's, nearly free.
+// A hand crank's axle's friction (N·m) unless its text gives one: let go, it stops within a few degrees, as a pot's
+// or an encoder's shaft does. A text of "0.05" makes it a flywheel's, nearly free.
 #define FUDE_ZOOM_MECH_CRANK_FRICTION 2.0
 
+// A part of the catalogue.
 typedef struct {
     const c8* id;            // its symbol's id (symbol.c)
-    u8        kind;          // FUDE_ZOOM_MECH_
-    u8        teeth;         // a gear's
+    u8        kind;          // a FUDE_ZOOM_MECH_
+    u8        teeth;         // a gear's tooth count
     u8        hole_count;
-    f32       holes[3][2];   // u, v from -1 to 1 of its half sizes
-    const c8* value;         // its text to begin with
+    f32       holes[3][2];   // each hole's u, v, from -1 to 1 of its half sizes
+    const c8* value;         // its text when placed
 } fude_zoom_mech_part;
 
+// Find a catalogue part: by its symbol's id ("gear 20T"), by a symbol kind, or as scene _s's object _object is (a live
+// mechanism symbol). Each returns NULL when it is not a mechanism part. The parts are static and stay valid for ever.
 const fude_zoom_mech_part* fude_zoom_mech_find(const c8* _id);
 const fude_zoom_mech_part* fude_zoom_mech_of_kind(u32 _kind);
 const fude_zoom_mech_part* fude_zoom_mech_of(const fude_zoom_scene* _s, u32 _object);
-// Its polylines (symbol.h's parts, the first its outline) for half sizes _hw × _hh. How many parts.
+// Draws a part for half sizes _hw × _hh into _points and _parts (both cleared first): its polylines as symbol.h's
+// parts, the first being its outline; _segments (16 to 128) is how finely curves are drawn. Returns how many parts.
 u32  fude_zoom_mech_draw(const fude_zoom_mech_part* _part, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts);
-// A gear's pitch radius (own units) for its half width: where its teeth meet another's.
+// Returns a gear's pitch radius (in its own units) for its half width: where its teeth meet another gear's. For a part
+// with no teeth, its half width.
 f64  fude_zoom_mech_pitch(const fude_zoom_mech_part* _part, f64 _hw);
+// Returns the speed a motor's or a worm's text says, in rpm, counter-clockwise when over 0 (_rpm when it gives no
+// number): its first number with its sign (fude_zoom_circuit_value: "-30 rpm" turns clockwise, a hyphen inside a word
+// is no minus), turned the other way when the text says clockwise. The way is a whole word (fude_zoom_circuit_word)
+// in any of the apps' languages: clockwise "cw", "clockwise", "horario", "horário", "horaire", "時計回り", "右回り";
+// counter-clockwise (the way it turns anyway) "ccw", "acw", "anticlockwise", "counterclockwise", "antihorario",
+// "anti-horário", "antihoraire", "trigonométrique", "反時計回り", "左回り". So "30 rpm ccw" turns counter-clockwise, and
+// "-30 rpm cw" too (a speed below 0, clockwise). The page's Value card reads a motor's way with it, and writes " cw".
+f64  fude_zoom_mech_rpm(const c8* _text, f64 _rpm);
 
 // --- the plan ----------------------------------------------------------------------------------------
 
+// A body of the plan: one part as it was drawn. Home units are the home frame's.
 typedef struct {
     u32                        object;
     const fude_zoom_mech_part* part;
-    fude_zoom_v2               at;        // its middle (the home frame's units)
+    fude_zoom_v2               at;        // its middle (home units)
     f64                        angle;     // its turn (radians)
     f64                        hw, hh;    // its half sizes (home units)
-    f64                        value;     // a motor's speed (turns a second), a weight's or a crate's mass (kg), a spring's stiffness,
-                                          // a hand crank's axle's friction (N·m)
-    f64                        scale;     // home units its own unit (as its symbol is drawn)
-    f64                        phase;     // a gear's: turned this much more as it starts (radians): its teeth in the gaps they mesh with
-    f64                        shift;     // a rack's: moved this far along itself as it starts (home units): its teeth in its gear's gaps
+    // What its text sets: a motor's or a worm's speed (turns a second; less than 0: clockwise), a weight's or a
+    // crate's mass (kg), a spring's stiffness, a damper's strength, a belt's crossing (1: crossed), or a hand crank's
+    // axle's friction (N·m).
+    f64                        value;     // what its text sets, as above
+    f64                        scale;     // home units to one of its own units (as its symbol is drawn)
+    // A gear is turned this much more as it starts (radians) so that its teeth sit in the gaps they mesh with; a rack
+    // is moved this far along itself (home units) so that its teeth sit in its gear's gaps.
+    f64                        phase;     // a gear's extra turn as it starts (radians)
+    f64                        shift;     // a rack's move along itself as it starts (home units)
     b8                         fixed;     // stays where it is (a pivot, a motor, a wall, a pulley, a fixed drawing)
-    // A drawn body's: its convex pieces (the plan's pieces: from piece, pieces of them; their corners about at, as it
-    // was drawn), its mass (kg), friction, bounce; an open line (fixed ground: thin pieces along it).
+    // A drawn body's: its convex pieces (`pieces` of the plan's pieces, from `piece`; their corners about `at`, as it
+    // was drawn), its mass (kg), friction and bounce. An open line is fixed ground, made of thin pieces along it.
     u32                        piece, pieces;
     f64                        mass, friction, bounce;
-    f64                        strength;  // its material's (MPa, sim/body.h; 0: the library's parts', plastic)
-    f64                        torque;    // a drive motor's held still (N·m: its text's second number, "30 rpm 5Nm"; 10 unless it says)
+    f64                        strength;  // its material's (MPa, sim/body.h; 0: the library parts', plastic)
+    // A drive motor's torque when held still (N·m): its text's second number ("30 rpm 5Nm"), 10 when it gives none.
+    f64                        torque;    // a drive motor's torque held still (N·m)
 } fude_zoom_mech_body;
 
+// A hinge between two bodies, or between a body and the ground.
 typedef struct {
-    u32          a, b;       // bodies (b FUDE_ZOOM_NONE: the ground)
-    fude_zoom_v2 at;         // where (home units)
+    u32          a, b;       // its bodies (b FUDE_ZOOM_NONE: the ground)
+    fude_zoom_v2 at;         // where it is (home units)
     b8           motor;      // turned by a motor
-    f64          speed;      // ...this fast (radians a second)
-    f64          torque;     // ...as hard at most (N·m)
-    u32          shaft;      // on a circuit's motor's shaft: that body (FUDE_ZOOM_NONE: none)
+    f64          speed;      // the motor's speed (radians a second)
+    f64          torque;     // the motor's most torque (N·m)
+    u32          shaft;      // the shaft body when it is on a circuit motor's shaft (FUDE_ZOOM_NONE: not)
     b8           crank;      // a hand crank's axle: turned by hand (mechrun.h), free while it is not held
 } fude_zoom_mech_hinge;
 
+// A spring.
 typedef struct {
-    u32          a, b;       // bodies (FUDE_ZOOM_NONE: the ground)
+    u32          body;       // its own symbol (in the bodies: what is drawn, its colour and its width)
+    u32          a, b;       // its bodies (FUDE_ZOOM_NONE: the ground)
     fude_zoom_v2 pa, pb;     // where it holds each (home units)
-    f64          length;     // as it was drawn
+    f64          length;     // its length as it was drawn
     f64          stiffness;
 } fude_zoom_mech_spring;
 
+// Two gears meshing, a gear on a rack, or two turning parts joined by a belt.
 typedef struct {
-    u32 a, b;                // gears (b: a rack, when rack)
-    f64 ratio;               // b turns -ratio times as fast as a (a's teeth over b's); a rack's: a's turn + ratio·b's travel kept
-    f64 lower, upper;        // a rack's: its travel (home units, its slide's) while a is over its teeth
-    f64 period;              // a's tooth (radians): meshing again, a whole one from where it was
+    u32 a, b;                // the gears (b is a rack when `rack`)
+    // b turns -ratio times as fast as a (ratio: a's teeth over b's). For a rack, a's turn plus ratio times b's travel
+    // is kept.
+    f64 ratio;               // the ratio between a's and b's turns, as above
+    f64 lower, upper;        // a rack's travel along its slide (home units) while a is over its teeth
+    f64 period;              // one of a's teeth (radians): meshing again, it meshes a whole tooth from where it was
     b8  rack;
-    b8  belt;                // a belt's or a chain's: no teeth meeting (ratio: −a's radius over b's; crossed, +)
+    b8  belt;                // a belt's or a chain's: no teeth meet (ratio: −a's radius over b's; crossed, +)
 } fude_zoom_mech_mesh;
 
-// A belt or a chain drawn (its own symbol: the plan's body _body) round bodies _a and _b, _ra and _rb round (home units),
-// crossed or not; a chain's links, a belt's smooth.
+// A belt or a chain as drawn (its own symbol is the plan's body `body`) round bodies a and b, ra and rb its radii round
+// each (home units), crossed or not; a chain is drawn with links, a belt smooth.
 typedef struct {
     u32 body;
     u32 a, b;
@@ -152,8 +190,9 @@ typedef struct {
     b8  crossed, chain;
 } fude_zoom_mech_belt;
 
-// A damper (its own symbol _body) between what its ends are on (FUDE_ZOOM_NONE: the ground there): as hard against them
-// as they move apart or together along it — _strength times its parts' mass ten times a second.
+// A damper (its own symbol is body `body`) between what its ends are on (FUDE_ZOOM_NONE: the ground there), at pa and
+// pb. It pushes against them moving apart or together along it, as hard as `strength` times their mass ten times a
+// second.
 typedef struct {
     u32          body;
     u32          a, b;
@@ -161,53 +200,56 @@ typedef struct {
     f64          strength;
 } fude_zoom_mech_damper;
 
-// A worm (_body) turning a gear (_gear) on its own axle (its hinge, the plan's _hinge, driven): the gear a tooth a turn of
-// the worm, the way its side of the worm makes it (_side: 1 over it, −1 under it).
+// A worm (`body`) turning a gear (`gear`) on its own axle (the plan's hinge `hinge`, driven): the gear turns a tooth
+// for each turn of the worm, the way its side of the worm makes it (`side`: 1 over it, −1 under it).
 typedef struct {
     u32 body;
     u32 gear;
     u32 hinge;
     f64 side;
-    f64 speed;               // the worm's (turns a second; less than 0: the other way)
+    f64 speed;               // the worm's speed (turns a second; less than 0: the other way)
 } fude_zoom_mech_worm;
 
-// A pawl (_body) pressed onto ratchet _ratchet (FUDE_ZOOM_NONE: none at its tip).
+// A pawl (`body`) pressed onto ratchet `ratchet` (FUDE_ZOOM_NONE: there is none at its tip).
 typedef struct {
     u32 body;
     u32 ratchet;
 } fude_zoom_mech_pawl;
 
-// A follower's push along itself onto what is in front of it, and how far it may go each way (home units).
-#define FUDE_ZOOM_MECH_FOLLOWER_STROKE 0.4   // of its half width
-#define FUDE_ZOOM_MECH_CAM_ECCENTRIC   0.3   // a cam's hole off its middle, of its radius
+// Sizes of some parts: how far a follower may slide each way, and where a cam's hole is.
+#define FUDE_ZOOM_MECH_FOLLOWER_STROKE 0.4   // as a fraction of its half width
+#define FUDE_ZOOM_MECH_CAM_ECCENTRIC   0.3   // a cam's hole off its middle, as a fraction of its radius
 #define FUDE_ZOOM_MECH_RATCHET_TEETH   12u
-#define FUDE_ZOOM_MECH_WORM_LEAD       (3.14159265358979323846 * 5.0)   // a worm's thread's lead (its own units: a 5-point module's tooth)
+// A worm's thread's lead, in its own units: one tooth of a 5-point module (π × 5).
+#define FUDE_ZOOM_MECH_WORM_LEAD       (RDE_PI * 5.0)   // a worm thread's lead
 
-// What slides: a slider along its rail, a rack along its length.
+// What slides: a slider along its rail, a rack along its length, a follower in its guide, a solenoid's plunger.
 typedef struct {
     u32          body;
     fude_zoom_v2 at;         // where it is on its line (home units)
-    fude_zoom_v2 axis;       // the line's way (unit)
+    fude_zoom_v2 axis;       // the line's direction (a unit vector)
     f64          lower, upper;   // how far it may go back and on from there (home units)
 } fude_zoom_mech_slide;
 
+// A rope.
 typedef struct {
     u32          body;       // its own symbol (in the bodies: what is drawn)
     u32          a, b;       // the bodies its ends hold (FUDE_ZOOM_NONE: that end held still where it is)
     fude_zoom_v2 pa, pb;     // where (home units)
-    f64          length;     // as it was drawn: never longer
+    f64          length;     // its length as drawn, which it never passes
     u32          over;       // the pulley its b end comes off (FUDE_ZOOM_NONE: none)
-    u32          pair;       // the rope down that pulley's other side (FUDE_ZOOM_NONE: none): their lengths together kept
+    u32          pair;       // the rope down that pulley's other side (FUDE_ZOOM_NONE: none); their total length kept
 } fude_zoom_mech_rope;
 
-// A tracer: on body _on (the plan's; FUDE_ZOOM_NONE: on nothing that moves) at _at (home units, as drawn); its symbol
-// the plan's body _body.
+// A tracer: on body `on` (the plan's; FUDE_ZOOM_NONE: on nothing that moves) at `at` (home units, as drawn); its symbol
+// is the plan's body `body`.
 typedef struct {
     u32          body;
     u32          on;
     fude_zoom_v2 at;
 } fude_zoom_mech_tracer;
 
+// A mechanism's plan: its bodies and everything that joins them, as worked out from the canvas.
 typedef struct {
     rde_arr TYPE(fude_zoom_mech_body)   bodies;
     rde_arr TYPE(fude_zoom_mech_hinge)  hinges;
@@ -220,54 +262,44 @@ typedef struct {
     rde_arr TYPE(fude_zoom_mech_damper) dampers;
     rde_arr TYPE(fude_zoom_mech_worm)   worms;
     rde_arr TYPE(fude_zoom_mech_pawl)   pawls;
-    rde_arr TYPE(fude_zoom_v2)          piece_points;   // drawn bodies' convex pieces' corners, in turn
-    rde_arr TYPE(u32)                   piece_counts;   // ...how many each
-    f64                                 unit;   // the parts' size (home units: a link's thickness, the smallest)
+    rde_arr TYPE(fude_zoom_v2)          piece_points;   // the corners of drawn bodies' convex pieces, one after another
+    rde_arr TYPE(u32)                   piece_counts;   // how many corners each piece has
+    f64                                 unit;   // the smallest part's size (home units, such as a link's thickness)
 } fude_zoom_mech_plan;
 
+// Sets up an empty plan, and frees what one holds.
 void fude_zoom_mech_plan_init(fude_zoom_mech_plan* _p);
 void fude_zoom_mech_plan_destroy(fude_zoom_mech_plan* _p);
-// _to as _from is (its own copy of everything).
+// Makes _to a copy of _from, with its own copy of everything.
 void fude_zoom_mech_plan_copy(fude_zoom_mech_plan* _to, const fude_zoom_mech_plan* _from);
-// Worked out from what is on the canvas (every part alive and shown; _scope: only the objects it marks — one byte an
-// object, NULL: all) — a circuit's motor, servo, stepper, encoder or pot among them a shaft (its part FUDE_ZOOM_MECH_SHAFT's,
-// fixed), a solenoid its plunger (FUDE_ZOOM_MECH_PLUNGER's: sliding along it, in as far as its stroke). How many bodies.
+// Works out the plan from what is on the canvas: every part that is alive and shown, or only the objects _scope marks
+// (one byte for each object; NULL for all). A circuit's motor, servo, stepper, encoder or pot among them becomes a
+// shaft (FUDE_ZOOM_MECH_SHAFT's part, fixed), and a solenoid becomes its plunger (FUDE_ZOOM_MECH_PLUNGER's, sliding
+// along it as far in as its stroke). The plan is cleared first. Returns how many bodies it has.
 u32  fude_zoom_mech_plan_build(fude_zoom_mech_plan* _p, const fude_zoom_scene* _s, const u8* _scope);
-// A pulley's radius where ropes run (home units).
+// Returns a library part's size (home units), the plan's unit being the smallest part's: a long part's (a link, a
+// rope, a rail, a rack, a belt) its half height, or 8% of its half length when that is more; any other's a quarter of
+// its smaller side. A sliding part's strength is worked out from its own (mechrun.c).
+f64  fude_zoom_mech_body_size(const fude_zoom_mech_body* _b);
+// Returns a pulley's radius where ropes run (home units).
 f64  fude_zoom_mech_pulley_radius(const fude_zoom_mech_body* _b);
-// The radius a belt or a chain runs round on a turning part (a sprocket's, a gear's pitch circle, a crank's, a wheel's; 0:
-// not one a belt goes round).
+// Returns the radius a belt or a chain runs round on a turning part (a sprocket's, a gear's pitch circle, a crank's,
+// a wheel's); 0 for a part no belt goes round.
 f64  fude_zoom_mech_belt_radius(const fude_zoom_mech_body* _b);
-// A ratchet's teeth's tips' and roots' radii (home units).
+// Gives the radii of a ratchet's teeth's tips and roots (home units).
 void fude_zoom_mech_ratchet_radii(const fude_zoom_mech_body* _b, f64* _tip, f64* _root);
-// A rack's pitch line: how far above its middle (its own units, for half height _hh), and its teeth's pitch for a
-// gear of module _module (its teeth across its pitch circle: 2 × pitch radius / teeth).
+// Returns how far above its middle a rack's pitch line is, in its own units, for half height _hh: two modules below
+// its top, so its teeth's tips are a module above the line.
 f64  fude_zoom_mech_rack_pitch_line(f64 _hh);
-// A rack's teeth's module (its own units, for half height _hh): a third of it (the library's rack: 5 points, as its gears').
+// Returns a rack's teeth's module (in its own units, for half height _hh): a third of it, so that the library's rack
+// has the 5-point module of its gears.
 f64  fude_zoom_mech_rack_module(f64 _hh);
-// A rack's teeth (home units, along it from its middle, as drawn): its first one's middle (its right end's), the next
-// ones _pitch apart toward its left, how many; its pitch line over its middle (*_line).
+// Gives a rack's teeth as drawn (home units, along it from its middle): its first tooth's middle (the one at its right
+// end) in *_first, the gap between teeth toward its left in *_pitch, and its pitch line's height over its middle in
+// *_line. Returns how many teeth.
 u32  fude_zoom_mech_rack_teeth(const fude_zoom_mech_body* _rack, f64* _first, f64* _pitch, f64* _line);
-// Where gear _gear's teeth are toward world angle _toward, as it stands (its angle, its phase): 0 a tooth's middle, ½ a
-// gap's (a fraction of a tooth, 0 to 1).
+// Returns where gear _gear's teeth are toward world angle _toward, as it stands (its angle and phase), as a fraction of
+// a tooth from 0 to 1: 0 is a tooth's middle, ½ a gap's.
 f64  fude_zoom_mech_tooth_at(const fude_zoom_mech_body* _gear, f64 _toward);
-
-// --- ropes: kept from stretching ---------------------------------------------------------------------
-
-// A rope's end that a body holds: how fast it moves, the way the rope pulls it back along (unit: from what it hangs
-// from toward it), 1 / its body's mass (0: held still); what keeping the rope does to it.
-typedef struct {
-    fude_zoom_v2 v, u;
-    f64          w;
-    fude_zoom_v2 dv, dp;     // its change of speed, of place
-} fude_zoom_mech_pull;
-
-// A rope (its ends: _n of them — a rope between two bodies, two; a pair over a pulley, its two loose ends) _stretch past
-// its length (or their lengths together past theirs; at most 0: slack): its ends' speeds outward taken away, shared by
-// their masses, and their places brought back to its length (_t's dv, dp). An inextensible rope, as an impulse.
-void fude_zoom_mech_rope_keep(fude_zoom_mech_pull* _t, u32 _n, f64 _stretch);
-// The gears' turning speeds kept to each other's (_omega: each body's, radians a second; those driven — a motor's,
-// or the first of each train — set the rest, through their meshes).
-void fude_zoom_mech_gears(const fude_zoom_mech_plan* _p, f64* _omega, const b8* _driven);
 
 #endif

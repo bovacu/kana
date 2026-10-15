@@ -1,29 +1,38 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "sim/body.h"
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
 
-// A scratch array of _n zeroed items of _size bytes.
+// ===========================================================================
+// See body.h.
+//
+// Internal names start fsb_ (FSB_ for the table). The file follows the header's order: the materials, a polygon's
+// measures, simplifying (fsb_dp, Douglas–Peucker on an open chain), then the cut into convex pieces. Each function
+// takes its scratch arrays from the std allocator and frees them before it returns. While a polygon is cut, a piece
+// is held as its corners' indices into the polygon (fsb_piece); the points are copied out only at the end.
+// ===========================================================================
+
+// Returns a new array of _n zeroed items of _size bytes, on the std allocator; the caller frees it.
 RDE_INTERNAL rde_arr fsb_scratch(usize _size, u32 _n) {
     rde_arr _a = rde_arr_new(_size, rde_memory_allocator_get_default_std());
     rde_arr_resize(&_a, _n);
     return _a;
 }
 
-// _in's points without repeats into _out (rde_arr of fude_sim_v2). How many.
+// Appends _in's points to _out (an rde_arr of fude_sim_v2), skipping each point equal to the one before it. Returns
+// _out's length.
 RDE_INTERNAL u32 fsb_distinct(const fude_sim_v2* _in, u32 _n, rde_arr* _out) {
     for(u32 _i = 0; _i < _n; _i++) {
         const u32 _m = (u32)rde_arr_length(_out);
         const fude_sim_v2* _last = _m > 0u ? &((const fude_sim_v2*)_out->memory)[_m - 1u] : NULL;
-        if(_last == NULL || hypot(_in[_i].x - _last->x, _in[_i].y - _last->y) > 0.0) {
+        if(_last == NULL || rde_math_hypot_f64(_in[_i].x - _last->x, _in[_i].y - _last->y) > 0.0) {
             rde_arr_add(_out, (any)&_in[_i]);
         }
     }
     return (u32)rde_arr_length(_out);
 }
 
+// The materials: id, English name, density (kg/m³), friction, bounce, tensile strength (MPa), as fude_sim_material
+// has them.
 RDE_INTERNAL const fude_sim_material FSB_MATERIALS[] = {
     { "wood",      "Wood",      600.0,  0.50, 0.30, 40.0 },
     { "steel",     "Steel",     7850.0, 0.40, 0.20, 400.0 },
@@ -35,17 +44,20 @@ RDE_INTERNAL const fude_sim_material FSB_MATERIALS[] = {
     { "foam",      "Foam",      50.0,   0.60, 0.30, 0.3 },
 };
 
+// See the header.
 u32 fude_sim_material_count(void) {
     return (u32)(sizeof(FSB_MATERIALS) / sizeof(FSB_MATERIALS[0]));
 }
 
+// See the header.
 const fude_sim_material* fude_sim_material_at(u32 _i) {
     return _i < fude_sim_material_count() ? &FSB_MATERIALS[_i] : NULL;
 }
 
+// See the header. A linear search: there are eight.
 const fude_sim_material* fude_sim_material_find(const c8* _id) {
     for(u32 _i = 0; _id != NULL && _i < fude_sim_material_count(); _i++) {
-        if(strcmp(FSB_MATERIALS[_i].id, _id) == 0) {
+        if(rde_strcmp(FSB_MATERIALS[_i].id, _id) == 0) {
             return &FSB_MATERIALS[_i];
         }
     }
@@ -54,10 +66,12 @@ const fude_sim_material* fude_sim_material_find(const c8* _id) {
 
 // --- a polygon's measures ------------------------------------------------------------------------------
 
+// Returns the cross product of _o→_a and _o→_b: positive when _o, _a, _b turn counter-clockwise, 0 when in a line.
 RDE_INTERNAL f64 fsb_cross(fude_sim_v2 _o, fude_sim_v2 _a, fude_sim_v2 _b) {
     return (_a.x - _o.x) * (_b.y - _o.y) - (_a.y - _o.y) * (_b.x - _o.x);
 }
 
+// See the header: the shoelace formula, as a fan of triangles from the first corner.
 f64 fude_sim_polygon_area(const fude_sim_v2* _p, u32 _n) {
     if(_n < 3u) {
         return 0.0;
@@ -70,6 +84,7 @@ f64 fude_sim_polygon_area(const fude_sim_v2* _p, u32 _n) {
     return 0.5 * _a;
 }
 
+// See the header: the centre of the shoelace's triangles, weighted by their signed areas, about the first corner.
 fude_sim_v2 fude_sim_polygon_centroid(const fude_sim_v2* _p, u32 _n) {
     // (about its first corner: no precision lost far from the origin)
     const fude_sim_v2 _o = _n > 0u ? _p[0] : (fude_sim_v2){ 0.0, 0.0 };
@@ -81,7 +96,7 @@ fude_sim_v2 fude_sim_polygon_centroid(const fude_sim_v2* _p, u32 _n) {
         _cx += (_xj + _xi) * _c;
         _cy += (_yj + _yi) * _c;
     }
-    if(fabs(_a) < 1e-300) {
+    if(rde_math_abs_f64(_a) < 1e-300) {
         // (no area: its corners' mean)
         fude_sim_v2 _m = { 0.0, 0.0 };
         for(u32 _i = 0; _i < _n; _i++) {
@@ -93,6 +108,8 @@ fude_sim_v2 fude_sim_polygon_centroid(const fude_sim_v2* _p, u32 _n) {
     return (fude_sim_v2){ _o.x + _cx / (3.0 * _a), _o.y + _cy / (3.0 * _a) };
 }
 
+// See the header: each edge's term of the polygon's polar second moment, summed and divided by 12; the absolute value
+// makes a clockwise polygon give the same answer.
 f64 fude_sim_polygon_inertia(const fude_sim_v2* _p, u32 _n, fude_sim_v2 _about) {
     f64 _j = 0.0;
     for(u32 _i = 0, _k = _n - 1u; _i < _n && _n >= 3u; _k = _i++) {
@@ -100,28 +117,26 @@ f64 fude_sim_polygon_inertia(const fude_sim_v2* _p, u32 _n, fude_sim_v2 _about) 
         const f64 _c = _x0 * _y1 - _x1 * _y0;
         _j += _c * (_x0 * _x0 + _x0 * _x1 + _x1 * _x1 + _y0 * _y0 + _y0 * _y1 + _y1 * _y1);
     }
-    return fabs(_j) / 12.0;
+    return rde_math_abs_f64(_j) / 12.0;
 }
 
+// See the header: rde_math's even-odd test (a ray cast towards +x, counting the edges it crosses).
 b8 fude_sim_polygon_inside(const fude_sim_v2* _p, u32 _n, fude_sim_v2 _q) {
-    b8 _in = false;
-    for(u32 _i = 0, _j = _n - 1u; _i < _n; _j = _i++) {
-        if((_p[_i].y > _q.y) != (_p[_j].y > _q.y) && _q.x < (_p[_j].x - _p[_i].x) * (_q.y - _p[_i].y) / (_p[_j].y - _p[_i].y) + _p[_i].x) {
-            _in = !_in;
-        }
-    }
-    return _in;
+    return rde_math_point_in_polygon_2d_f64(_q, _p, _n);
 }
 
-// A small length for comparisons where the polygon is (its size times 1e-9).
+// Returns a small length for comparisons at the polygon's scale: its extent from the first corner times 1e-9, so a
+// test means the same for a shape in millimetres as for one in metres.
 RDE_INTERNAL f64 fsb_eps(const fude_sim_v2* _p, u32 _n) {
     f64 _s = 0.0;
     for(u32 _i = 0; _i < _n; _i++) {
-        _s = fmax(_s, fmax(fabs(_p[_i].x - _p[0].x), fabs(_p[_i].y - _p[0].y)));
+        _s = rde_math_max_f64(_s, rde_math_max_f64(rde_math_abs_f64(_p[_i].x - _p[0].x), rde_math_abs_f64(_p[_i].y - _p[0].y)));
     }
-    return fmax(_s, 1e-300) * 1e-9;
+    return rde_math_max_f64(_s, 1e-300) * 1e-9;
 }
 
+// See the header. A turn whose cross product is at most fsb_eps times the two edges' length counts as straight and is
+// skipped, so a corner in a line does not make a polygon concave.
 b8 fude_sim_polygon_convex(const fude_sim_v2* _p, u32 _n) {
     if(_n < 3u) {
         return false;
@@ -130,8 +145,8 @@ b8 fude_sim_polygon_convex(const fude_sim_v2* _p, u32 _n) {
     i32 _way = 0;
     for(u32 _i = 0; _i < _n; _i++) {
         const f64 _c = fsb_cross(_p[_i], _p[(_i + 1u) % _n], _p[(_i + 2u) % _n]);
-        const f64 _l = hypot(_p[(_i + 1u) % _n].x - _p[_i].x, _p[(_i + 1u) % _n].y - _p[_i].y) + hypot(_p[(_i + 2u) % _n].x - _p[(_i + 1u) % _n].x, _p[(_i + 2u) % _n].y - _p[(_i + 1u) % _n].y);
-        if(fabs(_c) <= _e * fmax(_l, 1e-300)) {
+        const f64 _l = rde_math_hypot_f64(_p[(_i + 1u) % _n].x - _p[_i].x, _p[(_i + 1u) % _n].y - _p[_i].y) + rde_math_hypot_f64(_p[(_i + 2u) % _n].x - _p[(_i + 1u) % _n].x, _p[(_i + 2u) % _n].y - _p[(_i + 1u) % _n].y);
+        if(rde_math_abs_f64(_c) <= _e * rde_math_max_f64(_l, 1e-300)) {
             continue;   // (straight on)
         }
         const i32 _s = _c > 0.0 ? 1 : -1;
@@ -145,16 +160,17 @@ b8 fude_sim_polygon_convex(const fude_sim_v2* _p, u32 _n) {
 
 // --- simplified ------------------------------------------------------------------------------------------
 
-// Douglas–Peucker on _p[_a.._b] (an open chain): the points kept marked in _keep.
+// Douglas–Peucker on the open chain _p[_a.._b]: marks in _keep (1) the point furthest from the chord _a–_b when it is
+// further than _tol, then does the same on each side of it. _keep[_a] and _keep[_b] are the caller's to set.
 RDE_INTERNAL void fsb_dp(const fude_sim_v2* _p, u32 _a, u32 _b, f64 _tol, u8* _keep) {
     if(_b <= _a + 1u) {
         return;
     }
-    const f64 _dx = _p[_b].x - _p[_a].x, _dy = _p[_b].y - _p[_a].y, _l = hypot(_dx, _dy);
+    const f64 _dx = _p[_b].x - _p[_a].x, _dy = _p[_b].y - _p[_a].y, _l = rde_math_hypot_f64(_dx, _dy);
     f64 _far = -1.0;
     u32 _at = _a;
     for(u32 _i = _a + 1u; _i < _b; _i++) {
-        const f64 _d = _l > 0.0 ? fabs((_p[_i].x - _p[_a].x) * _dy - (_p[_i].y - _p[_a].y) * _dx) / _l : hypot(_p[_i].x - _p[_a].x, _p[_i].y - _p[_a].y);
+        const f64 _d = _l > 0.0 ? rde_math_abs_f64((_p[_i].x - _p[_a].x) * _dy - (_p[_i].y - _p[_a].y) * _dx) / _l : rde_math_hypot_f64(_p[_i].x - _p[_a].x, _p[_i].y - _p[_a].y);
         if(_d > _far) {
             _far = _d;
             _at  = _i;
@@ -167,6 +183,8 @@ RDE_INTERNAL void fsb_dp(const fude_sim_v2* _p, u32 _a, u32 _b, f64 _tol, u8* _k
     }
 }
 
+// See the header. The loop is made an array of _m + 1 points, its first again at the end, so both halves are open
+// chains fsb_dp can take; the copy at the end is left out of the result.
 u32 fude_sim_outline_simplify(const fude_sim_v2* _in, u32 _n, f64 _tolerance, fude_sim_v2* _out, u32 _max) {
     // (its points without repeats, its last its first again left off — then its first again, closing the loop)
     rde_arr _loop_arr = rde_arr_new_with_capacity(sizeof(fude_sim_v2), (usize)_n + 2u, rde_memory_allocator_get_default_std());
@@ -187,7 +205,7 @@ u32 fude_sim_outline_simplify(const fude_sim_v2* _in, u32 _n, f64 _tolerance, fu
     u32 _far = 0;
     f64 _fd = -1.0;
     for(u32 _i = 1; _i < _m; _i++) {
-        const f64 _d = hypot(_loop[_i].x - _start.x, _loop[_i].y - _start.y);
+        const f64 _d = rde_math_hypot_f64(_loop[_i].x - _start.x, _loop[_i].y - _start.y);
         if(_d > _fd) {
             _fd = _d;
             _far = _i;
@@ -219,6 +237,7 @@ u32 fude_sim_outline_simplify(const fude_sim_v2* _in, u32 _n, f64 _tolerance, fu
     return _k;
 }
 
+// See the header.
 u32 fude_sim_polyline_simplify(const fude_sim_v2* _in, u32 _n, f64 _tolerance, fude_sim_v2* _out, u32 _max) {
     rde_arr _line = rde_arr_new_with_capacity(sizeof(fude_sim_v2), (usize)_n + 1u, rde_memory_allocator_get_default_std());
     const u32 _m = fsb_distinct(_in, _n, &_line);
@@ -244,18 +263,19 @@ u32 fude_sim_polyline_simplify(const fude_sim_v2* _in, u32 _n, f64 _tolerance, f
 
 // --- cut into convex pieces ---------------------------------------------------------------------------------
 
-// Is _q in the triangle _a _b _c (counter-clockwise; on its edges counts)?
+// Returns whether _q is in the counter-clockwise triangle _a _b _c, within _e (a point on an edge counts as in).
 RDE_INTERNAL b8 fsb_in_triangle(fude_sim_v2 _a, fude_sim_v2 _b, fude_sim_v2 _c, fude_sim_v2 _q, f64 _e) {
     return fsb_cross(_a, _b, _q) >= -_e && fsb_cross(_b, _c, _q) >= -_e && fsb_cross(_c, _a, _q) >= -_e;
 }
 
-// A piece: its corners as the polygon's indices.
+// A convex piece while the polygon is cut: its corners, counter-clockwise, as indices into the polygon.
 typedef struct {
-    u32 idx[64];
-    u32 n;
-    b8  gone;
+    u32 idx[64];   // Room to spare: a piece never has more than FUDE_SIM_BODY_CORNERS.
+    u32 n;         // How many corners.
+    b8  gone;      // Merged into another piece; skipped from then on.
 } fsb_piece;
 
+// Returns whether a piece is convex and runs counter-clockwise: what a merge must keep.
 RDE_INTERNAL b8 fsb_piece_convex(const fude_sim_v2* _p, const fsb_piece* _q) {
     fude_sim_v2 _c[64];
     for(u32 _i = 0; _i < _q->n; _i++) {
@@ -264,6 +284,9 @@ RDE_INTERNAL b8 fsb_piece_convex(const fude_sim_v2* _p, const fsb_piece* _q) {
     return fude_sim_polygon_convex(_c, _q->n) && fude_sim_polygon_area(_c, _q->n) > 0.0;
 }
 
+// See the header. Three steps: ear clipping into triangles; merging neighbours (Hertel–Mehlhorn) while each piece
+// stays convex and within _corners; then the pieces left are appended to _points and _counts. The ear search gives up
+// after _n² + 8 passes, and when a pass finds no ear, which is how a polygon that crosses itself is refused.
 u32 fude_sim_convex_pieces(const fude_sim_v2* _p, u32 _n, u32 _corners, rde_arr* _points, rde_arr* _counts) {
     if(_n < 3u || _corners < 3u) {
         return 0;
@@ -287,7 +310,7 @@ u32 fude_sim_convex_pieces(const fude_sim_v2* _p, u32 _n, u32 _corners, rde_arr*
         for(u32 _k = 0; _k < _m && !_cut; _k++) {
             const u32 _a = _left[(_k + _m - 1u) % _m], _b = _left[_k], _c = _left[(_k + 1u) % _m];
             const f64 _turn = fsb_cross(_p[_a], _p[_b], _p[_c]);
-            if(fabs(_turn) <= _e * fmax(hypot(_p[_c].x - _p[_a].x, _p[_c].y - _p[_a].y), 1e-300)) {
+            if(rde_math_abs_f64(_turn) <= _e * rde_math_max_f64(rde_math_hypot_f64(_p[_c].x - _p[_a].x, _p[_c].y - _p[_a].y), 1e-300)) {
                 // (a corner straight on: dropped, no triangle)
                 rde_arr_remove(&_left_arr, _k);
                 _m--;
@@ -339,7 +362,8 @@ u32 fude_sim_convex_pieces(const fude_sim_v2* _p, u32 _n, u32 _corners, rde_arr*
         _t->n = 3u;
     }
     rde_arr_free(&_left_arr);
-    // Merged: two pieces sharing an edge (one its u → v, the other v → u) into one, while it stays convex and small enough.
+    // Merged: two pieces sharing an edge (one has it u → v, the other v → u) into one, while it stays convex and
+    // small enough. Every merge starts the search again, until a pass finds none.
     for(b8 _merged = true; _merged;) {
         _merged = false;
         for(u32 _i = 0; _i < _np && !_merged; _i++) {
@@ -359,7 +383,7 @@ u32 fude_sim_convex_pieces(const fude_sim_v2* _p, u32 _n, u32 _corners, rde_arr*
                         }
                         // (a from v round to u, then b from u's next round to v's previous)
                         fsb_piece _c;
-                        memset(&_c, 0, sizeof(_c));
+                        rde_memset(&_c, 0, sizeof(_c));
                         for(u32 _k = 0; _k < _a->n; _k++) {
                             _c.idx[_c.n++] = _a->idx[(_ea + 1u + _k) % _a->n];
                         }

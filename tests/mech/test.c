@@ -643,8 +643,8 @@ static void test_mixed_and_pinned(void) {
     }
 }
 
-// A gear and a rack placed zoomed out (their own units half the home frame's, as the library sizes them for the screen):
-// their teeth as big as each other's, meshed — the rack at the gear's rim, teeth in gaps.
+// A gear and a rack placed zoomed out (their own units half the home frame's, as the library sizes them for the
+// screen): their teeth as big as each other's, meshed — the rack at the gear's rim, teeth in gaps.
 static void test_zoomed(void) {
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
     part_put_scaled(&s, "drive motor", 0, 0, 60, 60, 0.0, 0.5, "20 rpm");
@@ -674,9 +674,9 @@ static void test_zoomed(void) {
     fude_zoom_scene_destroy(&s);
 }
 
-// Every mechanism example, and those of both, run six seconds as Play runs them: nothing goes to infinity or flies away,
-// what is driven or let go moves, every gear's teeth in the gaps of those it meshes with all along; the circuits of
-// those of both running with them (their LEDs lit at some time). What the biggest costs a step, said.
+// Every mechanism example, and those of both, run six seconds as Play runs them: nothing goes to infinity or flies
+// away, what is driven or let go moves, every gear's teeth in the gaps of those it meshes with all along; the circuits
+// of those of both running with them (their LEDs lit at some time). What the biggest costs a step, said.
 // --- a circuit and a mechanism together (coupling.h) ---------------------------------------------------------------
 
 // What is in a scene played as Play plays it: its mechanism's world, its circuit, the two coupled.
@@ -812,8 +812,8 @@ static void test_servo(void) {
         rde_arr_free(&born);
         fude_zoom_scene_destroy(&sc);
     }
-    // The servo tester (examples.h): its 555's pulses as long as R1 (5.6k and the pot's 10k) makes them — 1.37 ms, 78° —;
-    // the pot tapped a quarter on (15k: 1.81 ms, 118°), the arm turned with it.
+    // The servo tester (examples.h): its 555's pulses as long as R1 (5.6k and the pot's 10k) makes them
+    // — 1.37 ms, 78° —; the pot tapped a quarter on (15k: 1.81 ms, 118°), the arm turned with it.
     {
         fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
         rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
@@ -871,8 +871,8 @@ static void test_servo(void) {
 
 // STRENGTH (mechrun.h): each joint against what it takes — a pin's shear (its parts' material over a pin six tenths of
 // their half width across: about 980 N in plastic for a 24-wide link), a rope's 2 kN. A link from a pivot holding a
-// weight: 1 kg for good; 5 tonnes, its pin shears — said, and the link and weight fall. A rope pendulum of 300 kg snaps.
-// A drive motor (10 N·m) turning an arm pinned to the ground besides: jammed — said once —, nothing broken.
+// weight: 1 kg for good; 5 tonnes, its pin shears — said, and the link and weight fall. A rope pendulum of 300 kg
+// snaps. A drive motor (10 N·m) turning an arm pinned to the ground besides: jammed — said once —, nothing broken.
 typedef struct { fude_zoom_scene s; rde_arr born; fude_zoom_placer pl; fude_zoom_mech_plan p; fude_zoom_mech_world w; } strength_rig;
 
 static void strength_begin(strength_rig* r) {
@@ -973,10 +973,9 @@ static void test_tracer(void) {
     const fude_zoom_mech_tracer* t = (const fude_zoom_mech_tracer*)r.w.plan.tracers.memory;
     u32 ton = 0, toff = 1;
     if(t[0].body != body_of(&r.w.plan, on)) { ton = 1; toff = 0; }
-    CHECK(t[ton].body == body_of(&r.w.plan, on) && t[ton].on != FUDE_ZOOM_NONE && t[toff].on == FUDE_ZOOM_NONE);
-    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
-    const u32 n = fude_zoom_mech_world_trail(&r.w, ton, &pts);
-    const fude_zoom_v2* q = (const fude_zoom_v2*)pts.memory;
+    CHECK(t[ton].body == body_of(&r.w.plan, on) && t[ton].on != FUDE_ZOOM_NONE && t[toff].body == body_of(&r.w.plan, off) && t[toff].on == FUDE_ZOOM_NONE);
+    u32 n = 0;
+    const fude_zoom_v2* q = fude_zoom_mech_world_trail(&r.w, ton, &n);
     f64 worst = 0.0, turned = 0.0, closest = 1e300;
     for(u32 i = 0; i < n; i++) {
         worst = fmax(worst, fabs(hypot(q[i].x, q[i].y) - 123.0));
@@ -989,11 +988,12 @@ static void test_tracer(void) {
     }
     printf("  on the arm: %u points, %.2f turns, %.2f off its circle at worst, %.2f apart at least\n", n, fabs(turned) / (2.0 * 3.14159265358979323846), worst, closest);
     CHECK(n > 40u && worst < 2.0 && fabs(turned) > 2.0 * 3.14159265358979323846 && closest >= 0.1 * r.w.plan.unit - 1e-9);
-    CHECK(fude_zoom_mech_world_trail(&r.w, toff, &pts) == 1u);   // (on nothing: where it is, once)
-    rde_arr_free(&pts);
+    u32 n_off = 0;
+    CHECK(fude_zoom_mech_world_trail(&r.w, toff, &n_off) != NULL && n_off == 1u);   // (on nothing: where it is, once)
+    CHECK(fude_zoom_mech_world_trail(&r.w, 2u, &n_off) == NULL && n_off == 0u);     // (no such tracer: nothing)
     strength_end(&r);
-    // The example: its crank's end round a circle 40 about the motor (-55, 0); its coupler's middle a closed curve, well
-    // inside the linkage's reach.
+    // The example: its crank's end round a circle 40 about the motor (-55, 0); its coupler's middle a closed curve,
+    // well inside the linkage's reach.
     {
         fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
         rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
@@ -1002,11 +1002,10 @@ static void test_tracer(void) {
         fude_zoom_mech_world w; fude_zoom_mech_world_init(&w);
         CHECK(fude_zoom_mech_plan_build(&p, &sc, NULL) > 0u && fude_zoom_mech_world_start(&w, &p) && rde_arr_length(&p.tracers) == 2u);
         for(u32 f = 0; f < 60u * 7u; f++) fude_zoom_mech_world_step(&w, 1.0 / 60.0);   // (20 rpm: two turns and more)
-        rde_arr q = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
         const fude_zoom_mech_tracer* tr = (const fude_zoom_mech_tracer*)w.plan.tracers.memory;
         for(u32 k = 0; k < 2u; k++) {
-            const u32 n = fude_zoom_mech_world_trail(&w, k, &q);
-            const fude_zoom_v2* v = (const fude_zoom_v2*)q.memory;
+            u32 n = 0;
+            const fude_zoom_v2* v = fude_zoom_mech_world_trail(&w, k, &n);
             f64 worst = 0.0, x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;
             for(u32 i = 0; i < n; i++) {
                 worst = fmax(worst, fabs(hypot(v[i].x + 55.0, v[i].y) - 40.0));
@@ -1021,14 +1020,13 @@ static void test_tracer(void) {
                 CHECK(x1 - x0 > 20.0 && y1 - y0 > 10.0 && x0 > -80.0 && x1 < 80.0 && y0 > -20.0 && y1 < 120.0);
             }
         }
-        rde_arr_free(&q);
         fude_zoom_mech_world_destroy(&w); fude_zoom_mech_plan_destroy(&p);
         rde_arr_free(&born); fude_zoom_scene_destroy(&sc);
     }
 }
 
-// BY HAND (mechrun.h). A weight on a link from a pivot, taken hold of and dragged out to the side: there (the link swung
-// out with it) within a second; let go, it swings back down. Nothing taken on empty space or on a wall.
+// BY HAND (mechrun.h). A weight on a link from a pivot, taken hold of and dragged out to the side: there (the link
+// swung out with it) within a second; let go, it swings back down. Nothing taken on empty space or on a wall.
 static void test_grab(void) {
     printf("grab\n");
     strength_rig r;
@@ -1059,8 +1057,9 @@ static void test_grab(void) {
     strength_end(&r);
 }
 
-// A HAND CRANK: on its own axle; held and turned half a turn, then two turns, it follows the hand (a tracer on its handle
-// round a circle 21 about its axle); let go, it stays (balanced on its axle). Found where its disc is, not elsewhere.
+// A HAND CRANK: on its own axle; held and turned half a turn, then two turns, it follows the hand (a tracer on its
+// handle round a circle 21 about its axle); let go, it stays (balanced on its axle). Found where its
+// disc is, not elsewhere.
 static void test_crank(void) {
     printf("hand crank\n");
     strength_rig r;
@@ -1080,11 +1079,10 @@ static void test_crank(void) {
     fude_zoom_mech_world_crank_let_go(&r.w, 0u);
     for(u32 f = 0; f < 60u; f++) fude_zoom_mech_world_step(&r.w, 1.0 / 60.0);
     const f64 after = fude_zoom_mech_world_crank_angle(&r.w, 0u);
-    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
-    const u32 n = fude_zoom_mech_world_trail(&r.w, 0u, &pts);
+    u32 n = 0;
+    const fude_zoom_v2* pts = fude_zoom_mech_world_trail(&r.w, 0u, &n);
     f64 worst = 0.0;
-    for(u32 i = 0; i < n; i++) worst = fmax(worst, fabs(hypot(((const fude_zoom_v2*)pts.memory)[i].x, ((const fude_zoom_v2*)pts.memory)[i].y) - 21.0));
-    rde_arr_free(&pts);
+    for(u32 i = 0; i < n; i++) worst = fmax(worst, fabs(hypot(pts[i].x, pts[i].y) - 21.0));
     printf("  turned to %.3f (half a turn), %.3f (two turns), %.3f a second after it was let go; its handle %.2f off its circle\n", half / pi, two / (2.0 * pi), after / (2.0 * pi), worst);
     CHECK(fabs(half - pi) < 0.05 && fabs(two - 4.0 * pi) < 0.05 && fabs(after - two) < 0.3 && worst < 0.5 && n > 20u);
     // Let go while turning (its axle's friction stopping it, and it staying): turned a quarter in a sixth of a second —
@@ -1107,9 +1105,29 @@ static void test_crank(void) {
     }
     printf("  let go turning: a quarter turn on %.1f degrees, flicked on %.2f turns; then %.4f, %.4f rad more\n", on[0] * 180.0 / pi, on[1] / (2.0 * pi), more[0], more[1]);
     CHECK(fabs(on[0]) < 10.0 * pi / 180.0 && fabs(on[1]) < 2.0 * pi && fabs(more[0]) < 1e-3 && fabs(more[1]) < 1e-3);
+    // Its axle's pin broken (made as weak as a thread here: its own weight is past it): the crank keeps no copy of the
+    // joint that was freed, and held or let go after, it turns nothing and touches no freed joint.
+    {
+        fude_zoom_mech_joint* jj = (fude_zoom_mech_joint*)r.w.joints.memory;
+        const fude_zoom_mech_crank* c0 = (const fude_zoom_mech_crank*)r.w.cranks.memory;
+        u32 axle = FUDE_ZOOM_NONE;
+        for(u32 i = 0; i < (u32)rde_arr_length(&r.w.joints); i++) if(jj[i].joint != NULL && jj[i].joint == c0[0].joint) axle = i;
+        CHECK(axle != FUDE_ZOOM_NONE);
+        if(axle != FUDE_ZOOM_NONE) {
+            jj[axle].strength = 1e-9;
+            for(u32 f = 0; f < 10u; f++) fude_zoom_mech_world_step(&r.w, 1.0 / 60.0);
+            jj = (fude_zoom_mech_joint*)r.w.joints.memory;
+            c0 = (const fude_zoom_mech_crank*)r.w.cranks.memory;
+            CHECK(jj[axle].joint == NULL && c0[0].joint == NULL);
+            fude_zoom_mech_world_crank_hold(&r.w, 0u, 0.0);
+            for(u32 f = 0; f < 5u; f++) fude_zoom_mech_world_step(&r.w, 1.0 / 60.0);
+            fude_zoom_mech_world_crank_let_go(&r.w, 0u);
+            fude_zoom_mech_world_step(&r.w, 1.0 / 60.0);
+        }
+    }
     strength_end(&r);
-    // The example: its crank turned by hand two turns, its rocker rocking (its coupler's tracer drawing a closed curve);
-    // its pendulum's weight taken hold of.
+    // The example: its crank turned by hand two turns, its rocker rocking (its coupler's tracer drawing a closed
+    // curve); its pendulum's weight taken hold of.
     {
         fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
         rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
@@ -1124,24 +1142,22 @@ static void test_crank(void) {
             fude_zoom_mech_world_step(&w, 1.0 / 60.0);
         }
         for(u32 f = 0; f < 30u; f++) fude_zoom_mech_world_step(&w, 1.0 / 60.0);
-        rde_arr q = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
-        const u32 n = fude_zoom_mech_world_trail(&w, 0u, &q);
-        const fude_zoom_v2* v = (const fude_zoom_v2*)q.memory;
+        u32 n = 0;
+        const fude_zoom_v2* v = fude_zoom_mech_world_trail(&w, 0u, &n);
         f64 x0 = 1e300, x1 = -1e300;
         for(u32 i = 0; i < n; i++) { x0 = fmin(x0, v[i].x); x1 = fmax(x1, v[i].x); }
         printf("  by hand: the crank %.2f turns, its coupler's curve %u points %.0f wide\n", fude_zoom_mech_world_crank_angle(&w, 0u) / (2.0 * pi), n, x1 - x0);
         CHECK(fabs(fude_zoom_mech_world_crank_angle(&w, 0u) - 4.0 * pi) < 0.1 && n > 40u && x1 - x0 > 15.0);
         CHECK(fude_zoom_mech_world_grab(&w, (fude_zoom_v2){ 250, -20 }));   // (its weight)
-        rde_arr_free(&q);
         fude_zoom_mech_world_destroy(&w); fude_zoom_mech_plan_destroy(&p);
         rde_arr_free(&born); fude_zoom_scene_destroy(&sc);
     }
 }
 
 // The mechanisms' examples made to show what their parts take: materials (the ice block furthest down its ramp, steel
-// and wood after it, rubber where it was; the rubber ball bouncing highest), too heavy (only the 500 kg pin sheared, only
-// the 300 kg rope snapped), a motor strong enough (the 2 N·m one jammed, the 30 N·m one round and round), servo angles
-// (45°, 90°, 135°; the one on 12 V burnt).
+// and wood after it, rubber where it was; the rubber ball bouncing highest), too heavy (only the 500 kg pin sheared,
+// only the 300 kg rope snapped), a motor strong enough (the 2 N·m one jammed, the 30 N·m one round and round), servo
+// angles (45°, 90°, 135°; the one on 12 V burnt).
 static void test_examples_go_wrong_mech(void) {
     {
         fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
@@ -1286,8 +1302,8 @@ static void test_motor_drives(void) {
         play_end(&x);
         motor_rig_free(&m);
     }
-    // Held still (an arm on its shaft pinned to the ground besides): it does not turn, all its battery's volts across its
-    // winding — V / (R + the battery's ½ Ω) through it.
+    // Held still (an arm on its shaft pinned to the ground besides): it does not turn, all its battery's volts across
+    // its winding — V / (R + the battery's ½ Ω) through it.
     {
         fude_zoom_scene sc; fude_zoom_scene_init(&sc, 7);
         rde_arr born = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
@@ -1454,7 +1470,8 @@ static void test_turn_counter(void) {
     for(u32 f = 0; f < 60u * 12u; f++) {
         play_frames(&x, 1u);
         runner_track(&x.w, &r);
-        // (pressed as it comes over the button, straight down: a quarter turn short of a whole one from where it starts)
+        // (pressed as it comes over the button, straight down: a quarter turn short of a whole one
+        // from where it starts)
         const double past = r.turned - 1.5 * PI + 0.2;
         const int want = past >= 0.0 ? (int)floor(past / (2.0 * PI)) + 1 : 0;
         const double near = fmod(fabs(past), 2.0 * PI);
@@ -1525,8 +1542,8 @@ static void rig_ground(rig* r, u32 part, u32 pin, f64 x, f64 y) {
 
 // A SOLENOID (coupling.h): its plunger a body of the mechanism, along its coil — its stroke 0.3 of its half width in,
 // its end's hole a link's hinge. 12 V through a switch: in, all the way, in a fraction of a second, carrying the link
-// pinned on its end 15 along with it; off, its spring pushes it out again. A push button at its end: pressed while it is
-// out, let go while it is in (a limit switch).
+// pinned on its end 15 along with it; off, its spring pushes it out again. A push button at its end: pressed while it
+// is out, let go while it is in (a limit switch).
 static void test_solenoid(void) {
     rig r; rig_begin(&r);
     const u32 so  = rig_part(&r, "solenoid", 0, 0, 0, 0, 0, "12V");
@@ -1653,9 +1670,10 @@ static void test_stepper(void) {
     rig_end(&r);
 }
 
-// Sensors on shafts (coupling.h), a drive motor (30 rpm) turning a gear on each: a ROTARY ENCODER's position its shaft's
-// turn's — 20 detents a turn, clockwise on —, its A pulsing as often; a POT's wiper as far round (270° end to end) and
-// held at its end past it. A SLOTTED SENSOR an arm sweeps through (60 rpm): blocked each turn, its C high while it is.
+// Sensors on shafts (coupling.h), a drive motor (30 rpm) turning a gear on each: a ROTARY ENCODER's position its
+// shaft's turn's — 20 detents a turn, clockwise on —, its A pulsing as often; a POT's wiper as far round (270° end to
+// end) and held at its end past it. A SLOTTED SENSOR an arm sweeps through (60 rpm): blocked each turn,
+// its C high while it is.
 static void test_shaft_sensors(void) {
     {
         rig r; rig_begin(&r);
@@ -1755,8 +1773,8 @@ static void test_shaft_sensors(void) {
 // (the slider) drawn back 15 —, let go: back out; the one with a diode across its coil quiet, the one without sparking.
 // STEPPER: its clock's ticks its steps (200 a second: about 400 in 2 s), the arm on its shaft as far round. SHAFT
 // SENSORS: the encoder's crank turned a turn counter-clockwise by hand — 20 detents back, its two LEDs lit in turn —,
-// the pot's a quarter turn clockwise — its wiper a third on (270° end to end), the meter as much less —, the arm's turns through
-// the slot toggling the T flip-flop's probe.
+// the pot's a quarter turn clockwise — its wiper a third on (270° end to end), the meter as much less —, the arm's
+// turns through the slot toggling the T flip-flop's probe.
 static u32 example_parts(played* x, u8 model, u32* out, u32 most) {
     u32 n = 0;
     const fude_zoom_circuit_part* p = (const fude_zoom_circuit_part*)x->c.parts.memory;
@@ -1838,7 +1856,7 @@ static void test_new_examples(void) {
         played x;
         play_begin(&x, &sc);
         CHECK(rde_arr_length(&x.k.encoders) == 1u && rde_arr_length(&x.k.pots) == 1u && rde_arr_length(&x.k.slots) == 1u && rde_arr_length(&x.w.cranks) == 2u);
-        u32 en, pot, led[2], probe, meter;
+        u32 en = 0, pot = 0, led[2] = { 0, 0 }, probe = 0, meter = 0;
         CHECK(example_parts(&x, FUDE_ZOOM_MODEL_ENCODER, &en, 1u) == 1u && example_parts(&x, FUDE_ZOOM_MODEL_POT, &pot, 1u) == 1u);
         CHECK(example_parts(&x, FUDE_ZOOM_MODEL_LED, led, 2u) == 2u && example_parts(&x, FUDE_ZOOM_MODEL_LOGIC_OUT, &probe, 1u) == 1u);
         CHECK(example_parts(&x, FUDE_ZOOM_MODEL_PANEL_METER, &meter, 1u) == 1u);
@@ -1965,8 +1983,8 @@ static void test_belts(void) {
     }
 }
 
-// CAM AND FOLLOWER: the follower's roller kept on the cam as it turns (its height the cam's surface's over its axle line,
-// a roller's radius out), rising and falling twice the cam's eccentricity.
+// CAM AND FOLLOWER: the follower's roller kept on the cam as it turns (its height the cam's surface's over its axle
+// line, a roller's radius out), rising and falling twice the cam's eccentricity.
 static void test_cam(void) {
     printf("cam and follower\n");
     mech_example x;
@@ -1997,8 +2015,8 @@ static void test_cam(void) {
 }
 
 // RATCHET AND PAWL: the weights pulling both wheels clockwise — the one with a pawl held within a tooth, the other run
-// back; the held one dragged a quarter turn counter-clockwise, its pawl clicking over its teeth (lifted and dropped), and
-// let go, kept there within a tooth.
+// back; the held one dragged a quarter turn counter-clockwise, its pawl clicking over its teeth (lifted and dropped),
+// and let go, kept there within a tooth.
 static void test_ratchet(void) {
     printf("ratchet and pawl\n");
     mech_example x;
@@ -2058,9 +2076,9 @@ static void test_damper(void) {
     mech_example_end(&x);
 }
 
-// A WORM: its gear a tooth a turn of it (60 rpm on a 30-tooth gear: 2 rpm, counter-clockwise over it), the 10-tooth gear
-// beside it three times as fast the other way; held hard the other way (a torque on the gear), no faster, no slower: a
-// gear cannot turn a worm.
+// A WORM: its gear a tooth a turn of it (60 rpm on a 30-tooth gear: 2 rpm, counter-clockwise over it), the 10-tooth
+// gear beside it three times as fast the other way; held hard the other way (a torque on the gear), no faster, no
+// slower: a gear cannot turn a worm.
 static void test_worm(void) {
     printf("worm gear\n");
     mech_example x;
@@ -2090,8 +2108,8 @@ static void test_worm(void) {
 
 // ONE PIN THROUGH THEM ALL: three links on a fixed pivot — each pinned to the ground there, none to another —; three on
 // one hole of a moving part — two hinges, not three. KEYED: a sprocket on a gear on a motor turns with it (a belt from
-// it, not from the gear under it: the topmost), a belt to a sprocket twice its size, a cam on that one turning with it —
-// half the motor's speed, the same way. A TRACER weighs nothing and does not change the mechanism's scale.
+// it, not from the gear under it: the topmost), a belt to a sprocket twice its size, a cam on that one turning with it
+// — half the motor's speed, the same way. A TRACER weighs nothing and does not change the mechanism's scale.
 static void test_pins_and_keys(void) {
     printf("pins, keys, tracers\n");
     {
@@ -2150,12 +2168,199 @@ static void test_pins_and_keys(void) {
     }
 }
 
-// THE BIG MECHANISMS. The Strandbeest's legs: eight seconds, nothing broken; each foot's path Jansen's at four times his
-// size (about 271 wide, 88 high), level along its bottom (a fifth of its points within 4 of its lowest), the two
+// A TRACER'S PATH AS DRAWN (mechrun.h's fude_zoom_mech_trail_runs: page_mech.c draws a stroke for each stretch of it
+// near the screen), against a brute force and against how it was drawn before (the path copied, a line for each
+// segment not wholly past one side of the screen). Its points are the path's on the screen but those within
+// FUDE_ZOOM_MECH_TRAIL_STEP of the last one kept (the first and last always kept); its stretches are exactly the runs
+// of segments near the screen, each beginning and ending out of sight unless the path does. Close up, no point is left
+// out and every segment drawn before is in a stretch: a path all on the screen is one stretch of all its points, as
+// many segments as lines before. On the Strandbeest's feet's paths at three zooms and on 300 random paths and views;
+// then the old way and the new timed on 40,000 points (the most a world keeps).
+
+// The old way (page_mech.c's, before): the path copied into a new array, then a line for each segment not wholly past
+// one side of the screen, each a call. Marks in _drawn (a byte a segment, NULL: not marked) those it drew; returns how
+// many.
+static u32 trail_old(const fude_zoom_v2* path, u32 n, fude_zoom_sim hs, fude_zoom_v2 half, u8* drawn) {
+    rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
+    if(n > 0u) memcpy(rde_arr_add_n(&pts, n), path, n * sizeof(fude_zoom_v2));
+    const fude_zoom_v2* q = (const fude_zoom_v2*)pts.memory;
+    u32 lines = 0;
+    for(u32 k = 1; k < n; k++) {
+        const fude_zoom_v2 a = fude_zoom_sim_apply(hs, q[k - 1u]), c = fude_zoom_sim_apply(hs, q[k]);
+        const b8 off = (fabs(a.x) > half.x && fabs(c.x) > half.x) || (fabs(a.y) > half.y && fabs(c.y) > half.y);
+        if(drawn != NULL) drawn[k - 1u] = off ? 0u : 1u;
+        if(off) continue;
+        rde_rendering_2d_draw_line_1((rde_vec_2F){ (f32)a.x, (f32)a.y }, (rde_vec_2F){ (f32)c.x, (f32)c.y }, (rde_color){ 1, 2, 3, 255 }, 2.5f);
+        lines++;
+    }
+    rde_arr_free(&pts);
+    return lines;
+}
+
+// One path at one view: fude_zoom_mech_trail_runs against the brute force and the old way. Returns false (said) when
+// they differ; *_segments and *_old the segments each draws, *_dropped the points left out.
+static b8 trail_check(const fude_zoom_v2* path, u32 n, fude_zoom_sim hs, fude_zoom_v2 half, u32* segments, u32* old, u32* dropped) {
+    const f32 radius = 1.25f, step = FUDE_ZOOM_MECH_TRAIL_STEP;
+    rde_arr pts = rde_arr_new(sizeof(rde_vec_2F), rde_memory_allocator_get_default_std()), runs = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    rde_arr_add(&pts, (any)&(rde_vec_2F){ 7.0f, 7.0f });   // (dirty: cleared by it)
+    const u32 nr = fude_zoom_mech_trail_runs(path, n, hs, half, radius, &pts, &runs);
+    // The brute force: the points kept (their indices), then each segment near or not, then the runs of near ones.
+    u32* keep = malloc((n + 1u) * sizeof(u32));
+    rde_vec_2F* kp = malloc((n + 1u) * sizeof(rde_vec_2F));
+    u32 nk = 0;
+    for(u32 i = 0; i < n && n >= 2u; i++) {
+        const fude_zoom_v2 s = fude_zoom_sim_apply(hs, path[i]);
+        const rde_vec_2F p = { (f32)s.x, (f32)s.y };
+        if(nk > 0u && i + 1u < n && (p.x - kp[nk - 1u].x) * (p.x - kp[nk - 1u].x) + (p.y - kp[nk - 1u].y) * (p.y - kp[nk - 1u].y) < step * step) continue;
+        keep[nk] = i;
+        kp[nk++] = p;
+    }
+    b8 ok = rde_arr_length(&pts) == nk && (nk == 0u || memcmp(pts.memory, kp, nk * sizeof(rde_vec_2F)) == 0) && (nk == 0u || (keep[0] == 0u && keep[nk - 1u] == n - 1u));
+    const f32 hx = (f32)half.x + 2.0f, hy = (f32)half.y + 2.0f;
+    u32 want = 0, at = 0, start = UINT32_MAX;
+    *segments = 0;
+    const u32* r = (const u32*)runs.memory;
+    for(u32 i = 0; i < nk && ok; i++) {
+        const b8 near = i + 1u < nk && fminf(kp[i].x, kp[i + 1u].x) - radius <= hx && fmaxf(kp[i].x, kp[i + 1u].x) + radius >= -hx &&
+                        fminf(kp[i].y, kp[i + 1u].y) - radius <= hy && fmaxf(kp[i].y, kp[i + 1u].y) + radius >= -hy;
+        if(near && start == UINT32_MAX) start = i;
+        if(!near && start != UINT32_MAX) {
+            ok = at < nr && r[2u * at] == start && r[2u * at + 1u] == i - start + 1u && i - start + 1u >= 2u;
+            // (out of sight where it starts and ends, but at the path's own ends)
+            const rde_vec_2F a = kp[start], b = kp[i];
+            const b8 a_out = a.x > hx + radius || a.x < -hx - radius || a.y > hy + radius || a.y < -hy - radius;
+            const b8 b_out = b.x > hx + radius || b.x < -hx - radius || b.y > hy + radius || b.y < -hy - radius;
+            ok = ok && (start == 0u || a_out) && (i == nk - 1u || b_out);
+            *segments += i - start;
+            want++;
+            at++;
+            start = UINT32_MAX;
+        }
+    }
+    ok = ok && want == nr;
+    // The old way: nothing left out, every segment it drew is in a stretch (and more only where it reaches the screen:
+    // within the stroke's width of it, or across it from one side to the other).
+    u8* drawn = malloc(n + 1u);
+    *old = trail_old(path, n, hs, half, drawn);
+    *dropped = n >= 2u ? n - nk : 0u;
+    if(ok && nk == n) {
+        u8* in = calloc(n + 1u, 1u);
+        for(u32 k = 0; k < nr; k++) for(u32 i = r[2u * k]; i + 1u < r[2u * k] + r[2u * k + 1u]; i++) in[i] = 1u;
+        for(u32 i = 0; i + 1u < n && ok; i++) ok = !drawn[i] || in[i];
+        ok = ok && *segments >= *old;
+        free(in);
+    }
+    if(!ok) printf("  a path of %u points: %u stretches (%u by brute force), %u points kept (%u)\n", n, nr, want, (u32)rde_arr_length(&pts), nk);
+    free(drawn);
+    free(keep);
+    free(kp);
+    rde_arr_free(&pts);
+    rde_arr_free(&runs);
+    return ok;
+}
+
+static void test_trail_runs(void) {
+    printf("tracers' paths as drawn\n");
+    {
+        mech_example x;
+        mech_example_begin(&x, FUDE_ZOOM_EXAMPLE_STRANDBEEST);
+        mech_run(&x, 480u);
+        for(u32 t = 0; t < (u32)rde_arr_length(&x.w.plan.tracers); t++) {
+            u32 n = 0;
+            const fude_zoom_v2* path = fude_zoom_mech_world_trail(&x.w, t, &n);
+            f64 x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300, closest = 1e300;
+            for(u32 i = 0; i < n; i++) {
+                x0 = fmin(x0, path[i].x); x1 = fmax(x1, path[i].x); y0 = fmin(y0, path[i].y); y1 = fmax(y1, path[i].y);
+                if(i > 0u) closest = fmin(closest, hypot(path[i].x - path[i - 1u].x, path[i].y - path[i - 1u].y));
+            }
+            // Close up, all on the screen: its points far enough apart that none is left out, the screen round it.
+            const f64 k = 1.01 * FUDE_ZOOM_MECH_TRAIL_STEP / closest;
+            const fude_zoom_sim near = { k, 0.0, -k * 0.5 * (x0 + x1), -k * 0.5 * (y0 + y1) };
+            const fude_zoom_v2 all = { k * 0.5 * (x1 - x0) + 10.0, k * 0.5 * (y1 - y0) + 10.0 };
+            u32 seg = 0, old = 0, dropped = 0;
+            CHECK(n > 100u && trail_check(path, n, near, all, &seg, &old, &dropped));
+            printf("  foot %u, %u points, all on the screen: %u segments in 1 stroke (lines before: %u), %u left out\n", t, n, seg, old, dropped);
+            CHECK(dropped == 0u && seg == n - 1u && old == n - 1u);
+            // Zoomed out: most of them under a fraction of a pixel apart, left out.
+            const fude_zoom_sim far = { 0.02, 0.0, 0.0, 0.0 };
+            CHECK(trail_check(path, n, far, (fude_zoom_v2){ 400.0, 300.0 }, &seg, &old, &dropped));
+            printf("  zoomed out: %u segments (lines before: %u), %u points left out\n", seg, old, dropped);
+            CHECK(dropped > n / 2u && seg < old);
+            // Zoomed far in on one of its points: only what comes near the screen.
+            const fude_zoom_v2 at = path[n / 3u];
+            const fude_zoom_sim in = { 40.0 * k, 0.0, -40.0 * k * at.x, -40.0 * k * at.y };
+            CHECK(trail_check(path, n, in, (fude_zoom_v2){ 400.0, 300.0 }, &seg, &old, &dropped));
+            printf("  zoomed in: %u segments (lines before: %u)\n", seg, old);
+            CHECK(seg >= old && seg > 0u && seg < n / 4u);
+        }
+        mech_example_end(&x);
+    }
+    // Random paths (steps from a hundredth to a few hundred units) at random views and screens, a few rotated.
+    {
+        u32 seed = 99u, bad = 0, cases = 0;
+        #define TRAIL_RND() (seed = seed * 1664525u + 1013904223u, (f64)(seed >> 8) / 16777216.0)
+        fude_zoom_v2* path = malloc(3000u * sizeof(fude_zoom_v2));
+        for(u32 c = 0; c < 300u; c++) {
+            const u32 n = (u32)(TRAIL_RND() * 3000.0);
+            f64 px = 0.0, py = 0.0, dir = 0.0;
+            for(u32 i = 0; i < n; i++) {
+                dir += (TRAIL_RND() - 0.5) * (c % 3u == 0u ? 6.0 : 0.6);
+                const f64 len = pow(10.0, TRAIL_RND() * 4.5 - 2.0);
+                px += cos(dir) * len; py += sin(dir) * len;
+                path[i] = (fude_zoom_v2){ px, py };
+            }
+            const f64 scale = pow(10.0, TRAIL_RND() * 4.0 - 2.0), turn = c % 5u == 0u ? TRAIL_RND() * 6.28 : 0.0;
+            const fude_zoom_v2 aim = n > 0u ? path[(u32)(TRAIL_RND() * (f64)n) % n] : (fude_zoom_v2){ 0.0, 0.0 };
+            const f64 a = scale * cos(turn), b = scale * sin(turn);
+            const f64 off_x = (TRAIL_RND() - 0.5) * 800.0, off_y = (TRAIL_RND() - 0.5) * 600.0;
+            const fude_zoom_sim hs = { a, b, -(a * aim.x - b * aim.y) + off_x, -(b * aim.x + a * aim.y) + off_y };
+            const f64 half_x = 100.0 + TRAIL_RND() * 700.0, half_y = 100.0 + TRAIL_RND() * 500.0;
+            const fude_zoom_v2 half = { half_x, half_y };
+            u32 seg = 0, old = 0, dropped = 0;
+            bad += trail_check(path, n, hs, half, &seg, &old, &dropped) ? 0u : 1u;
+            cases++;
+        }
+        #undef TRAIL_RND
+        printf("  random paths: %u of %u as the brute force has them\n", cases - bad, cases);
+        CHECK(bad == 0u);
+        free(path);
+    }
+    // Timed: 40,000 points (a spiral, as a long run's tracer draws), all on the screen and zoomed in on a part of it:
+    // the work before the drawing (each way's own; the old one's 40,000 line calls each wrote a quad in the engine).
+    {
+        const u32 n = FUDE_ZOOM_MECH_TRAIL_MOST;
+        fude_zoom_v2* path = malloc(n * sizeof(fude_zoom_v2));
+        for(u32 i = 0; i < n; i++) path[i] = (fude_zoom_v2){ (50.0 + 0.004 * i) * cos(0.01 * i), (50.0 + 0.004 * i) * sin(0.01 * i) };
+        rde_arr pts = rde_arr_new(sizeof(rde_vec_2F), rde_memory_allocator_get_default_std()), runs = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+        const fude_zoom_sim views[2] = { { 1.0, 0.0, 0.0, 0.0 }, { 20.0, 0.0, -20.0 * 150.0, 0.0 } };
+        for(u32 v = 0; v < 2u; v++) {
+            const fude_zoom_v2 half = { 640.0, 400.0 };
+            u32 lines = 0, strokes = 0, kept = 0;
+            const clock_t t0 = clock();
+            for(u32 r = 0; r < 20u; r++) lines = trail_old(path, n, views[v], half, NULL);
+            const clock_t t1 = clock();
+            for(u32 r = 0; r < 20u; r++) {
+                strokes = fude_zoom_mech_trail_runs(path, n, views[v], half, 1.25f, &pts, &runs);
+                kept = (u32)rde_arr_length(&pts);
+            }
+            const clock_t t2 = clock();
+            printf("  %u points %s: before %u lines (calls), %.2f ms a frame; now %u strokes of %u points, %.2f ms (the drawing itself not timed: the tests' engine draws nothing)\n",
+                   n, v == 0u ? "all on the screen" : "zoomed in",
+                   lines, 1000.0 * (f64)(t1 - t0) / CLOCKS_PER_SEC / 20.0, strokes, kept, 1000.0 * (f64)(t2 - t1) / CLOCKS_PER_SEC / 20.0);
+            CHECK(strokes >= 1u && strokes < 50u);
+        }
+        rde_arr_free(&pts);
+        rde_arr_free(&runs);
+        free(path);
+    }
+}
+
+// THE BIG MECHANISMS. The Strandbeest's legs: eight seconds, nothing broken; each foot's path Jansen's at four times
+// his size (about 271 wide, 88 high), level along its bottom (a fifth of its points within 4 of its lowest), the two
 // mirrored. The four-stroke engine: its camshafts at half the crank's speed, the other way; the intake valve open the
-// most within the first downstroke, the exhaust within the last upstroke. The solenoid engine: it starts by itself (rocking
-// a few times) and runs — over 10 turns in 8 s —, its 74HC161 counting each time its sensor is blocked; switched off, its
-// coil let go, it slows.
+// most within the first downstroke, the exhaust within the last upstroke. The solenoid engine: it starts by itself
+// (rocking a few times) and runs — over 10 turns in 8 s —, its 74HC161 counting each time its sensor is blocked;
+// switched off, its coil let go, it slows.
 static void test_big_mechanisms(void) {
     printf("big mechanisms\n");
     {
@@ -2165,15 +2370,13 @@ static void test_big_mechanisms(void) {
         CHECK(rde_arr_length(&x.w.events) == 0u && rde_arr_length(&x.w.plan.tracers) == 2u);
         f64 x0[2], x1[2], y0[2], y1[2], flat[2];
         for(u32 t = 0; t < 2u; t++) {
-            rde_arr pts = rde_arr_new(sizeof(fude_zoom_v2), rde_memory_allocator_get_default_std());
-            const u32 n = fude_zoom_mech_world_trail(&x.w, t, &pts);
-            const fude_zoom_v2* q = (const fude_zoom_v2*)pts.memory;
+            u32 n = 0;
+            const fude_zoom_v2* q = fude_zoom_mech_world_trail(&x.w, t, &n);
             x0[t] = y0[t] = 1e9; x1[t] = y1[t] = -1e9;
             for(u32 i = n / 4u; i < n; i++) { x0[t] = fmin(x0[t], q[i].x); x1[t] = fmax(x1[t], q[i].x); y0[t] = fmin(y0[t], q[i].y); y1[t] = fmax(y1[t], q[i].y); }
             u32 low = 0;
             for(u32 i = n / 4u; i < n; i++) low += q[i].y < y0[t] + 4.0 ? 1u : 0u;
             flat[t] = (f64)low / (f64)(n - n / 4u);
-            rde_arr_free(&pts);
         }
         printf("  Strandbeest: feet %.0f..%.0f and %.0f..%.0f across, %.0f and %.0f high, %.0f%% and %.0f%% level\n", x0[0], x1[0], x0[1], x1[1], y1[0] - y0[0],
                y1[1] - y0[1], flat[0] * 100.0, flat[1] * 100.0);
@@ -2367,7 +2570,37 @@ static void test_examples(void) {
     }
 }
 
+// A motor's way round as its text says it (fude_zoom_mech_rpm, read by the plan): a minus only as its number's sign,
+// "ccw" not read as "cw", the way in the apps' languages. Counter-clockwise is over 0 (turns a second).
+static void test_motor_ways(void) {
+    static const struct { const c8* text; f64 turns; } ways[] = {
+        { "60 rpm", 1.0 }, { "60 rpm cw", -1.0 }, { "60 rpm ccw", 1.0 }, { "60 rpm CCW", 1.0 }, { "-60 rpm", -1.0 },
+        { "-60 rpm cw", 1.0 }, { "60 rpm 2-stage", 1.0 }, { "60 rpm clockwise", -1.0 }, { "60 rpm anti-clockwise", 1.0 },
+        { "60 rpm counterclockwise", 1.0 }, { "60 rpm horario", -1.0 }, { "60 rpm antihorario", 1.0 },
+        { "60 rpm sentido anti-hor\xC3\xA1rio", 1.0 }, { "60 rpm hor\xC3\xA1rio", -1.0 }, { "60 rpm sens horaire", -1.0 },
+        { "60 rpm sens antihoraire", 1.0 }, { "60 rpm \xE6\x99\x82\xE8\xA8\x88\xE5\x9B\x9E\xE3\x82\x8A", -1.0 },        // 時計回り
+        { "60 rpm \xE5\x8F\x8D\xE6\x99\x82\xE8\xA8\x88\xE5\x9B\x9E\xE3\x82\x8A", 1.0 },                                // 反時計回り
+        { "60rpm\xE5\x8F\x8D\xE6\x99\x82\xE8\xA8\x88\xE5\x9B\x9E\xE3\x82\x8A", 1.0 },                                 // (no spaces)
+    };
+    for(u32 i = 0; i < sizeof ways / sizeof ways[0]; i++) {
+        const f64 rpm = fude_zoom_mech_rpm(ways[i].text, 30.0);
+        if(fabs(rpm / 60.0 - ways[i].turns) > 1e-12) printf("  \"%s\": %g rpm\n", ways[i].text, rpm);
+        CHECK(fabs(rpm / 60.0 - ways[i].turns) < 1e-12);
+        // The plan reads it so: a drive motor with the text, its body's speed.
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const u32 mo = part_put(&s, "drive motor", 0, 0, 30, 30, 0.0, ways[i].text);
+        fude_zoom_mech_plan p; fude_zoom_mech_plan_init(&p);
+        fude_zoom_mech_plan_build(&p, &s, NULL);
+        const u32 b = body_of(&p, mo);
+        CHECK(b != FUDE_ZOOM_NONE && fabs(((const fude_zoom_mech_body*)p.bodies.memory)[b].value - ways[i].turns) < 1e-12);
+        fude_zoom_mech_plan_destroy(&p);
+        fude_zoom_scene_destroy(&s);
+    }
+    CHECK(fabs(fude_zoom_mech_rpm("cw", 30.0) + 30.0) < 1e-12 && fabs(fude_zoom_mech_rpm("", 30.0) - 30.0) < 1e-12);
+}
+
 int main(void) {
+    test_motor_ways();
     test_pair();
     test_trains();
     test_energy_and_reverse();
@@ -2401,6 +2634,7 @@ int main(void) {
     test_damper();
     test_worm();
     test_pins_and_keys();
+    test_trail_runs();
     test_big_mechanisms();
     if(fails == 0) printf("ALL PASSED\n"); else printf("%d FAILED\n", fails);
     return fails == 0 ? 0 : 1;

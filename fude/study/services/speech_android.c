@@ -4,17 +4,20 @@
 #include "lang/lang.h"
 
 // ===========================================================================
-// See speech.h. Android's side: the device's TextToSpeech in the language taught
-// (com.rde.fude.FudeSpeech), started the first time a voice is asked about.
+// See speech.h. Android's side: the device's TextToSpeech in the language taught, through the static methods of
+// Java's com.rde.fude.FudeSpeech. The engine is started the first time a voice is asked about, and starts on
+// Android's own thread; FudeSpeech.state() then answers 0 (not started), 1 (starting), 2 (ready) or 3 (no voice for
+// the language).
 // ===========================================================================
 
 #if defined(RDE_PLATFORM_ANDROID)
 
 #include "drawing/base/android.h"
 
+// Whether FudeSpeech.start has been called. It is cleared to start the engine again after a recheck.
 static b8 fude_speech_started = false;
 
-// The engine started for the language's voice, the first time it is asked about.
+// Starts the engine for the language's voice (lang.h: fude_lang_voice), the first time it is asked about.
 RDE_INTERNAL void fude_speech_start(JNIEnv* _env) {
     if(fude_speech_started) {
         return;
@@ -29,6 +32,7 @@ RDE_INTERNAL void fude_speech_start(JNIEnv* _env) {
     }
 }
 
+// See the header. True only once the engine is ready, so it is false for a moment after the first ask.
 b8 fude_speech_available(void) {
     JNIEnv* _env = fude_android_env();
     if(_env == NULL) {
@@ -46,6 +50,7 @@ b8 fude_speech_available(void) {
     return !fude_android_threw(_env, "FudeSpeech.available") && _yes == JNI_TRUE;
 }
 
+// See the header. FudeSpeech stops what was being read before it reads _text.
 void fude_speak(const c8* _text) {
     JNIEnv*   _env   = fude_android_env();
     jmethodID _speak = fude_android_method(FUDE_JAVA_SPEECH, "speak", "([B)V");
@@ -58,6 +63,7 @@ void fude_speak(const c8* _text) {
     (*_env)->DeleteLocalRef(_env, _bytes);
 }
 
+// See the header.
 void fude_speech_stop(void) {
     JNIEnv*   _env  = fude_android_env();
     jmethodID _stop = fude_android_method(FUDE_JAVA_SPEECH, "stop", "()V");
@@ -67,18 +73,21 @@ void fude_speech_stop(void) {
     }
 }
 
+// Never: Android has no better voices for the app to point to.
 b8 fude_speech_take_hint(void) {
-    return false;   // the device's voices are its own business on Android
+    return false;   // The device's voices are the device's own business on Android.
 }
 
+// See the header. Maps FudeSpeech's state (2 ready, 3 no voice, anything else checking) onto FUDE_SPEECH_.
 FUDE_SPEECH_ fude_speech_state(void) {
     JNIEnv* _env = fude_android_env();
     if(_env == NULL) {
         return FUDE_SPEECH_NONE;
     }
     fude_speech_start(_env);
-    // Back after a while away (the app's frames stop in the background: Settings,
-    // where a voice may just have been installed) with none: the engine asked again.
+    // When the app comes back after a while away with no voice, the engine is asked again. A gap of more than 1.5
+    // seconds between calls means the app was away, since its frames stop in the background; it may have been in
+    // Settings, where a voice may just have been installed.
     static f64 _last = 0.0;
     const f64  _now  = rde_engine_get_time_now();
     const b8   _back = _last > 0.0 && _now - _last > 1.5;
@@ -103,6 +112,7 @@ FUDE_SPEECH_ fude_speech_state(void) {
     return _s == 2 ? FUDE_SPEECH_READY : _s == 3 ? FUDE_SPEECH_MISSING : FUDE_SPEECH_CHECKING;
 }
 
+// See the header.
 b8 fude_speech_open_settings(void) {
     JNIEnv*   _env  = fude_android_env();
     jmethodID _open = fude_android_method(FUDE_JAVA_SPEECH, "openSettings", "()Z");

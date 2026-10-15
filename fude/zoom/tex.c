@@ -2,24 +2,26 @@
 
 #include "zoom/tex.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
-// See tex.h. Two passes, as TeX has: the LaTeX read into a tree of atoms (each
-// an ordinary symbol, an operator, a binary operation, a relation, an opening,
-// a closing, punctuation or an inner formula — what sets the space between
-// them), then laid out into boxes in a style (display, text, script,
-// scriptscript; cramped or not — a fraction's denominator, a root's inside),
-// each box glyphs and rules placed from its origin.
+// See tex.h. Two passes, as TeX has. The LaTeX is first read into a tree of atoms (fzt_parser): each an ordinary
+// symbol, an operator, a binary operation, a relation, an opening, a closing, punctuation or an inner formula, which
+// is what sets the space between them. The tree is then laid out into boxes (fzt_layout) in a style (display, text,
+// script, scriptscript; cramped or not, as a fraction's denominator and a root's inside are), each box glyphs and
+// rules placed from its origin, and the top box is copied out into the caller's fude_zoom_tex_box.
+//
+// Its helpers are fzt_ and its constants FZT_. The tree lives in two arenas of the parser: nodes (fzt_node) and lists
+// of node indices, each found by its index, so nothing in the tree is a pointer. The file goes: the tree, reading
+// (tokens, then the tables of the commands it knows, then the parser), boxes, and the layout of each kind of node,
+// then fude_zoom_tex_set.
 // ===========================================================================
 
+// "No node", "no list": an index that is none.
 #define FZT_NONE 0xFFFFFFFFu
 
 // Atoms' classes (The TeXbook, ch. 17), and none (a space between them).
 enum { FZT_ORD = 0, FZT_OP, FZT_BIN, FZT_REL, FZT_OPEN, FZT_CLOSE, FZT_PUNCT, FZT_INNER, FZT_NOCLASS };
 
+// A node's kind, and what its fields hold for it.
 enum {
     FZT_SYM = 0,    // a symbol: cp, its class, its alphabet
     FZT_GROUP,      // {…}: a (an ordinary atom)
@@ -28,7 +30,8 @@ enum {
     FZT_FRAC,       // a over b (FZT_NORULE: none between, as \binom)
     FZT_SQRT,       // the root of a, of degree b
     FZT_SCRIPTS,    // a (the base) with b above and c below
-    FZT_DELIM,      // a between cp and cp2 (0: none), grown to it
+    FZT_DELIM,      // a between cp and cp2 (0: none), grown to it; b its \middle parts or none: a list of FZT_DELIM
+                    // nodes, each the \middle's delimiter cp before its own list a (what follows it, up to the next)
     FZT_BIG,        // a delimiter cp of a size of its own (\big: amount, ems)
     FZT_MATRIX,     // a: its cells' groups, row after row (rows × cols), between cp and cp2
     FZT_ACCENT,     // cp over a (FZT_WIDE: as wide as it)
@@ -39,12 +42,19 @@ enum {
     FZT_STYLE       // the style from here on: rows (0 display … 3 scriptscript)
 };
 
+// A node's flags: an operator's limits forced above and below, or beside it; a fraction with no bar (\binom); an accent
+// as wide as its base; a fraction in display or text style whatever the style round it (\dfrac, \tfrac). On a matrix,
+// FZT_TSTYLE sets its cells in script style (smallmatrix).
 enum { FZT_LIMITS = 1, FZT_NOLIMITS = 2, FZT_NORULE = 4, FZT_WIDE = 8, FZT_DSTYLE = 16, FZT_TSTYLE = 32 };
+// How a matrix's columns are aligned: each centred; each from its left (cases); or right, left, right, left... as
+// aligned's pairs are.
 enum { FZT_ALIGN_CENTER = 0, FZT_ALIGN_LEFT, FZT_ALIGN_RL };
 
 // Alphabets.
 enum { FZT_F_MATH = 0, FZT_F_UP, FZT_F_BOLD, FZT_F_ITALIC, FZT_F_BB, FZT_F_CAL, FZT_F_FRAK, FZT_F_SF, FZT_F_TT };
 
+// A node of the tree: its kind (FZT_SYM...), its atom's class, its alphabet, its flags, and what its kind keeps (see
+// the kinds): code points, child lists (a, b, c), an amount in ems, a matrix's rows and columns and its alignment.
 typedef struct {
     u8  kind, cls, font, flags;
     u32 cp, cp2;
@@ -54,6 +64,14 @@ typedef struct {
     u8  align;
 } fzt_node;
 
+// How deep the reading may nest, lists and atoms counted alike (every path of its recursion goes through one or the
+// other: {…} is a list in an atom, \sqrt\sqrt… an atom in an atom); past it the rest of the source is left out, before
+// the stack runs out. 64 groups inside one another still read.
+#define FZT_DEPTH 128u
+
+// The parser: the source (n bytes) and where it is in it; the tree's arenas; the alphabet in force; whether a ']'
+// ends a list (inside \sqrt's [degree]); whether a \middle ends the next list; how many things it did not know; and
+// how deep its lists and atoms are nested.
 typedef struct {
     const c8* s;
     u32       n, at;
@@ -61,38 +79,45 @@ typedef struct {
     rde_arr   lists;   // rde_arr of u32 (node indices) each
     u8        font;    // the alphabet now (\mathbf{…} while in it)
     b8        bracket; // reading \sqrt's [degree]: a ']' ends a list
+    b8        middle_ends;   // the next list is a \left's own: a \middle ends it (not the lists inside it)
     u32       unknown;
-    u32       depth;
+    u32       depth;   // lists and atoms open inside one another (FZT_DEPTH at most)
 } fzt_parser;
 
 // --- the tree --------------------------------------------------------------------------------------
 
+// Makes a new, empty list and returns its index.
 RDE_INTERNAL u32 fzt_list_new(fzt_parser* _p) {
     rde_arr _l = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     rde_arr_add(&_p->lists, (any)&_l);
     return (u32)rde_arr_length(&_p->lists) - 1u;
 }
 
+// Returns list _l's array of node indices (valid until a list is added).
 RDE_INTERNAL rde_arr* fzt_list(fzt_parser* _p, u32 _l) {
     return &((rde_arr*)_p->lists.memory)[_l];
 }
 
+// Appends node _node to list _l.
 RDE_INTERNAL void fzt_list_add(fzt_parser* _p, u32 _l, u32 _node) {
     rde_arr_add(fzt_list(_p, _l), (any)&_node);
 }
 
+// Adds a node to the arena and returns its index.
 RDE_INTERNAL u32 fzt_node_add(fzt_parser* _p, fzt_node _n) {
     rde_arr_add(&_p->nodes, (any)&_n);
     return (u32)rde_arr_length(&_p->nodes) - 1u;
 }
 
+// Returns node _i (valid until a node is added).
 RDE_INTERNAL fzt_node* fzt_node_at(fzt_parser* _p, u32 _i) {
     return &((fzt_node*)_p->nodes.memory)[_i];
 }
 
+// Returns a node of kind _kind and class _cls, its child lists none.
 RDE_INTERNAL fzt_node fzt_make(u8 _kind, u8 _cls) {
     fzt_node _n;
-    memset(&_n, 0, sizeof(_n));
+    rde_memset(&_n, 0, sizeof(_n));
     _n.kind = _kind;
     _n.cls  = _cls;
     _n.a = _n.b = _n.c = FZT_NONE;
@@ -101,8 +126,11 @@ RDE_INTERNAL fzt_node fzt_make(u8 _kind, u8 _cls) {
 
 // --- reading ---------------------------------------------------------------------------------------
 
+// A token's kind: the end, a character, a command (\name, or \ and one character), { and }, ^ and _, and &.
 enum { FZT_T_END = 0, FZT_T_CHAR, FZT_T_CMD, FZT_T_OPEN, FZT_T_CLOSE, FZT_T_SUP, FZT_T_SUB, FZT_T_AMP };
 
+// A token: its kind, a character's code point or a command's name (cut at 23 letters), and where the source goes on
+// after it.
 typedef struct {
     u8  kind;
     u32 cp;
@@ -110,7 +138,8 @@ typedef struct {
     u32 next;    // where the source goes on after it
 } fzt_tok;
 
-// A UTF-8 character at _at (its codepoint; *_len its bytes).
+// Returns the UTF-8 character at _at in _s (_n bytes) and its length in *_len. A byte that does not start a whole
+// character is taken alone, as its own value.
 RDE_INTERNAL u32 fzt_utf8(const c8* _s, u32 _n, u32 _at, u32* _len) {
     const u8 _c = (u8)_s[_at];
     u32 _k = _c < 0x80u ? 1u : (_c >> 5) == 6u ? 2u : (_c >> 4) == 14u ? 3u : (_c >> 3) == 30u ? 4u : 1u;
@@ -125,6 +154,7 @@ RDE_INTERNAL u32 fzt_utf8(const c8* _s, u32 _n, u32 _at, u32* _len) {
     return _cp;
 }
 
+// True for an ASCII letter, what a command's name is made of.
 RDE_INTERNAL b8 fzt_letter(c8 _c) {
     return (_c >= 'a' && _c <= 'z') || (_c >= 'A' && _c <= 'Z');
 }
@@ -132,7 +162,7 @@ RDE_INTERNAL b8 fzt_letter(c8 _c) {
 // The token at the source's place (spaces between skipped: maths ignores them).
 RDE_INTERNAL fzt_tok fzt_peek(const fzt_parser* _p) {
     fzt_tok _t;
-    memset(&_t, 0, sizeof(_t));
+    rde_memset(&_t, 0, sizeof(_t));
     u32 _at = _p->at;
     while(_at < _p->n && (_p->s[_at] == ' ' || _p->s[_at] == '\t' || _p->s[_at] == '\n' || _p->s[_at] == '\r')) {
         _at++;
@@ -176,6 +206,7 @@ RDE_INTERNAL fzt_tok fzt_peek(const fzt_parser* _p) {
     return _t;
 }
 
+// Reads the next token and moves past it.
 RDE_INTERNAL fzt_tok fzt_take(fzt_parser* _p) {
     const fzt_tok _t = fzt_peek(_p);
     _p->at = _t.next;
@@ -184,12 +215,14 @@ RDE_INTERNAL fzt_tok fzt_take(fzt_parser* _p) {
 
 // --- what the commands are -------------------------------------------------------------------------
 
+// A command that is one symbol: its name, its code point and its atom's class.
 typedef struct {
     const c8* name;
     u32       cp;
     u8        cls;
 } fzt_sym;
 
+// The symbols by name: Greek, ordinary symbols, operations, relations, punctuation and delimiters.
 RDE_INTERNAL const fzt_sym FZT_SYMS[] = {
     // Greek (the small ones italic, as TeX sets them; the capitals upright)
     { "alpha", 0x3B1, FZT_ORD }, { "beta", 0x3B2, FZT_ORD }, { "gamma", 0x3B3, FZT_ORD }, { "delta", 0x3B4, FZT_ORD },
@@ -246,12 +279,14 @@ RDE_INTERNAL const fzt_sym FZT_SYMS[] = {
     { "rVert", 0x2016, FZT_CLOSE }, { "backslash", '\\', FZT_ORD },
 };
 
+// A big operator by name: its code point, and whether it is an integral, whose limits go beside it by default.
 typedef struct {
     const c8* name;
     u32       cp;
     b8        integral;   // (its limits beside it by default)
 } fzt_op;
 
+// The big operators.
 RDE_INTERNAL const fzt_op FZT_OPS[] = {
     { "sum", 0x2211, false }, { "prod", 0x220F, false }, { "coprod", 0x2210, false }, { "int", 0x222B, true }, { "iint", 0x222C, true },
     { "iiint", 0x222D, true }, { "oint", 0x222E, true }, { "oiint", 0x222F, true }, { "bigcup", 0x22C3, false }, { "bigcap", 0x22C2, false },
@@ -265,6 +300,7 @@ typedef struct {
     b8        limits;
 } fzt_named;
 
+// The operators that are words, and which of them take their limits above and below in display style (\lim, \max...).
 RDE_INTERNAL const fzt_named FZT_NAMED[] = {
     { "sin", false }, { "cos", false }, { "tan", false }, { "cot", false }, { "sec", false }, { "csc", false }, { "arcsin", false },
     { "arccos", false }, { "arctan", false }, { "sinh", false }, { "cosh", false }, { "tanh", false }, { "coth", false }, { "log", false },
@@ -273,12 +309,14 @@ RDE_INTERNAL const fzt_named FZT_NAMED[] = {
     { "min", true }, { "sup", true }, { "inf", true }, { "Pr", true }, { "mod", false },
 };
 
+// An accent by name: its combining character, and whether it grows to its base's width.
 typedef struct {
     const c8* name;
     u32       cp;
     b8        wide;
 } fzt_accent;
 
+// The accents, and the braces over and under, which are set as wide accents.
 RDE_INTERNAL const fzt_accent FZT_ACCENTS[] = {
     { "hat", 0x302, false }, { "widehat", 0x302, true }, { "check", 0x30C, false }, { "widecheck", 0x30C, true },
     { "tilde", 0x303, false }, { "widetilde", 0x303, true }, { "bar", 0x304, false }, { "vec", 0x20D7, false },
@@ -287,23 +325,27 @@ RDE_INTERNAL const fzt_accent FZT_ACCENTS[] = {
     { "mathring", 0x30A, false }, { "overbrace", 0x23DE, true }, { "underbrace", 0x23DF, true },
 };
 
+// A space command and its width in ems (a mu is an eighteenth of an em).
 typedef struct {
     const c8* name;
     f64       ems;
 } fzt_space;
 
+// The spaces: \, \: \; \! and their long names, "\ ", \quad, \qquad and \enspace.
 RDE_INTERNAL const fzt_space FZT_SPACES[] = {
     { ",", 3.0 / 18.0 }, { "thinspace", 3.0 / 18.0 }, { ":", 4.0 / 18.0 }, { ">", 4.0 / 18.0 }, { "medspace", 4.0 / 18.0 },
     { ";", 5.0 / 18.0 }, { "thickspace", 5.0 / 18.0 }, { "!", -3.0 / 18.0 }, { "negthinspace", -3.0 / 18.0 }, { " ", 0.25 },
     { "quad", 1.0 }, { "qquad", 2.0 }, { "enspace", 0.5 },
 };
 
+// True when two names are the same.
 RDE_INTERNAL b8 fzt_named_is(const c8* _a, const c8* _b) {
-    return strcmp(_a, _b) == 0;
+    return rde_strcmp(_a, _b) == 0;
 }
 
 // --- the parser ------------------------------------------------------------------------------------
 
+// The parser's functions call each other; these are defined below.
 RDE_INTERNAL u32 fzt_parse_list(fzt_parser* _p);
 
 // An ASCII or Unicode character's class and what it is set as (− for -, ∗ for *).
@@ -436,7 +478,8 @@ RDE_INTERNAL u32 fzt_parse_env(fzt_parser* _p) {
         fzt_node _g = fzt_make(FZT_GROUP, FZT_ORD);
         _g.a = fzt_parse_list(_p);
         if(_m.align == FZT_ALIGN_RL && (_col % 2u) == 1u) {
-            // (aligned's right-hand cells: an empty atom before them, as TeX puts — the relation they start with spaced)
+            // (aligned's right-hand cells: an empty atom before them, as TeX puts — the relation they start with
+            // spaced)
             const u32 _with = fzt_list_new(_p);
             fzt_node _empty = fzt_make(FZT_GROUP, FZT_ORD);
             _empty.a = fzt_list_new(_p);
@@ -484,163 +527,15 @@ RDE_INTERNAL u32 fzt_parse_env(fzt_parser* _p) {
     return fzt_node_add(_p, _m);
 }
 
-// One atom (FZT_NONE: what was read changed the last one, or was nothing).
-RDE_INTERNAL u32 fzt_parse_atom(fzt_parser* _p, u32 _list) {
-    const fzt_tok _t = fzt_take(_p);
-    if(_t.kind == FZT_T_OPEN) {
-        fzt_node _g = fzt_make(FZT_GROUP, FZT_ORD);
-        _g.a = fzt_parse_list(_p);
-        if(fzt_peek(_p).kind == FZT_T_CLOSE) {
-            fzt_take(_p);
-        } else {
-            _p->unknown++;
-        }
-        return fzt_node_add(_p, _g);
-    }
-    if(_t.kind == FZT_T_CHAR) {
-        if(_t.cp == '~') {
-            fzt_node _s = fzt_make(FZT_SPACE, FZT_NOCLASS);
-            _s.amount = 0.25;
-            return fzt_node_add(_p, _s);
-        }
-        u32 _cp = _t.cp;
-        fzt_node _n = fzt_make(FZT_SYM, fzt_char_class(&_cp));
-        _n.cp   = _cp;
-        _n.font = _p->font;
-        return fzt_node_add(_p, _n);
-    }
-    if(_t.kind != FZT_T_CMD) {
-        return FZT_NONE;
-    }
-    const c8* _name = _t.name;
-    for(u32 _i = 0; _i < sizeof(FZT_SYMS) / sizeof(FZT_SYMS[0]); _i++) {
-        if(fzt_named_is(_name, FZT_SYMS[_i].name)) {
-            fzt_node _n = fzt_make(FZT_SYM, FZT_SYMS[_i].cls);
-            _n.cp   = FZT_SYMS[_i].cp;
-            _n.font = _p->font;
-            return fzt_node_add(_p, _n);
-        }
-    }
-    for(u32 _i = 0; _i < sizeof(FZT_OPS) / sizeof(FZT_OPS[0]); _i++) {
-        if(fzt_named_is(_name, FZT_OPS[_i].name)) {
-            fzt_node _n = fzt_make(FZT_BIGOP, FZT_OP);
-            _n.cp    = FZT_OPS[_i].cp;
-            _n.flags = FZT_OPS[_i].integral ? FZT_NOLIMITS : 0u;
-            return fzt_node_add(_p, _n);
-        }
-    }
-    for(u32 _i = 0; _i < sizeof(FZT_NAMED) / sizeof(FZT_NAMED[0]); _i++) {
-        if(fzt_named_is(_name, FZT_NAMED[_i].name)) {
-            fzt_node _n = fzt_make(FZT_TEXTOP, FZT_OP);
-            _n.a     = fzt_word(_p, _name);
-            _n.flags = FZT_NAMED[_i].limits ? 0u : FZT_NOLIMITS;
-            return fzt_node_add(_p, _n);
-        }
-    }
-    for(u32 _i = 0; _i < sizeof(FZT_ACCENTS) / sizeof(FZT_ACCENTS[0]); _i++) {
-        if(fzt_named_is(_name, FZT_ACCENTS[_i].name)) {
-            fzt_node _n = fzt_make(FZT_ACCENT, FZT_ORD);
-            _n.cp    = FZT_ACCENTS[_i].cp;
-            _n.flags = FZT_ACCENTS[_i].wide ? FZT_WIDE : 0u;
-            _n.a     = fzt_parse_arg(_p);
-            return fzt_node_add(_p, _n);
-        }
-    }
-    for(u32 _i = 0; _i < sizeof(FZT_SPACES) / sizeof(FZT_SPACES[0]); _i++) {
-        if(fzt_named_is(_name, FZT_SPACES[_i].name)) {
-            fzt_node _n = fzt_make(FZT_SPACE, FZT_NOCLASS);
-            _n.amount = FZT_SPACES[_i].ems;
-            return fzt_node_add(_p, _n);
-        }
-    }
-    if(fzt_named_is(_name, "frac") || fzt_named_is(_name, "dfrac") || fzt_named_is(_name, "tfrac") || fzt_named_is(_name, "cfrac")) {
-        fzt_node _n = fzt_make(FZT_FRAC, FZT_INNER);
-        _n.flags = _name[0] == 'd' || _name[0] == 'c' ? FZT_DSTYLE : _name[0] == 't' ? FZT_TSTYLE : 0u;
-        _n.a = fzt_parse_arg(_p);
-        _n.b = fzt_parse_arg(_p);
-        return fzt_node_add(_p, _n);
-    }
-    if(fzt_named_is(_name, "binom") || fzt_named_is(_name, "dbinom") || fzt_named_is(_name, "tbinom")) {
-        fzt_node _f = fzt_make(FZT_FRAC, FZT_INNER);
-        _f.flags = FZT_NORULE | (_name[0] == 'd' ? FZT_DSTYLE : _name[0] == 't' ? FZT_TSTYLE : 0u);
-        _f.a = fzt_parse_arg(_p);
-        _f.b = fzt_parse_arg(_p);
-        const u32 _inside = fzt_list_new(_p);
-        fzt_list_add(_p, _inside, fzt_node_add(_p, _f));
-        fzt_node _d = fzt_make(FZT_DELIM, FZT_INNER);
-        _d.cp = '(';
-        _d.cp2 = ')';
-        _d.a = _inside;
-        return fzt_node_add(_p, _d);
-    }
-    if(fzt_named_is(_name, "sqrt")) {
-        fzt_node _n = fzt_make(FZT_SQRT, FZT_ORD);
-        u32 _at = _p->at;
-        while(_at < _p->n && _p->s[_at] == ' ') {
-            _at++;
-        }
-        if(_at < _p->n && _p->s[_at] == '[') {
-            _p->at = _at + 1u;
-            const b8 _was = _p->bracket;
-            _p->bracket = true;
-            _n.b = fzt_parse_list(_p);
-            _p->bracket = _was;
-            if(_p->at < _p->n && _p->s[_p->at] == ']') {
-                _p->at++;
-            }
-        }
-        _n.a = fzt_parse_arg(_p);
-        return fzt_node_add(_p, _n);
-    }
-    if(fzt_named_is(_name, "left")) {
-        fzt_node _n = fzt_make(FZT_DELIM, FZT_INNER);
-        _n.cp = fzt_parse_delim(_p);
-        _n.a  = fzt_parse_list(_p);
-        const fzt_tok _r = fzt_peek(_p);
-        if(_r.kind == FZT_T_CMD && fzt_named_is(_r.name, "right")) {
-            fzt_take(_p);
-            _n.cp2 = fzt_parse_delim(_p);
-        } else {
-            _p->unknown++;
-        }
-        return fzt_node_add(_p, _n);
-    }
-    if(fzt_named_is(_name, "middle")) {
-        fzt_node _n = fzt_make(FZT_SYM, FZT_REL);
-        _n.cp = fzt_parse_delim(_p);
-        return _n.cp != 0u ? fzt_node_add(_p, _n) : FZT_NONE;
-    }
-    if(strncmp(_name, "big", 3) == 0 || strncmp(_name, "Big", 3) == 0) {
-        // \big \Big \bigg \Bigg, and their l r m forms: a delimiter of that size
-        const c8* _rest = _name + 3;
-        f64 _size = 1.2;
-        u8  _cls  = FZT_ORD;
-        if(strncmp(_rest, "g", 1) == 0) {
-            _size = _name[0] == 'b' ? 2.4 : 3.0;
-            _rest++;
-        } else {
-            _size = _name[0] == 'b' ? 1.2 : 1.8;
-        }
-        if(*_rest == 'l') { _cls = FZT_OPEN; }
-        else if(*_rest == 'r') { _cls = FZT_CLOSE; }
-        else if(*_rest == 'm') { _cls = FZT_REL; }
-        else if(*_rest != 0) {
-            _p->unknown++;
-            return FZT_NONE;
-        }
-        fzt_node _n = fzt_make(FZT_BIG, _cls);
-        _n.cp = fzt_parse_delim(_p);
-        _n.amount = _size;
-        return fzt_node_add(_p, _n);
-    }
-    if(fzt_named_is(_name, "begin")) {
-        return fzt_parse_env(_p);
-    }
-    if(fzt_named_is(_name, "overline") || fzt_named_is(_name, "underline")) {
-        fzt_node _n = fzt_make(_name[0] == 'o' ? FZT_OVERLINE : FZT_UNDERLINE, FZT_ORD);
-        _n.a = fzt_parse_arg(_p);
-        return fzt_node_add(_p, _n);
-    }
+// One atom (FZT_NONE: what was read changed the last one, or was nothing), with the depth of the reading guarded:
+// fzt_parse_atom, below. A \not reads the atom after it through that.
+RDE_INTERNAL u32 fzt_parse_atom(fzt_parser* _p, u32 _list);
+
+// Reads the commands fzt_parse_compound does not know, for fzt_parse_one (_name the command, already taken): a text or
+// an operator's name, a font, a style, \limits and \nolimits (on the operator just before, the last of _list), \not
+// (the relation after it negated), a command out of place (\\, \right, \end), and anything not known, shown as written.
+// Returns as fzt_parse_one does.
+RDE_INTERNAL u32 fzt_parse_other(fzt_parser* _p, u32 _list, const c8* _name) {
     if(fzt_named_is(_name, "text") || fzt_named_is(_name, "textrm") || fzt_named_is(_name, "mbox") || fzt_named_is(_name, "textnormal") ||
        fzt_named_is(_name, "textit") || fzt_named_is(_name, "textbf")) {
         fzt_node _n = fzt_make(FZT_TEXT, FZT_ORD);
@@ -711,11 +606,221 @@ RDE_INTERNAL u32 fzt_parse_atom(fzt_parser* _p, u32 _list) {
     _p->unknown++;
     fzt_node _n = fzt_make(FZT_TEXT, FZT_ORD);
     c8 _shown[28];
-    snprintf(_shown, sizeof(_shown), "\\%s", _name);
+    rde_snprintf(_shown, sizeof(_shown), "\\%s", _name);
     _n.a = fzt_word(_p, _shown);
     return fzt_node_add(_p, _n);
 }
 
+// Reads a command that builds its atom of others, for fzt_parse_one (_name the command, already taken): a fraction, a
+// binomial, a root, a \left … \right with its \middles (or a \middle out of place), a \big, an environment, a line over
+// or under. Any other command goes on to fzt_parse_other. Returns as fzt_parse_one does.
+RDE_INTERNAL u32 fzt_parse_compound(fzt_parser* _p, u32 _list, const c8* _name) {
+    if(fzt_named_is(_name, "frac") || fzt_named_is(_name, "dfrac") || fzt_named_is(_name, "tfrac") || fzt_named_is(_name, "cfrac")) {
+        fzt_node _n = fzt_make(FZT_FRAC, FZT_INNER);
+        _n.flags = _name[0] == 'd' || _name[0] == 'c' ? FZT_DSTYLE : _name[0] == 't' ? FZT_TSTYLE : 0u;
+        _n.a = fzt_parse_arg(_p);
+        _n.b = fzt_parse_arg(_p);
+        return fzt_node_add(_p, _n);
+    }
+    if(fzt_named_is(_name, "binom") || fzt_named_is(_name, "dbinom") || fzt_named_is(_name, "tbinom")) {
+        fzt_node _f = fzt_make(FZT_FRAC, FZT_INNER);
+        _f.flags = FZT_NORULE | (_name[0] == 'd' ? FZT_DSTYLE : _name[0] == 't' ? FZT_TSTYLE : 0u);
+        _f.a = fzt_parse_arg(_p);
+        _f.b = fzt_parse_arg(_p);
+        const u32 _inside = fzt_list_new(_p);
+        fzt_list_add(_p, _inside, fzt_node_add(_p, _f));
+        fzt_node _d = fzt_make(FZT_DELIM, FZT_INNER);
+        _d.cp = '(';
+        _d.cp2 = ')';
+        _d.a = _inside;
+        return fzt_node_add(_p, _d);
+    }
+    if(fzt_named_is(_name, "sqrt")) {
+        fzt_node _n = fzt_make(FZT_SQRT, FZT_ORD);
+        u32 _at = _p->at;
+        while(_at < _p->n && _p->s[_at] == ' ') {
+            _at++;
+        }
+        if(_at < _p->n && _p->s[_at] == '[') {
+            _p->at = _at + 1u;
+            const b8 _was = _p->bracket;
+            _p->bracket = true;
+            _n.b = fzt_parse_list(_p);
+            _p->bracket = _was;
+            if(_p->at < _p->n && _p->s[_p->at] == ']') {
+                _p->at++;
+            }
+        }
+        _n.a = fzt_parse_arg(_p);
+        return fzt_node_add(_p, _n);
+    }
+    if(fzt_named_is(_name, "left")) {
+        fzt_node _n = fzt_make(FZT_DELIM, FZT_INNER);
+        _n.cp = fzt_parse_delim(_p);
+        _p->middle_ends = true;
+        _n.a  = fzt_parse_list(_p);
+        // Each \middle at its own level: a part of its own (its delimiter, then what follows it up to the next \middle
+        // or the \right), in list b; the layout grows every delimiter alike (fzt_layout_middles). Each turn takes the
+        // \middle, so it ends.
+        while(fzt_peek(_p).kind == FZT_T_CMD && fzt_named_is(fzt_peek(_p).name, "middle")) {
+            fzt_take(_p);
+            fzt_node _m = fzt_make(FZT_DELIM, FZT_INNER);
+            _m.cp = fzt_parse_delim(_p);
+            _p->middle_ends = true;
+            _m.a = fzt_parse_list(_p);
+            if(_n.b == FZT_NONE) {
+                _n.b = fzt_list_new(_p);
+            }
+            fzt_list_add(_p, _n.b, fzt_node_add(_p, _m));
+        }
+        const fzt_tok _r = fzt_peek(_p);
+        if(_r.kind == FZT_T_CMD && fzt_named_is(_r.name, "right")) {
+            fzt_take(_p);
+            _n.cp2 = fzt_parse_delim(_p);
+        } else {
+            _p->unknown++;
+        }
+        return fzt_node_add(_p, _n);
+    }
+    if(fzt_named_is(_name, "middle")) {
+        // (not at a \left's own level, where it would have ended the list: nothing to grow with, so it is reported, and
+        // set at its own size)
+        _p->unknown++;
+        fzt_node _n = fzt_make(FZT_SYM, FZT_REL);
+        _n.cp = fzt_parse_delim(_p);
+        return _n.cp != 0u ? fzt_node_add(_p, _n) : FZT_NONE;
+    }
+    f64 _ems  = 0.0;
+    c8  _side = 0;
+    if(fude_zoom_tex_sizing(_name, &_ems, &_side)) {
+        // \big \Big \bigg \Bigg, and their l r m forms: a delimiter of that size. Any other name starting big is not
+        // one (\bigstar): it goes on to be shown as written, as anything not known is.
+        fzt_node _n = fzt_make(FZT_BIG, _side == 'l' ? FZT_OPEN : _side == 'r' ? FZT_CLOSE : _side == 'm' ? FZT_REL : FZT_ORD);
+        _n.cp = fzt_parse_delim(_p);
+        _n.amount = _ems;
+        return fzt_node_add(_p, _n);
+    }
+    if(fzt_named_is(_name, "begin")) {
+        return fzt_parse_env(_p);
+    }
+    if(fzt_named_is(_name, "overline") || fzt_named_is(_name, "underline")) {
+        fzt_node _n = fzt_make(_name[0] == 'o' ? FZT_OVERLINE : FZT_UNDERLINE, FZT_ORD);
+        _n.a = fzt_parse_arg(_p);
+        return fzt_node_add(_p, _n);
+    }
+    return fzt_parse_other(_p, _list, _name);
+}
+
+// Reads one atom (fzt_parse_atom's work): a group, a character, or a command, those of the tables of symbols,
+// operators, operators' names, accents and spaces here, the rest by fzt_parse_compound and fzt_parse_other.
+RDE_INTERNAL u32 fzt_parse_one(fzt_parser* _p, u32 _list) {
+    const fzt_tok _t = fzt_take(_p);
+    if(_t.kind == FZT_T_OPEN) {
+        fzt_node _g = fzt_make(FZT_GROUP, FZT_ORD);
+        _g.a = fzt_parse_list(_p);
+        if(fzt_peek(_p).kind == FZT_T_CLOSE) {
+            fzt_take(_p);
+        } else {
+            _p->unknown++;
+        }
+        return fzt_node_add(_p, _g);
+    }
+    if(_t.kind == FZT_T_CHAR) {
+        if(_t.cp == '~') {
+            fzt_node _s = fzt_make(FZT_SPACE, FZT_NOCLASS);
+            _s.amount = 0.25;
+            return fzt_node_add(_p, _s);
+        }
+        u32 _cp = _t.cp;
+        fzt_node _n = fzt_make(FZT_SYM, fzt_char_class(&_cp));
+        _n.cp   = _cp;
+        _n.font = _p->font;
+        return fzt_node_add(_p, _n);
+    }
+    if(_t.kind != FZT_T_CMD) {
+        return FZT_NONE;
+    }
+    const c8* _name = _t.name;
+    for(u32 _i = 0; _i < sizeof(FZT_SYMS) / sizeof(FZT_SYMS[0]); _i++) {
+        if(fzt_named_is(_name, FZT_SYMS[_i].name)) {
+            fzt_node _n = fzt_make(FZT_SYM, FZT_SYMS[_i].cls);
+            _n.cp   = FZT_SYMS[_i].cp;
+            _n.font = _p->font;
+            return fzt_node_add(_p, _n);
+        }
+    }
+    for(u32 _i = 0; _i < sizeof(FZT_OPS) / sizeof(FZT_OPS[0]); _i++) {
+        if(fzt_named_is(_name, FZT_OPS[_i].name)) {
+            fzt_node _n = fzt_make(FZT_BIGOP, FZT_OP);
+            _n.cp    = FZT_OPS[_i].cp;
+            _n.flags = FZT_OPS[_i].integral ? FZT_NOLIMITS : 0u;
+            return fzt_node_add(_p, _n);
+        }
+    }
+    for(u32 _i = 0; _i < sizeof(FZT_NAMED) / sizeof(FZT_NAMED[0]); _i++) {
+        if(fzt_named_is(_name, FZT_NAMED[_i].name)) {
+            fzt_node _n = fzt_make(FZT_TEXTOP, FZT_OP);
+            _n.a     = fzt_word(_p, _name);
+            _n.flags = FZT_NAMED[_i].limits ? 0u : FZT_NOLIMITS;
+            return fzt_node_add(_p, _n);
+        }
+    }
+    for(u32 _i = 0; _i < sizeof(FZT_ACCENTS) / sizeof(FZT_ACCENTS[0]); _i++) {
+        if(fzt_named_is(_name, FZT_ACCENTS[_i].name)) {
+            fzt_node _n = fzt_make(FZT_ACCENT, FZT_ORD);
+            _n.cp    = FZT_ACCENTS[_i].cp;
+            _n.flags = FZT_ACCENTS[_i].wide ? FZT_WIDE : 0u;
+            _n.a     = fzt_parse_arg(_p);
+            return fzt_node_add(_p, _n);
+        }
+    }
+    for(u32 _i = 0; _i < sizeof(FZT_SPACES) / sizeof(FZT_SPACES[0]); _i++) {
+        if(fzt_named_is(_name, FZT_SPACES[_i].name)) {
+            fzt_node _n = fzt_make(FZT_SPACE, FZT_NOCLASS);
+            _n.amount = FZT_SPACES[_i].ems;
+            return fzt_node_add(_p, _n);
+        }
+    }
+    return fzt_parse_compound(_p, _list, _name);
+}
+
+// See above: one atom, read by fzt_parse_one, counted in the parser's depth as a list is. \sqrt\sqrt… and \hat\hat…
+// nest atoms in atoms with no list between them, so the lists' count alone would not stop them; past FZT_DEPTH the
+// reading stops (the rest of the source left out, counted as not known).
+RDE_INTERNAL u32 fzt_parse_atom(fzt_parser* _p, u32 _list) {
+    if(_p->depth >= FZT_DEPTH) {
+        _p->unknown++;
+        _p->at = _p->n;
+        return FZT_NONE;
+    }
+    _p->depth++;
+    const u32 _n = fzt_parse_one(_p, _list);
+    _p->depth--;
+    return _n;
+}
+
+// See the header: the names fzt_parse_one sets as sized delimiters.
+b8 fude_zoom_tex_sizing(const c8* _name, f64* _ems, c8* _side) {
+    if(_name == NULL || (rde_strncmp(_name, "big", 3) != 0 && rde_strncmp(_name, "Big", 3) != 0)) {
+        return false;
+    }
+    const c8* _rest   = _name + 3;
+    const b8  _bigger = *_rest == 'g';   // (\bigg, \Bigg)
+    _rest += _bigger ? 1 : 0;
+    if(!(_rest[0] == 0 || ((_rest[0] == 'l' || _rest[0] == 'r' || _rest[0] == 'm') && _rest[1] == 0))) {
+        return false;
+    }
+    if(_ems != NULL) {
+        *_ems = _bigger ? (_name[0] == 'b' ? 2.4 : 3.0) : (_name[0] == 'b' ? 1.2 : 1.8);
+    }
+    if(_side != NULL) {
+        *_side = _rest[0];
+    }
+    return true;
+}
+
+// Reads a command's argument: a {group}'s list, or a list of the one atom that comes next. A missing argument (the
+// end, a }, an &) is counted as not known and gives an empty list.
 RDE_INTERNAL u32 fzt_parse_arg(fzt_parser* _p) {
     const fzt_tok _t = fzt_peek(_p);
     if(_t.kind == FZT_T_OPEN) {
@@ -760,19 +865,27 @@ RDE_INTERNAL void fzt_attach(fzt_parser* _p, u32 _list, b8 _sup, u32 _script) {
     fzt_list_add(_p, _list, fzt_node_add(_p, _s));
 }
 
+// Reads atoms into a new list until the end, a }, an &, \\, \cr, \right or \end (or a ']' inside \sqrt's [degree], or
+// a \middle when it is a \left's own list), and returns it. ^ and _ put the next argument on the last atom as a script
+// (fzt_attach), and primes become ′ ″ ‴. Reading nested deeper than FZT_DEPTH stops there, the rest of the source left
+// out.
 RDE_INTERNAL u32 fzt_parse_list(fzt_parser* _p) {
     const u32 _l = fzt_list_new(_p);
-    if(++_p->depth > 64u) {
+    if(++_p->depth > FZT_DEPTH) {
         _p->depth--;
         _p->unknown++;
         _p->at = _p->n;   // (nested past reason: the rest left out)
         return _l;
     }
+    // (a \middle ends this list only when it is a \left's own: the lists inside it, groups and
+    // arguments, go on past it)
+    const b8 _middle_ends = _p->middle_ends;
+    _p->middle_ends = false;
     for(u32 _guard = 0; _guard < 100000u; _guard++) {
         const fzt_tok _t = fzt_peek(_p);
         if(_t.kind == FZT_T_END || _t.kind == FZT_T_CLOSE || _t.kind == FZT_T_AMP ||
            (_t.kind == FZT_T_CMD && (fzt_named_is(_t.name, "\\") || fzt_named_is(_t.name, "cr") || fzt_named_is(_t.name, "right") ||
-                                     fzt_named_is(_t.name, "end"))) ||
+                                     fzt_named_is(_t.name, "end") || (_middle_ends && fzt_named_is(_t.name, "middle")))) ||
            (_p->bracket && _t.kind == FZT_T_CHAR && _t.cp == ']')) {
             break;
         }
@@ -809,12 +922,15 @@ RDE_INTERNAL u32 fzt_parse_list(fzt_parser* _p) {
 
 // --- boxes -----------------------------------------------------------------------------------------
 
+// A box's item: a glyph at its origin and size, or a rule from its bottom left, its width and its height (ems).
 typedef struct {
     b8  rule;
     u32 glyph;
     f64 x, y, s, w, h;   // a glyph: its origin, its size; a rule: its bottom left, its width and height
 } fzt_item;
 
+// A laid-out box: its items placed from its origin, its width, height and depth (ems), and what a script or an accent
+// over it needs to know of it.
 typedef struct {
     rde_arr items;   // fzt_item
     f64     w, h, d;
@@ -825,13 +941,15 @@ typedef struct {
     b8      limits;  // ...its limits above and below
 } fzt_box;
 
+// Returns an empty box with its items' array made.
 RDE_INTERNAL fzt_box fzt_box_new(void) {
     fzt_box _b;
-    memset(&_b, 0, sizeof(_b));
+    rde_memset(&_b, 0, sizeof(_b));
     _b.items = rde_arr_new(sizeof(fzt_item), rde_memory_allocator_get_default_std());
     return _b;
 }
 
+// Frees a box's items.
 RDE_INTERNAL void fzt_box_drop(fzt_box* _b) {
     rde_arr_free(&_b->items);
 }
@@ -848,16 +966,20 @@ RDE_INTERNAL void fzt_put(fzt_box* _dst, fzt_box* _src, f64 _dx, f64 _dy) {
     fzt_box_drop(_src);
 }
 
+// Adds a rule to _b, its bottom left at (_x, _y), _w wide and _h high (ems).
 RDE_INTERNAL void fzt_rule(fzt_box* _b, f64 _x, f64 _y, f64 _w, f64 _h) {
     const fzt_item _r = { true, 0u, _x, _y, 1.0, _w, _h };
     rde_arr_add(&_b->items, (any)&_r);
 }
 
+// A style: its level, and whether it is cramped (its superscripts set lower).
 typedef struct {
     u8 level;      // 0 display, 1 text, 2 script, 3 scriptscript
     b8 cramped;
 } fzt_style;
 
+// What laying out needs: the font, the parsed tree, the font's units an em, and the script and scriptscript sizes (the
+// font's MathConstants percentages, as fractions).
 typedef struct {
     const fude_zoom_mfont* f;
     fzt_parser*            p;
@@ -865,6 +987,7 @@ typedef struct {
     f64                    script, scriptscript;
 } fzt_layout;
 
+// Returns the size of style _s, as a fraction of the formula's: 1 in display and text style, else the script sizes.
 RDE_INTERNAL f64 fzt_size(const fzt_layout* _l, fzt_style _s) {
     return _s.level < 2u ? 1.0 : _s.level == 2u ? _l->script : _l->scriptscript;
 }
@@ -874,15 +997,20 @@ RDE_INTERNAL f64 fzt_c(const fzt_layout* _l, u32 _which, fzt_style _s) {
     return (f64)fude_zoom_mfont_constant(_l->f, _which) / _l->unit * fzt_size(_l, _s);
 }
 
+// The styles of a superscript, a subscript, a numerator and a denominator from style _s, by TeX's rules. A
+// superscript's is script, or scriptscript from the script styles, cramped as _s is.
 RDE_INTERNAL fzt_style fzt_sup_style(fzt_style _s) {
     return (fzt_style){ (u8)(_s.level < 2u ? 2u : 3u), _s.cramped };
 }
+// A subscript's style: as a superscript's, but always cramped.
 RDE_INTERNAL fzt_style fzt_sub_style(fzt_style _s) {
     return (fzt_style){ (u8)(_s.level < 2u ? 2u : 3u), true };
 }
+// A numerator's style: a level smaller than _s (display to text, text to script, else scriptscript), cramped as _s is.
 RDE_INTERNAL fzt_style fzt_num_style(fzt_style _s) {
     return (fzt_style){ (u8)(_s.level == 0u ? 1u : _s.level == 1u ? 2u : 3u), _s.cramped };
 }
+// A denominator's style: as a numerator's, but always cramped.
 RDE_INTERNAL fzt_style fzt_den_style(fzt_style _s) {
     return (fzt_style){ (u8)(_s.level == 0u ? 1u : _s.level == 1u ? 2u : 3u), true };
 }
@@ -960,8 +1088,8 @@ RDE_INTERNAL fzt_box fzt_glyph_box(const fzt_layout* _l, u32 _g, f64 _s) {
     fude_zoom_mfont_box(_l->f, _g, _box);
     const f64 _k = _s / _l->unit;
     _b.w      = fude_zoom_mfont_advance(_l->f, _g) * _k;
-    _b.h      = fmax(0.0, _box[3] * _k);
-    _b.d      = fmax(0.0, -_box[1] * _k);
+    _b.h      = rde_math_max_f64(0.0, _box[3] * _k);
+    _b.d      = rde_math_max_f64(0.0, -_box[1] * _k);
     _b.italic = fude_zoom_mfont_italic(_l->f, _g) * _k;
     _b.accent = fude_zoom_mfont_accent_at(_l->f, _g) * _k;
     _b.glyph1 = true;
@@ -976,8 +1104,9 @@ RDE_INTERNAL u32 fzt_glyph(const fzt_layout* _l, u32 _cp) {
     return _g != 0u ? _g : fude_zoom_mfont_glyph(_l->f, '?');
 }
 
-// _cp grown along (vertically, or across) to at least _need ems at size _s: its biggest form that is enough, else built of
-// its pieces (as long as it takes, the pieces' overlaps shared out evenly), else its biggest form.
+// Returns _cp grown along (up, or across) to at least _need ems at size _s: its smallest bigger form that is enough,
+// else built of its pieces (repeating the extenders as often as it takes, the pieces' overlaps shared out evenly within
+// what their connectors allow), else its biggest form.
 RDE_INTERNAL fzt_box fzt_stretch(const fzt_layout* _l, u32 _cp, f64 _need, b8 _vertical, f64 _s) {
     const u32 _g = fzt_glyph(_l, _cp);
     const f64 _k = _s / _l->unit;
@@ -1018,12 +1147,12 @@ RDE_INTERNAL fzt_box fzt_stretch(const fzt_layout* _l, u32 _cp, f64 _need, b8 _v
         const u32 _times = _parts[_i].extender ? _repeat : 1u;
         for(u32 _t = 0; _t < _times; _t++) {
             if(_prev != FZT_NONE) {
-                _most = fmin(_most, fmin(_parts[_prev].end, _parts[_i].start) * _k);
+                _most = rde_math_min_f64(_most, rde_math_min_f64(_parts[_prev].end, _parts[_i].start) * _k);
             }
             _prev = _i;
         }
     }
-    _overlap = fmax(_min_overlap, fmin(_overlap, _most < 1e29 ? _most : _overlap));
+    _overlap = rde_math_max_f64(_min_overlap, rde_math_min_f64(_overlap, _most < 1e29 ? _most : _overlap));
     fzt_box _b = fzt_box_new();
     f64 _at = 0.0, _across = 0.0;
     for(u32 _i = 0; _i < _np; _i++) {
@@ -1033,7 +1162,7 @@ RDE_INTERNAL fzt_box fzt_stretch(const fzt_layout* _l, u32 _cp, f64 _need, b8 _v
             rde_arr_add(&_b.items, (any)&_it);
             i32 _box[4];
             fude_zoom_mfont_box(_l->f, _parts[_i].glyph, _box);
-            _across = fmax(_across, _vertical ? fude_zoom_mfont_advance(_l->f, _parts[_i].glyph) * _k : _box[3] * _k);
+            _across = rde_math_max_f64(_across, _vertical ? fude_zoom_mfont_advance(_l->f, _parts[_i].glyph) * _k : _box[3] * _k);
             _at += _parts[_i].advance * _k - _overlap;
         }
     }
@@ -1047,12 +1176,13 @@ RDE_INTERNAL fzt_box fzt_stretch(const fzt_layout* _l, u32 _cp, f64 _need, b8 _v
         fude_zoom_mfont_box(_l->f, _parts[0].glyph, _box);
         _b.w = _length;
         _b.h = _across;
-        _b.d = fmax(0.0, -_box[1] * _k);
+        _b.d = rde_math_max_f64(0.0, -_box[1] * _k);
     }
     return _b;
 }
 
-// _cp as a delimiter round _h above the axis and _d below it (or a size of its own): grown to cover them, centred on the axis.
+// Returns _cp as a delimiter grown to cover _cover ems in all at style _s, centred on the maths axis. A _cp of 0 (none,
+// as \left.) gives an empty box as wide as TeX's null delimiter space.
 RDE_INTERNAL fzt_box fzt_delimiter(const fzt_layout* _l, u32 _cp, f64 _cover, fzt_style _s) {
     const f64 _size = fzt_size(_l, _s);
     if(_cp == 0u) {
@@ -1073,6 +1203,7 @@ RDE_INTERNAL fzt_box fzt_delimiter(const fzt_layout* _l, u32 _cp, f64 _cover, fz
     return _b;
 }
 
+// The layout's functions call each other; these are defined below.
 RDE_INTERNAL fzt_box fzt_layout_list(fzt_layout* _l, u32 _list, fzt_style _s);
 RDE_INTERNAL fzt_box fzt_layout_node(fzt_layout* _l, u32 _node, fzt_style _s, u8* _cls);
 
@@ -1110,10 +1241,10 @@ RDE_INTERNAL fzt_box fzt_layout_limits(fzt_layout* _l, fzt_box* _base, u32 _sup,
     fzt_box _up = _sup != FZT_NONE ? fzt_layout_list(_l, _sup, fzt_sup_style(_s)) : fzt_box_new();
     fzt_box _dn = _sub != FZT_NONE ? fzt_layout_list(_l, _sub, fzt_sub_style(_s)) : fzt_box_new();
     const f64 _italic = _base->italic;
-    const f64 _w = fmax(_base->w, fmax(_up.w + _italic, _dn.w + _italic));
+    const f64 _w = rde_math_max_f64(_base->w, rde_math_max_f64(_up.w + _italic, _dn.w + _italic));
     f64 _h = _base->h, _d = _base->d;
-    const f64 _up_shift = _sup != FZT_NONE ? fmax(fzt_c(_l, FUDE_ZOOM_MATH_UPPER_LIMIT_BASELINE_RISE_MIN, _s), _up.d + fzt_c(_l, FUDE_ZOOM_MATH_UPPER_LIMIT_GAP_MIN, _s)) : 0.0;
-    const f64 _dn_shift = _sub != FZT_NONE ? fmax(fzt_c(_l, FUDE_ZOOM_MATH_LOWER_LIMIT_BASELINE_DROP_MIN, _s), _dn.h + fzt_c(_l, FUDE_ZOOM_MATH_LOWER_LIMIT_GAP_MIN, _s)) : 0.0;
+    const f64 _up_shift = _sup != FZT_NONE ? rde_math_max_f64(fzt_c(_l, FUDE_ZOOM_MATH_UPPER_LIMIT_BASELINE_RISE_MIN, _s), _up.d + fzt_c(_l, FUDE_ZOOM_MATH_UPPER_LIMIT_GAP_MIN, _s)) : 0.0;
+    const f64 _dn_shift = _sub != FZT_NONE ? rde_math_max_f64(fzt_c(_l, FUDE_ZOOM_MATH_LOWER_LIMIT_BASELINE_DROP_MIN, _s), _dn.h + fzt_c(_l, FUDE_ZOOM_MATH_LOWER_LIMIT_GAP_MIN, _s)) : 0.0;
     const f64 _bw = _base->w;
     fzt_put(&_b, _base, (_w - _bw) * 0.5, 0.0);
     if(_sup != FZT_NONE) {
@@ -1150,13 +1281,13 @@ RDE_INTERNAL fzt_box fzt_layout_scripts(fzt_layout* _l, fzt_box* _base, u32 _sup
     f64 _u = _char ? 0.0 : _base->h - fzt_c(_l, FUDE_ZOOM_MATH_SUPERSCRIPT_BASELINE_DROP_MAX, _s);
     f64 _v = _char ? 0.0 : _base->d + fzt_c(_l, FUDE_ZOOM_MATH_SUBSCRIPT_BASELINE_DROP_MIN, _s);
     if(_sup != FZT_NONE) {
-        _u = fmax(_u, fzt_c(_l, _s.cramped ? FUDE_ZOOM_MATH_SUPERSCRIPT_SHIFT_UP_CRAMPED : FUDE_ZOOM_MATH_SUPERSCRIPT_SHIFT_UP, _s));
-        _u = fmax(_u, _up.d + fzt_c(_l, FUDE_ZOOM_MATH_SUPERSCRIPT_BOTTOM_MIN, _s));
+        _u = rde_math_max_f64(_u, fzt_c(_l, _s.cramped ? FUDE_ZOOM_MATH_SUPERSCRIPT_SHIFT_UP_CRAMPED : FUDE_ZOOM_MATH_SUPERSCRIPT_SHIFT_UP, _s));
+        _u = rde_math_max_f64(_u, _up.d + fzt_c(_l, FUDE_ZOOM_MATH_SUPERSCRIPT_BOTTOM_MIN, _s));
     }
     if(_sub != FZT_NONE) {
-        _v = fmax(_v, fzt_c(_l, FUDE_ZOOM_MATH_SUBSCRIPT_SHIFT_DOWN, _s));
+        _v = rde_math_max_f64(_v, fzt_c(_l, FUDE_ZOOM_MATH_SUBSCRIPT_SHIFT_DOWN, _s));
         if(_sup == FZT_NONE) {
-            _v = fmax(_v, _dn.h - fzt_c(_l, FUDE_ZOOM_MATH_SUBSCRIPT_TOP_MAX, _s));
+            _v = rde_math_max_f64(_v, _dn.h - fzt_c(_l, FUDE_ZOOM_MATH_SUBSCRIPT_TOP_MAX, _s));
         }
     }
     if(_sup != FZT_NONE && _sub != FZT_NONE) {
@@ -1181,16 +1312,16 @@ RDE_INTERNAL fzt_box fzt_layout_scripts(fzt_layout* _l, fzt_box* _base, u32 _sup
     f64 _h = _bh, _d = _bd;
     if(_sup != FZT_NONE) {
         const f64 _x = _bw + (_base->op ? 0.0 : _italic);
-        _w = fmax(_w, _x + _up.w + _space);
-        _h = fmax(_h, _u + _up.h);
+        _w = rde_math_max_f64(_w, _x + _up.w + _space);
+        _h = rde_math_max_f64(_h, _u + _up.h);
         fzt_put(&_b, &_up, _x, _u);
     } else {
         fzt_box_drop(&_up);
     }
     if(_sub != FZT_NONE) {
         const f64 _x = _bw - (_base->op ? _italic : 0.0);
-        _w = fmax(_w, _x + _dn.w + _space);
-        _d = fmax(_d, _v + _dn.d);
+        _w = rde_math_max_f64(_w, _x + _dn.w + _space);
+        _d = rde_math_max_f64(_d, _v + _dn.d);
         fzt_put(&_b, &_dn, _x, -_v);
     } else {
         fzt_box_drop(&_dn);
@@ -1201,6 +1332,9 @@ RDE_INTERNAL fzt_box fzt_layout_scripts(fzt_layout* _l, fzt_box* _base, u32 _sup
     return _b;
 }
 
+// A fraction (or \binom's stack, with no bar): numerator and denominator in their styles, shifted by the font's
+// constants and pushed apart until they keep their least gaps from the bar (or from each other), centred over each
+// other, with a little room either side of the bar.
 RDE_INTERNAL fzt_box fzt_layout_frac(fzt_layout* _l, const fzt_node* _n, fzt_style _s) {
     if(_n->flags & FZT_DSTYLE) { _s.level = 0u; }
     else if(_n->flags & FZT_TSTYLE) { _s.level = _s.level < 1u ? 1u : _s.level; }
@@ -1216,8 +1350,8 @@ RDE_INTERNAL fzt_box fzt_layout_frac(fzt_layout* _l, const fzt_node* _n, fzt_sty
         _down = fzt_c(_l, _display ? FUDE_ZOOM_MATH_FRACTION_DENOMINATOR_DISPLAY_STYLE_SHIFT_DOWN : FUDE_ZOOM_MATH_FRACTION_DENOMINATOR_SHIFT_DOWN, _s);
         const f64 _gap_up = fzt_c(_l, _display ? FUDE_ZOOM_MATH_FRACTION_NUM_DISPLAY_STYLE_GAP_MIN : FUDE_ZOOM_MATH_FRACTION_NUMERATOR_GAP_MIN, _s);
         const f64 _gap_dn = fzt_c(_l, _display ? FUDE_ZOOM_MATH_FRACTION_DENOM_DISPLAY_STYLE_GAP_MIN : FUDE_ZOOM_MATH_FRACTION_DENOMINATOR_GAP_MIN, _s);
-        _up   = fmax(_up, _num.d + _axis + _t * 0.5 + _gap_up);
-        _down = fmax(_down, _den.h - (_axis - _t * 0.5) + _gap_dn);
+        _up   = rde_math_max_f64(_up, _num.d + _axis + _t * 0.5 + _gap_up);
+        _down = rde_math_max_f64(_down, _den.h - (_axis - _t * 0.5) + _gap_dn);
     } else {
         _up   = fzt_c(_l, _display ? FUDE_ZOOM_MATH_STACK_TOP_DISPLAY_STYLE_SHIFT_UP : FUDE_ZOOM_MATH_STACK_TOP_SHIFT_UP, _s);
         _down = fzt_c(_l, _display ? FUDE_ZOOM_MATH_STACK_BOTTOM_DISPLAY_STYLE_SHIFT_DOWN : FUDE_ZOOM_MATH_STACK_BOTTOM_SHIFT_DOWN, _s);
@@ -1229,7 +1363,7 @@ RDE_INTERNAL fzt_box fzt_layout_frac(fzt_layout* _l, const fzt_node* _n, fzt_sty
         }
     }
     const f64 _pad = 0.12 * fzt_size(_l, _s);
-    const f64 _w = fmax(_num.w, _den.w) + 2.0 * _pad;
+    const f64 _w = rde_math_max_f64(_num.w, _den.w) + 2.0 * _pad;
     fzt_box _b = fzt_box_new();
     const f64 _nw = _num.w, _dw = _den.w, _nh = _num.h, _dd = _den.d;
     fzt_put(&_b, &_num, (_w - _nw) * 0.5, _up);
@@ -1243,6 +1377,8 @@ RDE_INTERNAL fzt_box fzt_layout_frac(fzt_layout* _l, const fzt_node* _n, fzt_sty
     return _b;
 }
 
+// A root: its inside cramped, the radical sign grown to its height and gap, the bar over it, and a degree (\sqrt[n])
+// set in scriptscript style on the sign's left, raised as the font says.
 RDE_INTERNAL fzt_box fzt_layout_sqrt(fzt_layout* _l, const fzt_node* _n, fzt_style _s) {
     const f64 _size = fzt_size(_l, _s);
     fzt_box _in = fzt_layout_list(_l, _n->a, (fzt_style){ _s.level, true });
@@ -1260,7 +1396,7 @@ RDE_INTERNAL fzt_box fzt_layout_sqrt(fzt_layout* _l, const fzt_node* _n, fzt_sty
     const f64 _shift = _top - _root.h;               // (the sign raised by this)
     fzt_box _b = fzt_box_new();
     f64 _x = 0.0;
-    f64 _h = _top + _extra, _d = fmax(_in.d, _root.d - _shift);
+    f64 _h = _top + _extra, _d = rde_math_max_f64(_in.d, _root.d - _shift);
     if(_n->b != FZT_NONE) {
         fzt_box _deg = fzt_layout_list(_l, _n->b, (fzt_style){ 3u, true });
         const f64 _before = fzt_c(_l, FUDE_ZOOM_MATH_RADICAL_KERN_BEFORE_DEGREE, _s);
@@ -1269,8 +1405,8 @@ RDE_INTERNAL fzt_box fzt_layout_sqrt(fzt_layout* _l, const fzt_node* _n, fzt_sty
         const f64 _y = -(_root.d - _shift) + _tall * _raise;
         const f64 _dw = _deg.w, _dh = _deg.h;
         fzt_put(&_b, &_deg, _before, _y + _deg.d);
-        _h = fmax(_h, _y + _dh);
-        _x = fmax(0.0, _before + _dw + _after);
+        _h = rde_math_max_f64(_h, _y + _dh);
+        _x = rde_math_max_f64(0.0, _before + _dw + _after);
     }
     const f64 _rw = _root.w;
     fzt_put(&_b, &_root, _x, _shift);
@@ -1286,14 +1422,14 @@ RDE_INTERNAL fzt_box fzt_layout_sqrt(fzt_layout* _l, const fzt_node* _n, fzt_sty
 // What is between \left and \right, the delimiters grown to it (TeX's rule 19: 90% of it, or 0.5 em short at most).
 RDE_INTERNAL fzt_box fzt_layout_delim(fzt_layout* _l, fzt_box* _in, u32 _open, u32 _close, fzt_style _s) {
     const f64 _axis = fzt_c(_l, FUDE_ZOOM_MATH_AXIS_HEIGHT, _s);
-    const f64 _delta = fmax(_in->h - _axis, _in->d + _axis);
-    const f64 _cover = fmax(2.0 * _delta * 0.901, 2.0 * _delta - 0.5 * fzt_size(_l, _s));
+    const f64 _delta = rde_math_max_f64(_in->h - _axis, _in->d + _axis);
+    const f64 _cover = rde_math_max_f64(2.0 * _delta * 0.901, 2.0 * _delta - 0.5 * fzt_size(_l, _s));
     fzt_box _a = fzt_delimiter(_l, _open, _cover, _s);
     fzt_box _c = fzt_delimiter(_l, _close, _cover, _s);
     fzt_box _b = fzt_box_new();
     const f64 _aw = _a.w, _iw = _in->w, _cw = _c.w;
-    _b.h = fmax(_in->h, fmax(_a.h, _c.h));
-    _b.d = fmax(_in->d, fmax(_a.d, _c.d));
+    _b.h = rde_math_max_f64(_in->h, rde_math_max_f64(_a.h, _c.h));
+    _b.d = rde_math_max_f64(_in->d, rde_math_max_f64(_a.d, _c.d));
     fzt_put(&_b, &_a, 0.0, 0.0);
     fzt_put(&_b, _in, _aw, 0.0);
     fzt_put(&_b, &_c, _aw + _iw, 0.0);
@@ -1301,6 +1437,55 @@ RDE_INTERNAL fzt_box fzt_layout_delim(fzt_layout* _l, fzt_box* _in, u32 _open, u
     return _b;
 }
 
+// What is between \left and \right with \middle in it (node _n, its parts in list b): each part laid out once (what
+// comes before the first \middle, then what follows each), then every delimiter, the \left's, each \middle's and the
+// \right's, grown alike to cover the tallest part by fzt_layout_delim's rule, and all of it set side by side (e-TeX's
+// \middle: one size for them all, no space added round it).
+RDE_INTERNAL fzt_box fzt_layout_middles(fzt_layout* _l, const fzt_node* _n, fzt_style _s) {
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    // The parts' boxes, and the delimiter after each (each \middle's, then the \right's).
+    const u32 _count = (u32)rde_arr_length(fzt_list(_l->p, _n->b));
+    rde_arr _parts_arr = rde_arr_new(sizeof(fzt_box), _heap), _after_arr = rde_arr_new(sizeof(u32), _heap);
+    for(u32 _k = 0; _k <= _count; _k++) {
+        // (copied: laying a part out may move the arenas)
+        const fzt_node _m = _k == 0u ? *_n : *fzt_node_at(_l->p, ((const u32*)fzt_list(_l->p, _n->b)->memory)[_k - 1u]);
+        fzt_box _part = fzt_layout_list(_l, _m.a, _s);
+        rde_arr_add(&_parts_arr, (any)&_part);
+        const u32 _after = _k < _count ? fzt_node_at(_l->p, ((const u32*)fzt_list(_l->p, _n->b)->memory)[_k])->cp : _n->cp2;
+        rde_arr_add(&_after_arr, (any)&_after);
+    }
+    fzt_box* _parts = (fzt_box*)_parts_arr.memory;
+    const u32* _after = (const u32*)_after_arr.memory;
+    const f64 _axis = fzt_c(_l, FUDE_ZOOM_MATH_AXIS_HEIGHT, _s);
+    f64 _delta = 0.0;
+    for(u32 _k = 0; _k <= _count; _k++) {
+        _delta = rde_math_max_f64(_delta, rde_math_max_f64(_parts[_k].h - _axis, _parts[_k].d + _axis));
+    }
+    const f64 _cover = rde_math_max_f64(2.0 * _delta * 0.901, 2.0 * _delta - 0.5 * fzt_size(_l, _s));
+    fzt_box _b = fzt_box_new();
+    fzt_box _open = fzt_delimiter(_l, _n->cp, _cover, _s);
+    f64 _x = _open.w;
+    _b.h = _open.h;
+    _b.d = _open.d;
+    fzt_put(&_b, &_open, 0.0, 0.0);
+    for(u32 _k = 0; _k <= _count; _k++) {
+        fzt_box _d = fzt_delimiter(_l, _after[_k], _cover, _s);
+        const f64 _pw = _parts[_k].w, _dw = _d.w;
+        _b.h = rde_math_max_f64(_b.h, rde_math_max_f64(_parts[_k].h, _d.h));
+        _b.d = rde_math_max_f64(_b.d, rde_math_max_f64(_parts[_k].d, _d.d));
+        fzt_put(&_b, &_parts[_k], _x, 0.0);
+        fzt_put(&_b, &_d, _x + _pw, 0.0);
+        _x += _pw + _dw;
+    }
+    _b.w = _x;
+    rde_arr_free(&_parts_arr);
+    rde_arr_free(&_after_arr);
+    return _b;
+}
+
+// A matrix, or an environment's cells: each cell laid out, the columns as wide as their widest cell and the rows as
+// tall as their tallest, aligned as the node says, the whole centred on the axis and set between its delimiters, if it
+// has any.
 RDE_INTERNAL fzt_box fzt_layout_matrix(fzt_layout* _l, const fzt_node* _n, fzt_style _s) {
     const fzt_style _cell = { (u8)((_n->flags & FZT_TSTYLE) ? 2u : (_s.level < 1u ? 1u : _s.level)), false };
     const f64 _size = fzt_size(_l, _s);
@@ -1318,7 +1503,7 @@ RDE_INTERNAL fzt_box fzt_layout_matrix(fzt_layout* _l, const fzt_node* _n, fzt_s
     f64* _cw = (f64*)_cw_arr.memory;
     f64* _rh = (f64*)_rh_arr.memory;
     f64* _rd = (f64*)_rd_arr.memory;
-    memset(_has, 0, (usize)_rows * _cols);
+    rde_memset(_has, 0, (usize)_rows * _cols);
     for(u32 _i = 0; _i < _cols; _i++) { _cw[_i] = 0.0; }
     for(u32 _i = 0; _i < _rows; _i++) { _rh[_i] = 0.7 * _size; _rd[_i] = 0.3 * _size; }   // (an empty row: a strut's)
     const rde_arr* _cells = fzt_list(_l->p, _n->a);
@@ -1330,9 +1515,9 @@ RDE_INTERNAL fzt_box fzt_layout_matrix(fzt_layout* _l, const fzt_node* _n, fzt_s
         const u32 _at = _g->rows * _cols + _g->cols;
         _boxes[_at] = fzt_layout_list(_l, _g->a, _cell);
         _has[_at] = 1u;
-        _cw[_g->cols] = fmax(_cw[_g->cols], _boxes[_at].w);
-        _rh[_g->rows] = fmax(_rh[_g->rows], _boxes[_at].h);
-        _rd[_g->rows] = fmax(_rd[_g->rows], _boxes[_at].d);
+        _cw[_g->cols] = rde_math_max_f64(_cw[_g->cols], _boxes[_at].w);
+        _rh[_g->rows] = rde_math_max_f64(_rh[_g->rows], _boxes[_at].h);
+        _rd[_g->rows] = rde_math_max_f64(_rd[_g->rows], _boxes[_at].d);
     }
     // (rows a baseline 1.2 ems apart at least, a gap between each; columns an em apart — aligned's pairs closer, as =)
     const f64 _row_gap = 0.25 * _size, _pitch = 1.2 * _size;
@@ -1343,7 +1528,7 @@ RDE_INTERNAL fzt_box fzt_layout_matrix(fzt_layout* _l, const fzt_node* _n, fzt_s
     f64* _base = (f64*)_base_arr.memory;
     for(u32 _r = 0; _r < _rows; _r++) {
         if(_r > 0u) {
-            _y -= fmax(_rd[_r - 1u] + _row_gap + _rh[_r], _pitch);
+            _y -= rde_math_max_f64(_rd[_r - 1u] + _row_gap + _rh[_r], _pitch);
         }
         _base[_r] = _y;
     }
@@ -1396,19 +1581,19 @@ RDE_INTERNAL void fzt_ink(const fzt_layout* _l, const fzt_box* _b, f64* _top, f6
     const fzt_item* _it = (const fzt_item*)_b->items.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_b->items); _i++) {
         if(_it[_i].rule) {
-            *_top    = fmax(*_top, _it[_i].y + _it[_i].h);
-            *_bottom = fmin(*_bottom, _it[_i].y);
-            *_left   = fmin(*_left, _it[_i].x);
-            *_right  = fmax(*_right, _it[_i].x + _it[_i].w);
+            *_top    = rde_math_max_f64(*_top, _it[_i].y + _it[_i].h);
+            *_bottom = rde_math_min_f64(*_bottom, _it[_i].y);
+            *_left   = rde_math_min_f64(*_left, _it[_i].x);
+            *_right  = rde_math_max_f64(*_right, _it[_i].x + _it[_i].w);
             continue;
         }
         i32 _box[4];
         if(fude_zoom_mfont_box(_l->f, _it[_i].glyph, _box)) {
             const f64 _k = _it[_i].s / _l->unit;
-            *_top    = fmax(*_top, _it[_i].y + _box[3] * _k);
-            *_bottom = fmin(*_bottom, _it[_i].y + _box[1] * _k);
-            *_left   = fmin(*_left, _it[_i].x + _box[0] * _k);
-            *_right  = fmax(*_right, _it[_i].x + _box[2] * _k);
+            *_top    = rde_math_max_f64(*_top, _it[_i].y + _box[3] * _k);
+            *_bottom = rde_math_min_f64(*_bottom, _it[_i].y + _box[1] * _k);
+            *_left   = rde_math_min_f64(*_left, _it[_i].x + _box[0] * _k);
+            *_right  = rde_math_max_f64(*_right, _it[_i].x + _box[2] * _k);
         }
     }
     if(*_top < *_bottom) {
@@ -1419,6 +1604,8 @@ RDE_INTERNAL void fzt_ink(const fzt_layout* _l, const fzt_box* _b, f64* _top, f6
     }
 }
 
+// An accent over (or a brace over or under) its base, which is cramped. A brace's box takes scripts as an operator's
+// limits, so its label goes above or below it.
 RDE_INTERNAL fzt_box fzt_layout_accent(fzt_layout* _l, const fzt_node* _n, fzt_style _s) {
     const f64 _size = fzt_size(_l, _s);
     fzt_box _base = fzt_layout_list(_l, _n->a, (fzt_style){ _s.level, true });
@@ -1436,19 +1623,21 @@ RDE_INTERNAL fzt_box fzt_layout_accent(fzt_layout* _l, const fzt_node* _n, fzt_s
     // (a combining accent sits over an x-height letter as it is drawn: raised by what the base stands above that; a
     // brace a gap over or under it)
     const f64 _y = _brace_under ? -(_bd + _gap) - _top : _brace_over ? _bh + _gap - _bottom
-                                                       : fmax(0.0, _bh - fzt_c(_l, FUDE_ZOOM_MATH_ACCENT_BASE_HEIGHT, _s));
+                                                       : rde_math_max_f64(0.0, _bh - fzt_c(_l, FUDE_ZOOM_MATH_ACCENT_BASE_HEIGHT, _s));
     fzt_box _b = fzt_box_new();
     const f64 _aw = _acc.w;
     fzt_put(&_b, &_base, 0.0, 0.0);
     fzt_put(&_b, &_acc, _over - _mark, _y);
-    _b.w = fmax(_bw, fmax(_over - _mark + _aw, _over - _mark + _right));
-    _b.h = fmax(_bh, _y + _top);
-    _b.d = fmax(_bd, -(_y + _bottom));
+    _b.w = rde_math_max_f64(_bw, rde_math_max_f64(_over - _mark + _aw, _over - _mark + _right));
+    _b.h = rde_math_max_f64(_bh, _y + _top);
+    _b.d = rde_math_max_f64(_bd, -(_y + _bottom));
     // (a brace's label above or below it, as an operator's limits)
     _b.op = _b.limits = _brace_over || _brace_under;
     return _b;
 }
 
+// \overline or \underline: its inside with a rule over or under it, at the font's gap and thickness, and the extra
+// room the font asks for beyond the rule.
 RDE_INTERNAL fzt_box fzt_layout_bar(fzt_layout* _l, const fzt_node* _n, fzt_style _s, b8 _over) {
     fzt_box _in = fzt_layout_list(_l, _n->a, (fzt_style){ _s.level, _over ? true : _s.cramped });
     const f64 _gap = fzt_c(_l, _over ? FUDE_ZOOM_MATH_OVERBAR_VERTICAL_GAP : FUDE_ZOOM_MATH_UNDERBAR_VERTICAL_GAP, _s);
@@ -1470,6 +1659,9 @@ RDE_INTERNAL fzt_box fzt_layout_bar(fzt_layout* _l, const fzt_node* _n, fzt_styl
     return _b;
 }
 
+// Lays out node _i in style _s and returns its box, its atom's class into *_cls. A symbol is set in its alphabet (the
+// capital Greek upright in the maths alphabet, as TeX sets them), falling back to the character itself, then to '?'.
+// A base with scripts takes its one atom's class.
 RDE_INTERNAL fzt_box fzt_layout_node(fzt_layout* _l, u32 _i, fzt_style _s, u8* _cls) {
     const fzt_node _n = *fzt_node_at(_l->p, _i);   // (a copy: laying out its children may move the nodes' memory)
     *_cls = _n.cls;
@@ -1522,6 +1714,9 @@ RDE_INTERNAL fzt_box fzt_layout_node(fzt_layout* _l, u32 _i, fzt_style _s, u8* _
     case FZT_SQRT:
         return fzt_layout_sqrt(_l, &_n, _s);
     case FZT_DELIM: {
+        if(_n.b != FZT_NONE) {
+            return fzt_layout_middles(_l, &_n, _s);   // (with \middle in it)
+        }
         fzt_box _in = fzt_layout_list(_l, _n.a, _s);
         return fzt_layout_delim(_l, &_in, _n.cp, _n.cp2, _s);
     }
@@ -1552,7 +1747,8 @@ RDE_INTERNAL fzt_box fzt_layout_node(fzt_layout* _l, u32 _i, fzt_style _s, u8* _
     }
 }
 
-// The space between two atoms (TeX's table: none, thin, medium, thick; +4: not in scripts' styles).
+// The space between two atoms, by the left one's class (rows) and the right one's (columns), TeX's table (The TeXbook,
+// ch. 18): 0 none, 1 thin, 2 medium, 3 thick (3, 4 and 5 mu); + 4: none in script and scriptscript styles.
 RDE_INTERNAL const u8 FZT_SPACING[8][8] = {
     /* Ord   */ { 0, 1, 2 | 4, 3 | 4, 0, 0, 0, 1 | 4 },
     /* Op    */ { 1, 1, 0, 3 | 4, 0, 0, 0, 1 | 4 },
@@ -1564,6 +1760,9 @@ RDE_INTERNAL const u8 FZT_SPACING[8][8] = {
     /* Inner */ { 1 | 4, 1, 2 | 4, 3 | 4, 1 | 4, 0, 1 | 4, 1 | 4 },
 };
 
+// Lays out a list: each atom's box side by side, the space between atoms from FZT_SPACING. A style node changes the
+// style of what follows it. A list of one atom keeps that atom's italic correction, accent place and operator flags,
+// so scripts and accents on the list treat it as the atom itself.
 RDE_INTERNAL fzt_box fzt_layout_list(fzt_layout* _l, u32 _list, fzt_style _s) {
     fzt_box _out = fzt_box_new();
     if(_list == FZT_NONE) {
@@ -1619,8 +1818,8 @@ RDE_INTERNAL fzt_box fzt_layout_list(fzt_layout* _l, u32 _list, fzt_style _s) {
                 _x += _mu[_code & 3u] / 18.0 * fzt_size(_l, _sty[_k]);
             }
         }
-        _out.h = fmax(_out.h, _boxes[_k].h);
-        _out.d = fmax(_out.d, _boxes[_k].d);
+        _out.h = rde_math_max_f64(_out.h, _boxes[_k].h);
+        _out.d = rde_math_max_f64(_out.d, _boxes[_k].d);
         const f64 _w = _boxes[_k].w + (_boxes[_k].glyph1 ? _boxes[_k].italic : 0.0);
         if(_n == 1u) {
             _out.italic = _boxes[_k].italic;
@@ -1644,19 +1843,23 @@ RDE_INTERNAL fzt_box fzt_layout_list(fzt_layout* _l, u32 _list, fzt_style _s) {
 
 // --- the whole -------------------------------------------------------------------------------------
 
+// See tex.h.
 void fude_zoom_tex_box_init(fude_zoom_tex_box* _b) {
-    memset(_b, 0, sizeof(*_b));
+    rde_memset(_b, 0, sizeof(*_b));
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     _b->glyphs = rde_arr_new(sizeof(fude_zoom_tex_glyph), _heap);
     _b->rules  = rde_arr_new(sizeof(fude_zoom_tex_rule), _heap);
 }
 
+// See tex.h.
 void fude_zoom_tex_box_free(fude_zoom_tex_box* _b) {
     rde_arr_free(&_b->glyphs);
     rde_arr_free(&_b->rules);
-    memset(_b, 0, sizeof(*_b));
+    rde_memset(_b, 0, sizeof(*_b));
 }
 
+// See tex.h. Script sizes come from the font's MathConstants (70% and 50% when it gives none). The tree's arenas are
+// freed before it returns.
 void fude_zoom_tex_set(const fude_zoom_mfont* _font, const c8* _latex, u32 _len, b8 _display, fude_zoom_tex_box* _out) {
     rde_arr_clear(&_out->glyphs);
     rde_arr_clear(&_out->rules);
@@ -1667,7 +1870,7 @@ void fude_zoom_tex_set(const fude_zoom_mfont* _font, const c8* _latex, u32 _len,
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fzt_parser _p;
-    memset(&_p, 0, sizeof(_p));
+    rde_memset(&_p, 0, sizeof(_p));
     _p.s = _latex;
     _p.n = _len;
     _p.nodes = rde_arr_new(sizeof(fzt_node), _heap);

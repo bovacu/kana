@@ -2,52 +2,54 @@
 
 #include "lang/lang.h"
 #include "study/widgets/wordcard.h"
+#include "drawing/ink/mlkit.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/widgets/kit.h"
 #include "study/chars/catalog.h"
-#include "drawing/widgets/draw.h"
-#include "drawing/widgets/icons.h"
+#include "drawing/base/draw.h"
+#include "drawing/base/icons.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
-#include "lang/wordsplit.h"
+#include "study/chars/wordsplit.h"
 #include "study/models/charnote.h"
 #include "study/app/study.h"
 #include "study/services/translate.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
+#include "drawing/base/utf8.h"
 
 // ===========================================================================
-// See wordcard.h. Built once with the rest of the UI (again when the
-// language changes); a list chip per possible list and a chip per found word made
-// up front, shown as needed.
+// See wordcard.h. The card is built once with the rest of the UI (and again when the language changes). A chip for
+// every found word (FUDE_WORDCARD_FOUND) is made up front and shown as needed. The lists have no limit, so their
+// chips are one a list, made when the card opens or a list is made and the number of lists has changed
+// (fude_wordcard_list_chips). Each open lays the card out from the top in two passes: the first measures how tall it
+// is, the second places everything in a card that tall. Sizes are in the UI's screen units.
 // ===========================================================================
 
-// The card is the study's (study.h); the UI it is on, the core's.
+// The card is the study's (study.h); the UI it is on is the core's.
 #define FUDE_WORDCARD_OF(_ui) (&FUDE_STUDY((_ui)->app)->word)
 
-#define FUDE_WORDCARD_WIDTH    560.0f
+#define FUDE_WORDCARD_WIDTH    560.0f   // The card's width at most; on a narrower screen, what fits.
 #define FUDE_WORDCARD_MARGIN   22.0f
 #define FUDE_WORDCARD_FIELD_H  44.0f
 #define FUDE_WORDCARD_CHIP_H   34.0f
 #define FUDE_WORDCARD_GAP      8.0f
-#define FUDE_WORDCARD_CAPTION  20.0f
-#define FUDE_WORDCARD_FIELD_PX 14u
-#define FUDE_WORDCARD_SENTENCE_LINES 3u   // lines a sentence (or its translation) has, at most: then smaller
+#define FUDE_WORDCARD_CAPTION  20.0f    // A caption's height.
+#define FUDE_WORDCARD_FIELD_PX 14u      // The fields' text size.
+#define FUDE_WORDCARD_SENTENCE_LINES 3u   // Lines a sentence (or its translation) takes at most; past that it shrinks.
 
-// The meaning into Japanese (Translate with Google).
+// How far Translate with Google has got in turning the meaning into the language taught.
 typedef enum {
-    FUDE_WORDCARD_TRANSLATE_NONE = 0,   // not asked: the hint
-    FUDE_WORDCARD_TRANSLATE_WAITING,    // the models on their way (or asked for)
-    FUDE_WORDCARD_TRANSLATE_ASKED,      // ticket: the translator has it
-    FUDE_WORDCARD_TRANSLATE_DONE,       // in: the written field took it (Google's badge)
-    FUDE_WORDCARD_TRANSLATE_FAILED      // the status says why
+    FUDE_WORDCARD_TRANSLATE_NONE = 0,   // Not asked: the status shows the hint.
+    FUDE_WORDCARD_TRANSLATE_WAITING,    // The models are asked for, or on their way.
+    FUDE_WORDCARD_TRANSLATE_ASKED,      // The translator has the meaning, under ticket.
+    FUDE_WORDCARD_TRANSLATE_DONE,       // In: the written field took it, and Google's badge shows.
+    FUDE_WORDCARD_TRANSLATE_FAILED      // The status says why.
 } FUDE_WORDCARD_TRANSLATE_;
 
+// The three fields of a word, by index into fields.
 enum { FUDE_WORDCARD_WRITTEN = 0, FUDE_WORDCARD_READING, FUDE_WORDCARD_MEANING };
 
+// What was asked for: one for each fude_wordcard_ask call.
 typedef enum {
     FUDE_WORDCARD_ASK_NONE = 0,
     FUDE_WORDCARD_ASK_WORD,
@@ -58,7 +60,7 @@ typedef enum {
     FUDE_WORDCARD_ASK_NOTE
 } FUDE_WORDCARD_ASK_;
 
-// What was asked for, until the UI's next update opens it.
+// What was asked for, until the UI's next update opens it. A static, so it survives the UI being built again.
 static struct {
     u8                 kind;
     fude_wordcard_word word;
@@ -70,84 +72,89 @@ static struct {
     c8                 sentence_to[FUDE_VOCAB_SENTENCE];
 } fude_wordcard_asked;
 
-// The lists the last word saved went in (ids): a new word comes with them ticked.
-static u32 fude_wordcard_last_lists[FUDE_VOCAB_LISTS];
-static u32 fude_wordcard_last_count = 0;
-static u32 fude_wordcard_made_list  = 0;   // a list the list form made, for fude_wordcard_take_new_list
+// The ids of the lists the last word saved went in: a new word comes with them ticked. Made on first use
+// (fude_wordcard_last), on the std allocator, it lasts as long as the app, like the other statics here.
+static rde_arr TYPE(u32) fude_wordcard_last_lists;
+static u32 fude_wordcard_made_list  = 0;   // A list the list form made, for fude_wordcard_take_new_list.
 
+// Returns the lists the last word saved went in (fude_wordcard_last_lists), making the array the first time.
+RDE_INTERNAL rde_arr* fude_wordcard_last(void) {
+    if(!rde_arr_is_inited(&fude_wordcard_last_lists)) {
+        fude_wordcard_last_lists = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
+    }
+    return &fude_wordcard_last_lists;
+}
+
+// See the header.
 void fude_wordcard_ask_list(u32 _list) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind = FUDE_WORDCARD_ASK_LIST;
     fude_wordcard_asked.id   = _list;
 }
 
+// See the header.
 void fude_wordcard_ask_note(u32 _codepoint) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind  = FUDE_WORDCARD_ASK_NOTE;
     fude_wordcard_asked.kanji = _codepoint;
 }
 
+// See the header.
 u32 fude_wordcard_take_new_list(void) {
     const u32 _list = fude_wordcard_made_list;
     fude_wordcard_made_list = 0;
     return _list;
 }
 
+// See the header. It replaces the lists the last word went in.
 void fude_wordcard_prefer_list(u32 _list) {
-    fude_wordcard_last_count = 0;
+    rde_arr_clear(fude_wordcard_last());
     if(_list != 0u) {
-        fude_wordcard_last_lists[fude_wordcard_last_count++] = _list;
+        rde_arr_add(fude_wordcard_last(), (any)&_list);
     }
 }
 
-// _s into _out (_size bytes), cut at a whole character.
-RDE_INTERNAL void fude_wordcard_put(c8* _out, usize _size, const c8* _s) {
-    const usize _len = _s != NULL ? strlen(_s) : 0u;
-    usize       _n   = _len < _size - 1u ? _len : _size - 1u;
-    while(_n > 0 && _n < _len && ((u8)_s[_n] & 0xC0u) == 0x80u) {
-        _n--;   // not in the middle of a UTF-8 sequence
-    }
-    if(_n > 0) {
-        memcpy(_out, _s, _n);
-    }
-    _out[_n] = 0;
-}
-
+// Copies a word's three texts into _w, cut to fit; NULL counts as empty.
 RDE_INTERNAL void fude_wordcard_copy(fude_wordcard_word* _w, const c8* _written, const c8* _reading, const c8* _meaning) {
-    snprintf(_w->written, sizeof(_w->written), "%s", _written != NULL ? _written : "");
-    snprintf(_w->reading, sizeof(_w->reading), "%s", _reading != NULL ? _reading : "");
-    snprintf(_w->meaning, sizeof(_w->meaning), "%s", _meaning != NULL ? _meaning : "");
+    rde_snprintf(_w->written, sizeof(_w->written), "%s", _written != NULL ? _written : "");
+    rde_snprintf(_w->reading, sizeof(_w->reading), "%s", _reading != NULL ? _reading : "");
+    rde_snprintf(_w->meaning, sizeof(_w->meaning), "%s", _meaning != NULL ? _meaning : "");
 }
 
+// See the header. Whether it is saved already is looked up when the card opens.
 void fude_wordcard_ask(const c8* _written, const c8* _reading, const c8* _meaning, u32 _kanji) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind  = FUDE_WORDCARD_ASK_WORD;
     fude_wordcard_asked.kanji = _kanji;
     fude_wordcard_copy(&fude_wordcard_asked.word, _written, _reading, _meaning);
 }
 
+// See the header. The sentence and its translation are cut at a whole character to fit.
 void fude_wordcard_ask_in(const c8* _written, const c8* _reading, const c8* _meaning, const c8* _sentence, const c8* _translation) {
     fude_wordcard_ask(_written, _reading, _meaning, 0u);
-    fude_wordcard_put(fude_wordcard_asked.sentence, sizeof(fude_wordcard_asked.sentence), _sentence);
-    fude_wordcard_put(fude_wordcard_asked.sentence_to, sizeof(fude_wordcard_asked.sentence_to), _translation);
+    fude_utf8_set(fude_wordcard_asked.sentence, sizeof(fude_wordcard_asked.sentence), _sentence);
+    fude_utf8_set(fude_wordcard_asked.sentence_to, sizeof(fude_wordcard_asked.sentence_to), _translation);
 }
 
+// See the header.
 void fude_wordcard_ask_saved(u32 _id) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind = FUDE_WORDCARD_ASK_SAVED;
     fude_wordcard_asked.id   = _id;
 }
 
+// See the header.
 void fude_wordcard_ask_typed(u32 _kanji) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind  = FUDE_WORDCARD_ASK_TYPED;
     fude_wordcard_asked.kanji = _kanji;
 }
 
+// See the header. The text is split into the dictionary's words (wordsplit.h), at most FUDE_WORDCARD_FOUND of them.
 void fude_wordcard_ask_read(const fude_kanji_db* _db, const c8* _text) {
-    memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
+    rde_memset(&fude_wordcard_asked, 0, sizeof(fude_wordcard_asked));
     fude_wordcard_asked.kind = FUDE_WORDCARD_ASK_READ;
-    // The text on one line, whole characters while they fit, without the spaces around it.
+    // The text on one line, whole characters while they fit in the written field, without the spaces around it.
     c8        _line[FUDE_USERWORD_WRITTEN];
     usize     _n = 0;
     const c8* _p = _text != NULL ? _text : "";
@@ -161,7 +168,7 @@ void fude_wordcard_ask_read(const fude_kanji_db* _db, const c8* _text) {
         if(_cp == '\n' || _cp == '\r' || (_cp == ' ' && _n == 0u)) {
             continue;
         }
-        memcpy(&_line[_n], _from, _len);
+        rde_memcpy(&_line[_n], _from, _len);
         _n += _len;
     }
     while(_n > 0 && _line[_n - 1u] == ' ') {
@@ -177,7 +184,7 @@ void fude_wordcard_ask_read(const fude_kanji_db* _db, const c8* _text) {
         }
     }
     if(fude_wordcard_asked.found_count == 1u) {
-        fude_wordcard_asked.word        = fude_wordcard_asked.found[0];   // one word: that one
+        fude_wordcard_asked.word        = fude_wordcard_asked.found[0];   // One word: the card shows that one.
         fude_wordcard_asked.found_count = 0;
     } else {
         fude_wordcard_copy(&fude_wordcard_asked.word, _line, "", "");
@@ -186,47 +193,25 @@ void fude_wordcard_ask_read(const fude_kanji_db* _db, const c8* _text) {
 
 // --- fields ------------------------------------------------------------------------------
 
+// Replaces a field's text with _text (NULL or "" empties it).
 RDE_INTERNAL void fude_wordcard_set_field(rde_ui_text_editor* _field, const c8* _text) {
     const usize _bytes = rde_ui_text_editor_get_byte_count(_field);
     if(_bytes > 0) {
         rde_ui_text_editor_delete_range(_field, 0, _bytes);
     }
     if(_text != NULL && _text[0] != 0) {
-        rde_ui_text_editor_insert_at(_field, 0, _text, strlen(_text));
+        rde_ui_text_editor_insert_at(_field, 0, _text, rde_strlen(_text));
     }
 }
 
-// A field's text without the spaces around it, into _out.
-RDE_INTERNAL void fude_wordcard_get_field(rde_ui_text_editor* _field, c8* _out, usize _size) {
-    c8*       _text = rde_ui_text_editor_get_text(_field, 0, rde_ui_text_editor_get_byte_count(_field));
-    const c8* _s    = _text != NULL ? _text : "";
-    while(*_s == ' ') {
-        _s++;
-    }
-    snprintf(_out, _size, "%s", _s);
-    usize _n = strlen(_out);
-    while(_n > 0 && _out[_n - 1u] == ' ') {
-        _out[--_n] = 0;
-    }
-    if(_text != NULL) {
-        rde_ui_text_editor_free_text(_field, _text);
-    }
+// Whether the text typed in _field fits in _size bytes, its NUL included. The field takes FUDE_USERWORD_CHAR_BYTES
+// a character (vocab.h), but a character can be longer, and such a text is refused rather than cut.
+RDE_INTERNAL b8 fude_wordcard_fits(rde_ui_text_editor* _field, usize _size) {
+    return rde_ui_text_editor_get_byte_count(_field) < _size;
 }
 
-RDE_INTERNAL b8 fude_wordcard_all_kana(const c8* _text) {
-    const c8* _p = _text;
-    b8        _any = false;
-    for(u32 _cp = fude_utf8_next(&_p); _cp != 0u; _cp = fude_utf8_next(&_p)) {
-        if(!((_cp >= 0x3041u && _cp <= 0x309Fu) || (_cp >= 0x30A0u && _cp <= 0x30FFu))) {
-            return false;
-        }
-        _any = true;
-    }
-    return _any;
-}
-
-// A word read in Latin letters (lang.h): its letters' Latin names, joined; what
-// has none (a space, a digit) as it is.
+// The reading of a word in a language read in Latin letters (lang.h: fude_lang_latin): each letter's Latin name,
+// joined, into _out of _size bytes. A character with none (a space, a digit) is kept as it is.
 RDE_INTERNAL void fude_wordcard_latin_names(const c8* _written, c8* _out, usize _size) {
     usize     _n = 0;
     const c8* _p = _written;
@@ -238,32 +223,32 @@ RDE_INTERNAL void fude_wordcard_latin_names(const c8* _written, c8* _out, usize 
             fude_utf8_put(_cp, _one);
             _latin = _one;
         }
-        const usize _len = strlen(_latin);
+        const usize _len = rde_strlen(_latin);
         if(_n + _len >= _size) {
             break;
         }
-        memcpy(_out + _n, _latin, _len);
+        rde_memcpy(_out + _n, _latin, _len);
         _n += _len;
         _out[_n] = 0;
     }
 }
 
-// The dictionary's word written exactly _written (Kana's dictionary has words with
-// a kanji). False when it has none.
+// The dictionary's word written exactly as _written, the commonest of those spelt so, into *_out. False when the
+// dictionary has none (Kana's, for one, has only words with a kanji in them).
 RDE_INTERNAL b8 fude_wordcard_lookup(const fude_ui* _ui, const c8* _written, fude_kanji_word* _out) {
     const fude_study*    _study = FUDE_STUDY(_ui->app);
-    const fude_kanji_db* _db    = _study->browse != NULL ? _study->db : NULL;
-    u32                  _words[2];
-    return _db != NULL && fude_wordsplit(_db, _written, _words, 2u) == 1u && fude_kanji_word_at(_db, _words[0], _out) && strcmp(_out->written, _written) == 0;
+    const fude_kanji_db* _db    = _study->db;
+    const u32            _word  = _db != NULL ? fude_wordsplit_word(_db, _written) : UINT32_MAX;
+    return _word != UINT32_MAX && fude_kanji_word_at(_db, _word, _out) && rde_strcmp(_out->written, _written) == 0;
 }
 
-// The reading and meaning, when empty, from the dictionary.
+// Fills the reading and the meaning, when they are empty, from the dictionary's word for the written field.
 RDE_INTERNAL void fude_wordcard_fill(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     c8 _written[FUDE_USERWORD_WRITTEN], _reading[FUDE_USERWORD_READING], _meaning[FUDE_USERWORD_MEANING];
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_WRITTEN], _written, sizeof(_written));
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_READING], _reading, sizeof(_reading));
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_MEANING], _meaning, sizeof(_meaning));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_WRITTEN], _written, sizeof(_written));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_READING], _reading, sizeof(_reading));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_MEANING], _meaning, sizeof(_meaning));
     fude_kanji_word _w;
     if((_reading[0] == 0 || _meaning[0] == 0) && fude_wordcard_lookup(_ui, _written, &_w)) {
         if(_reading[0] == 0) {
@@ -275,12 +260,47 @@ RDE_INTERNAL void fude_wordcard_fill(fude_ui* _ui) {
     }
 }
 
+// --- the lists' chips --------------------------------------------------------------------
+
+// Returns how many lists the card shows (a chip each).
+RDE_INTERNAL u32 fude_wordcard_list_count(const fude_wordcard* _card) {
+    return rde_arr_is_inited(&_card->lists) ? (u32)rde_arr_length(&_card->lists) : 0u;
+}
+
+// Returns the _index-th list the card shows; _index must be under fude_wordcard_list_count. The pointer is valid until
+// the chips are next made (fude_wordcard_list_chips).
+RDE_INTERNAL fude_wordcard_list* fude_wordcard_list_of(fude_wordcard* _card, u32 _index) {
+    return &((fude_wordcard_list*)_card->lists.memory)[_index];
+}
+
+// Declared here so that fude_wordcard_list_chips can give it to the chips it makes: a list's chip, tapped.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_list(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+
+// Makes the card show _count lists, a chip each: when there were more, the chips past _count go; when there were
+// fewer, new chips (empty, unticked) are made for the rest, on the card. The chips already there are kept, with their
+// lists and ticks, so the caller sets only what is new.
+RDE_INTERNAL void fude_wordcard_list_chips(fude_ui* _ui, u32 _count) {
+    fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
+    const u32      _had  = fude_wordcard_list_count(_card);
+    for(u32 _i = _count; _i < _had; _i++) {
+        rde_ui_button_destroy(fude_wordcard_list_of(_card, _i)->chip);
+    }
+    if(_count == _had) {
+        return;
+    }
+    rde_arr_resize(&_card->lists, _count);   // New lists come zeroed: no list, unticked, no chip yet.
+    for(u32 _i = _had; _i < _count; _i++) {
+        fude_wordcard_list_of(_card, _i)->chip = fude_kit_button(rde_ui_image_as_node(_card->modal.card), "", fude_wordcard_on_list, _ui);
+    }
+}
+
 // --- the chips' looks --------------------------------------------------------------------
 
+// Styles the chips: a list's chip shows whether it is ticked.
 RDE_INTERNAL void fude_wordcard_style_chips(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
-    for(u32 _i = 0; _i < _card->list_count; _i++) {
-        fude_kit_button_chip(_card->list_chips[_i], _card->ticked[_i]);
+    for(u32 _i = 0; _i < fude_wordcard_list_count(_card); _i++) {
+        fude_kit_button_chip(fude_wordcard_list_of(_card, _i)->chip, fude_wordcard_list_of(_card, _i)->ticked);
     }
     for(u32 _i = 0; _i < _card->found_count; _i++) {
         fude_kit_button_chip(_card->found_chips[_i], false);
@@ -289,17 +309,17 @@ RDE_INTERNAL void fude_wordcard_style_chips(fude_ui* _ui) {
     fude_kit_button_chip(_card->translate, false);
 }
 
-// The found words' chips: their texts.
+// Sets the found words' chips' texts: the word and its reading.
 RDE_INTERNAL void fude_wordcard_label_found(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     for(u32 _i = 0; _i < _card->found_count && _i < FUDE_WORDCARD_FOUND; _i++) {
         c8 _label[FUDE_USERWORD_WRITTEN + FUDE_USERWORD_READING + 8];
-        snprintf(_label, sizeof(_label), "%s  %s", _card->found[_i].written, _card->found[_i].reading);
+        rde_snprintf(_label, sizeof(_label), "%s  %s", _card->found[_i].written, _card->found[_i].reading);
         rde_ui_button_set_text(_card->found_chips[_i], _label);
     }
 }
 
-// Google's badge, the one for the card's colour.
+// Gives Google's badge the image for the card's colour: the white one on a dark panel (luma under 128).
 RDE_INTERNAL void fude_wordcard_style_badge(fude_ui* _ui) {
     fude_wordcard*  _card = FUDE_WORDCARD_OF(_ui);
     const rde_color _p    = fude_theme_active()->panel;
@@ -312,12 +332,13 @@ RDE_INTERNAL void fude_wordcard_style_badge(fude_ui* _ui) {
 
 // --- layout ------------------------------------------------------------------------------
 
+// A chip's width for _text at 13 units, with 32 units of room, and no wider than the card's inside.
 RDE_INTERNAL f32 fude_wordcard_chip_w(const fude_ui* _ui, const c8* _text) {
-    return fminf(FUDE_WORDCARD_WIDTH - 2.0f * FUDE_WORDCARD_MARGIN, fude_draw_text_width(_ui->font, (f32)FUDE_KIT_FONT_SIZE, _text, 13.0f) + 32.0f);
+    return rde_math_min_f32(FUDE_WORDCARD_WIDTH - 2.0f * FUDE_WORDCARD_MARGIN, fude_draw_text_width(_ui->font, (f32)FUDE_KIT_FONT_SIZE, _text, 13.0f) + 32.0f);
 }
 
-// Chips in rows from _top (card units, Y up) between _x0 and _x1: placed when
-// _place. How tall they came.
+// Lays _n chips out in rows from _top (card units, Y up) between _x0 and _x1, placing them only when _place, and
+// returns how tall the rows are.
 RDE_INTERNAL f32 fude_wordcard_chips(const fude_ui* _ui, rde_ui_button* const* _chips, u32 _n, f32 _x0, f32 _x1, f32 _top, b8 _place) {
     f32 _x    = _x0;
     f32 _rows = _n > 0 ? 1.0f : 0.0f;
@@ -337,40 +358,161 @@ RDE_INTERNAL f32 fude_wordcard_chips(const fude_ui* _ui, rde_ui_button* const* _
     return _rows > 0.0f ? _rows * FUDE_WORDCARD_CHIP_H + (_rows - 1.0f) * FUDE_WORDCARD_GAP : 0.0f;
 }
 
-// Everything placed from the top, for what the card shows; the card as tall as that.
+// A y in card units (Y up) for _dy down from the card's top.
+//
+// fude_wordcard_layout lays the card out in two passes, and the steps below take the pass's numbers: _w is the card's
+// width, _x0 and _x1 the left and right edges of its inside, _h its height (0 on the first pass, which only measures;
+// this macro reads it), and _y how far down from the card's top the pass has got. A step places things only when
+// _place, and returns _y below what it laid out.
+#define FUDE_WORDCARD_TOP(_dy) (_h - (_dy))
+
+// Lays out Translate with Google, and beside it its status or Google's badge. Takes the pass's numbers (see
+// FUDE_WORDCARD_TOP), and returns _y below them.
+RDE_INTERNAL f32 fude_wordcard_layout_translate(const fude_ui* _ui, const fude_wordcard* _card, f32 _x0, f32 _x1, f32 _h, f32 _y, b8 _place) {
+    if(_place) {
+        const c8* _text = _card->translate->internal_label != NULL && _card->translate->internal_label->text != NULL ? _card->translate->internal_label->text : "";
+        const f32 _bw   = fude_wordcard_chip_w(_ui, _text);
+        const f32 _rest = rde_math_max_f32(0.0f, _x1 - _x0 - _bw - FUDE_WORDCARD_GAP - 4.0f);
+        const f32 _ry   = FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CHIP_H * 0.5f);
+        fude_kit_place(rde_ui_button_as_node(_card->translate), (rde_vec_2F){ _x0 + _bw * 0.5f, _ry }, (rde_vec_2F){ _bw, FUDE_WORDCARD_CHIP_H });
+        fude_kit_place(rde_ui_label_as_node(_card->translate_status), (rde_vec_2F){ _x1 - _rest * 0.5f, _ry }, (rde_vec_2F){ _rest, FUDE_WORDCARD_CHIP_H });
+        const f32 _badge = rde_math_min_f32(FUDE_TRANSLATE_BADGE_W, _rest);
+        fude_kit_place(rde_ui_image_as_node(_card->badge), (rde_vec_2F){ _x1 - _rest + _badge * 0.5f, _ry },
+                       (rde_vec_2F){ _badge, FUDE_TRANSLATE_BADGE_H * _badge / FUDE_TRANSLATE_BADGE_W });
+    }
+    _y += FUDE_WORDCARD_CHIP_H + FUDE_WORDCARD_GAP;
+    return _y;
+}
+
+// Lays out the sentence the word was met in, under its caption, and its translation, each as many lines as it takes,
+// up to FUDE_WORDCARD_SENTENCE_LINES. Takes the pass's numbers (see FUDE_WORDCARD_TOP), and returns _y below them.
+RDE_INTERNAL f32 fude_wordcard_layout_sentence(const fude_ui* _ui, const fude_wordcard* _card, f32 _w, f32 _x0, f32 _x1, f32 _h, f32 _y, b8 _place) {
+    _y += 4.0f;
+    if(_place) {
+        fude_kit_place(rde_ui_label_as_node(_card->sentence_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
+                       (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
+    }
+    _y += FUDE_WORDCARD_CAPTION;
+    rde_ui_label* const _labels[2] = { _card->sentence_label, _card->sentence_to_label };
+    const c8* const     _texts[2]  = { _card->sentence, _card->sentence_to };
+    const f32           _px[2]     = { 15.0f, 13.0f };
+    for(u32 _k = 0; _k < 2u; _k++) {
+        if(_texts[_k][0] == 0) {
+            continue;
+        }
+        u32 _lines = fude_draw_text_wrap_lines(_ui->font, (f32)FUDE_KIT_FONT_SIZE, _texts[_k], _px[_k], _x1 - _x0);
+        _lines     = _lines < 1u ? 1u : _lines > FUDE_WORDCARD_SENTENCE_LINES ? FUDE_WORDCARD_SENTENCE_LINES : _lines;
+        const f32 _lh = (f32)_lines * _px[_k] * 1.4f + 4.0f;
+        if(_place) {
+            fude_kit_place(rde_ui_label_as_node(_labels[_k]), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + _lh * 0.5f) }, (rde_vec_2F){ _x1 - _x0, _lh });
+        }
+        _y += _lh;
+    }
+    _y += FUDE_WORDCARD_GAP;
+    return _y;
+}
+
+// Lays out the chips under their captions: the found words' (when there are several) and, in the word form, the
+// lists' with New list (_lists, in their order); then, while a new list is being named, its name field and OK. Takes
+// the pass's numbers (see FUDE_WORDCARD_TOP), and returns _y below them.
+RDE_INTERNAL f32 fude_wordcard_layout_chips(const fude_ui* _ui, const fude_wordcard* _card, const rde_arr* _lists, f32 _w, f32 _x0, f32 _x1, f32 _h, f32 _y,
+                                            b8 _place) {
+    if(_card->found_count > 1u && !_card->list_mode && !_card->note_mode) {
+        _y += 4.0f;
+        if(_place) {
+            fude_kit_place(rde_ui_label_as_node(_card->found_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
+                               (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
+        }
+        _y += FUDE_WORDCARD_CAPTION + 4.0f;
+        _y += fude_wordcard_chips(_ui, _card->found_chips, _card->found_count, _x0, _x1, FUDE_WORDCARD_TOP(_y), _place) + FUDE_WORDCARD_GAP;
+    }
+    if(!_card->list_mode && !_card->note_mode) {
+        _y += 4.0f;
+        if(_place) {
+            fude_kit_place(rde_ui_label_as_node(_card->lists_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
+                               (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
+        }
+        _y += FUDE_WORDCARD_CAPTION + 4.0f;
+        _y += fude_wordcard_chips(_ui, (rde_ui_button* const*)_lists->memory, (u32)rde_arr_length(_lists), _x0, _x1, FUDE_WORDCARD_TOP(_y), _place) + FUDE_WORDCARD_GAP;
+    }
+    if(_card->naming && !_card->list_mode && !_card->note_mode) {   // the word form's, as fude_wordcard_show_parts shows it
+        if(_place) {
+            const f32 _ok = 96.0f;
+            fude_kit_place(fude_kit_field_node(_card->list_field), (rde_vec_2F){ _x0 + (_x1 - _x0 - _ok - FUDE_WORDCARD_GAP) * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
+                               (rde_vec_2F){ _x1 - _x0 - _ok - FUDE_WORDCARD_GAP, FUDE_WORDCARD_FIELD_H });
+            fude_kit_place(rde_ui_button_as_node(_card->list_ok), (rde_vec_2F){ _x1 - _ok * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
+                               (rde_vec_2F){ _ok, FUDE_WORDCARD_FIELD_H - 4.0f });
+        }
+        _y += FUDE_WORDCARD_FIELD_H + FUDE_WORDCARD_GAP;
+    }
+    return _y;
+}
+
+// Shows the parts of the card that the form it is in has, and hides the rest. _list_count is how many lists' chips
+// there are; _word is whether it is the word form (not the list or the note form), and _translate and _sentence
+// whether Translate with Google and the sentence show.
+RDE_INTERNAL void fude_wordcard_show_parts(fude_wordcard* _card, u32 _list_count, b8 _word, b8 _translate, b8 _sentence) {
+    rde_ui_node_set_active(rde_ui_button_as_node(_card->translate), _translate);
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->translate_status), _translate && _card->translating != FUDE_WORDCARD_TRANSLATE_DONE);
+    rde_ui_node_set_active(rde_ui_image_as_node(_card->badge), _translate && _card->translating == FUDE_WORDCARD_TRANSLATE_DONE);
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_caption), _sentence);
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_label), _sentence && _card->sentence[0] != 0);
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_to_label), _sentence && _card->sentence_to[0] != 0);
+    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_WRITTEN]), !_card->note_mode);
+    rde_ui_node_set_active(fude_kit_field_node(_card->note_field), _card->note_mode);
+    for(u32 _i = 0; _i < FUDE_WORDCARD_FOUND; _i++) {
+        rde_ui_node_set_active(rde_ui_button_as_node(_card->found_chips[_i]), _word && _card->found_count > 1u && _i < _card->found_count);
+    }
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->found_caption), _word && _card->found_count > 1u);
+    for(u32 _i = 0; _i < _list_count; _i++) {
+        rde_ui_node_set_active(rde_ui_button_as_node(fude_wordcard_list_of(_card, _i)->chip), _word);
+    }
+    rde_ui_node_set_active(rde_ui_label_as_node(_card->lists_caption), _word);
+    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_READING]), _word);
+    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_MEANING]), _word);
+    rde_ui_node_set_active(rde_ui_button_as_node(_card->new_list), _word && !_card->naming);
+    rde_ui_node_set_active(fude_kit_field_node(_card->list_field), _word && _card->naming);
+    rde_ui_node_set_active(rde_ui_button_as_node(_card->list_ok), _word && _card->naming);
+    rde_ui_node_set_active(rde_ui_button_as_node(_card->remove), _word ? _card->id != 0u : _card->list_mode ? _card->list_id != 0u : fude_charnote_get(_card->note_cp)[0] != 0);
+}
+
+// Lays the card out for what it shows now: everything placed from the top, the card as tall as that, and what is not
+// shown hidden.
 RDE_INTERNAL void fude_wordcard_layout(fude_ui* _ui) {
     fude_wordcard*   _card   = FUDE_WORDCARD_OF(_ui);
     const rde_vec_2F _screen = fude_kit_screen_size((_ui)->window);
     _card->_layout   = false;
     _card->_laid_out = _screen;
     const f32 _m     = FUDE_WORDCARD_MARGIN;
-    const f32 _w     = fminf(FUDE_WORDCARD_WIDTH, _screen.x - 32.0f);
+    const f32 _w     = rde_math_min_f32(FUDE_WORDCARD_WIDTH, _screen.x - 32.0f);
     const f32 _x0    = _m;
     const f32 _x1    = _w - _m;
-    rde_ui_button* _lists[FUDE_VOCAB_LISTS + 1u];
-    for(u32 _i = 0; _i < _card->list_count; _i++) {
-        _lists[_i] = _card->list_chips[_i];
+    // The lists' chips, then New list, laid out in rows together. While naming, the field replaces New list.
+    const u32 _list_count = fude_wordcard_list_count(_card);
+    rde_arr TYPE(rde_ui_button*) _lists = rde_arr_new_with_capacity(sizeof(rde_ui_button*), _list_count + 1u, rde_memory_allocator_get_default_std());
+    for(u32 _i = 0; _i < _list_count; _i++) {
+        rde_arr_add(&_lists, (any)&fude_wordcard_list_of(_card, _i)->chip);
     }
-    _lists[_card->list_count] = _card->new_list;
-    const u32 _list_n = _card->list_count + (_card->naming ? 0u : 1u);   // naming: the field instead of New list
+    if(!_card->naming) {
+        rde_arr_add(&_lists, (any)&_card->new_list);
+    }
     const b8  _word     = !_card->list_mode && !_card->note_mode;
     const b8  _translate = _word && fude_translate_available();
     const b8  _sentence  = _word && (_card->sentence[0] != 0 || _card->sentence_to[0] != 0);
 
-    // Measured first, then placed from the top of a card that tall.
+    // Measured on the first pass, then placed from the top of a card that tall on the second.
     f32 _measured = 0.0f;
     for(u32 _pass = 0; _pass < 2u; _pass++) {
         const b8 _place = _pass == 1u;
         f32      _h     = 0.0f;
-        f32      _y     = 0.0f;   // down from the card's top
+        f32      _y     = 0.0f;   // Down from the card's top.
         if(_place) {
-            // High on the screen: the keyboard comes up under it.
-            const rde_vec_4I _insets = rde_window_get_safe_area_insets(_ui->window);   // left, top, right, bottom
+            // High on the screen, since the keyboard comes up under it.
+            const rde_vec_4I _insets = rde_window_get_safe_area_insets(_ui->window);   // Left, top, right, bottom.
             _h                       = _measured;
-            const f32 _cy            = fmaxf(_h * 0.5f + 16.0f, _screen.y - (f32)_insets.y - 32.0f - _h * 0.5f);
+            const f32 _cy            = rde_math_max_f32(_h * 0.5f + 16.0f, _screen.y - (f32)_insets.y - 32.0f - _h * 0.5f);
             fude_kit_modal_place(&_card->modal, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _cy }, (rde_vec_2F){ _w, _h });
         }
-        #define FUDE_WORDCARD_TOP(_dy) (_h - (_dy))
         _y += _m;
         if(_place) {
             fude_kit_place(rde_ui_label_as_node(_card->title), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + 16.0f) }, (rde_vec_2F){ _x1 - _x0, 32.0f });
@@ -390,73 +532,14 @@ RDE_INTERNAL void fude_wordcard_layout(fude_ui* _ui) {
             _y += FUDE_WORDCARD_FIELD_H + FUDE_WORDCARD_GAP;
         }
         if(_translate) {
-            // Translate with Google, its status (or Google's badge) beside it.
-            if(_place) {
-                const c8* _text = _card->translate->internal_label != NULL && _card->translate->internal_label->text != NULL ? _card->translate->internal_label->text : "";
-                const f32 _bw   = fude_wordcard_chip_w(_ui, _text);
-                const f32 _rest = fmaxf(0.0f, _x1 - _x0 - _bw - FUDE_WORDCARD_GAP - 4.0f);
-                const f32 _ry   = FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CHIP_H * 0.5f);
-                fude_kit_place(rde_ui_button_as_node(_card->translate), (rde_vec_2F){ _x0 + _bw * 0.5f, _ry }, (rde_vec_2F){ _bw, FUDE_WORDCARD_CHIP_H });
-                fude_kit_place(rde_ui_label_as_node(_card->translate_status), (rde_vec_2F){ _x1 - _rest * 0.5f, _ry }, (rde_vec_2F){ _rest, FUDE_WORDCARD_CHIP_H });
-                const f32 _badge = fminf(FUDE_TRANSLATE_BADGE_W, _rest);
-                fude_kit_place(rde_ui_image_as_node(_card->badge), (rde_vec_2F){ _x1 - _rest + _badge * 0.5f, _ry },
-                               (rde_vec_2F){ _badge, FUDE_TRANSLATE_BADGE_H * _badge / FUDE_TRANSLATE_BADGE_W });
-            }
-            _y += FUDE_WORDCARD_CHIP_H + FUDE_WORDCARD_GAP;
+            // Translate with Google, with its status, or Google's badge, beside it.
+            _y = fude_wordcard_layout_translate(_ui, _card, _x0, _x1, _h, _y, _place);
         }
         if(_sentence) {
-            // The sentence it was met in, and its translation, as many lines as they take (a few).
-            _y += 4.0f;
-            if(_place) {
-                fude_kit_place(rde_ui_label_as_node(_card->sentence_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
-                               (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
-            }
-            _y += FUDE_WORDCARD_CAPTION;
-            rde_ui_label* const _labels[2] = { _card->sentence_label, _card->sentence_to_label };
-            const c8* const     _texts[2]  = { _card->sentence, _card->sentence_to };
-            const f32           _px[2]     = { 15.0f, 13.0f };
-            for(u32 _k = 0; _k < 2u; _k++) {
-                if(_texts[_k][0] == 0) {
-                    continue;
-                }
-                u32 _lines = fude_draw_text_wrap_lines(_ui->font, (f32)FUDE_KIT_FONT_SIZE, _texts[_k], _px[_k], _x1 - _x0);
-                _lines     = _lines < 1u ? 1u : _lines > FUDE_WORDCARD_SENTENCE_LINES ? FUDE_WORDCARD_SENTENCE_LINES : _lines;
-                const f32 _lh = (f32)_lines * _px[_k] * 1.4f + 4.0f;
-                if(_place) {
-                    fude_kit_place(rde_ui_label_as_node(_labels[_k]), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + _lh * 0.5f) }, (rde_vec_2F){ _x1 - _x0, _lh });
-                }
-                _y += _lh;
-            }
-            _y += FUDE_WORDCARD_GAP;
+            // The sentence it was met in, and its translation, as many lines as they take, up to a few.
+            _y = fude_wordcard_layout_sentence(_ui, _card, _w, _x0, _x1, _h, _y, _place);
         }
-        if(_card->found_count > 1u && !_card->list_mode && !_card->note_mode) {
-            _y += 4.0f;
-            if(_place) {
-                fude_kit_place(rde_ui_label_as_node(_card->found_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
-                                   (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
-            }
-            _y += FUDE_WORDCARD_CAPTION + 4.0f;
-            _y += fude_wordcard_chips(_ui, _card->found_chips, _card->found_count, _x0, _x1, FUDE_WORDCARD_TOP(_y), _place) + FUDE_WORDCARD_GAP;
-        }
-        if(!_card->list_mode && !_card->note_mode) {
-            _y += 4.0f;
-            if(_place) {
-                fude_kit_place(rde_ui_label_as_node(_card->lists_caption), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_CAPTION * 0.5f) },
-                                   (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_CAPTION });
-            }
-            _y += FUDE_WORDCARD_CAPTION + 4.0f;
-            _y += fude_wordcard_chips(_ui, _lists, _list_n, _x0, _x1, FUDE_WORDCARD_TOP(_y), _place) + FUDE_WORDCARD_GAP;
-        }
-        if(_card->naming && !_card->list_mode) {
-            if(_place) {
-                const f32 _ok = 96.0f;
-                fude_kit_place(fude_kit_field_node(_card->list_field), (rde_vec_2F){ _x0 + (_x1 - _x0 - _ok - FUDE_WORDCARD_GAP) * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
-                                   (rde_vec_2F){ _x1 - _x0 - _ok - FUDE_WORDCARD_GAP, FUDE_WORDCARD_FIELD_H });
-                fude_kit_place(rde_ui_button_as_node(_card->list_ok), (rde_vec_2F){ _x1 - _ok * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
-                                   (rde_vec_2F){ _ok, FUDE_WORDCARD_FIELD_H - 4.0f });
-            }
-            _y += FUDE_WORDCARD_FIELD_H + FUDE_WORDCARD_GAP;
-        }
+        _y = fude_wordcard_layout_chips(_ui, _card, &_lists, _w, _x0, _x1, _h, _y, _place);
         if(_place) {
             fude_kit_place(rde_ui_label_as_node(_card->error), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + 11.0f) }, (rde_vec_2F){ _x1 - _x0, 22.0f });
         }
@@ -469,37 +552,18 @@ RDE_INTERNAL void fude_wordcard_layout(fude_ui* _ui) {
             fude_kit_place(rde_ui_button_as_node(_card->remove), (rde_vec_2F){ _x0 + _bw * 0.5f, _by }, (rde_vec_2F){ _bw, 40.0f });
         }
         _y += 40.0f + _m;
-        #undef FUDE_WORDCARD_TOP
         _measured = _y;
     }
+    rde_arr_free(&_lists);
 
-    // What shows.
-    rde_ui_node_set_active(rde_ui_button_as_node(_card->translate), _translate);
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->translate_status), _translate && _card->translating != FUDE_WORDCARD_TRANSLATE_DONE);
-    rde_ui_node_set_active(rde_ui_image_as_node(_card->badge), _translate && _card->translating == FUDE_WORDCARD_TRANSLATE_DONE);
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_caption), _sentence);
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_label), _sentence && _card->sentence[0] != 0);
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_to_label), _sentence && _card->sentence_to[0] != 0);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_WRITTEN]), !_card->note_mode);
-    rde_ui_node_set_active(fude_kit_field_node(_card->note_field), _card->note_mode);
-    for(u32 _i = 0; _i < FUDE_WORDCARD_FOUND; _i++) {
-        rde_ui_node_set_active(rde_ui_button_as_node(_card->found_chips[_i]), _word && _card->found_count > 1u && _i < _card->found_count);
-    }
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->found_caption), _word && _card->found_count > 1u);
-    for(u32 _i = 0; _i < FUDE_VOCAB_LISTS; _i++) {
-        rde_ui_node_set_active(rde_ui_button_as_node(_card->list_chips[_i]), _word && _i < _card->list_count);
-    }
-    rde_ui_node_set_active(rde_ui_label_as_node(_card->lists_caption), _word);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_READING]), _word);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_MEANING]), _word);
-    rde_ui_node_set_active(rde_ui_button_as_node(_card->new_list), _word && !_card->naming);
-    rde_ui_node_set_active(fude_kit_field_node(_card->list_field), _word && _card->naming);
-    rde_ui_node_set_active(rde_ui_button_as_node(_card->list_ok), _word && _card->naming);
-    rde_ui_node_set_active(rde_ui_button_as_node(_card->remove), _word ? _card->id != 0u : _card->list_mode ? _card->list_id != 0u : fude_charnote_get(_card->note_cp)[0] != 0);
+    // What shows, for the form the card is in.
+    fude_wordcard_show_parts(_card, _list_count, _word, _translate, _sentence);
 }
+#undef FUDE_WORDCARD_TOP
 
 // --- opening and closing -----------------------------------------------------------------
 
+// See the header.
 void fude_wordcard_close(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     _card->open   = false;
@@ -507,8 +571,8 @@ void fude_wordcard_close(fude_ui* _ui) {
     fude_kit_modal_show(&_card->modal, false);
 }
 
-// Opens on _word (saved: id), its lists ticked as they are — or, a new word, as
-// the last one's were.
+// Opens the card on _word, titled _title. A saved word (_id not 0) has its lists ticked as they are; a new word has
+// the lists ticked that the last word saved went in. _kanji is the character page it comes from (0: none).
 RDE_INTERNAL void fude_wordcard_open(fude_ui* _ui, const fude_wordcard_word* _word, u32 _id, u32 _kanji, const c8* _title) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     _card->id        = _id;
@@ -520,6 +584,7 @@ RDE_INTERNAL void fude_wordcard_open(fude_ui* _ui, const fude_wordcard_word* _wo
     _card->note_cp   = 0u;
     rde_ui_label_set_text(_card->title, _title);
     rde_ui_text_editor_set_placeholder(_card->fields[FUDE_WORDCARD_WRITTEN], fude_text(FUDE_TEXT_WORD_FIELD_WRITTEN));
+    rde_ui_text_editor_set_max_chars(_card->fields[FUDE_WORDCARD_WRITTEN], FUDE_USERWORD_WRITTEN_CHARS);
     c8 _remove[96];
     fude_draw_icon_label(_remove, sizeof(_remove), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_WORD_REMOVE));
     rde_ui_button_set_text(_card->remove, _remove);
@@ -535,15 +600,18 @@ RDE_INTERNAL void fude_wordcard_open(fude_ui* _ui, const fude_wordcard_word* _wo
     _card->ticket             = 0u;
     rde_ui_label_set_text(_card->translate_status, fude_text(FUDE_TEXT_WORD_TRANSLATE_HINT));
 
-    _card->list_count = fude_vocab_list_count();
-    for(u32 _i = 0; _i < _card->list_count; _i++) {
-        _card->lists[_i] = fude_vocab_list_at(_i);
+    // A chip for every list there is now, each ticked as above.
+    fude_wordcard_list_chips(_ui, fude_vocab_list_count());
+    const rde_arr* _last_lists = fude_wordcard_last();
+    for(u32 _i = 0; _i < fude_wordcard_list_count(_card); _i++) {
+        fude_wordcard_list* _l = fude_wordcard_list_of(_card, _i);
+        _l->list = fude_vocab_list_at(_i);
         b8 _last = false;
-        for(u32 _k = 0; _k < fude_wordcard_last_count && _id == 0u; _k++) {
-            _last = _last || fude_wordcard_last_lists[_k] == _card->lists[_i];
+        for(u32 _k = 0; _k < (u32)rde_arr_length(_last_lists) && _id == 0u; _k++) {
+            _last = _last || ((const u32*)_last_lists->memory)[_k] == _l->list;
         }
-        _card->ticked[_i] = _id != 0u ? fude_vocab_in_list(_card->lists[_i], _id) : _last;
-        rde_ui_button_set_text(_card->list_chips[_i], fude_vocab_list_name(_card->lists[_i]));
+        _l->ticked = _id != 0u ? fude_vocab_in_list(_l->list, _id) : _last;
+        rde_ui_button_set_text(_l->chip, fude_vocab_list_name(_l->list));
     }
     fude_wordcard_label_found(_ui);
     fude_wordcard_style_chips(_ui);
@@ -551,11 +619,11 @@ RDE_INTERNAL void fude_wordcard_open(fude_ui* _ui, const fude_wordcard_word* _wo
     fude_wordcard_layout(_ui);
     fude_kit_modal_show(&_card->modal, true);
     if(_word->written[0] == 0) {
-        rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]));   // the keyboard comes up to type it
+        rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]));   // The keyboard comes up.
     }
 }
 
-// The list form: list _list's name (0: a new list's), to save; Delete list.
+// Opens the list form: list _list's name to change (0: a new list's, given a name to start from), and Delete list.
 RDE_INTERNAL void fude_wordcard_open_list(fude_ui* _ui, u32 _list) {
     fude_wordcard*     _card = FUDE_WORDCARD_OF(_ui);
     fude_wordcard_word _none = { 0 };
@@ -566,21 +634,22 @@ RDE_INTERNAL void fude_wordcard_open_list(fude_ui* _ui, u32 _list) {
     _card->list_id   = _list;
     c8 _name[FUDE_VOCAB_LIST_NAME];
     if(_list != 0u) {
-        snprintf(_name, sizeof(_name), "%s", fude_vocab_list_name(_list));
+        rde_snprintf(_name, sizeof(_name), "%s", fude_vocab_list_name(_list));
     } else {
         fude_vocab_list_new_name(_name, sizeof(_name));
     }
     rde_ui_text_editor_set_placeholder(_card->fields[FUDE_WORDCARD_WRITTEN], fude_text(FUDE_TEXT_WORD_LIST_NAME));
+    rde_ui_text_editor_set_max_chars(_card->fields[FUDE_WORDCARD_WRITTEN], FUDE_VOCAB_LIST_NAME_CHARS);   // the written field takes the name
     fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_WRITTEN], _name);
     rde_ui_text_editor_select_all(_card->fields[FUDE_WORDCARD_WRITTEN]);
     c8 _delete[96];
     fude_draw_icon_label(_delete, sizeof(_delete), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_VOCAB_DELETE_LIST));
     rde_ui_button_set_text(_card->remove, _delete);
     fude_wordcard_layout(_ui);
-    rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]));   // the keyboard comes up
+    rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]));   // The keyboard comes up.
 }
 
-// The note form: character _cp's note, to write; Delete note.
+// Opens the note form: character _cp's note to write, and Delete note.
 RDE_INTERNAL void fude_wordcard_open_note(fude_ui* _ui, u32 _cp) {
     fude_wordcard*     _card = FUDE_WORDCARD_OF(_ui);
     fude_wordcard_word _none = { 0 };
@@ -598,9 +667,11 @@ RDE_INTERNAL void fude_wordcard_open_note(fude_ui* _ui, u32 _cp) {
     fude_draw_icon_label(_delete, sizeof(_delete), FUDE_ICON_TRASH, fude_text(FUDE_TEXT_NOTE_DELETE));
     rde_ui_button_set_text(_card->remove, _delete);
     fude_wordcard_layout(_ui);
-    rde_ui_node_focus(rde_ui_text_editor_as_node(_card->note_field));   // the keyboard comes up
+    rde_ui_node_focus(rde_ui_text_editor_as_node(_card->note_field));   // The keyboard comes up.
 }
 
+// Opens what was asked for, in the form it needs. A word asked for by its texts that is saved already opens as saved.
+// A saved word or a list that has gone since opens nothing.
 RDE_INTERNAL void fude_wordcard_open_asked(fude_ui* _ui) {
     fude_wordcard*     _card = FUDE_WORDCARD_OF(_ui);
     if(fude_wordcard_asked.kind == FUDE_WORDCARD_ASK_NOTE) {
@@ -627,36 +698,37 @@ RDE_INTERNAL void fude_wordcard_open_asked(fude_ui* _ui) {
         fude_wordcard_copy(&_word, _saved->written, _saved->reading, _saved->meaning);
     } else if(fude_wordcard_asked.kind == FUDE_WORDCARD_ASK_SAVED) {
         fude_wordcard_asked.kind = FUDE_WORDCARD_ASK_NONE;
-        return;   // it went since
+        return;   // It was removed since.
     }
     _card->found_count = fude_wordcard_asked.found_count;
-    memcpy(_card->found, fude_wordcard_asked.found, sizeof(_card->found));
-    // Its sentence: a saved word's own, else the one it was met in.
+    rde_memcpy(_card->found, fude_wordcard_asked.found, sizeof(_card->found));
+    // Its sentence: a saved word's own, else the one it was met in now.
     const c8* _to   = "";
     const c8* _sent = _saved != NULL ? fude_vocab_sentence(_id, &_to) : "";
     if(_sent[0] == 0 && _to[0] == 0) {
         _sent = fude_wordcard_asked.sentence;
         _to   = fude_wordcard_asked.sentence_to;
     }
-    fude_wordcard_put(_card->sentence, sizeof(_card->sentence), _sent);
-    fude_wordcard_put(_card->sentence_to, sizeof(_card->sentence_to), _to);
+    fude_utf8_set(_card->sentence, sizeof(_card->sentence), _sent);
+    fude_utf8_set(_card->sentence_to, sizeof(_card->sentence_to), _to);
     c8 _title[512];
     if(_saved != NULL) {
-        snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_WORD_SAVED_TITLE));
+        rde_snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_WORD_SAVED_TITLE));
     } else if(fude_wordcard_asked.kind == FUDE_WORDCARD_ASK_TYPED && fude_wordcard_asked.kanji != 0u) {
         c8 _kanji[8];
         fude_utf8_put(fude_wordcard_asked.kanji, _kanji);
         FUDE_TEXTF(_title, FUDE_TEXT_WORD_TITLE, FUDE_TS(_kanji));
     } else {
-        snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_WORD_SAVE_TITLE));
+        rde_snprintf(_title, sizeof(_title), "%s", fude_text(FUDE_TEXT_WORD_SAVE_TITLE));
     }
     fude_wordcard_open(_ui, &_word, _saved != NULL ? _id : 0u, _saved != NULL ? _saved->kanji : fude_wordcard_asked.kanji, _title);
     fude_wordcard_asked.kind = FUDE_WORDCARD_ASK_NONE;
 }
 
-// --- the meaning into Japanese -----------------------------------------------------------
+// --- the meaning into the language taught -----------------------------------------------
 
-// Where the translation is, and the status's words (FUDE_TEXT_COUNT: none).
+// Sets how far the translation has got (_state, FUDE_WORDCARD_TRANSLATE_) and the status's text (_says, a FUDE_TEXT_
+// id; FUDE_TEXT_COUNT for none). The card is laid out again when either changes.
 RDE_INTERNAL void fude_wordcard_translating(fude_ui* _ui, u8 _state, u32 _says) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     if(_card->translating == _state && _card->translate_says == _says) {
@@ -665,36 +737,36 @@ RDE_INTERNAL void fude_wordcard_translating(fude_ui* _ui, u8 _state, u32 _says) 
     _card->translating    = _state;
     _card->translate_says = _says;
     rde_ui_label_set_text(_card->translate_status, _says < FUDE_TEXT_COUNT ? fude_text(_says) : "");
-    _card->_layout = true;   // the status, or the badge
+    _card->_layout = true;   // The status, or the badge, now shows.
 }
 
-// Is _s's end _end (UTF-8)? Then _s without it.
+// When _s ends in _end (UTF-8), cuts it off and returns true.
 RDE_INTERNAL b8 fude_wordcard_cut_end(c8* _s, const c8* _end) {
-    const usize _n = strlen(_s), _k = strlen(_end);
-    if(_n >= _k && memcmp(&_s[_n - _k], _end, _k) == 0) {
+    const usize _n = rde_strlen(_s), _k = rde_strlen(_end);
+    if(_n >= _k && rde_memcmp(&_s[_n - _k], _end, _k) == 0) {
         _s[_n - _k] = 0;
         return true;
     }
     return false;
 }
 
-// The meaning's Japanese in: the written field takes it — the dictionary's word
-// when it is one (in its form: 食べました is 食べる, with its reading), else as it
-// came, the words found in it offered.
-RDE_INTERNAL void fude_wordcard_translated(fude_ui* _ui, c8* _japanese) {
+// The translation of the meaning is in: the written field takes it. When it is one word of the dictionary, the field
+// takes that word as the dictionary writes it, with its reading (Japanese: 食べました is 食べる). Otherwise it takes the
+// text as it came, and the words found in it are offered.
+RDE_INTERNAL void fude_wordcard_translated(fude_ui* _ui, c8* _taught) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
-    // Without the full stop and spaces at its end.
-    while(fude_wordcard_cut_end(_japanese, "\xE3\x80\x82") || fude_wordcard_cut_end(_japanese, "\xEF\xBC\x8E") || fude_wordcard_cut_end(_japanese, "\xE3\x80\x80") ||
-          fude_wordcard_cut_end(_japanese, ".") || fude_wordcard_cut_end(_japanese, " ")) {
+    // Without the full stops and spaces at its end: Japanese's 。 and ．, its wide space, and the ASCII ones.
+    while(fude_wordcard_cut_end(_taught, "\xE3\x80\x82") || fude_wordcard_cut_end(_taught, "\xEF\xBC\x8E") || fude_wordcard_cut_end(_taught, "\xE3\x80\x80") ||
+          fude_wordcard_cut_end(_taught, ".") || fude_wordcard_cut_end(_taught, " ")) {
     }
-    if(_japanese[0] == 0) {
+    if(_taught[0] == 0) {
         fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_FAILED, FUDE_TEXT_SEL_TRANSLATION_NONE);
         return;
     }
     const fude_study*    _study = FUDE_STUDY(_ui->app);
-    const fude_kanji_db* _db    = _study->browse != NULL ? _study->db : NULL;
+    const fude_kanji_db* _db    = _study->db;
     u32                  _words[FUDE_WORDCARD_FOUND];
-    const u32            _n     = _db != NULL ? fude_wordsplit(_db, _japanese, _words, FUDE_WORDCARD_FOUND) : 0u;
+    const u32            _n     = _db != NULL ? fude_wordsplit(_db, _taught, _words, FUDE_WORDCARD_FOUND) : 0u;
     fude_kanji_word      _w;
     _card->found_count = 0;
     if(_n == 1u && fude_kanji_word_at(_db, _words[0], &_w)) {
@@ -702,7 +774,7 @@ RDE_INTERNAL void fude_wordcard_translated(fude_ui* _ui, c8* _japanese) {
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_READING], _w.reading);
     } else {
         c8 _written[FUDE_USERWORD_WRITTEN];
-        fude_wordcard_put(_written, sizeof(_written), _japanese);
+        fude_utf8_set(_written, sizeof(_written), _taught);
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_WRITTEN], _written);
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_READING], "");
         fude_wordcard_fill(_ui);
@@ -720,8 +792,8 @@ RDE_INTERNAL void fude_wordcard_translated(fude_ui* _ui, c8* _japanese) {
     _card->_layout = true;
 }
 
-// Once a frame while it is on its way: the models asked for (the first time),
-// the meaning sent when they are in, the answer taken.
+// Once a frame while a translation is on its way: asks for the models the first time, sends the meaning once they
+// are in, and takes the answer.
 RDE_INTERNAL void fude_wordcard_translate_step(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     if(_card->translating == FUDE_WORDCARD_TRANSLATE_WAITING) {
@@ -737,7 +809,12 @@ RDE_INTERNAL void fude_wordcard_translate_step(fude_ui* _ui) {
             }
             fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_WAITING, FUDE_TEXT_SCAN_TRANSLATE_GETTING);
         } else {
-            fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_FAILED, _state == FUDE_TRANSLATE_FAILED ? FUDE_TEXT_SCAN_TRANSLATE_FAILED : FUDE_TEXT_SEL_TRANSLATE_MLKIT_OFF);
+            // Unavailable: "turn ML Kit on" only when it is off; with it on, the pair is one this
+            // device cannot translate.
+            const FUDE_TEXT_ _why = _state == FUDE_TRANSLATE_FAILED ? FUDE_TEXT_SCAN_TRANSLATE_FAILED
+                                  : fude_mlkit_enabled()          ? FUDE_TEXT_SEL_TRANSLATION_NONE
+                                                                  : FUDE_TEXT_SEL_TRANSLATE_MLKIT_OFF;
+            fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_FAILED, _why);
         }
     }
     if(_card->translating == FUDE_WORDCARD_TRANSLATE_ASKED) {
@@ -749,6 +826,7 @@ RDE_INTERNAL void fude_wordcard_translate_step(fude_ui* _ui) {
     }
 }
 
+// See the header.
 void fude_wordcard_update(fude_ui* _ui) {
     fude_wordcard*   _card   = FUDE_WORDCARD_OF(_ui);
     if(fude_wordcard_asked.kind != FUDE_WORDCARD_ASK_NONE) {
@@ -765,11 +843,16 @@ void fude_wordcard_update(fude_ui* _ui) {
 
 // --- saving ------------------------------------------------------------------------------
 
-// The list form's Save: the list renamed, or made.
+// The list form's Save: renames the list, or makes it. An empty name, or a list that could not be made, says so in
+// the card instead.
 RDE_INTERNAL void fude_wordcard_save_list(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     c8             _name[FUDE_VOCAB_LIST_NAME];
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_WRITTEN], _name, sizeof(_name));
+    if(!fude_wordcard_fits(_card->fields[FUDE_WORDCARD_WRITTEN], sizeof(_name))) {
+        rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_WORD_ERR_LONG));
+        return;
+    }
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_WRITTEN], _name, sizeof(_name));
     if(_name[0] == 0) {
         rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_VOCAB_LIST_NAME_EMPTY));
         return;
@@ -779,7 +862,7 @@ RDE_INTERNAL void fude_wordcard_save_list(fude_ui* _ui) {
     } else {
         const u32 _list = fude_vocab_list_add(_name);
         if(_list == 0u) {
-            rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_VOCAB_LISTS_FULL));
+            rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_VOCAB_LIST_NOT_MADE));
             return;
         }
         fude_wordcard_made_list = _list;
@@ -787,6 +870,9 @@ RDE_INTERNAL void fude_wordcard_save_list(fude_ui* _ui) {
     fude_wordcard_close(_ui);
 }
 
+// Save, in whichever form the card is in. For a word: the reading is filled in where it can be (from the dictionary,
+// from a kana word itself, or from Latin letters' names), typed Latin letters are made the language's own reading,
+// then the word is added or updated, its sentence kept, and its lists set. A problem is shown in the card instead.
 RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     if(_card->list_mode) {
@@ -794,6 +880,10 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         return;
     }
     if(_card->note_mode) {
+        if(!fude_wordcard_fits(_card->note_field, FUDE_CHARNOTE_TEXT)) {
+            rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_WORD_ERR_LONG));
+            return;
+        }
         c8* _text = rde_ui_text_editor_get_text(_card->note_field, 0, rde_ui_text_editor_get_byte_count(_card->note_field));
         fude_charnote_set(_card->note_cp, _text != NULL ? _text : "");
         if(_text != NULL) {
@@ -803,15 +893,20 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         return;
     }
     c8 _written[FUDE_USERWORD_WRITTEN], _reading[FUDE_USERWORD_READING], _meaning[FUDE_USERWORD_MEANING];
+    if(!fude_wordcard_fits(_card->fields[FUDE_WORDCARD_WRITTEN], sizeof(_written)) || !fude_wordcard_fits(_card->fields[FUDE_WORDCARD_READING], sizeof(_reading)) ||
+       !fude_wordcard_fits(_card->fields[FUDE_WORDCARD_MEANING], sizeof(_meaning))) {
+        rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_WORD_ERR_LONG));
+        return;
+    }
     fude_wordcard_fill(_ui);
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_WRITTEN], _written, sizeof(_written));
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_READING], _reading, sizeof(_reading));
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_MEANING], _meaning, sizeof(_meaning));
-    if(_reading[0] == 0 && fude_wordcard_all_kana(_written)) {
-        snprintf(_reading, sizeof(_reading), "%s", _written);   // a kana word reads as it is written
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_WRITTEN], _written, sizeof(_written));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_READING], _reading, sizeof(_reading));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_MEANING], _meaning, sizeof(_meaning));
+    if(_reading[0] == 0 && fude_lang_reads_as_written(_written)) {
+        rde_snprintf(_reading, sizeof(_reading), "%s", _written);   // Japanese: a kana word reads as it is written.
     }
     if(_reading[0] == 0 && fude_lang_word_reading_latin()) {
-        fude_wordcard_latin_names(_written, _reading, sizeof(_reading));   // 학교: hakgyo
+        fude_wordcard_latin_names(_written, _reading, sizeof(_reading));   // Korean: 학교 reads hakgyo.
     }
     b8 _ascii = _reading[0] != 0;
     for(const c8* _c = _reading; *_c != 0; _c++) {
@@ -824,12 +919,12 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         _error = fude_text(FUDE_TEXT_WORD_ERR_READING);
     } else if(_ascii && fude_lang_word_reading_latin()) {
         for(c8* _c = _reading; *_c != 0; _c++) {
-            *_c = (*_c >= 'A' && *_c <= 'Z') ? (c8)(*_c + ('a' - 'A')) : *_c;   // as the data writes romanization
+            *_c = (*_c >= 'A' && *_c <= 'Z') ? (c8)(*_c + ('a' - 'A')) : *_c;   // Lower case, as the data writes it.
         }
     } else if(_ascii) {
         c8 _kana[FUDE_USERWORD_READING];
         if(fude_lang_reading_from_latin(_reading, _kana, sizeof(_kana))) {
-            snprintf(_reading, sizeof(_reading), "%s", _kana);
+            rde_snprintf(_reading, sizeof(_reading), "%s", _kana);
         } else {
             _error = fude_text(FUDE_TEXT_WORD_ERR_ROMAJI);
         }
@@ -843,7 +938,7 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         } else {
             _id = fude_vocab_add(_written, _reading, _meaning, _card->kanji);
             if(_id == 0u) {
-                _error = fude_text(FUDE_TEXT_WORD_ERR_EMPTY);
+                _error = fude_text(FUDE_TEXT_WORD_ERR_NOT_SAVED);   // The written form is checked above, so not for being empty.
             }
         }
     }
@@ -852,20 +947,21 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
         return;
     }
 
-    // The sentence it was met in, kept — unless it has one.
+    // The sentence it was met in is kept, unless the word has one already.
     const c8* _had_to = "";
     if((_card->sentence[0] != 0 || _card->sentence_to[0] != 0) && fude_vocab_sentence(_id, &_had_to)[0] == 0 && _had_to[0] == 0) {
         fude_vocab_set_sentence(_id, _card->sentence, _card->sentence_to);
     }
 
-    // Its lists; the ones it went in, for the next new word.
-    fude_wordcard_last_count = 0;
+    // Its lists, and the ones it went in remembered for the next new word.
+    rde_arr_clear(fude_wordcard_last());
     const c8* _first = NULL;
-    for(u32 _i = 0; _i < _card->list_count; _i++) {
-        fude_vocab_set_in_list(_card->lists[_i], _id, _card->ticked[_i]);
-        if(_card->ticked[_i]) {
-            fude_wordcard_last_lists[fude_wordcard_last_count++] = _card->lists[_i];
-            _first = _first != NULL ? _first : fude_vocab_list_name(_card->lists[_i]);
+    for(u32 _i = 0; _i < fude_wordcard_list_count(_card); _i++) {
+        const fude_wordcard_list* _l = fude_wordcard_list_of(_card, _i);
+        fude_vocab_set_in_list(_l->list, _id, _l->ticked);
+        if(_l->ticked) {
+            rde_arr_add(fude_wordcard_last(), (any)&_l->list);
+            _first = _first != NULL ? _first : fude_vocab_list_name(_l->list);
         }
     }
     c8 _line[512];
@@ -878,21 +974,31 @@ RDE_INTERNAL void fude_wordcard_save(fude_ui* _ui) {
     fude_wordcard_close(_ui);
 }
 
-// A new list, named (empty: "List n"), the word in it.
+// Makes a new list with the name typed (when empty, "List n"), gives it a chip, and ticks it for the word. When the
+// list could not be made, the card says so.
 RDE_INTERNAL void fude_wordcard_make_list(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     c8             _name[FUDE_VOCAB_LIST_NAME];
-    fude_wordcard_get_field(_card->list_field, _name, sizeof(_name));
+    if(!fude_wordcard_fits(_card->list_field, sizeof(_name))) {
+        rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_WORD_ERR_LONG));
+        return;
+    }
+    fude_kit_field_text_trimmed(_card->list_field, _name, sizeof(_name));
     if(_name[0] == 0) {
         fude_vocab_list_new_name(_name, sizeof(_name));
     }
     const u32 _list = fude_vocab_list_add(_name);
     _card->naming = false;
-    if(_list != 0u && _card->list_count < FUDE_VOCAB_LISTS) {
-        _card->lists[_card->list_count]  = _list;
-        _card->ticked[_card->list_count] = true;
-        rde_ui_button_set_text(_card->list_chips[_card->list_count], fude_vocab_list_name(_list));
-        _card->list_count++;
+    if(_list != 0u) {
+        const u32 _at = fude_wordcard_list_count(_card);
+        fude_wordcard_list_chips(_ui, _at + 1u);
+        fude_wordcard_list* _l = fude_wordcard_list_of(_card, _at);
+        _l->list   = _list;
+        _l->ticked = true;
+        rde_ui_button_set_text(_l->chip, fude_vocab_list_name(_list));
+        rde_ui_label_set_text(_card->error, "");
+    } else {
+        rde_ui_label_set_text(_card->error, fude_text(FUDE_TEXT_VOCAB_LIST_NOT_MADE));
     }
     fude_wordcard_style_chips(_ui);
     _card->_layout = true;
@@ -900,28 +1006,31 @@ RDE_INTERNAL void fude_wordcard_make_list(fude_ui* _ui) {
 
 // --- callbacks ---------------------------------------------------------------------------
 
+// Cancel, or a tap on the backdrop: closes the card without saving.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_cancel(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_wordcard_close((fude_ui*)_user_data);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Save.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_save(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_wordcard_save((fude_ui*)_user_data);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Remove, Delete list or Delete note, by the form the card is in; each says in a notice what went.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_remove(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_ui*          _ui = (fude_ui*)_user_data;
     if(FUDE_WORDCARD_OF(_ui)->note_mode) {
-        fude_charnote_set(FUDE_WORDCARD_OF(_ui)->note_cp, NULL);   // Delete note
+        fude_charnote_set(FUDE_WORDCARD_OF(_ui)->note_cp, NULL);   // Delete note.
         fude_wordcard_close(_ui);
         return RDE_UI_EVENT_RESULT_CONSUME;
     }
     if(FUDE_WORDCARD_OF(_ui)->list_mode) {
-        // Delete list: the list goes, its words stay.
+        // Delete list: the list goes, but its words stay in the vocabulary.
         if(FUDE_WORDCARD_OF(_ui)->list_id != 0u) {
             c8 _line[512];
             FUDE_TEXTF(_line, FUDE_TEXT_VOCAB_LIST_DELETED, FUDE_TS(fude_vocab_list_name(FUDE_WORDCARD_OF(_ui)->list_id)));
@@ -942,41 +1051,45 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_remove(rde_ui_node* _node, co
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// A list's chip: ticks or unticks the list. _user_data is the UI, and the chip is the one whose node was tapped (the
+// chips are made again as lists come and go, so none keeps an index of its own).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_list(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
-    RDE_UNUSED(_node); RDE_UNUSED(_info);
-    const fude_wordcard_ref* _ref  = (const fude_wordcard_ref*)_user_data;
-    fude_wordcard*           _card = FUDE_WORDCARD_OF(_ref->ui);
-    if(_ref->index < _card->list_count) {
-        _card->ticked[_ref->index] = !_card->ticked[_ref->index];
-        fude_kit_button_chip(_card->list_chips[_ref->index], _card->ticked[_ref->index]);
+    RDE_UNUSED(_info);
+    fude_wordcard* _card = FUDE_WORDCARD_OF((fude_ui*)_user_data);
+    for(u32 _i = 0; _i < fude_wordcard_list_count(_card); _i++) {
+        fude_wordcard_list* _l = fude_wordcard_list_of(_card, _i);
+        if(rde_ui_button_as_node(_l->chip) == _node) {
+            _l->ticked = !_l->ticked;
+            fude_kit_button_chip(_l->chip, _l->ticked);
+            break;
+        }
     }
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// A word found in what was read: the fields take it.
+// A word found in what was read: the fields take it. _user_data is its chip's fude_wordcard_ref.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_found(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const fude_wordcard_ref* _ref  = (const fude_wordcard_ref*)_user_data;
     fude_wordcard*           _card = FUDE_WORDCARD_OF(_ref->ui);
-    const u32                _i    = _ref->index - FUDE_VOCAB_LISTS;
+    const u32                _i    = _ref->index;
     if(_i < _card->found_count) {
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_WRITTEN], _card->found[_i].written);
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_READING], _card->found[_i].reading);
         fude_wordcard_set_field(_card->fields[FUDE_WORDCARD_MEANING], _card->found[_i].meaning);
-        _card->id = fude_vocab_find(_card->found[_i].written, _card->found[_i].reading);   // saved already: that one
+        _card->id = fude_vocab_find(_card->found[_i].written, _card->found[_i].reading);   // When saved, that one.
         _card->_layout = true;
     }
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// Translate with Google: the meaning, in the reader's language, into Japanese
-// for the written field.
+// See the header: the meaning, in the reader's language, into the language taught, for the written field.
 void fude_wordcard_translate(fude_ui* _ui) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
     if(!_card->open || _card->translating == FUDE_WORDCARD_TRANSLATE_WAITING || _card->translating == FUDE_WORDCARD_TRANSLATE_ASKED) {
-        return;   // on its way already
+        return;   // One is on its way already.
     }
-    fude_wordcard_get_field(_card->fields[FUDE_WORDCARD_MEANING], _card->translate_from, sizeof(_card->translate_from));
+    fude_kit_field_text_trimmed(_card->fields[FUDE_WORDCARD_MEANING], _card->translate_from, sizeof(_card->translate_from));
     if(_card->translate_from[0] == 0) {
         fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_FAILED, FUDE_TEXT_WORD_TRANSLATE_EMPTY);
         rde_ui_node_focus(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_MEANING]));
@@ -985,22 +1098,21 @@ void fude_wordcard_translate(fude_ui* _ui) {
     _card->translate_lang = fude_translate_target();
     _card->ticket         = 0u;
     fude_wordcard_translating(_ui, FUDE_WORDCARD_TRANSLATE_WAITING, FUDE_TEXT_SCAN_TRANSLATING);
-    fude_wordcard_translate_step(_ui);   // sent at once when the models are in
+    fude_wordcard_translate_step(_ui);   // Sent at once when the models are in.
 }
 
+// Translate with Google, pressed.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_translate(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_wordcard_translate((fude_ui*)_user_data);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// New list: shows the field to name it.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_new_list(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_ui*  _ui = (fude_ui*)_user_data;
     fude_wordcard* _card    = FUDE_WORDCARD_OF(_ui);
-    if(_card->list_count >= FUDE_VOCAB_LISTS) {
-        return RDE_UI_EVENT_RESULT_CONSUME;
-    }
     _card->naming = true;
     fude_wordcard_set_field(_card->list_field, "");
     fude_wordcard_layout(_ui);
@@ -1008,14 +1120,15 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_new_list(rde_ui_node* _node, 
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// Add, beside the new list's name: makes the list.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_wordcard_on_list_ok(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_wordcard_make_list((fude_ui*)_user_data);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// Return in a field: the written one looks the word up and goes on to the
-// reading, the reading to the meaning, the meaning saves; the list's name makes it.
+// Return in a field: the written field looks the word up and goes on to the reading, the reading goes on to the
+// meaning, and the meaning saves. In the new list's name it makes the list; in the list form it saves.
 RDE_INTERNAL void fude_wordcard_on_submit(rde_ui_node* _node, any _user_data) {
     fude_ui*  _ui = (fude_ui*)_user_data;
     fude_wordcard* _card    = FUDE_WORDCARD_OF(_ui);
@@ -1041,6 +1154,7 @@ RDE_INTERNAL void fude_wordcard_on_submit(rde_ui_node* _node, any _user_data) {
 
 // --- building ----------------------------------------------------------------------------
 
+// A label under _parent, _px tall, left-aligned, that lets taps through.
 RDE_INTERNAL rde_ui_label* fude_wordcard_label(fude_ui* _ui, rde_ui_node* _parent, f32 _px) {
     rde_ui_label* _label = rde_ui_label_create(NULL);
     rde_ui_label_set_font(_label, _ui->font);
@@ -1051,6 +1165,8 @@ RDE_INTERNAL rde_ui_label* fude_wordcard_label(fude_ui* _ui, rde_ui_node* _paren
     return _label;
 }
 
+// A one-line field under _parent, in its box, holding at most _max characters, with Return handled by
+// fude_wordcard_on_submit.
 RDE_INTERNAL rde_ui_text_editor* fude_wordcard_field(fude_ui* _ui, rde_ui_node* _parent, const c8* _placeholder, u32 _max) {
     rde_ui_text_editor* _f = rde_ui_text_editor_create(_ui->font, NULL);
     rde_ui_text_editor_set_multiline(_f, false);
@@ -1058,23 +1174,27 @@ RDE_INTERNAL rde_ui_text_editor* fude_wordcard_field(fude_ui* _ui, rde_ui_node* 
     rde_ui_text_editor_set_max_chars(_f, _max);
     rde_ui_text_editor_set_placeholder(_f, _placeholder);
     rde_ui_text_editor_set_content_insets(_f, 12.0f, 8.0f, 12.0f, 8.0f);
-    rde_ui_text_editor_add_plugin(_f, rde_ui_text_editor_plugin_ime_get());   // Japanese from the keyboard
+    rde_ui_text_editor_add_plugin(_f, rde_ui_text_editor_plugin_ime_get());   // The keyboard's input method (Japanese).
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_f), _ui);
     rde_ui_text_editor_set_on_submit(_f, fude_wordcard_on_submit);
     fude_kit_field_box(_parent, _f);
     return _f;
 }
 
+// See the header. The fields hold at most as many characters as the texts they make (vocab.h: a word's, a list's
+// name; charnote.h: a note). The lists' chips are made when the card opens (fude_wordcard_list_chips).
 void fude_wordcard_create(fude_ui* _ui, rde_ui_node* _root) {
     fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
-    memset(_card, 0, sizeof(*_card));
-    // Over everything, with a backdrop that cancels it.
+    fude_wordcard_forget(_ui);   // Nothing to let go on a first build; the UI lets go before it builds again.
+    rde_memset(_card, 0, sizeof(*_card));
+    _card->lists = rde_arr_new(sizeof(fude_wordcard_list), rde_memory_allocator_get_default_std());
+    // Over everything, with a backdrop that cancels it when tapped.
     fude_kit_modal_create(&_card->modal, _root, fude_wordcard_on_cancel, _ui);
     rde_ui_node* _c = rde_ui_image_as_node(_card->modal.card);
 
     _card->title = fude_wordcard_label(_ui, _c, 17.0f);
     const c8* const _placeholders[3] = { fude_text(FUDE_TEXT_WORD_FIELD_WRITTEN), fude_text(FUDE_TEXT_WORD_FIELD_READING), fude_text(FUDE_TEXT_WORD_FIELD_MEANING) };
-    const u32       _max[3]          = { 24u, 32u, 60u };
+    const u32       _max[3]          = { FUDE_USERWORD_WRITTEN_CHARS, FUDE_USERWORD_READING_CHARS, FUDE_USERWORD_MEANING_CHARS };
     for(u32 _i = 0; _i < 3u; _i++) {
         _card->fields[_i] = fude_wordcard_field(_ui, _c, _placeholders[_i], _max[_i]);
     }
@@ -1101,22 +1221,17 @@ void fude_wordcard_create(fude_ui* _ui, rde_ui_node* _root) {
     _card->found_caption = fude_wordcard_label(_ui, _c, 12.0f);
     rde_ui_label_set_text(_card->found_caption, fude_text(FUDE_TEXT_WORD_FOUND));
     for(u32 _i = 0; _i < FUDE_WORDCARD_FOUND; _i++) {
-        _card->refs[FUDE_VOCAB_LISTS + _i] = (fude_wordcard_ref){ _ui, FUDE_VOCAB_LISTS + _i };
-        _card->found_chips[_i]             = fude_kit_button(_c, "", fude_wordcard_on_found, _ui);
-        rde_ui_button_set_on_click(_card->found_chips[_i], fude_wordcard_on_found, &_card->refs[FUDE_VOCAB_LISTS + _i]);
+        _card->refs[_i]        = (fude_wordcard_ref){ _ui, _i };
+        _card->found_chips[_i] = fude_kit_button(_c, "", fude_wordcard_on_found, _ui);
+        rde_ui_button_set_on_click(_card->found_chips[_i], fude_wordcard_on_found, &_card->refs[_i]);
     }
     _card->lists_caption = fude_wordcard_label(_ui, _c, 12.0f);
     rde_ui_label_set_text(_card->lists_caption, fude_text(FUDE_TEXT_WORD_LISTS));
-    for(u32 _i = 0; _i < FUDE_VOCAB_LISTS; _i++) {
-        _card->refs[_i]       = (fude_wordcard_ref){ _ui, _i };
-        _card->list_chips[_i] = fude_kit_button(_c, "", fude_wordcard_on_list, _ui);
-        rde_ui_button_set_on_click(_card->list_chips[_i], fude_wordcard_on_list, &_card->refs[_i]);
-    }
     c8 _label[96];
     fude_draw_icon_label(_label, sizeof(_label), FUDE_ICON_PLUS, fude_text(FUDE_TEXT_WORD_NEW_LIST));
     _card->new_list   = fude_kit_button(_c, _label, fude_wordcard_on_new_list, _ui);
-    _card->list_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_WORD_LIST_NAME), 30u);
-    _card->note_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_NOTE_PLACEHOLDER), 180u);
+    _card->list_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_WORD_LIST_NAME), FUDE_VOCAB_LIST_NAME_CHARS);
+    _card->note_field = fude_wordcard_field(_ui, _c, fude_text(FUDE_TEXT_NOTE_PLACEHOLDER), FUDE_CHARNOTE_CHARS);
     rde_ui_text_editor_set_multiline(_card->note_field, true);
     _card->list_ok    = fude_kit_button(_c, fude_text(FUDE_TEXT_ADD), fude_wordcard_on_list_ok, _ui);
     _card->error      = fude_wordcard_label(_ui, _c, 12.0f);
@@ -1128,6 +1243,15 @@ void fude_wordcard_create(fude_ui* _ui, rde_ui_node* _root) {
     fude_wordcard_close(_ui);
 }
 
+// See the header: frees the lists' array; their chips go with the canvas.
+void fude_wordcard_forget(fude_ui* _ui) {
+    fude_wordcard* _card = FUDE_WORDCARD_OF(_ui);
+    if(rde_arr_is_inited(&_card->lists)) {
+        rde_arr_free(&_card->lists);
+    }
+}
+
+// See the header. Does nothing before the card is built.
 void fude_wordcard_apply_theme(fude_ui* _ui) {
     fude_wordcard*    _card = FUDE_WORDCARD_OF(_ui);
     const fude_theme* _t    = fude_theme_active();

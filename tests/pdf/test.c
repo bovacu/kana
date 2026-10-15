@@ -1,9 +1,13 @@
 // The PDF writer (fude/zoom/pdf.c): every file it writes read back here as a
 // reader would — the header, the xref (each offset landing on its object), the
 // trailer, the page tree, each stream's /Length — and then what the pages say:
-// numbers, alpha states, images, text. It also leaves out.pdf beside the suite,
-// a page of everything, to be opened by hand.
+// numbers, alpha states, images, text (in Helvetica, and in the app's fonts
+// embedded: the glyph ids written, the fonts' programs, widths and ToUnicode
+// maps, read back with a reader of its own). It also leaves out.pdf beside the
+// suite, pages of everything, to be opened by hand.
 #include "zoom/pdf.h"
+#include "zoom/mathfont.h"
+#include "drawing/base/utf8.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -613,6 +617,10 @@ static void test_text(void) {
     CHECK(fude_zoom_pdf_text_width(10, "\xE2\x89\x88") == fude_zoom_pdf_text_width(10, "?"));  // ≈ drawn as ?
     CHECK(fude_zoom_pdf_text_width(10, "") == 0.0 && fude_zoom_pdf_text_width(10, NULL) == 0.0);
     CHECK(fabs(fude_zoom_pdf_text_width(1000, "W.i") - (944 + 278 + 222)) < 1e-9);
+    // What it can write as written: Latin-1 and WinAnsi's extras, a '?' itself; not Japanese, nor ≈.
+    CHECK(fude_zoom_pdf_text_writes("\xC3\x89" "chelle 1:1. V\xC3\xA9rifiez le carr\xC3\xA9 : 100 mm de c\xC3\xB4t\xC3\xA9 \xE2\x80\x99 \xE2\x82\xAC ?"));
+    CHECK(!fude_zoom_pdf_text_writes("\xE7\xB8\xAE\xE5\xB0\xBA 1:1") && !fude_zoom_pdf_text_writes("a \xE2\x89\x88 b"));   // (縮尺, ≈)
+    CHECK(fude_zoom_pdf_text_writes("") && !fude_zoom_pdf_text_writes(NULL));
 
     fude_zoom_pdf* pdf = fude_zoom_pdf_new();
     fude_zoom_pdf_page_begin(pdf, 595, 842);
@@ -649,6 +657,634 @@ static void test_text(void) {
     CHECK(count_of(c, n, "\\(") == 1000 && count_of(c, n, "a") == 2000);
     rde_arr_free(&out);
     fude_zoom_pdf_free(pdf);
+
+    // Every length round where a block fills (labels of 380 to 1100 characters), ending in a plain character or an
+    // escaped one: the closing ") Tj" always fits after the last (AddressSanitizer stops the suite if it does not),
+    // and each label is there whole.
+    for(u32 kind = 0; kind < 2u; kind++) {
+        pdf = fude_zoom_pdf_new();
+        fude_zoom_pdf_page_begin(pdf, 100, 100);
+        static c8 label_text[1101];
+        u32 as = 0, opens = 0, labels = 0;
+        for(u32 len = 380; len <= 1100u; len++) {
+            for(u32 i = 0; i < len; i++) label_text[i] = (c8)(kind == 1u && i + 1u == len ? '(' : 'a');
+            label_text[len] = 0;
+            as += kind == 1u ? len - 1u : len; opens += kind; labels++;
+            fude_zoom_pdf_text(pdf, 0, 0, 10, (rde_color){ 0, 0, 0, 255 }, label_text);
+        }
+        CHECK(finish(pdf, &out, &D));
+        c = page_content(&D, 0, &n);
+        CHECK(count_of(c, n, "a") == as && count_of(c, n, "\\(") == opens && count_of(c, n, ") Tj\nET\n") == labels);
+        rde_arr_free(&out);
+        fude_zoom_pdf_free(pdf);
+    }
+}
+
+// --- the app's fonts, embedded --------------------------------------------------------------------
+
+// The canvas apps' fonts (beside the suite's app, in the canvas app's assets), chained as page_export.c chains them:
+// each face's Roboto, then the script font (Noto Sans JP cut down to the language picker's names, CFF), and Phosphor's
+// icons behind the regular face. font_files is in the order the writer numbers them (/E1 on: as the chains first name
+// them).
+#define FONT_DIR FUDE_ROOT "/../sketching/assets/fonts/"
+static const char* const font_files[6] = { FONT_DIR "Roboto-Regular.ttf", FONT_DIR "NotoSansJP-Names.otf", FONT_DIR "Phosphor-Regular.ttf",
+                                           FONT_DIR "Roboto-Bold.ttf", FONT_DIR "Roboto-Italic.ttf", FONT_DIR "Roboto-BoldItalic.ttf" };
+static const char* const font_names[6] = { "Roboto-Regular", "NotoSansJP-Names", "Phosphor-Regular", "Roboto-Bold", "Roboto-Italic", "Roboto-BoldItalic" };
+static const int chains[4][4] = { { 0, 1, 2, -1 }, { 3, 1, -1, -1 }, { 4, 1, -1, -1 }, { 5, 1, -1, -1 } };   // (each face's, -1 ending it)
+
+// The fonts set as the app sets them; a face's first file put in place of its own when not NULL (one
+// damaged or missing).
+static void use_fonts(const char* regular, const char* bold) {
+    fude_zoom_pdf_font_files f;
+    memset(&f, 0, sizeof f);
+    for(u32 face = 0; face < 4; face++) {
+        for(u32 i = 0; i < 4 && chains[face][i] >= 0; i++) f.chains[face][i] = font_files[chains[face][i]];
+    }
+    if(regular != NULL) f.chains[0][0] = regular;
+    if(bold != NULL) f.chains[1][0] = bold;
+    fude_zoom_pdf_fonts(&f);
+}
+
+static u8* read_file(const char* path, u32* n) {
+    *n = 0;
+    FILE* f = fopen(path, "rb");
+    if(f == NULL) return NULL;
+    fseek(f, 0, SEEK_END);
+    const long k = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    u8* d = (u8*)malloc((size_t)k + 1u);
+    *n = (u32)fread(d, 1, (size_t)k, f);
+    fclose(f);
+    return d;
+}
+
+static void write_file(const char* path, const u8* d, u32 n) {
+    FILE* f = fopen(path, "wb");
+    if(f != NULL) { fwrite(d, 1, n, f); fclose(f); }
+}
+
+static u32 be16(const u8* p) { return (u32)p[0] << 8 | p[1]; }
+static u32 be32(const u8* p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
+
+static u32 hex(const u8* p, u32 digits) {
+    u32 v = 0;
+    for(u32 i = 0; i < digits; i++) v = v * 16u + (u32)(p[i] <= '9' ? p[i] - '0' : p[i] - 'A' + 10);
+    return v;
+}
+
+// TrueType's check sum: the bytes as big-endian words, added up, the last word padded with zeros.
+static u32 sum_words(const u8* p, u32 n) {
+    u32 s = 0;
+    for(u32 i = 0; i < n; i += 4) {
+        u32 w = 0;
+        for(u32 k = 0; k < 4; k++) w = w << 8 | (i + k < n ? p[i + k] : 0u);
+        s += w;
+    }
+    return s;
+}
+
+// A font as this suite reads it, the plain way, to check the writer against: where its tables are, its Windows
+// Unicode character map (format 4: what these fonts have), its advances and its glyphs' bytes.
+typedef struct {
+    u8* d;
+    u32 n;
+    u32 head, hhea, maxp, hmtx, loca, glyf, cmap4, cff, cff_len;
+    u32 upem, glyphs, hmetrics, long_loca;
+} ttf;
+
+static u32 ttf_table(const u8* d, const char* tag, u32* len) {
+    for(u32 i = 0; i < be16(d + 4); i++) {
+        const u8* r = d + 12 + 16 * i;
+        if(memcmp(r, tag, 4) == 0) {
+            if(len != NULL) *len = be32(r + 12);
+            return be32(r + 8);
+        }
+    }
+    return 0;
+}
+
+static b8 ttf_open(ttf* t, const char* path) {
+    memset(t, 0, sizeof *t);
+    t->d = read_file(path, &t->n);
+    if(t->d == NULL || t->n < 12) return false;
+    t->head = ttf_table(t->d, "head", NULL); t->hhea = ttf_table(t->d, "hhea", NULL); t->maxp = ttf_table(t->d, "maxp", NULL);
+    t->hmtx = ttf_table(t->d, "hmtx", NULL); t->loca = ttf_table(t->d, "loca", NULL); t->glyf = ttf_table(t->d, "glyf", NULL);
+    t->cff  = ttf_table(t->d, "CFF ", &t->cff_len);
+    const u32 cmap = ttf_table(t->d, "cmap", NULL);
+    for(u32 i = 0; cmap != 0 && i < be16(t->d + cmap + 2); i++) {
+        const u8* r = t->d + cmap + 4 + 8 * i;
+        const u32 sub = cmap + be32(r + 4);
+        if(be16(r) == 3 && be16(r + 2) == 1 && be16(t->d + sub) == 4) t->cmap4 = sub;
+    }
+    t->upem = be16(t->d + t->head + 18); t->long_loca = be16(t->d + t->head + 50);
+    t->glyphs = be16(t->d + t->maxp + 4); t->hmetrics = be16(t->d + t->hhea + 34);
+    return t->cmap4 != 0 && t->hmtx != 0 && t->upem != 0;
+}
+
+static u32 ttf_glyph(const ttf* t, u32 cp) {
+    if(cp > 0xFFFF) return 0;
+    const u8* s = t->d + t->cmap4;
+    const u32 segs = be16(s + 6) / 2;
+    const u8 *ends = s + 14, *starts = ends + 2 * segs + 2, *deltas = starts + 2 * segs, *ranges = deltas + 2 * segs;
+    for(u32 i = 0; i < segs; i++) {
+        if(be16(ends + 2 * i) < cp) continue;
+        const u32 start = be16(starts + 2 * i), delta = be16(deltas + 2 * i), range = be16(ranges + 2 * i);
+        if(cp < start) return 0;
+        if(range == 0) return (cp + delta) & 0xFFFF;
+        const u32 g = be16(ranges + 2 * i + range + 2 * (cp - start));
+        return g != 0 ? (g + delta) & 0xFFFF : 0;
+    }
+    return 0;
+}
+
+static u32 ttf_advance(const ttf* t, u32 g) { return be16(t->d + t->hmtx + 4 * (g < t->hmetrics ? g : t->hmetrics - 1)); }
+
+// Glyph _g's bytes in glyf (*at), and how many.
+static u32 ttf_glyph_bytes(const ttf* t, u32 g, const u8** at) {
+    u32 a, b;
+    if(t->long_loca) { a = be32(t->d + t->loca + 4 * g); b = be32(t->d + t->loca + 4 * g + 4); }
+    else             { a = 2 * be16(t->d + t->loca + 2 * g); b = 2 * be16(t->d + t->loca + 2 * g + 2); }
+    *at = t->d + t->glyf + a;
+    return b > a ? b - a : 0;
+}
+
+static ttf fonts_read[6];   // font_files, read by ttf_open
+
+// NotoSansJP-Names's CIDs (its CFF's charset, format 0, read by hand): glyph 1 (日) 0x4EFC, 2 (本) 0x5116, 3 (語) 0x93E4.
+static u32 jp_cid(u32 g) { return g == 1 ? 0x4EFC : g == 2 ? 0x5116 : g == 3 ? 0x93E4 : 0; }
+static u32 jp_glyph(u32 cid) { return cid == 0x4EFC ? 1 : cid == 0x5116 ? 2 : cid == 0x93E4 ? 3 : 0; }
+
+// The characters these tests write that the screen draws as nothing (a zero-width space, joiner, emoji selector).
+static b8 hidden(u32 cp) { return cp == 0x200B || cp == 0x200D || cp == 0xFE0F; }
+
+// What the writer must write for character _cp in face _face, by the chain: the font (its place in font_files) and its
+// code (the glyph id, or a CID in the CFF one); the chain's first font and code 0 when none has it. False for a hidden
+// character, which is not written.
+static b8 expect(u32 face, u32 cp, u32* font, u32* code) {
+    if(hidden(cp)) return false;
+    for(u32 i = 0; i < 4 && chains[face][i] >= 0; i++) {
+        const ttf* t = &fonts_read[chains[face][i]];
+        const u32 g = ttf_glyph(t, cp);
+        if(g != 0) {
+            *font = (u32)chains[face][i];
+            *code = t->cff != 0 ? jp_cid(g) : g;
+            return true;
+        }
+    }
+    *font = (u32)chains[face][0];
+    *code = 0;
+    return true;
+}
+
+// The width of _utf8 at _size in face _face, from the fonts' own advances.
+static f64 width_of(u32 face, const char* utf8, f64 size) {
+    f64 ems = 0;
+    for(u32 cp = fude_utf8_next(&utf8); cp != 0; cp = fude_utf8_next(&utf8)) {
+        u32 font, code;
+        if(!expect(face, cp, &font, &code)) continue;
+        const ttf* t = &fonts_read[font];
+        ems += (f64)ttf_advance(t, t->cff != 0 ? jp_glyph(code) : code) / (f64)t->upem;
+    }
+    return ems * size;
+}
+
+// One glyph as a page writes it: its font (/E<n>'s n - 1: its place in font_files), its code and the character it
+// stands for (expected, or read back through the font's ToUnicode map).
+typedef struct { u32 font, code, unicode; } glyph_of;
+
+// Appends what _face's text _utf8 must write to _out (at _at), as expect() says; returns the new count.
+static u32 expected(u32 face, const char* utf8, glyph_of* out, u32 at, u32 most) {
+    for(u32 cp = fude_utf8_next(&utf8); cp != 0; cp = fude_utf8_next(&utf8)) {
+        glyph_of g;
+        if(!expect(face, cp, &g.font, &g.code)) continue;
+        g.unicode = g.code == 0 ? 0xFFFD : cp;
+        if(at < most) out[at] = g;
+        at++;
+    }
+    return at;
+}
+
+// The glyphs page _page writes in the embedded fonts, in order: each hex string's codes in the font its last Tf set.
+static u32 written(const doc* D, u32 page, glyph_of* out, u32 most) {
+    u32 n, k = 0, font = 0;
+    const u8* c = page_content(D, page, &n);
+    if(c == NULL) return 0;
+    for(u32 i = 0; i < n; i++) {
+        if(c[i] == '/' && i + 1 < n && c[i + 1] == 'E') {
+            const u8* p = c + i + 2;
+            font = number(&p) - 1u;
+        } else if(c[i] == '<') {
+            u32 j = i + 1;
+            for(; j + 4 <= n && c[j] != '>'; j += 4, k++) {
+                if(k < most) { out[k].font = font; out[k].code = hex(c + j, 4); out[k].unicode = 0; }
+            }
+            i = j;
+        }
+    }
+    return k;
+}
+
+// Font /E<n>'s objects, from the resources: its Type 0 font, its CIDFont, its descriptor, its program, its ToUnicode.
+typedef struct { u32 type0, cid, descriptor, program, unicode; } font_objects;
+
+static b8 objects_of(const doc* D, u32 n, font_objects* o) {
+    u32 len;
+    char key[16];
+    snprintf(key, sizeof key, "/E%u ", n);
+    memset(o, 0, sizeof *o);
+    const u8* res = dict(D, 3, &len, NULL);
+    if(res == NULL || find(res, len, key) == NULL) return false;
+    o->type0 = value(res, len, key);
+    const u8* t = dict(D, o->type0, &len, NULL);
+    if(t == NULL) return false;
+    o->cid     = value(t, len, "/DescendantFonts [");
+    o->unicode = value(t, len, "/ToUnicode ");
+    const u8* c = dict(D, o->cid, &len, NULL);
+    if(c == NULL) return false;
+    o->descriptor = value(c, len, "/FontDescriptor ");
+    const u8* d = dict(D, o->descriptor, &len, NULL);
+    if(d == NULL) return false;
+    o->program = find(d, len, "/FontFile2 ") != NULL ? value(d, len, "/FontFile2 ") : value(d, len, "/FontFile3 ");
+    return o->program != 0 && o->unicode != 0;
+}
+
+// A ToUnicode CMap's bfchar entries into map (65536 code points by code; 0 where it says nothing). Returns how many,
+// or 0 when a line is not "<code> <unit>" or "<code> <high low>".
+static u32 unicode_map(const doc* D, u32 obj, u32* map) {
+    u32 n, count = 0;
+    memset(map, 0, sizeof(u32) * 65536u);
+    const u8* s = stream(D, obj, &n);
+    const u8* p = s != NULL ? find(s, n, "endcodespacerange") : NULL;
+    while(p != NULL && (p = find(p, n - (u32)(p - s), "<")) != NULL) {
+        if(p + 8 > s + n || p[5] != '>' || p[6] != ' ' || p[7] != '<') return 0;
+        const u32 code = hex(p + 1, 4);
+        const u8* q = p + 8;
+        u32 digits = 0;
+        while(q + digits < s + n && q[digits] != '>') digits++;
+        if(digits != 4 && digits != 8) return 0;
+        u32 u = hex(q, 4);
+        if(digits == 8) u = 0x10000u + ((u - 0xD800u) << 10) + (hex(q + 4, 4) - 0xDC00u);
+        map[code] = u;
+        count++;
+        p = q + digits;
+    }
+    return count;
+}
+
+// The CIDFont's widths (W) for code: what its "first [w w w]" runs say, or -1.
+static f64 width_in(const doc* D, u32 cid_obj, u32 code) {
+    u32 len;
+    const u8* c = dict(D, cid_obj, &len, NULL);
+    const u8* w = c != NULL ? find(c, len, "/W [") : NULL;
+    if(w == NULL) return -1;
+    const char* p = (const char*)w + 4;
+    while(*p != ']') {
+        char* end;
+        const u32 first = (u32)strtoul(p, &end, 10);
+        p = end;
+        while(*p == ' ') p++;
+        if(*p != '[') return -1;
+        p++;
+        for(u32 k = first; *p != ']'; k++) {
+            const f64 v = strtod(p, &end);
+            if(end == p) return -1;
+            if(k == code) return v;
+            p = end;
+            while(*p == ' ') p++;
+        }
+        p++;
+        while(*p == ' ') p++;
+    }
+    return -1;
+}
+
+// A TrueType program as the writer cuts it down: its words add up to TrueType's sum, each table's check sum is right,
+// a reader's tables are there and the shaping ones are not, it has the original's glyphs, each glyph kept (glyph 0,
+// the used ones, and the parts of a kept composite) is the original's bytes, and every other glyph is empty.
+static void check_program(const u8* p, u32 n, const ttf* t, const u8* used) {
+    CHECK(n > 12 && be32(p) == 0x00010000u && sum_words(p, n) == 0xB1B0AFBAu);
+    const u32 tables = be16(p + 4);
+    u32 head = 0, loca = 0, glyf = 0, maxp = 0;
+    for(u32 i = 0; i < tables; i++) {
+        const u8* r = p + 12 + 16 * i;
+        const u32 at = be32(r + 8), len = be32(r + 12);
+        CHECK(at % 4 == 0 && at + len <= n && (i == 0 || memcmp(r - 16, r, 4) < 0));   // (on 4 bytes, by tag)
+        u32 sum = sum_words(p + at, len);
+        if(memcmp(r, "head", 4) == 0) { head = at; sum -= be32(p + at + 8); }   // (its adjustment counted as 0)
+        CHECK(sum == be32(r + 4));
+        if(memcmp(r, "loca", 4) == 0) loca = at;
+        if(memcmp(r, "glyf", 4) == 0) glyf = at;
+        if(memcmp(r, "maxp", 4) == 0) maxp = at;
+        CHECK(memcmp(r, "GSUB", 4) != 0 && memcmp(r, "GPOS", 4) != 0);
+    }
+    CHECK(head != 0 && loca != 0 && glyf != 0 && maxp != 0 && ttf_table(p, "hmtx", NULL) != 0 && ttf_table(p, "hhea", NULL) != 0);
+    if(head == 0 || loca == 0 || glyf == 0 || maxp == 0) return;
+    CHECK(be16(p + maxp + 4) == t->glyphs);
+    // (what must be kept: the used glyphs, glyph 0, and the parts of each, read by mathfont.h's reader)
+    fude_zoom_mfont m;
+    CHECK(fude_zoom_mfont_load(&m, t->d, t->n));
+    u8* keep = (u8*)calloc(t->glyphs, 1);
+    keep[0] = 1;
+    for(u32 g = 0; g < t->glyphs; g++) keep[g] |= used[g];
+    for(u32 pass = 0; pass < 4; pass++) {
+        for(u32 g = 0; g < t->glyphs; g++) {
+            u32 parts[64];
+            const u32 k = keep[g] ? fude_zoom_mfont_parts(&m, g, parts, 64) : 0;
+            for(u32 i = 0; i < k; i++) if(parts[i] < t->glyphs) keep[parts[i]] = 1;
+        }
+    }
+    const b8 is_short = be16(p + head + 50) == 0;
+    u32 kept = 0, emptied = 0;
+    for(u32 g = 0; g < t->glyphs; g++) {
+        const u32 a = is_short ? 2 * be16(p + loca + 2 * g) : be32(p + loca + 4 * g);
+        const u32 b = is_short ? 2 * be16(p + loca + 2 * g + 2) : be32(p + loca + 4 * g + 4);
+        const u8* was;
+        const u32 len = ttf_glyph_bytes(t, g, &was);
+        if(keep[g]) {
+            CHECK(b - a >= len && b - a < len + 4 && memcmp(p + glyf + a, was, len) == 0);
+            kept++;
+        } else {
+            CHECK(a == b);
+            emptied += len > 0;
+        }
+    }
+    CHECK(kept > 1 && emptied > 0);
+    free(keep);
+}
+
+static void test_fonts(void) {
+    for(u32 i = 0; i < 6; i++) CHECK(ttf_open(&fonts_read[i], font_files[i]));
+    const ttf* roboto = &fonts_read[0];
+    const ttf* names  = &fonts_read[1];
+
+    // mathfont.h's readers, which the writer embeds through: a CFF font loads (its character map and advances, no
+    // glyf), its CIDs from its charset; a TrueType font's tables, a composite glyph's parts.
+    fude_zoom_mfont m;
+    rde_arr cids = rde_arr_new(sizeof(u16), rde_memory_allocator_get_default_std());
+    CHECK(fude_zoom_mfont_load(&m, names->d, names->n) && m.cff != 0 && m.glyf == 0 && fude_zoom_mfont_glyph(&m, 0x672C) == 2);
+    CHECK(fude_zoom_mfont_cids(&m, &cids) && rde_arr_length(&cids) == 4);
+    const u16* cid = (const u16*)cids.memory;
+    CHECK(cid[0] == 0 && cid[1] == jp_cid(1) && cid[2] == jp_cid(2) && cid[3] == jp_cid(3));
+    u32 at, len, parts[8];
+    i32 box[4];
+    CHECK(!fude_zoom_mfont_glyph_data(&m, 1, &at, &len) && !fude_zoom_mfont_box(&m, 1, box) && fude_zoom_mfont_parts(&m, 1, parts, 8) == 0);
+    CHECK(fude_zoom_mfont_load(&m, roboto->d, roboto->n) && m.cff == 0);
+    CHECK(!fude_zoom_mfont_cids(&m, &cids) && rde_arr_length(&cids) == 4);   // (no CFF: left alone)
+    const u32 e = fude_zoom_mfont_glyph(&m, 'e'), e_acute = fude_zoom_mfont_glyph(&m, 0xE9);
+    CHECK(fude_zoom_mfont_parts(&m, e_acute, parts, 8) == 2 && (parts[0] == e || parts[1] == e) && fude_zoom_mfont_parts(&m, e, parts, 8) == 0);
+    const u8* e_bytes;
+    CHECK(fude_zoom_mfont_glyph_data(&m, e, &at, &len) && len == ttf_glyph_bytes(roboto, e, &e_bytes) && roboto->d + at == e_bytes);
+    u32 cvt = 0;
+    CHECK(fude_zoom_mfont_table(&m, 0x63767420u, &cvt) == ttf_table(roboto->d, "cvt ", NULL) && cvt > 0 && fude_zoom_mfont_table(&m, 0x58585858u, NULL) == 0);
+    CHECK(fude_zoom_mfont_u16(&m, roboto->head + 18) == roboto->upem && fude_zoom_mfont_u32(&m, roboto->n) == 0);   // (past the end: 0)
+    rde_arr_free(&cids);
+
+    static const char* const lines[8] = {
+        "Greek: \xCE\x9A\xCE\xB1\xCE\xBB\xCE\xB7\xCE\xBC\xCE\xAD\xCF\x81\xCE\xB1 \xCE\xBA\xCF\x8C\xCF\x83\xCE\xBC\xCE\xB5",              // Καλημέρα κόσμε
+        "Cyrillic: \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82, \xD0\xBC\xD0\xB8\xD1\x80! \xD0\x81\xD0\xB6",                      // Привет, мир! Ёж
+        "Polish: Za\xC5\xBC\xC3\xB3\xC5\x82\xC4\x87 g\xC4\x99\xC5\x9Bl\xC4\x85 ja\xC5\xBA\xC5\x84 \xC5\x81\xC3\xB3" "d\xC5\xBA",       // Zażółć gęślą jaźń Łódź
+        "Turkish: \xC4\xB0stanbul \xC4\xB1l\xC4\xB1k \xC4\x9F \xC5\x9F \xC3\xA7 \xC3\xB6 \xC3\xBC \xC4\x9E \xC5\x9E",                  // İstanbul ılık ğ ş ç ö ü Ğ Ş
+        "Czech: P\xC5\x99\xC3\xADli\xC5\xA1 \xC5\xBElu\xC5\xA5ou\xC4\x8Dk\xC3\xBD k\xC5\xAF\xC5\x88 \xC5\x98",                          // Příliš žluťoučký kůň Ř
+        "\xCE\xA9 \xD0\x96 \xC5\x82 \xE2\x80\x94 \xE2\x80\x9Cq\xE2\x80\x9D \xE2\x82\xAC \xE2\x89\x88",                                  // Ω Ж ł — “q” € ≈
+        "\xC4\xB1 \xC3\xA9 \xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E \xE4\xB8\xAD",                                                         // ı é 日本語 中 (in bold italic)
+        "a\xE2\x80\x8B" "b \xEE\x80\x90 \xF0\x9F\x98\x80\xEF\xB8\x8F \xE6\x97\xA5 \xE0\xA4\x95",                                        // a(ZWSP)b, an icon, 😀(VS16), 日, क
+    };
+    static const u8 faces[8] = { 0, 0, 0, 0, 1, 2, 3, 0 };
+    use_fonts(NULL, NULL);
+    // What prints as written: the four scripts and Japanese's three names; not 中, 😀 or क; hidden ones count.
+    for(u32 i = 0; i < 4; i++) CHECK(fude_zoom_pdf_text_writes(lines[i]));
+    CHECK(fude_zoom_pdf_text_writes("\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E \xEE\x80\x90 a\xE2\x80\x8B" "b"));
+    CHECK(!fude_zoom_pdf_text_writes("a\xE4\xB8\xAD") && !fude_zoom_pdf_text_writes("\xF0\x9F\x98\x80") && !fude_zoom_pdf_text_writes(NULL));
+    CHECK(!fude_zoom_pdf_text_writes(lines[6]) && fude_zoom_pdf_text_writes(""));
+    // Widths: each character's advance in the font it is written in, its face's own, without kerning.
+    for(u32 i = 0; i < 8; i++) {
+        CHECK(fabs(fude_zoom_pdf_text_width_face(13, lines[i], faces[i]) - width_of(faces[i], lines[i], 13)) < 1e-9);
+    }
+    CHECK(fabs(fude_zoom_pdf_text_width(12, "Hello") - width_of(0, "Hello", 12)) < 1e-9 && width_of(1, "Hello", 12) > width_of(0, "Hello", 12) + 0.1);
+    CHECK(fude_zoom_pdf_text_width(10, "") == 0.0 && fude_zoom_pdf_text_width(10, NULL) == 0.0 && fude_zoom_pdf_text_width(10, "\xE2\x80\x8B") == 0.0);
+
+    fude_zoom_pdf* pdf = fude_zoom_pdf_new();
+    fude_zoom_pdf_page_begin(pdf, 595, 842);
+    for(u32 i = 0; i < 8; i++) fude_zoom_pdf_text_face(pdf, 72, 760 - 30 * i, 14, (rde_color){ 0, 0, 0, 255 }, lines[i], faces[i]);
+    fude_bytes out;
+    CHECK(finish(pdf, &out, &D));
+    // The first line exactly: in /E1 (Roboto), each character its glyph id.
+    {
+        static glyph_of g[64];
+        const u32 k = expected(0, lines[0], g, 0, 64);
+        char want[512];
+        int w = snprintf(want, sizeof want, "q\nBT\n/E1 14 Tf\n72 760 Td\n<");
+        for(u32 i = 0; i < k; i++) w += snprintf(want + w, sizeof want - (size_t)w, "%04X", g[i].code);
+        snprintf(want + w, sizeof want - (size_t)w, "> Tj\nET\nQ\n");
+        u32 n;
+        const u8* c = page_content(&D, 0, &n);
+        CHECK(c != NULL && n > strlen(want) && memcmp(c, want, strlen(want)) == 0);
+        CHECK(g[0].code == ttf_glyph(roboto, 'G') && g[0].code != 0);
+    }
+    // Every glyph as the chains say, and each read back through its font's ToUnicode map as its character.
+    static glyph_of want[1024], got[1024];
+    u32 nw = 0;
+    for(u32 i = 0; i < 8; i++) nw = expected(faces[i], lines[i], want, nw, 1024);
+    const u32 ng = written(&D, 0, got, 1024);
+    CHECK(ng == nw);
+    u32* maps[6] = { NULL };
+    u8*  used[6] = { NULL };
+    for(u32 i = 0; i < ng && i < nw; i++) {
+        CHECK(got[i].font == want[i].font && got[i].code == want[i].code);
+        const u32 f = got[i].font < 6 ? got[i].font : 0;
+        if(maps[f] == NULL) {
+            font_objects o;
+            maps[f] = (u32*)malloc(sizeof(u32) * 65536u);
+            used[f] = (u8*)calloc(65536u, 1);
+            CHECK(objects_of(&D, f + 1, &o) && unicode_map(&D, o.unicode, maps[f]) > 0);
+        }
+        CHECK(maps[f][got[i].code & 0xFFFF] == want[i].unicode);
+        used[f][fonts_read[f].cff != 0 ? jp_glyph(got[i].code) : (got[i].code & 0xFFFF)] = 1;
+    }
+    CHECK(maps[0] && maps[1] && maps[2] && maps[3] && maps[4] && maps[5]);   // (every font written in)
+    // Each font embedded: a Type 0 font over its CIDFont, named as a subset of its file, its widths its advances, its
+    // program the font cut down (TrueType) or its CFF whole, and its map one entry a glyph used.
+    for(u32 f = 0; f < 6; f++) {
+        font_objects o;
+        if(maps[f] == NULL || !objects_of(&D, f + 1, &o)) { CHECK(false); continue; }
+        const ttf* t = &fonts_read[f];
+        const u8* t0 = dict(&D, o.type0, &len, NULL);
+        CHECK(t0 != NULL && find(t0, len, "/Subtype /Type0") != NULL && find(t0, len, "/Encoding /Identity-H") != NULL);
+        const u8* name = t0 != NULL ? find(t0, len, "/BaseFont /") : NULL;
+        CHECK(name != NULL && name[17] == '+' && memcmp(name + 18, font_names[f], strlen(font_names[f])) == 0 && name[18 + strlen(font_names[f])] == ' ');
+        for(u32 i = 11; name != NULL && i < 17; i++) CHECK(name[i] >= 'A' && name[i] <= 'Z');
+        const u8* cf = dict(&D, o.cid, &len, NULL);
+        CHECK(cf != NULL && find(cf, len, "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>") != NULL);
+        CHECK(cf != NULL && find(cf, len, t->cff ? "/Subtype /CIDFontType0 " : "/Subtype /CIDFontType2 ") != NULL);
+        CHECK(cf != NULL && (find(cf, len, "/CIDToGIDMap /Identity") != NULL) == (t->cff == 0));
+        const u8* fd = dict(&D, o.descriptor, &len, NULL);
+        CHECK(fd != NULL && find(fd, len, "/Type /FontDescriptor") != NULL && find(fd, len, f == 4 || f == 5 ? "/Flags 68 " : "/Flags 4 ") != NULL);
+        u32 entries = 0;
+        for(u32 g = 0; g < 65536u; g++) {
+            if(used[f][g] == 0) continue;
+            entries++;
+            const u32 code = t->cff != 0 ? jp_cid(g) : g;
+            CHECK(fabs(width_in(&D, o.cid, code) - (f64)ttf_advance(t, g) * 1000.0 / t->upem) < 0.0051);
+        }
+        CHECK(unicode_map(&D, o.unicode, maps[f]) == entries);
+        u32 pn;
+        const u8* prog = stream(&D, o.program, &pn);
+        const u8* pd   = dict(&D, o.program, &len, NULL);
+        CHECK(prog != NULL && pd != NULL);
+        if(prog == NULL || pd == NULL) continue;
+        if(t->cff != 0) {
+            CHECK(find(pd, len, "/Subtype /CIDFontType0C") != NULL && pn == t->cff_len && memcmp(prog, t->d + t->cff, pn) == 0);
+        } else {
+            CHECK(value(pd, len, "/Length1 ") == pn && pn < t->n / 3);
+            check_program(prog, pn, t, used[f]);
+        }
+        printf("  %s: %u glyphs used, embedded in %u bytes (the file: %u)\n", font_names[f], entries, pn, t->n);
+    }
+    // The same document finished again: the same file.
+    fude_bytes again = fude_bytes_new(16);
+    CHECK(fude_zoom_pdf_finish(pdf, &again) && fude_bytes_size(&again) == fude_bytes_size(&out) && memcmp(again.memory, out.memory, fude_bytes_size(&out)) == 0);
+    rde_arr_free(&again);
+    rde_arr_free(&out);
+    fude_zoom_pdf_free(pdf);
+    for(u32 f = 0; f < 6; f++) { free(maps[f]); free(used[f]); }
+    const rde_color black = { 0, 0, 0, 255 };
+    u32 n;
+    const u8* c;
+
+    // A face whose own font cannot be read is written in the regular face's fonts.
+    use_fonts(NULL, "nowhere/Missing-Bold.ttf");
+    pdf = fude_zoom_pdf_new();
+    fude_zoom_pdf_page_begin(pdf, 100, 100);
+    fude_zoom_pdf_text_face(pdf, 0, 0, 10, black, "Bold", 1);
+    CHECK(finish(pdf, &out, &D));
+    c = page_content(&D, 0, &n);
+    CHECK(c != NULL && find(c, n, "/E1 10 Tf") != NULL && find(c, n, "/E4") == NULL && find(c, n, "/F") == NULL);
+    CHECK(fabs(fude_zoom_pdf_text_width_face(10, "Bold", 1) - width_of(0, "Bold", 10)) < 1e-9);
+    rde_arr_free(&out);
+    fude_zoom_pdf_free(pdf);
+    // The regular face's first unreadable: its text is Helvetica's (and its widths and what it writes), the bold's
+    // still Roboto Bold (the fourth file named: /E4).
+    use_fonts("nowhere/Missing.ttf", NULL);
+    CHECK(fabs(fude_zoom_pdf_text_width(10, "Hi") - (722 + 222) / 100.0) < 1e-9 && !fude_zoom_pdf_text_writes("\xCE\xA9"));
+    pdf = fude_zoom_pdf_new();
+    fude_zoom_pdf_page_begin(pdf, 100, 100);
+    fude_zoom_pdf_text_face(pdf, 0, 0, 10, black, "Hi", 0);
+    fude_zoom_pdf_text_face(pdf, 0, 0, 10, black, "Hi", 1);
+    CHECK(finish(pdf, &out, &D));
+    c = page_content(&D, 0, &n);
+    {
+        char hi[128];
+        snprintf(hi, sizeof hi, "q\nBT\n/F1 10 Tf\n0 0 Td\n(Hi) Tj\nET\nQ\nq\nBT\n/E4 10 Tf\n0 0 Td\n<%04X%04X> Tj\nET\nQ\n", ttf_glyph(&fonts_read[3], 'H'),
+                 ttf_glyph(&fonts_read[3], 'i'));
+        CHECK(same(c, n, hi));
+    }
+    CHECK(object_with(&D, "/BaseFont /Helvetica ") != 0 && object_with(&D, "/Subtype /CIDFontType2") != 0);
+    rde_arr_free(&out);
+    fude_zoom_pdf_free(pdf);
+    // A document keeps the fonts set when it was made, whatever is set after; with none set, Helvetica as before.
+    use_fonts(NULL, NULL);
+    pdf = fude_zoom_pdf_new();
+    fude_zoom_pdf_fonts(NULL);
+    fude_zoom_pdf_page_begin(pdf, 100, 100);
+    fude_zoom_pdf_text(pdf, 0, 0, 10, black, "\xCE\xA9");
+    fude_zoom_pdf* plain = fude_zoom_pdf_new();
+    fude_zoom_pdf_page_begin(plain, 100, 100);
+    fude_zoom_pdf_text(plain, 0, 0, 10, black, "\xCE\xA9");
+    CHECK(finish(pdf, &out, &D));
+    c = page_content(&D, 0, &n);
+    CHECK(c != NULL && find(c, n, "/E1 10 Tf") != NULL);
+    rde_arr_free(&out);
+    CHECK(finish(plain, &out, &D));
+    c = page_content(&D, 0, &n);
+    CHECK(same(c, n, "q\nBT\n/F1 10 Tf\n0 0 Td\n(?) Tj\nET\nQ\n"));
+    rde_arr_free(&out);
+    fude_zoom_pdf_free(pdf);
+    fude_zoom_pdf_free(plain);
+
+    // A damaged font, cut short anywhere or with bytes overwritten (Roboto, and the CFF one): text written in it never
+    // reads past its bytes (AddressSanitizer stops the suite if it does), and the file is still sound.
+    srand(7);
+    for(u32 round = 0; round < 90; round++) {
+        const b8   cff = round % 3 == 2;
+        const ttf* src = cff ? names : roboto;
+        u32 size = src->n;
+        u8* d = (u8*)malloc(size);
+        memcpy(d, src->d, size);
+        if(round < 45) size = (u32)rand() % size;
+        else for(u32 k = 0; k < 200; k++) d[(u32)rand() % size] = (u8)rand();
+        write_file(cff ? "damaged.otf" : "damaged.ttf", d, size);
+        free(d);
+        if(cff) {
+            fude_zoom_pdf_font_files f;
+            memset(&f, 0, sizeof f);
+            f.chains[0][0] = font_files[0];
+            f.chains[0][1] = "damaged.otf";
+            fude_zoom_pdf_fonts(&f);
+        } else {
+            use_fonts("damaged.ttf", round % 3 == 1 ? "damaged.ttf" : NULL);
+        }
+        pdf = fude_zoom_pdf_new();
+        fude_zoom_pdf_page_begin(pdf, 200, 200);
+        for(u32 i = 0; i < 8; i++) fude_zoom_pdf_text_face(pdf, 10, 10 + 20 * i, 10, black, lines[i], faces[i]);
+        CHECK(fude_zoom_pdf_text_width(10, lines[3]) >= 0.0);
+        CHECK(finish(pdf, &out, &D));
+        rde_arr_free(&out);
+        fude_zoom_pdf_free(pdf);
+    }
+    remove("damaged.ttf");
+    remove("damaged.otf");
+
+    // Random lines of every kind of character above (one of each that shares a glyph with another: Ω and the ohm sign
+    // copy back as the first written): each glyph as the chains say, each read back as written, each width the sum.
+    use_fonts(NULL, NULL);
+    static const u32 pool_all[] = { 'A', 'z', '0', ' ', '(', ')', '\\', '<', '>', 0xE9, 0xDF, 0xC5, 0x141, 0x142, 0x130, 0x131, 0x15F, 0x11F,
+                                    0x159, 0x16F, 0x391, 0x3B1, 0x3C9, 0x3A9, 0x2126, 0x410, 0x44F, 0x451, 0x2014, 0x20AC, 0x2248, 0x65E5,
+                                    0x672C, 0x8A9E, 0x4E2D, 0xE010, 0xE016, 0x1F600, 0x915, 0x200B, 0xFE0F, 0xFFFD };
+    u32 pool[64], np = 0;
+    for(u32 i = 0; i < sizeof pool_all / sizeof pool_all[0]; i++) {
+        u32 f, code, f2, code2;
+        b8  twin = false;
+        for(u32 j = 0; j < np && expect(0, pool_all[i], &f, &code) && code != 0; j++) {
+            twin = twin || (expect(0, pool[j], &f2, &code2) && f2 == f && code2 == code);
+        }
+        if(!twin) pool[np++] = pool_all[i];
+    }
+    CHECK(np == sizeof pool_all / sizeof pool_all[0] - 1);   // (only the ohm sign: Ω's twin)
+    srand(11);
+    pdf = fude_zoom_pdf_new();
+    fude_zoom_pdf_page_begin(pdf, 595, 842);
+    enum { LINES = 300, LONGEST = 60, MOST = LINES * LONGEST };   // (characters at most: every line its longest)
+    static glyph_of rw[MOST], rg[MOST];
+    u32 nrw = 0;
+    for(u32 line = 0; line < LINES; line++) {
+        c8  s[LONGEST * 4 + 8];
+        u32 bytes = 0;
+        const u32 count = 1u + (u32)rand() % LONGEST;
+        for(u32 k = 0; k < count; k++) bytes += fude_utf8_put(pool[(u32)rand() % np], s + bytes);
+        s[bytes] = 0;
+        fude_zoom_pdf_text(pdf, 10, 830 - (f64)(line % 80) * 10, 8, black, s);
+        nrw = expected(0, s, rw, nrw, MOST);
+        CHECK(fabs(fude_zoom_pdf_text_width(8, s) - width_of(0, s, 8)) < 1e-9);
+    }
+    CHECK(finish(pdf, &out, &D));
+    const u32 nrg = written(&D, 0, rg, MOST);
+    CHECK(nrg == nrw && nrw <= MOST);
+    u32* rmaps[6] = { NULL };
+    for(u32 i = 0; i < nrg && i < nrw; i++) {
+        CHECK(rg[i].font == rw[i].font && rg[i].code == rw[i].code);
+        const u32 f = rg[i].font < 6 ? rg[i].font : 0;
+        if(rmaps[f] == NULL) {
+            font_objects o;
+            rmaps[f] = (u32*)malloc(sizeof(u32) * 65536u);
+            CHECK(objects_of(&D, f + 1, &o) && unicode_map(&D, o.unicode, rmaps[f]) > 0);
+        }
+        CHECK(rmaps[f][rg[i].code & 0xFFFF] == rw[i].unicode);
+    }
+    for(u32 f = 0; f < 6; f++) free(rmaps[f]);
+    rde_arr_free(&out);
+    fude_zoom_pdf_free(pdf);
+    fude_zoom_pdf_fonts(NULL);
+    for(u32 i = 0; i < 6; i++) free(fonts_read[i].d);
 }
 
 // --- a page to look at -----------------------------------------------------------------------------
@@ -677,6 +1313,7 @@ static void label(fude_zoom_pdf* pdf, f64 cx, f64 y, f64 size, const c8* s) {
 }
 
 static void write_sample(void) {
+    use_fonts(NULL, NULL);   // (its text in the app's fonts, as the app writes it)
     fude_zoom_pdf* pdf = fude_zoom_pdf_new();
     const f64 W = 210.0 * FUDE_ZOOM_PDF_MM, H = 297.0 * FUDE_ZOOM_PDF_MM;
     const u32 jpeg = fude_zoom_pdf_jpeg(pdf, jpeg_16x12, sizeof jpeg_16x12);
@@ -756,9 +1393,25 @@ static void write_sample(void) {
     fude_zoom_pdf_rect(pdf, 36, 36, 612 - 72, 792 - 72);
     fude_zoom_pdf_stroke(pdf);
     label(pdf, 306, 396, 24, "Page 2: Letter");
+    // A page of scripts in every face: what the app's fonts draw (Japanese's three names, an icon), and what none has
+    // (中, 😀, क: the missing-glyph box, as on the screen).
+    fude_zoom_pdf_page_begin(pdf, W, H);
+    static const char* const scripts[] = {
+        "Greek: \xCE\x9A\xCE\xB1\xCE\xBB\xCE\xB7\xCE\xBC\xCE\xAD\xCF\x81\xCE\xB1 \xCE\xBA\xCF\x8C\xCF\x83\xCE\xBC\xCE\xB5",
+        "Cyrillic: \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82, \xD0\xBC\xD0\xB8\xD1\x80!",
+        "Polish: Za\xC5\xBC\xC3\xB3\xC5\x82\xC4\x87 g\xC4\x99\xC5\x9Bl\xC4\x85 ja\xC5\xBA\xC5\x84",
+        "Turkish: \xC4\xB0stanbul \xC4\xB1l\xC4\xB1k \xC4\x9F \xC5\x9F",
+        "Czech: P\xC5\x99\xC3\xADli\xC5\xA1 \xC5\xBElu\xC5\xA5ou\xC4\x8Dk\xC3\xBD k\xC5\xAF\xC5\x88",
+        "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E \xEE\x80\x90 \xE2\x89\x88 \xE2\x82\xAC | \xE4\xB8\xAD \xF0\x9F\x98\x80 \xE0\xA4\x95",
+    };
+    for(u32 face = 0; face < 4; face++) {
+        for(u32 i = 0; i < 6; i++) {
+            fude_zoom_pdf_text_face(pdf, 60, H - 70 - (f64)(face * 6 + i) * 30, 16, (rde_color){ 20, 20, 20, 255 }, scripts[i], (u8)face);
+        }
+    }
     fude_bytes out;
     CHECK(finish(pdf, &out, &D));
-    CHECK(page_count(&D) == 2);
+    CHECK(page_count(&D) == 3);
     FILE* f = fopen("out.pdf", "wb");
     if(f != NULL) {
         fwrite(out.memory, 1, fude_bytes_size(&out), f);
@@ -766,6 +1419,7 @@ static void write_sample(void) {
     }
     rde_arr_free(&out);
     fude_zoom_pdf_free(pdf);
+    fude_zoom_pdf_fonts(NULL);
 }
 
 int main(void) {
@@ -776,6 +1430,7 @@ int main(void) {
     test_jpeg();
     test_rgba();
     test_text();
+    test_fonts();
     write_sample();
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

@@ -1,9 +1,9 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 # Korean's UI strings (lang.h): the study's ids that name the language, in
-# its words, and the ids fude/lang/ko/lang.c and chart.c use. A study app's
-# strings tool reads this after fude/study/strings.py (as fude/lang/ja/strings.py,
-# whose study ids these are).
+# its words, and the ids fude/lang/ko/lang.c and chart.c use. Read after
+# fude/study/strings.py for the app that teaches it (tools/strings/build.py), as
+# fude/lang/ja/strings.py is, whose study ids these are.
 #
 #   t('ID', English, Spanish, Portuguese (Brazil), Japanese, French)
 
@@ -53,10 +53,10 @@ o('SEARCH_HINT', 'A meaning or a sound: sky, cheon', 'Un significado o un sonido
 t('VOCAB_SEARCH_HINT', 'Find: Hangul, romanization or meaning', 'Buscar: hangul, romanización o significado', 'Buscar: hangul, romanização ou significado', '検索：ハングル、ローマ字、意味', 'Chercher : hangul, romanisation ou sens')
 
 # Google ML Kit's handwriting model (mlkit.h).
-t('MLKIT_READY', 'Ready: the Korean model is on this device.', 'Listo: el modelo coreano está en este dispositivo.', 'Pronto: o modelo coreano está neste dispositivo.', '準備完了：韓国語モデルはこの端末にあります。', 'Prêt : le modèle coréen est sur cet appareil.')
-t('MLKIT_DOWNLOADING', 'Downloading the Korean model (about 20 MB)...', 'Descargando el modelo coreano (unos 20 MB)...', 'Baixando o modelo coreano (cerca de 20 MB)...', '韓国語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle coréen (environ 20 Mo)...')
-t('MLKIT_FAILED', 'The Korean model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo coreano. ¿Hay conexión?', 'Não foi possível baixar o modelo coreano. O dispositivo está conectado?', '韓国語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle coréen. L’appareil est-il connecté ?')
-t('MLKIT_MISSING', 'The Korean model (about 20 MB) is not downloaded yet.', 'El modelo coreano (unos 20 MB) aún no está descargado.', 'O modelo coreano (cerca de 20 MB) ainda não foi baixado.', '韓国語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle coréen (environ 20 Mo) n’est pas encore téléchargé.')
+o('MLKIT_READY', 'Ready: the Korean model is on this device.', 'Listo: el modelo coreano está en este dispositivo.', 'Pronto: o modelo coreano está neste dispositivo.', '準備完了：韓国語モデルはこの端末にあります。', 'Prêt : le modèle coréen est sur cet appareil.')
+o('MLKIT_DOWNLOADING', 'Downloading the Korean model (about 20 MB)...', 'Descargando el modelo coreano (unos 20 MB)...', 'Baixando o modelo coreano (cerca de 20 MB)...', '韓国語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle coréen (environ 20 Mo)...')
+o('MLKIT_FAILED', 'The Korean model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo coreano. ¿Hay conexión?', 'Não foi possível baixar o modelo coreano. O dispositivo está conectado?', '韓国語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle coréen. L’appareil est-il connecté ?')
+o('MLKIT_MISSING', 'The Korean model (about 20 MB) is not downloaded yet.', 'El modelo coreano (unos 20 MB) aún no está descargado.', 'O modelo coreano (cerca de 20 MB) ainda não foi baixado.', '韓国語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle coréen (environ 20 Mo) n’est pas encore téléchargé.')
 
 # Read aloud (speech.h): the device's basic voice spoke.
 # No voice for the language yet (speech.h): how to add one, Android's and iOS's (study's VOICE_TITLE over it).
@@ -68,3 +68,7 @@ t('SPEECH_BETTER_VOICE', 'For a clearer voice, download a Korean one in Settings
 t('EXAM_INTRO', 'Each character once, from memory: a letter from its romanization, a hanja from its meaning and its sound.', 'Cada carácter una vez, de memoria: una letra a partir de su romanización, un hanja a partir de su significado y su sonido.', 'Cada caractere uma vez, de memória: uma letra a partir da romanização, um hanja a partir do significado e do som.', '各字を1回ずつ、何も見ずに：字母はローマ字から、漢字は意味と音から書きます。', 'Chaque caractère une fois, de mémoire : une lettre d’après sa romanisation, un hanja d’après son sens et son son.')
 t('ALBUM_EMPTY', 'Nothing practised yet: open a letter (Characters, or the Hangul chart), then Practice, then Score.', 'Aún no hay nada practicado: abre una letra (Caracteres o la tabla de hangul), luego Practicar y luego Puntuar.', 'Ainda não há nada praticado: abra uma letra (Caracteres ou a tabela de hangul), depois Praticar e depois Avaliar.', 'まだ練習がありません。文字を開いて（文字、またはハングル表）、「練習」、「採点」の順に。', 'Rien de pratiqué pour l’instant : ouvrez une lettre (Caractères, ou le tableau du hangul), puis S’entraîner, puis Noter.')
 t('SHEET_CREDIT', 'Hangul stroke order by {APP}; hanja from KanjiVG (CC BY-SA 3.0). Made with {APP}.', 'Orden de trazos del hangul de {APP}; hanja de KanjiVG (CC BY-SA 3.0). Hecho con {APP}.', 'Ordem dos traços do hangul do {APP}; hanja do KanjiVG (CC BY-SA 3.0). Feito com o {APP}.', 'ハングルの書き順：{APP}。漢字：KanjiVG（CC BY-SA 3.0）。{APP}で作成。', 'Ordre des traits du hangul : {APP} ; hanja : KanjiVG (CC BY-SA 3.0). Fait avec {APP}.')
+
+# The app's fourth language, once its strings have every row (tools/strings/build.py): this one, in its
+# strings_ko.py beside each layer's.
+language('KO-KR', 'Korean', ['@plural = 1'])

@@ -1,20 +1,24 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/ink/lasso.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
-
-#include <string.h>
 
 // ===========================================================================
 // See lasso.h.
+//
+// The selection is an array of stroke indices, always in stroke order; it is checked against the ink (fude_lasso_sync)
+// before it is read, because an undo or an erase can kill a selected stroke at any time.
 // ===========================================================================
 
+// The width of the loop's and the box's line, and how much wider than the ink the selection's glow is (both in
+// screen units).
 #define FUDE_LASSO_LINE_PX     1.2f
 #define FUDE_LASSO_GLOW_PX     4.0f
 
+// Zeroes the lasso and makes its arrays on the std allocator.
 void fude_lasso_init(fude_lasso* _lasso) {
-    memset(_lasso, 0, sizeof(*_lasso));
+    rde_memset(_lasso, 0, sizeof(*_lasso));
 
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     _lasso->clipboard.strokes  = rde_arr_new(sizeof(fude_ink_stroke), _heap);
@@ -26,6 +30,7 @@ void fude_lasso_init(fude_lasso* _lasso) {
     _lasso->_scratch_positions = rde_arr_new(sizeof(rde_vec_2F), _heap);
 }
 
+// Frees whichever arrays were made, the clipboard included, and zeroes the lasso.
 void fude_lasso_destroy(fude_lasso* _lasso) {
     rde_arr* _arrays[] = { &_lasso->loop, &_lasso->selected, &_lasso->_scratch_positions,
                            &_lasso->clipboard.strokes, &_lasso->clipboard.points, &_lasso->_duplicate.strokes, &_lasso->_duplicate.points };
@@ -36,20 +41,24 @@ void fude_lasso_destroy(fude_lasso* _lasso) {
         }
     }
 
-    memset(_lasso, 0, sizeof(*_lasso));
+    rde_memset(_lasso, 0, sizeof(*_lasso));
 }
 
+// Typed views of the selection and of the loop's points; take them again after adding to either array.
 RDE_INTERNAL u32*        fude_lasso_ids(const fude_lasso* _lasso)    { return (u32*)_lasso->selected.memory; }
 RDE_INTERNAL rde_vec_2F* fude_lasso_points(const fude_lasso* _lasso) { return (rde_vec_2F*)_lasso->loop.memory; }
 
+// Returns whether a loop or a move is in progress.
 b8 fude_lasso_busy(const fude_lasso* _lasso) {
     return _lasso->state != FUDE_LASSO_IDLE;
 }
 
+// Returns how many strokes are selected, as last synced.
 u32 fude_lasso_count(const fude_lasso* _lasso) {
     return (u32)rde_arr_length(&_lasso->selected);
 }
 
+// Deselects everything: finishes a move as an edit, drops a loop, and forgets the loop's and the text area's boxes.
 void fude_lasso_clear(fude_lasso* _lasso, fude_ink* _ink) {
     if(_lasso->state == FUDE_LASSO_MOVING) {
         fude_ink_move_end(_ink);
@@ -62,10 +71,12 @@ void fude_lasso_clear(fude_lasso* _lasso, fude_ink* _ink) {
     _lasso->area_on = false;
 }
 
+// Returns whether _id is a stroke of the ink that is alive.
 RDE_INTERNAL b8 fude_lasso_selectable(const fude_ink* _ink, u32 _id) {
     return _id < fude_ink_stroke_count(_ink) && fude_ink_stroke_at(_ink, _id)->alive;
 }
 
+// Drops the selected strokes that are no longer alive, keeping the others in order.
 void fude_lasso_sync(fude_lasso* _lasso, const fude_ink* _ink) {
     u32*      _ids   = fude_lasso_ids(_lasso);
     const u32 _count = fude_lasso_count(_lasso);
@@ -77,10 +88,10 @@ void fude_lasso_sync(fude_lasso* _lasso, const fude_ink* _ink) {
         }
     }
 
-    // rde_arr has clear but no truncate; this is rde_arr_clear's own operation.
-    _lasso->selected.count = _kept;
+    rde_arr_resize(&_lasso->selected, _kept);
 }
 
+// Writes the union of the selected alive strokes' bounds; false when none is selected.
 b8 fude_lasso_bounds(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F* _min, rde_vec_2F* _max) {
     const u32* _ids   = fude_lasso_ids(_lasso);
     b8         _found = false;
@@ -104,10 +115,12 @@ b8 fude_lasso_bounds(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F*
     return _found;
 }
 
+// Writes the selected ink's box, else the selected text area's; false when neither is selected.
 b8 fude_lasso_box(const fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F* _min, rde_vec_2F* _max) {
     return fude_lasso_bounds(_lasso, _ink, _min, _max) || fude_lasso_area(_lasso, _min, _max);
 }
 
+// Writes the last loop's box when the loop selected no strokes; false otherwise, or after a tap.
 b8 fude_lasso_looped(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max) {
     if(!_lasso->looped || fude_lasso_count(_lasso) > 0) {
         return false;
@@ -117,6 +130,7 @@ b8 fude_lasso_looped(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _ma
     return true;
 }
 
+// Selects an area of the page's text, dropping any selected strokes.
 void fude_lasso_select_area(fude_lasso* _lasso, rde_vec_2F _min, rde_vec_2F _max) {
     rde_arr_clear(&_lasso->selected);
     _lasso->area_on  = true;
@@ -124,6 +138,7 @@ void fude_lasso_select_area(fude_lasso* _lasso, rde_vec_2F _min, rde_vec_2F _max
     _lasso->area_max = _max;
 }
 
+// Writes the selected text area's box; false when there is none, strokes are selected, or the lasso is busy.
 b8 fude_lasso_area(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max) {
     if(!_lasso->area_on || fude_lasso_count(_lasso) > 0 || _lasso->state != FUDE_LASSO_IDLE) {
         return false;
@@ -133,6 +148,7 @@ b8 fude_lasso_area(const fude_lasso* _lasso, rde_vec_2F* _min, rde_vec_2F* _max)
     return true;
 }
 
+// Erases the selected strokes as one edit and deselects.
 void fude_lasso_delete(fude_lasso* _lasso, fude_ink* _ink) {
     fude_lasso_sync(_lasso, _ink);
     fude_ink_erase_strokes(_ink, fude_lasso_ids(_lasso), fude_lasso_count(_lasso));
@@ -141,8 +157,9 @@ void fude_lasso_delete(fude_lasso* _lasso, fude_ink* _ink) {
 
 // --- clipboard -------------------------------------------------------------------
 
-// The selection into _clip, positions relative to its centre. Selections are
-// always built in stroke order, so a paste keeps the order they were written in.
+// Copies the selected strokes into _clip, with positions relative to the selection's centre. Selections are always
+// built in stroke order, so a paste keeps the order the strokes were written in. Returns false, leaving _clip as it
+// was, when nothing is selected.
 RDE_INTERNAL b8 fude_lasso_copy_into(fude_lasso* _lasso, const fude_ink* _ink, fude_clip* _clip) {
     fude_lasso_sync(_lasso, _ink);
 
@@ -163,7 +180,7 @@ RDE_INTERNAL b8 fude_lasso_copy_into(fude_lasso* _lasso, const fude_ink* _ink, f
 
         _stroke.first_point = (u32)rde_arr_length(&_clip->points);
         fude_ink_point* _dst = rde_arr_add_n(&_clip->points, _stroke.point_count);
-        memcpy(_dst, _src, (usize)_stroke.point_count * sizeof(fude_ink_point));
+        rde_memcpy(_dst, _src, (usize)_stroke.point_count * sizeof(fude_ink_point));
         for(u32 _p = 0; _p < _stroke.point_count; _p++) {
             _dst[_p].position.x -= _center.x;
             _dst[_p].position.y -= _center.y;
@@ -175,7 +192,7 @@ RDE_INTERNAL b8 fude_lasso_copy_into(fude_lasso* _lasso, const fude_ink* _ink, f
     return true;
 }
 
-// Adds _clip centred at _canvas (one undo step) and selects what it added.
+// Adds _clip's strokes centred at _canvas as one undo step, and selects what was added (nothing when nothing was).
 RDE_INTERNAL void fude_lasso_paste_from(fude_lasso* _lasso, fude_ink* _ink, const fude_clip* _clip, rde_vec_2F _canvas) {
     const u32 _count = (u32)rde_arr_length(&_clip->strokes);
     const u32 _first = fude_ink_add_strokes(_ink, (const fude_ink_stroke*)_clip->strokes.memory, _count,
@@ -191,16 +208,20 @@ RDE_INTERNAL void fude_lasso_paste_from(fude_lasso* _lasso, fude_ink* _ink, cons
     }
 }
 
+// Copies the selection into the clipboard, keeping the selection.
 void fude_lasso_copy(fude_lasso* _lasso, const fude_ink* _ink) {
     fude_lasso_copy_into(_lasso, _ink, &_lasso->clipboard);
 }
 
+// Copies the selection into the clipboard, then deletes it as one edit.
 void fude_lasso_cut(fude_lasso* _lasso, fude_ink* _ink) {
     if(fude_lasso_copy_into(_lasso, _ink, &_lasso->clipboard)) {
         fude_lasso_delete(_lasso, _ink);
     }
 }
 
+// Adds a copy of the selection FUDE_LASSO_DUPLICATE screen units down and to the right and selects it, through a
+// clip of its own so the clipboard is untouched.
 void fude_lasso_duplicate(fude_lasso* _lasso, fude_ink* _ink, f32 _zoom) {
     rde_vec_2F _min;
     rde_vec_2F _max;
@@ -209,23 +230,27 @@ void fude_lasso_duplicate(fude_lasso* _lasso, fude_ink* _ink, f32 _zoom) {
         return;
     }
 
-    // Down and to the right on SCREEN (canvas Y is up), the same distance at any zoom.
+    // Down and to the right on the SCREEN (canvas Y is up), the same distance at any zoom.
     const f32 _step = FUDE_LASSO_DUPLICATE / _zoom;
     fude_lasso_paste_from(_lasso, _ink, &_lasso->_duplicate, (rde_vec_2F){ (_min.x + _max.x) * 0.5f + _step, (_min.y + _max.y) * 0.5f - _step });
 }
 
+// Pastes the clipboard centred at _canvas and selects what was added.
 void fude_lasso_paste(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas) {
     fude_lasso_paste_from(_lasso, _ink, &_lasso->clipboard, _canvas);
 }
 
+// Pastes the caller's clip centred at _canvas and selects what was added; the clipboard is untouched.
 void fude_lasso_paste_clip(fude_lasso* _lasso, fude_ink* _ink, const fude_clip* _clip, rde_vec_2F _canvas) {
     fude_lasso_paste_from(_lasso, _ink, _clip, _canvas);
 }
 
+// Returns whether the clipboard holds any stroke.
 b8 fude_lasso_can_paste(const fude_lasso* _lasso) {
     return rde_arr_length(&_lasso->clipboard.strokes) > 0;
 }
 
+// Deselects, then selects every alive stroke in stroke order.
 void fude_lasso_select_all(fude_lasso* _lasso, fude_ink* _ink) {
     fude_lasso_clear(_lasso, _ink);
 
@@ -238,22 +263,8 @@ void fude_lasso_select_all(fude_lasso* _lasso, fude_ink* _ink) {
 
 // --- selecting -----------------------------------------------------------------
 
-// Even-odd rule: a loop that crosses itself still selects sensibly.
-RDE_INTERNAL b8 fude_lasso_inside(const rde_vec_2F* _poly, u32 _n, rde_vec_2F _p) {
-    b8 _in = false;
-
-    for(u32 _i = 0, _j = _n - 1; _i < _n; _j = _i++) {
-        const rde_vec_2F _a = _poly[_i];
-        const rde_vec_2F _b = _poly[_j];
-
-        if((_a.y > _p.y) != (_b.y > _p.y) && _p.x < (_b.x - _a.x) * (_p.y - _a.y) / (_b.y - _a.y) + _a.x) {
-            _in = !_in;
-        }
-    }
-
-    return _in;
-}
-
+// Selects what the finished loop took: the stroke under the pen for a tap, else every alive stroke with at least
+// FUDE_LASSO_INSIDE of its points inside the loop. The loop's box is kept for fude_lasso_looped.
 RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _ink, f32 _zoom) {
     rde_arr_clear(&_lasso->selected);
 
@@ -270,7 +281,8 @@ RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _in
         _max = (rde_vec_2F){ _poly[_i].x > _max.x ? _poly[_i].x : _max.x, _poly[_i].y > _max.y ? _poly[_i].y : _max.y };
     }
 
-    // Too small to be a loop: a tap, which takes the stroke under the pen.
+    // Too small to be a loop (fewer than 3 points, or within FUDE_LASSO_TAP_SIZE on screen): a tap, which takes the
+    // stroke under the pen.
     if(_n < 3 || ((_max.x - _min.x) * _zoom < FUDE_LASSO_TAP_SIZE && (_max.y - _min.y) * _zoom < FUDE_LASSO_TAP_SIZE)) {
         u32 _hit = fude_ink_pick(_ink, _poly[0], FUDE_LASSO_PICK_RADIUS / _zoom);
         if(_hit != UINT32_MAX) {
@@ -279,7 +291,7 @@ RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _in
         return;
     }
 
-    // No ink taken: its box is kept, for the page's own text (see the header).
+    // Keep the loop's box: when the loop takes no ink, the page may use it to select its own text (see the header).
     _lasso->looped   = true;
     _lasso->loop_min = _min;
     _lasso->loop_max = _max;
@@ -298,9 +310,10 @@ RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _in
 
         for(u32 _p = 0; _p < _stroke->point_count; _p++) {
             const rde_vec_2F _q = _points[_p].position;
-            // The loop's box first: most points of a stroke that only brushes the
-            // loop are rejected without walking the polygon.
-            if(_q.x >= _min.x && _q.x <= _max.x && _q.y >= _min.y && _q.y <= _max.y && fude_lasso_inside(_poly, _n, _q)) {
+            // Test the loop's box first, so most points of a stroke that only brushes the loop are rejected without
+            // walking the polygon. Inside is by the even-odd rule (rde_math's), so a loop that crosses itself still
+            // selects sensibly; the loop has 3 points at least here.
+            if(_q.x >= _min.x && _q.x <= _max.x && _q.y >= _min.y && _q.y <= _max.y && rde_math_point_in_polygon_2d(_q, _poly, _n)) {
                 _inside++;
             }
         }
@@ -314,6 +327,8 @@ RDE_INTERNAL void fude_lasso_select_loop(fude_lasso* _lasso, const fude_ink* _in
 
 // --- the pen ---------------------------------------------------------------------
 
+// Starts a move when the press is inside the selection's drawn box (or within FUDE_LASSO_GRAB_PAD of it), else a new
+// loop, which drops the selection and any text area.
 void fude_lasso_pen_down(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas, f32 _zoom) {
     fude_lasso_sync(_lasso, _ink);
 
@@ -330,7 +345,7 @@ void fude_lasso_pen_down(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas,
         return;
     }
 
-    // Anywhere else: a new loop, and the old selection goes (an area of text too).
+    // Anywhere else: start a new loop, and drop the old selection (an area of text too).
     rde_arr_clear(&_lasso->selected);
     rde_arr_clear(&_lasso->loop);
     _lasso->looped  = false;
@@ -339,6 +354,8 @@ void fude_lasso_pen_down(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas,
     _lasso->state = FUDE_LASSO_LOOPING;
 }
 
+// Drags the selection by how far the pen moved, or adds a point to the loop when it is at least FUDE_LASSO_STEP
+// (on screen) from the last one.
 void fude_lasso_pen_moved(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas, f32 _zoom) {
     if(_lasso->state == FUDE_LASSO_MOVING) {
         fude_ink_move_by(_ink, (rde_vec_2F){ _canvas.x - _lasso->grab.x, _canvas.y - _lasso->grab.y });
@@ -357,6 +374,7 @@ void fude_lasso_pen_moved(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _canvas
     }
 }
 
+// Ends a move as one edit, or selects what the loop took; the lasso goes idle.
 void fude_lasso_pen_up(fude_lasso* _lasso, fude_ink* _ink, f32 _zoom) {
     if(_lasso->state == FUDE_LASSO_MOVING) {
         fude_ink_move_end(_ink);
@@ -370,6 +388,7 @@ void fude_lasso_pen_up(fude_lasso* _lasso, fude_ink* _ink, f32 _zoom) {
 
 // --- drawing ---------------------------------------------------------------------
 
+// Draws the glow under each selected stroke, after dropping dead strokes from the selection.
 void fude_lasso_render_under(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _offset, f32 _zoom) {
     fude_lasso_sync(_lasso, _ink);
 
@@ -379,12 +398,13 @@ void fude_lasso_render_under(fude_lasso* _lasso, fude_ink* _ink, rde_vec_2F _off
     }
 }
 
-// A screen-space polyline through the scratch, as one antialiased stroke.
-RDE_INTERNAL void fude_lasso_line(fude_lasso* _lasso, const rde_vec_2F* _points, u32 _count, rde_color _color) {
-    RDE_UNUSED(_lasso);
+// Draws a polyline of screen points as one antialiased stroke FUDE_LASSO_LINE_PX wide.
+RDE_INTERNAL void fude_lasso_line(const rde_vec_2F* _points, u32 _count, rde_color _color) {
     fude_draw_stroke_even(_points, _count, FUDE_LASSO_LINE_PX * 0.5f, _color);
 }
 
+// Draws the loop being drawn (with a fainter line where it will close), or else the selection's box: a translucent
+// fill and an outline, FUDE_LASSO_BOX_PAD outside the ink.
 void fude_lasso_render_over(fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F _offset, f32 _zoom) {
     if(_lasso->state == FUDE_LASSO_LOOPING) {
         const u32 _n = (u32)rde_arr_length(&_lasso->loop);
@@ -399,13 +419,13 @@ void fude_lasso_render_over(fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F
             _screen[_i] = (rde_vec_2F){ _loop[_i].x * _zoom + _offset.x, _loop[_i].y * _zoom + _offset.y };
         }
 
-        fude_lasso_line(_lasso, _screen, _n, fude_theme_active()->select);
+        fude_lasso_line(_screen, _n, fude_theme_active()->select);
 
-        // Where the loop will close, fainter.
+        // Where the loop will close, drawn fainter (alpha 110).
         const rde_vec_2F _close[2] = { _screen[_n - 1], _screen[0] };
         rde_color        _faint    = fude_theme_active()->select;
         _faint.a                   = 110;
-        fude_lasso_line(_lasso, _close, 2, _faint);
+        fude_lasso_line(_close, 2, _faint);
         return;
     }
 
@@ -419,9 +439,11 @@ void fude_lasso_render_over(fude_lasso* _lasso, const fude_ink* _ink, rde_vec_2F
     const rde_vec_2F _lo  = { _min.x * _zoom + _offset.x - _pad, _min.y * _zoom + _offset.y - _pad };
     const rde_vec_2F _hi  = { _max.x * _zoom + _offset.x + _pad, _max.y * _zoom + _offset.y + _pad };
 
-    rde_rendering_2d_draw_rectangle((rde_vec_2F){ (_lo.x + _hi.x) * 0.5f, (_lo.y + _hi.y) * 0.5f },
+    // The fill's centre goes through fude_draw_at, as the outline's points do (fude_draw_stroke_even), so the two stay
+    // together in a mirrored or kept box (draw.h).
+    rde_rendering_2d_draw_rectangle(fude_draw_at((rde_vec_2F){ (_lo.x + _hi.x) * 0.5f, (_lo.y + _hi.y) * 0.5f }),
                                     (rde_vec_2F){ _hi.x - _lo.x, _hi.y - _lo.y }, fude_theme_active()->select_fill);
 
     const rde_vec_2F _box[5] = { _lo, { _hi.x, _lo.y }, _hi, { _lo.x, _hi.y }, _lo };
-    fude_lasso_line(_lasso, _box, 5, fude_theme_active()->select);
+    fude_lasso_line(_box, 5, fude_theme_active()->select);
 }

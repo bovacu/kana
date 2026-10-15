@@ -2,6 +2,7 @@
 #include "study/models/examlog.h"
 #include "study/screens/practice.h"
 #include "drawing/base/theme.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 static int fails = 0;
@@ -15,7 +16,6 @@ void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_
 void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; g_circles++; }
 void rde_rendering_2d_draw_rectangle(const rde_vec_2F a, const rde_vec_2F b, const rde_color c) { (void)a; (void)b; (void)c; }
 void rde_rendering_2d_draw_circle_border(const rde_vec_2F p, f32 r, f32 t, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)t; (void)s; (void)c; (void)sh; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)p; (void)s; (void)r; (void)c; g_texts++; snprintf(g_last_text, sizeof g_last_text, "%s", t); }
 void rde_rendering_begin_clipping_rect(const rde_window* w, rde_vec_2I p, rde_vec_2UI s) { (void)w; (void)p; (void)s; }
 void rde_rendering_end_clipping_rect(void) {}
@@ -24,7 +24,7 @@ rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; retur
 f64 rde_engine_get_time_now(void) { return g_now; }
 
 static void pen_line(fude_ink* k, f32 x0, f32 y, u32 n) {    // one stroke across a 1000-unit square
-    k->sample_time = 0.0; fude_ink_begin(k, (rde_vec_2F){ x0, y }, true, false);
+    k->sample_time = 0.0; fude_ink_begin(k, (rde_vec_2F){ x0, y }, true);
     for(u32 i = 1; i < n; i++) { k->sample_time += 0.01; fude_ink_extend(k, (rde_vec_2F){ x0 + 40.0f * (f32)i, y }); }
     fude_ink_end(k);
 }

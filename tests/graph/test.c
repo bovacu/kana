@@ -919,6 +919,28 @@ static void test_mindmap(void) {
     CHECK(!parse("mindmap\n  A\n    B\n  C\n") && err_why == FUDE_ZOOM_MERMAID_NODE && err_line == 4u && nodes(&G) == 0u);
     CHECK(!parse("mindmap\n  A\n    B[open\n") && err_why == FUDE_ZOOM_MERMAID_SHAPE && err_line == 3u);
     CHECK(!parse("mindmap\n") && err_why == FUDE_ZOOM_MERMAID_NODE);
+    // As deep as it goes (FUDE_ZOOM_GRAPH_MIND_DEPTH levels, a node each, each one space more), read; one level more,
+    // refused as too deep (not as too big) at the line of the node too deep, with nothing kept.
+    {
+        char* deep = (char*)malloc(1 << 16);
+        u32 at = (u32)snprintf(deep, 1u << 16, "mindmap\n");
+        for(u32 k = 0; k < FUDE_ZOOM_GRAPH_MIND_DEPTH; k++) at += (u32)snprintf(deep + at, (1u << 16) - at, "%*sn%u\n", (int)(k + 1u), "", k);
+        CHECK(parse(deep) && nodes(&G) == FUDE_ZOOM_GRAPH_MIND_DEPTH && edges(&G) == FUDE_ZOOM_GRAPH_MIND_DEPTH - 1u);
+        at += (u32)snprintf(deep + at, (1u << 16) - at, "%*sn%u\n", (int)(FUDE_ZOOM_GRAPH_MIND_DEPTH + 1u), "", FUDE_ZOOM_GRAPH_MIND_DEPTH);
+        CHECK(!parse(deep) && err_why == FUDE_ZOOM_MERMAID_DEPTH && err_line == FUDE_ZOOM_GRAPH_MIND_DEPTH + 2u && nodes(&G) == 0u);
+        free(deep);
+    }
+    // As many nodes as a graph holds (a root and its branches, each id new: no search for it), read; one more, too big.
+    {
+        char* wide = (char*)malloc(1 << 17);
+        u32 at = (u32)snprintf(wide, 1u << 17, "mindmap\nroot\n");
+        for(u32 k = 1; k < FUDE_ZOOM_GRAPH_MAX_NODES; k++) at += (u32)snprintf(wide + at, (1u << 17) - at, " b%u\n", k);
+        CHECK(parse(wide) && nodes(&G) == FUDE_ZOOM_GRAPH_MAX_NODES && edges(&G) == FUDE_ZOOM_GRAPH_MAX_NODES - 1u);
+        CHECK(strcmp(fude_zoom_graph_node_at(&G, 5u)->id, "mind5") == 0 && strcmp(fude_zoom_graph_node_at(&G, 5u)->label, "b5") == 0);
+        at += (u32)snprintf(wide + at, (1u << 17) - at, " one more\n");
+        CHECK(!parse(wide) && err_why == FUDE_ZOOM_MERMAID_TOO_BIG && err_line == FUDE_ZOOM_GRAPH_MAX_NODES + 2u && nodes(&G) == 0u);
+        free(wide);
+    }
     // (a flowchart still a flowchart)
     CHECK(parse("flowchart LR\n  A --> B\n") && G.direction == FUDE_ZOOM_FLOW_LR);
 }

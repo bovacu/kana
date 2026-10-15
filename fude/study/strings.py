@@ -31,10 +31,6 @@ t('QUIT', 'Quit', 'Salir', 'Sair', 'やめる', 'Quitter')
 t('START_N', 'Start {0}', 'Empezar {0}', 'Começar {0}', '開始 {0}', 'Commencer {0}')
 t('EXAM', 'Exam', 'Examen', 'Teste', 'テスト', 'Examen')
 t('STROKE_ORDER', 'Stroke order', 'Orden de trazos', 'Ordem dos traços', '書き順', 'Ordre des traits')
-t('ON', 'On', 'Sí', 'Sim', 'オン', 'Oui')
-t('OFF', 'Off', 'No', 'Não', 'オフ', 'Non')
-t('RETRY', 'Retry', 'Reintentar', 'Tentar de novo', '再試行', 'Réessayer')
-t('DOWNLOAD', 'Download', 'Descargar', 'Baixar', 'ダウンロード', 'Télécharger')
 t('NO_MEANING', '(no meaning listed)', '(sin significado)', '(sem significado)', '（意味なし）', '(pas de sens)')
 t('STROKES_N', P('# stroke', '# strokes'), P('# trazo', '# trazos'), P('# traço', '# traços'), '{0}画', P('# trait', '# traits'))
 t('CHARACTERS_N', P('# character', '# characters'), P('# carácter', '# caracteres'), P('# caractere', '# caracteres'), '{0}字', P('# caractère', '# caractères'))
@@ -120,7 +116,7 @@ t('VOCAB_REVIEW_N', 'Review {0}', 'Repasar {0}', 'Revisar {0}', '復習 {0}', 'R
 t('VOCAB_RENAME_LIST', 'Rename the list', 'Renombrar la lista', 'Renomear a lista', 'リスト名を変更', 'Renommer la liste')
 t('VOCAB_DELETE_LIST', 'Delete list', 'Eliminar lista', 'Excluir lista', 'リストを削除', 'Supprimer la liste')
 t('VOCAB_LIST_NAME_EMPTY', 'Give the list a name', 'Ponle un nombre a la lista', 'Dê um nome à lista', 'リスト名を入力してください', 'Donnez un nom à la liste')
-t('VOCAB_LISTS_FULL', 'There are as many lists as there can be', 'Ya hay tantas listas como caben', 'Já há o máximo de listas', 'これ以上リストを作れません', 'Il y a déjà le nombre maximal de listes')
+t('VOCAB_LIST_NOT_MADE', 'The list could not be made', 'No se pudo crear la lista', 'Não foi possível criar a lista', 'リストを作成できませんでした', 'La liste n’a pas pu être créée')
 t('VOCAB_LIST_DELETED', '{0} deleted: its words stay in your vocabulary', '{0} eliminada: sus palabras siguen en tu vocabulario', '{0} excluída: as palavras continuam no seu vocabulário', '「{0}」を削除しました（言葉は単語帳に残ります）', '{0} supprimée : ses mots restent dans votre vocabulaire')
 t('REVIEW_NEW', 'New', 'Nueva', 'Nova', '新規', 'Nouveau')
 t('REVIEW_DUE', 'Due', 'Toca', 'Pendente', '今日', 'À revoir')
@@ -152,6 +148,8 @@ t('WORD_LIST_NAME', 'List name (Lesson 3, Food…)', 'Nombre de la lista (Lecci�
 t('WORD_REMOVE', 'Remove', 'Quitar', 'Remover', '削除', 'Retirer')
 t('WORD_ERR_EMPTY', 'Write the word first', 'Escribe primero la palabra', 'Escreva a palavra primeiro', 'まず言葉を入力してください', 'Écrivez d’abord le mot')
 t('WORD_ERR_SAVED', 'That word is in your vocabulary already', 'Esa palabra ya está en tu vocabulario', 'Essa palavra já está no seu vocabulário', 'その言葉はもう単語帳にあります', 'Ce mot est déjà dans votre vocabulaire')
+t('WORD_ERR_NOT_SAVED', 'The word could not be saved', 'No se pudo guardar la palabra', 'Não foi possível salvar a palavra', '言葉を保存できませんでした', 'Le mot n’a pas pu être enregistré')
+t('WORD_ERR_LONG', 'Too long to keep: please make it shorter', 'Demasiado largo para guardarlo: acórtalo, por favor', 'Longo demais para salvar: encurte, por favor', '長すぎて保存できません。短くしてください', 'Trop long pour être enregistré : raccourcissez-le')
 t('WORD_TRANSLATE_EMPTY', 'Type the meaning first, in your language', 'Escribe primero el significado, en tu idioma', 'Escreva primeiro o significado, no seu idioma', 'まず意味を英語で入力してください', 'Écrivez d’abord le sens, dans votre langue')
 t('WORD_SENTENCE', 'From the sentence', 'De la frase', 'Da frase', '出てきた文', 'De la phrase')
 t('VOCAB_SAVED', '{0} is in your vocabulary', '{0} está en tu vocabulario', '{0} está no seu vocabulário', '「{0}」を単語帳に保存しました', '{0} est dans votre vocabulaire')
@@ -172,6 +170,9 @@ t('SHEET_TITLE', 'Writing practice', 'Práctica de escritura', 'Prática de escr
 t('SHEET_FAILED', 'The practice sheet could not be made.', 'No se pudo crear la hoja de práctica.', 'Não foi possível criar a folha de prática.', '練習シートを作成できませんでした。', 'Impossible de créer la feuille d’entraînement.')
 t('SHEET_SAVED', 'Practice sheet saved: {0}', 'Hoja de práctica guardada: {0}', 'Folha de prática salva: {0}', '練習シートを保存しました: {0}', 'Feuille d’entraînement enregistrée : {0}')
 t('SHEET_FIRST_N', P('A sheet takes up to # character: the first went in.', 'A sheet takes up to # characters: the first # went in.'), P('Una hoja admite hasta # carácter: entró el primero.', 'Una hoja admite hasta # caracteres: entraron los primeros #.'), P('Uma folha aceita até # caractere: entrou o primeiro.', 'Uma folha aceita até # caracteres: entraram os primeiros #.'), '1枚のシートには{0}字まで入ります。最初の{0}字を入れました。', P('Une feuille prend jusqu’à # caractère : le premier y est.', 'Une feuille prend jusqu’à # caractères : les # premiers y sont.'))
+# A sheet saved on a computer that holds only the first characters asked for, as many as a sheet takes: {1} is the
+# file's name. Kept short, since a notice is one line.
+t('SHEET_SAVED_FIRST_N', 'Practice sheet saved: {1} ({0,plural, one{its first character} other{its first # characters}})', 'Hoja de práctica guardada: {1} ({0,plural, one{su primer carácter} other{sus primeros # caracteres}})', 'Folha de prática salva: {1} ({0,plural, one{o primeiro caractere} other{os primeiros # caracteres}})', '練習シートを保存しました: {1}（最初の{0}字）', 'Feuille d’entraînement enregistrée : {1} ({0,plural, one{le premier caractère} other{les # premiers caractères}})')
 t('EXAMPLE', 'Example', 'Ejemplo', 'Exemplo', '例文', 'Exemple')
 t('WORDS_EXAMPLES', P('# example', '# examples'), P('# ejemplo', '# ejemplos'), P('# exemplo', '# exemplos'), '例 {0}', P('# exemple', '# exemples'))
 t('WORDS_YOURS', '{0} yours', '{0} tuyas', '{0} suas', '自分の言葉 {0}', '{0} à vous')
@@ -196,10 +197,10 @@ t('SIDE_STUDY', 'STUDY', 'ESTUDIO', 'ESTUDO', '学習', 'ÉTUDE')
 t('ALBUM', 'Album', 'Álbum', 'Álbum', 'アルバム', 'Album')
 t('EXAMS', 'Exams', 'Exámenes', 'Testes', 'テスト', 'Examens')
 t('STATISTICS', 'Statistics', 'Estadísticas', 'Estatísticas', '統計', 'Statistiques')
-t('SETTINGS_HANDWRITING', 'HANDWRITING', 'ESCRITURA', 'ESCRITA', '手書き認識', 'ÉCRITURE')
-t('SETTINGS_MLKIT', 'Read with Google ML Kit', 'Leer con Google ML Kit', 'Ler com o Google ML Kit', 'Google ML Kitで読み取る', 'Lire avec Google ML Kit')
-t('MLKIT_UNAVAILABLE', 'Not on this device: {APP} reads handwriting on its own.', 'No está en este dispositivo: {APP} lee la escritura por su cuenta.', 'Não está neste dispositivo: o {APP} lê a escrita por conta própria.', 'この端末では使えません。{APP}が自分で読み取ります。', 'Indisponible sur cet appareil : {APP} lit l’écriture seul.')
-t('MLKIT_OFF', 'Off: {APP} reads handwriting on its own, and nothing is sent to Google.', 'Desactivado: {APP} lee la escritura por su cuenta y no se envía nada a Google.', 'Desligado: o {APP} lê a escrita por conta própria e nada é enviado ao Google.', 'オフ：{APP}が自分で読み取り、Googleには何も送信されません。', 'Désactivé : {APP} lit l’écriture seul et rien n’est envoyé à Google.')
+# Settings' Handwriting (drawing/app/handwriting.h), in the study's words: with ML Kit off or missing, the app reads
+# handwriting with its own reader.
+o('MLKIT_UNAVAILABLE', 'Not on this device: {APP} reads handwriting on its own.', 'No está en este dispositivo: {APP} lee la escritura por su cuenta.', 'Não está neste dispositivo: o {APP} lê a escrita por conta própria.', 'この端末では使えません。{APP}が自分で読み取ります。', 'Indisponible sur cet appareil : {APP} lit l’écriture seul.')
+o('MLKIT_OFF', 'Off: {APP} reads handwriting on its own, and nothing is sent to Google.', 'Desactivado: {APP} lee la escritura por su cuenta y no se envía nada a Google.', 'Desligado: o {APP} lê a escrita por conta própria e nada é enviado ao Google.', 'オフ：{APP}が自分で読み取り、Googleには何も送信されません。', 'Désactivé : {APP} lit l’écriture seul et rien n’est envoyé à Google.')
 
 
 # Reviews (review.h): spaced repetition of the characters being learnt.
@@ -209,7 +210,6 @@ t('REVIEWS_NONE', 'Nothing to review today: come back tomorrow, or mark more cha
 
 # Licences: the study's documents (the core's are Fonts and Libraries).
 t('LICENCE_DATA', 'Data', 'Datos', 'Dados', 'データ', 'Données')
-t('LICENCE_MLKIT', 'ML Kit', 'ML Kit', 'ML Kit', 'ML Kit', 'ML Kit')
 
 # Your data (the core's): what a study app keeps, and that ML Kit reads on the device too.
 o('DATA_OFFLINE', '{APP} works offline. Your pages, marks, exams, words and practice stay on this device: {APP} sends them nowhere. (Google ML Kit, when it is on, downloads its models once, then reads and translates on the device too.)', '{APP} funciona sin conexión. Tus páginas, marcas, exámenes, palabras y prácticas se quedan en este dispositivo: {APP} no los envía a ninguna parte. (Google ML Kit, si está activado, descarga sus modelos una vez y después también lee y traduce en el dispositivo.)', 'O {APP} funciona offline. Suas páginas, marcas, provas, palavras e práticas ficam neste dispositivo: o {APP} não os envia para lugar nenhum. (O Google ML Kit, quando ativado, baixa seus modelos uma vez e depois também lê e traduz no dispositivo.)', '{APP}はオフラインで動作します。ページ、マーク、テスト、単語、練習の記録はこの端末に保存され、{APP}がどこかへ送ることはありません。（Google ML Kitがオンの場合は、モデルを一度だけダウンロードし、その後は読み取りも翻訳も端末内で行います。）', '{APP} fonctionne hors ligne. Vos pages, marques, examens, mots et entraînements restent sur cet appareil : {APP} ne les envoie nulle part. (Google ML Kit, s’il est activé, télécharge ses modèles une fois, puis lit et traduit lui aussi sur l’appareil.)')
@@ -315,6 +315,7 @@ t('SET_SUMMARY', '{0} of {1} practised, average {2}', '{0} de {1} practicados, m
 t('SET_NOTHING', 'Nothing was practised in this set', 'No se practicó nada en esta serie', 'Nada foi praticado nesta série', 'このセットでは何も練習しませんでした', 'Rien n’a été pratiqué dans cette série')
 t('SET_WEAK', '{0} under {1}: “Weakest again” practises them, weakest first', '{0} por debajo de {1}: «Repetir los flojos» los practica, del más flojo al menos', '{0} abaixo de {1}: “Refazer os fracos” pratica esses, do mais fraco ao menos', '{1}点未満が{0}字：「苦手をもう一度」で苦手な順に練習できます', '{0} sous {1} : « Revoir les faibles » les reprend, du plus faible au moins faible')
 t('SET_ALL_GOOD', 'All good this run', 'Todo bien esta vez', 'Tudo certo desta vez', '今回はすべて良好', 'Tout est bon cette fois')
+t('SET_FIRST_N', 'A set takes up to {0} characters: practising the first {0}', 'Una serie admite hasta {0} caracteres: se practican los primeros {0}', 'Uma série aceita até {0} caracteres: praticando os primeiros {0}', '1セットは{0}字までです。最初の{0}字を練習します', 'Une série prend jusqu’à {0} caractères : les {0} premiers sont pratiqués')
 t('PRACTICE_HEADER', '{0}   {1}', '{0}   {1}', '{0}   {1}', '{0}　{1}', '{0}   {1}')
 t('PRACTICE_HEADER_LEVEL', '{0}   {1}   {2}', '{0}   {1}   {2}', '{0}   {1}   {2}', '{0}　{1}　{2}', '{0}   {1}   {2}')   # {2}: the level's long name (lang.h: "JLPT N5")
 t('PRACTICE_HISTORY', '{0}   best {1}   last {2}   first {3}', '{0}   mejor {1}   última {2}   primera {3}', '{0}   melhor {1}   última {2}   primeira {3}', '{0}　最高 {1}　最新 {2}　最初 {3}', '{0}   meilleure {1}   dernière {2}   première {3}')
@@ -357,3 +358,40 @@ t('OFFLINE', '{APP} is made to work entirely on your device. There is no account
 t('VOICE_BUTTON', 'Set up the voice', 'Configurar la voz', 'Configurar a voz', '音声を設定', 'Configurer la voix')
 t('VOICE_TITLE', 'No voice to read aloud yet', 'Aún no hay voz para leer en voz alta', 'Ainda não há voz para ler em voz alta', '読み上げの音声がまだありません', 'Pas encore de voix pour lire à voix haute')
 t('VOICE_OPEN', 'Open settings', 'Abrir ajustes', 'Abrir configurações', '設定を開く', 'Ouvrir les réglages')
+
+# --- the welcome (study/app/welcome.h): the first time the app opens, and from Settings -----------
+# ({APP} is the app's name.) The pages that name the language, or what it can do, are each app's own
+# (WELCOME_1, _3, _5, _6), and an app may say a page here in its own words (o()).
+t('LICENCE_LECTURES', 'Lectures', 'Lecciones', 'Lições', '教材', 'Leçons')
+t('WELCOME', 'Welcome', 'Bienvenida', 'Boas-vindas', 'ようこそ', 'Bienvenue')
+t('WELCOME_SKIP', 'Skip', 'Saltar', 'Pular', 'スキップ', 'Passer')
+t('WELCOME_START', 'Start writing', 'Empezar a escribir', 'Começar a escrever', '書きはじめる', 'Commencer à écrire')
+t('WELCOME_1_TITLE', 'Welcome to {APP}', 'Te damos la bienvenida a {APP}', 'Boas-vindas ao {APP}', '{APP}へようこそ', 'Bienvenue dans {APP}')
+t('WELCOME_PHONE', '{APP} is designed for tablets. It works on phones too, with less room to write.', '{APP} está pensado para tabletas. También funciona en el móvil, con menos espacio para escribir.', 'O {APP} foi pensado para tablets. Também funciona no celular, com menos espaço para escrever.', '{APP}はタブレット向けに作られています。スマートフォンでも使えますが、書くスペースは小さくなります。', '{APP} est conçu pour les tablettes. Il fonctionne aussi sur téléphone, avec moins de place pour écrire.')   # the welcome's first page, on a phone only
+t('WELCOME_2_TITLE', 'Pencil or finger', 'Pencil o dedo', 'Pencil ou dedo', 'Pencilでも指でも', 'Pencil ou doigt')
+t('WELCOME_2_TITLE_ANDROID', 'Stylus or finger', 'Lápiz o dedo', 'Caneta ou dedo', 'ペンでも指でも', 'Stylet ou doigt')
+t('WELCOME_2', 'Write with the Apple Pencil — fingers then move the page — or, with the hand on the bar, with one finger, and move the page with two. {APP} switches by itself when the Pencil writes. The tools are on a bar you can drag anywhere; a double tap on its handle folds it away.',
+  'Escribe con el Apple Pencil —los dedos mueven entonces la página— o, con la mano de la barra, con un dedo, y mueve la página con dos. {APP} cambia solo cuando escribe el Pencil. Las herramientas están en una barra que puedes arrastrar adonde quieras; un doble toque en su asa la pliega.',
+  'Escreva com o Apple Pencil — os dedos então movem a página — ou, com a mão da barra, com um dedo, e mova a página com dois. O {APP} muda sozinho quando o Pencil escreve. As ferramentas ficam numa barra que você arrasta para onde quiser; um toque duplo na alça a recolhe.',
+  'Apple Pencilで書く（ページは指で動かします）か、バーの手のボタンで指1本で書き、ページは2本指で動かします。Pencilで書くと自動で切り替わります。道具はどこへでもドラッグできるバーにあり、取っ手をダブルタップすると畳めます。',
+  'Écrivez à l’Apple Pencil — les doigts déplacent alors la page — ou, avec la main de la barre, d’un doigt, et déplacez la page à deux doigts. {APP} bascule de lui-même quand le Pencil écrit. Les outils sont sur une barre à déplacer où vous voulez ; un double toucher sur sa poignée la replie.')
+t('WELCOME_2_ANDROID', 'Write with a stylus — fingers then move the page — or, with the hand on the bar, with one finger, and move the page with two. {APP} switches by itself when the stylus writes. The tools are on a bar you can drag anywhere; a double tap on its handle folds it away.',
+  'Escribe con un lápiz óptico —los dedos mueven entonces la página— o, con la mano de la barra, con un dedo, y mueve la página con dos. {APP} cambia solo cuando escribe el lápiz. Las herramientas están en una barra que puedes arrastrar adonde quieras; un doble toque en su asa la pliega.',
+  'Escreva com uma caneta — os dedos então movem a página — ou, com a mão da barra, com um dedo, e mova a página com dois. O {APP} muda sozinho quando a caneta escreve. As ferramentas ficam numa barra que você arrasta para onde quiser; um toque duplo na alça a recolhe.',
+  'タッチペンで書く（ページは指で動かします）か、バーの手のボタンで指1本で書き、ページは2本指で動かします。ペンで書くと自動で切り替わります。道具はどこへでもドラッグできるバーにあり、取っ手をダブルタップすると畳めます。',
+  'Écrivez au stylet — les doigts déplacent alors la page — ou, avec la main de la barre, d’un doigt, et déplacez la page à deux doigts. {APP} bascule de lui-même quand le stylet écrit. Les outils sont sur une barre à déplacer où vous voulez ; un double toucher sur sa poignée la replie.')
+t('WELCOME_3_TITLE', 'Read with the camera', 'Lee con la cámara', 'Leia com a câmera', 'カメラで読む', 'Lire avec l’appareil photo')
+t('WELCOME_4_TITLE', 'Copy, paste, check', 'Copia, pega, revisa', 'Copie, cole, confira', 'コピー・貼り付け・チェック', 'Copier, coller, vérifier')
+t('WELCOME_4', 'Draw around writing with the lasso: copy it, Copy as text to use it in any app, Check what it says, or Save word. Press and hold the page to paste: Paste text writes text copied anywhere as handwriting, stroke by stroke.',
+  'Rodea lo escrito con el lazo: cópialo, usa Copiar como texto para llevarlo a cualquier app, Revisar lo que dice, o Guardar palabra. Mantén pulsada la página para pegar: Pegar texto escribe a mano, trazo a trazo, un texto copiado en cualquier sitio.',
+  'Contorne a escrita com o laço: copie, use Copiar como texto para levá-la a qualquer app, Verificar o que diz, ou Salvar palavra. Toque e segure a página para colar: Colar texto escreve à mão, traço a traço, um texto copiado em qualquer lugar.',
+  '書いた字を投げなわで囲むと、コピー、ほかのアプリで使える「テキストでコピー」、読み取りを確かめる「チェック」、「単語を保存」ができます。ページを長押しすると貼り付け：「テキストを貼り付け」は、どこかでコピーした文を一画ずつ手書きで書きます。',
+  'Entourez l’écriture au lasso : copiez-la, Copier en texte pour l’utiliser dans n’importe quelle app, Vérifier ce qu’elle dit, ou Enregistrer un mot. Appuyez longuement sur la page pour coller : Coller le texte écrit à la main, trait par trait, un texte copié n’importe où.')
+t('WELCOME_5_TITLE', 'Translate', 'Traduce', 'Traduza', '翻訳', 'Traduire')
+t('WELCOME_6_TITLE', 'Learn', 'Aprende', 'Aprenda', '学ぶ', 'Apprendre')
+t('WELCOME_7_TITLE', 'Your progress', 'Tu progreso', 'Seu progresso', '学習の記録', 'Vos progrès')
+t('WELCOME_7', 'Statistics shows your streak, the days you wrote, your scores week by week, your exams and the characters that need more work; the Album keeps every character you practised, with each try. It all stays on this device: Settings › Your data makes a backup.',
+  'Las Estadísticas muestran tu racha, los días que escribiste, tus puntuaciones semana a semana, tus exámenes y los caracteres que necesitan más trabajo; el Álbum guarda cada carácter que practicaste, con cada intento. Todo se queda en este dispositivo: Ajustes › Tus datos hace una copia de seguridad.',
+  'As Estatísticas mostram sua sequência, os dias em que você escreveu, suas pontuações semana a semana, seus testes e os caracteres que precisam de mais prática; o Álbum guarda cada caractere praticado, com cada tentativa. Tudo fica neste dispositivo: Configurações › Seus dados faz um backup.',
+  '統計では、連続日数、書いた日、週ごとの点数、テスト、もっと練習が必要な字がわかります。アルバムには練習したすべての字が、毎回の記録とともに残ります。すべてこの端末に保存され、設定 › データ でバックアップできます。',
+  'Les Statistiques montrent votre série, les jours où vous avez écrit, vos notes semaine par semaine, vos examens et les caractères à retravailler ; l’Album garde chaque caractère pratiqué, avec chaque essai. Tout reste sur cet appareil : Réglages › Vos données fait une sauvegarde.')

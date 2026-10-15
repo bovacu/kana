@@ -24,9 +24,10 @@ import java.util.ArrayList;
 /**
  * PDFs (pdf.h): Android's PdfRenderer draws their pages; PdfDocument makes one of
  * pictures. A PDF in the app's own assets is copied out first (PdfRenderer wants
- * a file it can seek). Opened on the engine's thread, drawn on doc.c's worker —
- * one document drawn at a time, as PdfRenderer asks. Their own text and writing
- * one anew: FudePdfBox's (PDFBox), for the same file; reached from C through here.
+ * a file it can seek). Opened on the engine's thread, drawn on a PDF worker's
+ * (worker.h: doc.c's or zoom/pdfview.c's) — one document drawn at a time, as
+ * PdfRenderer asks. Their own text and writing one anew: FudePdfBox's (PDFBox),
+ * for the same file; reached from C through here.
  */
 public final class FudePdf {
     static final ArrayList<PdfRenderer> open  = new ArrayList<>();
@@ -182,7 +183,7 @@ public final class FudePdf {
     public static byte[] pictureJpeg(byte[] pathBytes, int max) {
         try {
             final String path = FudeAndroid.text(pathBytes);
-            Bitmap b = FudeText.decode(android.net.Uri.fromFile(new File(path)), max);
+            Bitmap b = FudeAndroid.decodePicture(android.net.Uri.fromFile(new File(path)), max);
             java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
             b.compress(b.hasAlpha() ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 86, jpeg);
             b.recycle();
@@ -207,7 +208,7 @@ public final class FudePdf {
                 }
                 Bitmap b;
                 try {
-                    b = FudeText.decode(android.net.Uri.fromFile(new File(path)), max);
+                    b = FudeAndroid.decodePicture(android.net.Uri.fromFile(new File(path)), max);
                 } catch(Exception e) {
                     Log.e(FudeAndroid.TAG, "could not read " + path + ": " + e);
                     continue;
@@ -245,6 +246,11 @@ public final class FudePdf {
         return FudePdfBox.available();
     }
 
+    /** Begins opening document _h's text on FudePdfBox's thread (once); whether it is open, so a question waits for nothing. */
+    public static boolean textPrepare(int h) {
+        return FudePdfBox.prepare(h);
+    }
+
     /** Has page _page of document _h text of its own (not a picture of some: a scan's)? */
     public static boolean pageHasText(int h, int page) {
         return FudePdfBox.pageHasText(h, page);
@@ -279,24 +285,32 @@ public final class FudePdf {
         FudePdfBox.writePage(w, h, page, turn);
     }
 
-    /** A stroke over it: x, y and half-width each point (_points), in _color (RGBA, a byte each from the top); _even: a marker's. */
+    /** A shape filled in _color (RGBA, a byte each from the top), made of triangles (x, y each corner, three a triangle). */
     public static void writeFill(int w, float[] triangles, int color) {
         FudePdfBox.writeFill(w, triangles, color);
     }
 
+    /** A stroke over it: x, y and half-width each point (_points), in _color (RGBA, a byte each from the top); _even: a marker's. */
     public static void writeStroke(int w, float[] points, int color, boolean even) {
         FudePdfBox.writeStroke(w, points, color, even);
     }
 
-    /** Text put in unseen, filling the box at (_x, _y) of _sw x _sh. */
+    /** A picture (a JPEG's or a PNG's bytes) with its bottom-left, bottom-right and top-left corners at _corners (x, y each). */
     public static void writeImage(int w, byte[] bytes, float[] corners) {
         FudePdfBox.writeImage(w, bytes, corners);
     }
 
+    /** A line of text seen, _size points tall, its baseline's left end at (_x, _y), in _color (RGBA), in the face set last. */
     public static void writeText(int w, byte[] text, float x, float y, float size, int color) {
         FudePdfBox.writeText(w, FudeAndroid.text(text), x, y, size, color);
     }
 
+    /** The face the text seen is set in from now on (pdf.h's FUDE_PDF_FACE_: 0 regular, 1 bold, 2 italic, 3 both). */
+    public static void writeFace(int w, int face) {
+        FudePdfBox.writeFace(w, face);
+    }
+
+    /** Text put in unseen, filling the box at (_x, _y) of _sw x _sh. */
     public static void writeHiddenText(int w, byte[] text, float x, float y, float sw, float sh) {
         FudePdfBox.writeHiddenText(w, FudeAndroid.text(text), x, y, sw, sh);
     }

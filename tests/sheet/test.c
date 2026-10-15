@@ -64,27 +64,27 @@ int main(int argc, char** argv) {
     for(u32 s = 0; s < 4; s++) {
         const u32 n = recs(sets[s], r, 400);
         snprintf(path, sizeof path, "%s/sheet%u.pdf", OUT, s);
-        CHECK(fude_sheet_write(&db, r, n, path, &info));
+        CHECK(fude_sheet_write(&db, r, n, path, "Kana", &info));
         CHECK(info.characters == n && info.pages == want_pages[s]);
         CHECK(check_pdf(path) == (int)info.pages);
         printf("%s: %u characters, %u pages, %u bytes\n", sets[s], info.characters, info.pages, info.bytes);
     }
     // Many: the first FUDE_SHEET_MAX, six a page.
     u32 all[400]; for(u32 i = 0; i < 400; i++) all[i] = i;
-    CHECK(fude_sheet_write(&db, all, 400, "sheets/many.pdf", &info));
+    CHECK(fude_sheet_write(&db, all, 400, "sheets/many.pdf", "Kana", &info));
     CHECK(info.characters == FUDE_SHEET_MAX && info.pages == (FUDE_SHEET_MAX + 5) / 6);
     CHECK(check_pdf("sheets/many.pdf") == (int)info.pages);
     printf("many: %u characters, %u pages, %u bytes\n", info.characters, info.pages, info.bytes);
     // Other languages: the texts change, the file stays whole.
     CHECK(fude_text_set_language(RDE_LANGUAGE_JA_JP));
     u32 n = recs("練習", r, 8);
-    CHECK(fude_sheet_write(&db, r, n, "sheets/ja.pdf", &info) && check_pdf("sheets/ja.pdf") == 1);
+    CHECK(fude_sheet_write(&db, r, n, "sheets/ja.pdf", "Kana", &info) && check_pdf("sheets/ja.pdf") == 1);
     CHECK(fude_text_set_language(RDE_LANGUAGE_FR_FR));
     fude_kanji_set_language(&db, "fr");
-    CHECK(fude_sheet_write(&db, r, n, "sheets/fr.pdf", &info) && check_pdf("sheets/fr.pdf") == 1);
+    CHECK(fude_sheet_write(&db, r, n, "sheets/fr.pdf", "Kana", &info) && check_pdf("sheets/fr.pdf") == 1);
     // Nothing to draw, or nowhere to write: false, no file.
-    CHECK(!fude_sheet_write(&db, r, 0, "sheets/none.pdf", &info));
-    CHECK(!fude_sheet_write(&db, r, n, "/nonexistent/dir/x.pdf", &info));
+    CHECK(!fude_sheet_write(&db, r, 0, "sheets/none.pdf", "Kana", &info));
+    CHECK(!fude_sheet_write(&db, r, n, "/nonexistent/dir/x.pdf", "Kana", &info));
     fude_kanji_unload(&db);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

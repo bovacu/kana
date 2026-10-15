@@ -2,17 +2,20 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 # InfiNote's and InfiniWorkshop's icons, drawn as SVG (docs/product_split.md): their platform/ios/AppIcon.svg, from
-# which tools/icons/svg2png.swift draws the App Store's and Android's 1024 px icon and the launch screen's (rounded):
+# from which tools/icons/app_icon.py draws the App Store's and Android's 1024 px icon and the launch screen's (rounded):
 #
 #   python3 tools/icons/infini_icons.py
 #
 # InfiNote: a notebook page, an infinity written across it with a fountain pen (thin along the nib, broad across it),
 # and a small one inside its right loop — what is inside, zoomed into. InfiniWorkshop: a blueprint, an infinity whose
 # right loop is a gear and whose left loop runs circuit traces to their pads — mechanisms and circuits.
-import math, os, subprocess, sys, tempfile
+import math, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, '..', '..'))
+sys.path.insert(0, HERE)
+sys.dont_write_bytecode = True
+from app_icon import write_icons   # the PNGs from the SVG: the store's, opaque, and the launch screen's, rounded
 
 def lem(a, t):
     d = 1 + math.sin(t) ** 2
@@ -99,25 +102,10 @@ def workshop():
     b.append(f'<circle cx="{hx:.1f}" cy="{hy:.1f}" r="{34*s:.1f}" fill="none" stroke="{amber}" stroke-width="{16*s:.1f}"/>')
     return svg(b, defs)
 
-def render(svg_path, out, size):
-    subprocess.run(['swift', os.path.join(HERE, 'svg2png.swift'), svg_path, out, str(size)], check=True)
-
-def rounded(svg_text):
-    # (the launch screen's: the icon rounded as iOS rounds it on the home screen, a 22.4% corner)
-    return svg_text.replace('<defs>', '<defs><clipPath id="round"><rect width="1024" height="1024" rx="229"/></clipPath>', 1) \
-                   .replace('</defs>\n', '</defs>\n<g clip-path="url(#round)">\n', 1).replace('\n</svg>', '\n</g>\n</svg>')
-
 def make(app, svg_text):
     ios = os.path.join(ROOT, 'apps', app, 'platform', 'ios')
     open(os.path.join(ios, 'AppIcon.svg'), 'w').write(svg_text)
-    assets = os.path.join(ios, 'Assets.xcassets')
-    render(os.path.join(ios, 'AppIcon.svg'), os.path.join(assets, 'AppIcon.appiconset', 'AppIcon-1024.png'), 1024)
-    with tempfile.TemporaryDirectory() as tmp:
-        launch = os.path.join(tmp, 'launch.svg')
-        open(launch, 'w').write(rounded(svg_text))
-        for size, name in ((320, 'LaunchIcon@2x.png'), (480, 'LaunchIcon@3x.png')):
-            render(launch, os.path.join(assets, 'LaunchIcon.imageset', name), size)
-    print('wrote', ios)
+    write_icons(ios)
 
 if __name__ == '__main__':
     make('infinote', infinote())

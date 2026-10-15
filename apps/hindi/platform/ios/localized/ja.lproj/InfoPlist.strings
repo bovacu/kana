@@ -1,3 +1,0 @@
-/* The camera prompt (Text from a photo, Scan pages), in ja. UTF-8. */
-"NSCameraUsageDescription" = "カメラに写ったヒンディー語の文字を読み取ってページに書けるようにし、ページをスキャンして読んだり書き込んだりできるようにします。";
-"CFBundleDisplayName" = "Hindi Learn!";

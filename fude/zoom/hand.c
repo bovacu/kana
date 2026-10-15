@@ -3,31 +3,43 @@
 #include "zoom/hand.h"
 #include "zoom/hand_glyphs.h"
 #include "drawing/base/utf8.h"
-#include <math.h>
-#include <string.h>
 
-// The font's units: the baseline at y 9, a capital's top at -12 (21 units
-// tall), y down. Ours: y up, from the baseline.
-#define FUDE_ZOOM_HAND_BASE   9.0
-#define FUDE_ZOOM_HAND_CAP    21.0
+// ===========================================================================
+// See hand.h.
+//
+// Laid out as: the accented letters' table, a seeded random number generator (fude_zoom_hand_rng), a letter's strokes
+// (fude_zoom_hand_put, fude_zoom_hand_mark), and the writer itself (fude_zoom_hand_write), which goes through the text
+// a character at a time. Points are first in "units", the font's units turned y up from the baseline, and placed
+// (fude_zoom_hand_at) into the caller's units only as they are appended. The marks and i's dots of a run of joined
+// letters wait in a small list (fude_zoom_hand_later) until the run ends.
+// ===========================================================================
+
+// The font's units: the baseline at y 9, a capital's top at -12 (21 units tall), y down. Ours: y up, from the
+// baseline.
+#define FUDE_ZOOM_HAND_BASE   9.0     // the font's baseline, in its own y-down units
+#define FUDE_ZOOM_HAND_CAP    21.0    // a capital's height, in units: what _cap is scaled from
 #define FUDE_ZOOM_HAND_XTOP   9.0     // a small letter's top, up from the baseline
 #define FUDE_ZOOM_HAND_LINE   1.9     // lines apart, in capitals
 #define FUDE_ZOOM_HAND_STEPS  4u      // points smoothed in between each two of the font's
 #define FUDE_ZOOM_HAND_JOIN   4.5     // a letter's last stroke ending this near the next one's first (units): one stroke
 
+// The marks an accented letter adds to its plain letter. TURNED is not a mark but the letter turned over (¿ ¡).
 typedef enum {
     FUDE_ZOOM_HAND_MARK_NONE = 0,
     FUDE_ZOOM_HAND_ACUTE, FUDE_ZOOM_HAND_GRAVE, FUDE_ZOOM_HAND_CIRCUMFLEX, FUDE_ZOOM_HAND_TILDE,
     FUDE_ZOOM_HAND_DIAERESIS, FUDE_ZOOM_HAND_RING, FUDE_ZOOM_HAND_CEDILLA, FUDE_ZOOM_HAND_TURNED
 } FUDE_ZOOM_HAND_MARK_;
 
+// A character written as an ASCII letter and a mark (FUDE_ZOOM_HAND_MARK_; 0 for none).
 typedef struct {
     u32 codepoint;
     c8  base;
     u8  mark;
 } fude_zoom_hand_letter;
 
-// The accented letters: their plain letter and the mark over (or under) it.
+// The accented letters: their plain letter and the mark over (or under) it. After them, the characters written as a
+// plain one with no mark: typographic quotes and dashes, the ellipsis (one dot), the ordinals º and ª, and a
+// no-break space.
 static const fude_zoom_hand_letter FUDE_ZOOM_HAND_LETTERS[] = {
     { 0xE1, 'a', FUDE_ZOOM_HAND_ACUTE }, { 0xE9, 'e', FUDE_ZOOM_HAND_ACUTE }, { 0xED, 'i', FUDE_ZOOM_HAND_ACUTE }, { 0xF3, 'o', FUDE_ZOOM_HAND_ACUTE },
     { 0xFA, 'u', FUDE_ZOOM_HAND_ACUTE }, { 0xFD, 'y', FUDE_ZOOM_HAND_ACUTE },
@@ -51,15 +63,18 @@ static const fude_zoom_hand_letter FUDE_ZOOM_HAND_LETTERS[] = {
 
 // --- a seeded hand ------------------------------------------------------------------------------
 
+// A linear congruential generator's state: the unevenness comes from it, so a seed always gives the same hand.
 typedef struct {
     u32 state;
 } fude_zoom_hand_rng;
 
+// Steps the generator and returns a number in [0, 1) from its top 24 bits.
 RDE_INTERNAL f64 fude_zoom_hand_rand(fude_zoom_hand_rng* _r) {
     _r->state = _r->state * 1664525u + 1013904223u;
     return (f64)(_r->state >> 8) / 16777216.0;   // [0, 1)
 }
 
+// Returns a number between -_by and _by.
 RDE_INTERNAL f64 fude_zoom_hand_spread(fude_zoom_hand_rng* _r, f64 _by) {
     return (fude_zoom_hand_rand(_r) * 2.0 - 1.0) * _by;
 }
@@ -70,36 +85,35 @@ RDE_INTERNAL f64 fude_zoom_hand_spread(fude_zoom_hand_rng* _r, f64 _by) {
 typedef struct {
     f64 x, y;          // its baseline's start
     f64 slant;         // x more per unit up
-    f64 scale;
+    f64 scale;         // the caller's units per font unit
     f64 wobble_phase;  // the waver along its strokes
 } fude_zoom_hand_place;
 
 // One stroke being built (units, y up, before it is placed).
 typedef struct {
-    fude_zoom_v2 p[160];
+    fude_zoom_v2 p[160];   // its points; more are dropped
     u32          n;
 } fude_zoom_hand_stroke;
 
+// Returns point _u of a letter (units, y up) placed: slanted, scaled and moved to the letter's origin.
 RDE_INTERNAL fude_zoom_v2 fude_zoom_hand_at(const fude_zoom_hand_place* _pl, fude_zoom_v2 _u) {
     return (fude_zoom_v2){ _pl->x + (_u.x + _u.y * _pl->slant) * _pl->scale, _pl->y + _u.y * _pl->scale };
 }
 
-// A stroke's points smoothed (Catmull-Rom through the font's, a few between each two),
-// wavering a little, placed — appended to _points; its end to _ends (an empty or a
-// one-point stroke: a dot, a tiny line).
+// Appends a stroke's points to _points: smoothed (Catmull-Rom through the font's, FUDE_ZOOM_HAND_STEPS between each
+// two), wavering a little, and placed. Its end goes on _ends, or, when _join, replaces the last end there, so the
+// stroke runs on from the one before. An empty stroke adds nothing; a one-point stroke becomes a tiny line, a dot.
 RDE_INTERNAL void fude_zoom_hand_put(const fude_zoom_hand_stroke* _st, const fude_zoom_hand_place* _pl, rde_arr* _points, rde_arr* _ends, b8 _join) {
     const u32 _n = _st->n;
     if(_n == 0) {
         return;
     }
     const fude_zoom_v2* _p = _st->p;
-    u32 _made = 0;
     if(_n == 1u) {
         const fude_zoom_v2 _a = fude_zoom_hand_at(_pl, _p[0]);
         const fude_zoom_v2 _b = fude_zoom_hand_at(_pl, (fude_zoom_v2){ _p[0].x + 0.35, _p[0].y + 0.2 });
         rde_arr_add(_points, (any)&_a);
         rde_arr_add(_points, (any)&_b);
-        _made = 2u;
     } else {
         for(u32 _i = 0; _i + 1u < _n; _i++) {
             const fude_zoom_v2 _p0 = _p[_i > 0 ? _i - 1u : 0u], _p1 = _p[_i], _p2 = _p[_i + 1u], _p3 = _p[_i + 2u < _n ? _i + 2u : _n - 1u];
@@ -111,11 +125,10 @@ RDE_INTERNAL void fude_zoom_hand_put(const fude_zoom_hand_stroke* _st, const fud
                 };
                 // A slow waver, a fraction of a unit, as a hand's line has.
                 const f64 _w = _pl->wobble_phase + ((f64)_i + _t) * 0.9;
-                _u.x += sin(_w) * 0.18;
-                _u.y += cos(_w * 1.3) * 0.14;
+                _u.x += rde_math_sin_f64(_w) * 0.18;
+                _u.y += rde_math_cos_f64(_w * 1.3) * 0.14;
                 const fude_zoom_v2 _at = fude_zoom_hand_at(_pl, _u);
                 rde_arr_add(_points, (any)&_at);
-                _made++;
             }
         }
     }
@@ -125,10 +138,10 @@ RDE_INTERNAL void fude_zoom_hand_put(const fude_zoom_hand_stroke* _st, const fud
     } else {
         rde_arr_add(_ends, (any)&_count);
     }
-    RDE_UNUSED(_made);
 }
 
-// A mark over (or under) a letter: its own short strokes, in units round _cx and _top (up from the baseline).
+// Writes a mark over (or under) a letter: its own short strokes, in units round _cx and _top (up from the baseline).
+// A diaeresis is two dots, each a stroke of its own; a cedilla hangs from the baseline whatever _top is.
 RDE_INTERNAL void fude_zoom_hand_mark(u8 _mark, f64 _cx, f64 _top, const fude_zoom_hand_place* _pl, rde_arr* _points, rde_arr* _ends) {
     fude_zoom_hand_stroke _s;
     const f64 _g = 2.0;   // the gap over the letter
@@ -162,8 +175,8 @@ RDE_INTERNAL void fude_zoom_hand_mark(u8 _mark, f64 _cx, f64 _top, const fude_zo
         } break;
         case FUDE_ZOOM_HAND_RING:
             for(u32 _i = 0; _i <= 8u; _i++) {
-                const f64 _a = 6.2831853 * (f64)_i / 8.0;
-                _s.p[_s.n++] = (fude_zoom_v2){ _cx + cos(_a) * 1.6, _top + _g + 1.6 + sin(_a) * 1.6 };
+                const f64 _a = 2.0 * RDE_PI * (f64)_i / 8.0;
+                _s.p[_s.n++] = (fude_zoom_v2){ _cx + rde_math_cos_f64(_a) * 1.6, _top + _g + 1.6 + rde_math_sin_f64(_a) * 1.6 };
             }
             break;
         case FUDE_ZOOM_HAND_CEDILLA:
@@ -177,17 +190,18 @@ RDE_INTERNAL void fude_zoom_hand_mark(u8 _mark, f64 _cx, f64 _top, const fude_zo
     fude_zoom_hand_put(&_s, _pl, _points, _ends, false);
 }
 
-// What waits till a run of joined letters ends (written then, so the next letter's
-// stroke runs on from its letter's, not from a mark): an accent, or an i's dot.
+// What waits till a run of joined letters ends (written then, so the next letter's stroke runs on from its letter's,
+// not from a mark): an accent, or an i's dot.
 typedef struct {
     u8                   mark;      // FUDE_ZOOM_HAND_ (0: a dot, the stroke below)
-    f64                  cx, top;
-    fude_zoom_hand_place place;
+    f64                  cx, top;   // where a mark goes (fude_zoom_hand_mark's), in units
+    fude_zoom_hand_place place;     // its letter's place
     fude_zoom_hand_stroke dot;
 } fude_zoom_hand_later;
 
-#define FUDE_ZOOM_HAND_LATER 24u
+#define FUDE_ZOOM_HAND_LATER 24u   // the most marks and dots waiting; past it, more are left out
 
+// Writes what waits (fude_zoom_hand_later), in the order it came, and empties the list.
 RDE_INTERNAL void fude_zoom_hand_flush(rde_arr* _later, rde_arr* _points, rde_arr* _ends) {
     const fude_zoom_hand_later* _l = (const fude_zoom_hand_later*)_later->memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(_later); _i++) {
@@ -200,14 +214,18 @@ RDE_INTERNAL void fude_zoom_hand_flush(rde_arr* _later, rde_arr* _points, rde_ar
     rde_arr_clear(_later);
 }
 
+// See the header. Each character is turned into a glyph of the font (an ASCII one, or its plain letter from
+// FUDE_ZOOM_HAND_LETTERS, or a space), given its own unevenness, and its strokes are written: a letter's first stroke
+// joins the last letter's when it starts within FUDE_ZOOM_HAND_JOIN units of where that one ended. A space, a new line
+// or a stroke that does not join ends the run, and its marks and dots are written then.
 u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points, rde_arr* _ends) {
     rde_arr TYPE(fude_zoom_hand_later) _later = rde_arr_new(sizeof(fude_zoom_hand_later), rde_memory_allocator_get_default_std());
     const u32 _first_end = (u32)rde_arr_length(_ends);
     fude_zoom_hand_rng _rng = { _seed * 2654435761u + 12345u };
-    const f64 _unit = _cap / FUDE_ZOOM_HAND_CAP;   // ours a font unit
+    const f64 _unit = _cap / FUDE_ZOOM_HAND_CAP;   // the caller's units per font unit
     f64  _pen_x = 0.0, _line_y = 0.0;
     b8   _joinable = false;                          // the last letter's last stroke may run on
-    fude_zoom_v2 _last_end = { 0.0, 0.0 };           // ...where it ended (units of ours)
+    fude_zoom_v2 _last_end = { 0.0, 0.0 };           // where that stroke ended (units of ours)
     for(const c8* _c = _text; *_c != 0;) {
         u32 _cp = fude_utf8_next(&_c);
         if(_cp == 0) {
@@ -244,7 +262,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
         _pl.slant        = 0.03 + fude_zoom_hand_spread(&_rng, 0.035);
         _pl.x            = _pen_x - _left * _pl.scale;
         _pl.y            = _line_y + fude_zoom_hand_spread(&_rng, 0.35) * _unit;
-        _pl.wobble_phase = fude_zoom_hand_rand(&_rng) * 6.2831853;
+        _pl.wobble_phase = fude_zoom_hand_rand(&_rng) * 2.0 * RDE_PI;
         if(_base == ' ') {
             fude_zoom_hand_flush(&_later, _points, _ends);
             _pen_x   += (_right - _left) * _unit * (1.0 + fude_zoom_hand_spread(&_rng, 0.08));
@@ -254,7 +272,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
         // Its strokes, in its units (y up from the baseline); turned over for ¿ ¡.
         const i8* _pts  = &FUDE_ZOOM_HAND_POINTS[FUDE_ZOOM_HAND_STARTS[_g]];
         const u32 _np   = (u32)(FUDE_ZOOM_HAND_STARTS[_g + 1u] - FUDE_ZOOM_HAND_STARTS[_g]) / 2u;
-        const b8  _dotless = (_base == 'i' || _base == 'j') && _mark != 0;   // í ï...: the mark in the dot's place
+        const b8  _dotless = (_base == 'i' || _base == 'j') && _mark != 0;   // í, ï: the mark in the dot's place
         fude_zoom_hand_stroke _st;
         _st.n = 0;
         b8  _first = true;
@@ -263,14 +281,14 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
         for(u32 _i = 0; _i <= _np; _i++) {
             const b8 _lift = _i == _np || _pts[2u * _i] == -128;
             if(_lift) {
-                // A stroke done. A dot (a short stroke over a small letter's top, after
-                // its first): written when the run ends — left out where a mark takes its place.
+                // A stroke done. A dot (a short stroke over a small letter's top, after its first): written when the
+                // run ends, and left out where a mark takes its place.
                 b8 _dot = false;
                 if(!_first && _st.n > 0 && _base >= 'a' && _base <= 'z') {
                     f64 _lo = 1e9, _w = 0.0;
                     for(u32 _k = 0; _k < _st.n; _k++) {
-                        _lo = fmin(_lo, _st.p[_k].y);
-                        _w  = fmax(_w, fabs(_st.p[_k].x - _st.p[0].x));
+                        _lo = rde_math_min_f64(_lo, _st.p[_k].y);
+                        _w  = rde_math_max_f64(_w, rde_math_abs_f64(_st.p[_k].x - _st.p[0].x));
                     }
                     _dot = _lo > FUDE_ZOOM_HAND_XTOP + 0.5 && _w < 3.0;
                 }
@@ -286,7 +304,7 @@ u32 fude_zoom_hand_write(const c8* _text, f64 _cap, u32 _seed, rde_arr* _points,
                     b8 _join = false;
                     if(_first && _joinable && _mark != FUDE_ZOOM_HAND_TURNED) {
                         const fude_zoom_v2 _start = fude_zoom_hand_at(&_pl, _st.p[0]);
-                        _join = hypot(_start.x - _last_end.x, _start.y - _last_end.y) <= FUDE_ZOOM_HAND_JOIN * _unit;
+                        _join = rde_math_hypot_f64(_start.x - _last_end.x, _start.y - _last_end.y) <= FUDE_ZOOM_HAND_JOIN * _unit;
                     }
                     if(_first && !_join) {
                         fude_zoom_hand_flush(&_later, _points, _ends);   // the run before ended: its marks

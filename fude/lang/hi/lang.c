@@ -4,25 +4,27 @@
 #include "drawing/base/text.h"
 #include "drawing/base/utf8.h"
 
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
-// See lang.h: Hindi, in Devanagari. Its letters in four groups — the vowels
-// (written alone, at a word's start), the consonants (each with its inherent
-// a: क "ka"; and the ones with a dot under them for other languages' sounds,
-// क़ "qa"), the vowel signs and marks (the matras a consonant wears, ा ि ी ...,
-// and ं ँ ः ़ ्), the digits — each with its Latin name, as Hindi is taught to
-// learners (Hunterian, with ISO 15919's dots for the retroflex sounds: ट ṭa).
-// Words are read in romanization. Three levels, the letters' own: the ones
-// learnt first, the rest, the rare.
+// See lang.h. This is Hindi, written in Devanagari. Its letters are in four groups: the vowels (written alone, at a
+// word's start), the consonants (each with its inherent a, as in क "ka", and those with a dot under them for other
+// languages' sounds, as in क़ "qa"), the vowel signs and marks (the matras a consonant wears, ा ि ी ...,
+// and ं ँ ः ़ ्), and the digits. Each letter has its Latin name as Hindi is taught to learners: Hunterian, with
+// ISO 15919's dots for the retroflex sounds (ट is ṭa). Words are read in romanization. There are three levels, the
+// letters' own: the ones learnt first, the rest, and the rare ones.
+//
+// Everything about a letter is in one table, FUDE_HI_LETTERS, sorted by code point and searched by bisection.
 // ===========================================================================
 
+// Returns Hindi's code for translation (ML Kit Translate).
 const c8* fude_lang_code(void)      { return "hi"; }
+// Returns the ML Kit Digital Ink Recognition model that reads Hindi handwriting.
 const c8* fude_lang_ink_model(void) { return "hi"; }
+// Returns the voice that reads Hindi aloud.
 const c8* fude_lang_voice(void)     { return "hi-IN"; }
-b8        fude_lang_text_readable(void) { return true; }    // ML Kit's Devanagari model
+// Returns true: ML Kit Text Recognition can read Hindi in pictures.
+b8        fude_lang_text_readable(void) { return true; }    // With ML Kit's Devanagari model.
 
+// Returns Hindi as the app's fourth UI language, with its name in Hindi and India's flag.
 RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
     *_name = "\xE0\xA4\xB9\xE0\xA4\xBF\xE0\xA4\x82\xE0\xA4\xA6\xE0\xA5\x80";   // हिंदी
     *_flag = "assets/flags/in.png";
@@ -31,11 +33,14 @@ RDE_LANGUAGE_ fude_lang_ui_language(const c8** _name, const c8** _flag) {
 
 // --- the letters ---------------------------------------------------------------------------
 
+// Hindi's groups, and how many there are.
 enum { FUDE_HI_VOWELS = 0, FUDE_HI_CONSONANTS, FUDE_HI_SIGNS, FUDE_HI_DIGITS, FUDE_HI_GROUPS };
 
+// One letter: its code point, its group, its level (1 learnt first, 2 the rest, 3 rare) and its Latin name (UTF-8).
 typedef struct { u16 codepoint; u8 group; u8 level; const c8* latin; } fude_hi_letter;
 
-// By code point (searched by halves).
+// Every letter, sorted by code point, which fude_hi_letter_of's bisection needs. Each comment shows the letter and,
+// when it has accents, its Latin name.
 static const fude_hi_letter FUDE_HI_LETTERS[] = {
     { 0x0901, FUDE_HI_SIGNS,      2, "candrabindu" },   // ँ
     { 0x0902, FUDE_HI_SIGNS,      1, "anusv\xC4\x81ra" },   // ं
@@ -129,8 +134,10 @@ static const fude_hi_letter FUDE_HI_LETTERS[] = {
     { 0x096F, FUDE_HI_DIGITS,     1, "nau" },           // ९
 };
 
+// How many letters the table has.
 #define FUDE_HI_LETTER_COUNT ((u32)(sizeof(FUDE_HI_LETTERS) / sizeof(FUDE_HI_LETTERS[0])))
 
+// Returns _cp's row of the table, found by bisection, or NULL when it is not a letter.
 RDE_INTERNAL const fude_hi_letter* fude_hi_letter_of(u32 _cp) {
     u32 _lo = 0, _hi = FUDE_HI_LETTER_COUNT;
     while(_lo < _hi) {
@@ -145,53 +152,61 @@ RDE_INTERNAL const fude_hi_letter* fude_hi_letter_of(u32 _cp) {
 
 // --- groups ----------------------------------------------------------------------------------
 
+// Returns how many groups there are: four.
 u32 fude_lang_group_count(void) {
     return FUDE_HI_GROUPS;
 }
 
+// Returns a letter's group, as the table says; FUDE_LANG_NO_GROUP for anything else.
 u8 fude_lang_group(u32 _cp) {
     const fude_hi_letter* _l = fude_hi_letter_of(_cp);
     return _l != NULL ? _l->group : FUDE_LANG_NO_GROUP;
 }
 
+// Returns a group's flags: every group is a script's letters, learnt as a whole set.
 u32 fude_lang_group_flags(u32 _group) {
-    return _group < FUDE_HI_GROUPS ? FUDE_LANG_GROUP_SCRIPT | FUDE_LANG_GROUP_SET : 0u;   // letters, each learnt whole
+    return _group < FUDE_HI_GROUPS ? FUDE_LANG_GROUP_SCRIPT | FUDE_LANG_GROUP_SET : 0u;   // Letters, each learnt whole.
 }
 
+// Returns a group's name as a FUDE_TEXT_ id. A character in no group is shown under the consonants' name.
 u32 fude_lang_group_name(u32 _group) {
     static const FUDE_TEXT_ _names[FUDE_HI_GROUPS] = { FUDE_TEXT_HI_VOWELS, FUDE_TEXT_HI_CONSONANTS, FUDE_TEXT_HI_SIGNS, FUDE_TEXT_HI_DIGITS };
     return _group < FUDE_HI_GROUPS ? (u32)_names[_group] : _group == FUDE_LANG_NO_GROUP ? (u32)FUDE_TEXT_HI_CONSONANTS : (u32)FUDE_TEXT_COUNT;
 }
 
+// Returns what an exam asks for a group ("write the vowel"...), as a FUDE_TEXT_ id.
 u32 fude_lang_group_prompt(u32 _group) {
     static const FUDE_TEXT_ _prompts[FUDE_HI_GROUPS] = { FUDE_TEXT_EXAM_WRITE_HI_VOWEL, FUDE_TEXT_EXAM_WRITE_HI_CONSONANT, FUDE_TEXT_EXAM_WRITE_HI_SIGN, FUDE_TEXT_EXAM_WRITE_HI_DIGIT };
     return _group < FUDE_HI_GROUPS ? (u32)_prompts[_group] : (u32)FUDE_TEXT_COUNT;
 }
 
+// Returns whether a letter is a core one: what a learner learns first, the letters of level 1.
 b8 fude_lang_core(u32 _cp) {
     const fude_hi_letter* _l = fude_hi_letter_of(_cp);
     return _l != NULL && _l->level == 1u;
 }
 
-// The vowel signs (matras), the nasal marks, the visarga, the nukta and the virama:
-// each written on, beside or under a consonant.
+// Returns whether a character is written on, beside or under a consonant: the vowel signs (matras), the nasal marks,
+// the visarga, the nukta and the virama.
 b8 fude_lang_combining(u32 _cp) {
     return (_cp >= 0x0901u && _cp <= 0x0903u) || _cp == 0x093Cu || (_cp >= 0x093Eu && _cp <= 0x094Du) ||
            (_cp >= 0x0951u && _cp <= 0x0957u) || _cp == 0x0962u || _cp == 0x0963u;
 }
 
+// Returns a letter's Latin name from the table (क is "ka"), or NULL.
 const c8* fude_lang_latin(u32 _cp) {
     const fude_hi_letter* _l = fude_hi_letter_of(_cp);
     return _l != NULL ? _l->latin : NULL;
 }
 
-
 // --- writing direction and joined forms: left to right, each letter as itself -------------
 
+// Returns false: Hindi is written left to right.
 b8 fude_lang_rtl(void) {
     return false;
 }
 
+// Returns the letter itself: the conjuncts are not given as joined forms.
 u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
     RDE_UNUSED(_before);
     RDE_UNUSED(_after);
@@ -201,66 +216,89 @@ u32 fude_lang_form(u32 _before, u32 _cp, u32 _after, b8* _with_after) {
     return _cp;
 }
 
+// Returns the character itself, since no character is a form of another.
 u32 fude_lang_letter(u32 _cp) {
     return _cp;
 }
 
 // --- levels: first, then, rare -------------------------------------------------------------------
 
+// Returns the three levels: the letters learnt first, the rest, and the rare ones.
 u32 fude_lang_level_count(void) {
     return 3u;
 }
 
+// Returns the byte a level is stored as: its place plus one (1 to 3); 0 past the last.
 u8 fude_lang_level_value(u32 _level) {
     return _level < 3u ? (u8)(_level + 1u) : 0u;
 }
 
+// Writes a stored level's name in the app's language, short or long; "" for no level.
 void fude_lang_level_name(u8 _value, b8 _long, c8* _out, usize _size) {
     static const FUDE_TEXT_ _short[3] = { FUDE_TEXT_HI_LEVEL_1_SHORT, FUDE_TEXT_HI_LEVEL_2_SHORT, FUDE_TEXT_HI_LEVEL_3_SHORT };
     static const FUDE_TEXT_ _names[3] = { FUDE_TEXT_HI_LEVEL_1, FUDE_TEXT_HI_LEVEL_2, FUDE_TEXT_HI_LEVEL_3 };
     if(_value == 0u || _value > 3u) {
-        snprintf(_out, _size, "%s", "");
+        rde_snprintf(_out, _size, "%s", "");
     } else {
-        snprintf(_out, _size, "%s", fude_text(_long ? _names[_value - 1u] : _short[_value - 1u]));
+        rde_snprintf(_out, _size, "%s", fude_text(_long ? _names[_value - 1u] : _short[_value - 1u]));
     }
 }
 
-// --- readings: none of a letter's own (its Latin name says it); words are read in romanization ---
+// --- readings: a letter has none of its own (its Latin name says it); words are read in romanization ---
 
+// Returns 0: the character data has no readings.
 u32 fude_lang_reading_kinds(void) {
     return 0u;
 }
 
+// Returns FUDE_TEXT_COUNT, since there are no kinds of reading to name.
 u32 fude_lang_reading_name(u32 _kind) {
     RDE_UNUSED(_kind);
     return (u32)FUDE_TEXT_COUNT;
 }
 
+// Returns _cp as it is.
+u32 fude_lang_reading_capital(u32 _cp) {
+    return _cp;   // Hindi has no other way of writing a reading typed in capitals.
+}
+
+// Writes "" and returns false: a reading typed in Latin letters is not turned into Devanagari.
 b8 fude_lang_reading_from_latin(const c8* _latin, c8* _out, usize _size) {
     RDE_UNUSED(_latin);
     if(_out != NULL && _size > 0) {
         _out[0] = 0;
     }
-    return false;   // romanization is kept as typed (words are read in it)
+    return false;   // A romanization is kept as typed, since words are read in it.
 }
 
-// Romanization searched without its accents, tones or syllables' hyphens
-// (paa-sǎa as paasaa, pānī as pani, ʿilm as ilm).
+// Returns a romanization's character as readings are compared: without its accents, and with hyphens left out
+// (pānī compares as pani; the same folding makes Thai's paa-sǎa paasaa and Arabic's ʿilm ilm).
 u32 fude_lang_reading_fold(u32 _cp) {
     return _cp == '-' ? 0u : fude_utf8_latin_base(_cp);
 }
 
+// Returns kind 0; there are no kinds of reading to choose from.
 u32 fude_lang_word_reading_kind(u32 _order) {
     RDE_UNUSED(_order);
     return 0u;
 }
 
+// Returns true: words are read in romanization.
 b8 fude_lang_word_reading_latin(void) {
-    return true;   // words are read in romanization: हिंदी hindī
+    return true;   // Words are read in romanization: हिंदी is hindī.
+}
+
+// Returns false: no word is read as it is written, since its words are read in Latin letters
+// (fude_lang_word_reading_latin).
+b8 fude_lang_reads_as_written(const c8* _written) {
+    RDE_UNUSED(_written);
+    return false;
 }
 
 // --- badges: Devanagari letters, each the start of the word it stands for ------------------------
 
+// Returns the letter a badge shows, in FUDE_LANG_BADGE_ order, or 0 out of range. Each is the first letter of the
+// Hindi word for what the badge marks.
 u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
     static const u32 _badges[FUDE_LANG_BADGE_COUNT] = {
         0x0927u,   // ध (ध्वनि: sound)
@@ -273,4 +311,12 @@ u32 fude_lang_badge(FUDE_LANG_BADGE_ _badge) {
         0x0905u,   // अ (अनुवाद: translation)
     };
     return _badge < FUDE_LANG_BADGE_COUNT ? _badges[_badge] : 0u;
+}
+
+// --- handwriting: how free writing is read ---------------------------------------------------
+
+// Returns no rules (lang.h): Hindi's free writing is read by each letter's shape, size and place alone.
+const fude_lang_writing_def* fude_lang_writing(void) {
+    static const fude_lang_writing_def _none = { .switch_cost = NULL };
+    return &_none;
 }

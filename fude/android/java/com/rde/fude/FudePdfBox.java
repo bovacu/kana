@@ -66,11 +66,16 @@ import java.util.concurrent.ThreadFactory;
  * as it says); the learner's turns are pdf_android.c's. Every use of PDFBox holds
  * LOCK: the engine's thread asks, and a search goes on in a thread of its own — its
  * matches read without waiting for it (each document's own lock, found; the documents'
- * map has its own too, so finding one never waits for a page being read).
+ * map has its own too, so finding one never waits for a page being read). PDFBox's
+ * document is opened and closed on that thread too (Text.open, Text.close), and
+ * readying PDFBox has a lock of its own, so neither the engine's thread nor a PDF
+ * worker closing a PDF waits on LOCK for them; only a question about a page's text
+ * (pageHasText, textIn, and writing) does, for at most the page a search is reading.
  */
 final class FudePdfBox {
     static final Object LOCK = new Object();
-    static int ready;                  // 1: PDFBox readied, -1: not here (0: not tried)
+    static final Object READYING = new Object();   // readying PDFBox (available), never LOCK's
+    static volatile int ready;         // 1: PDFBox readied, -1: not here (0: not tried)
     static TrueTypeFont fallback;      // the font PDFBox measures with where a PDF's own is not in it
     static final int CHARS_KEPT = 400000;   // pages' text kept, a document's, the last asked for: about this many characters
 
@@ -96,21 +101,29 @@ final class FudePdfBox {
         @Override public void close() {}
     };
 
-    /** Is PDFBox here? Readied the first time: its resources (in the app's assets) and the fonts it looks for. */
+    /**
+     * Is PDFBox here? Readied the first time: its resources (in the app's assets) and the
+     * fonts it looks for. Asked before every question, so once readied it is answered
+     * without a lock (ready is volatile), and readying takes READYING, not LOCK: it never
+     * waits for a page a search is reading. (No PDFBox is used before it is readied: every
+     * use asks this first.)
+     */
     static boolean available() {
-        synchronized(LOCK) {
-            if(ready == 0) {
-                try {
-                    PDFBoxResourceLoader.init(FudeAndroid.context);
-                    FontMappers.set(new Fonts());
-                    ready = 1;
-                } catch(Throwable t) {
-                    Log.e(FudeAndroid.TAG, "no PDFBox: " + t);
-                    ready = -1;
+        if(ready == 0) {
+            synchronized(READYING) {
+                if(ready == 0) {
+                    try {
+                        PDFBoxResourceLoader.init(FudeAndroid.context);
+                        FontMappers.set(new Fonts());
+                        ready = 1;
+                    } catch(Throwable t) {
+                        Log.e(FudeAndroid.TAG, "no PDFBox: " + t);
+                        ready = -1;
+                    }
                 }
             }
-            return ready > 0;
         }
+        return ready > 0;
     }
 
     /**
@@ -161,7 +174,11 @@ final class FudePdfBox {
         }
     }
 
-    /** FudePdf's document _h's text (LOCK held): made the first time, for its file. */
+    /**
+     * FudePdf's document _h's text: made the first time, for its file, and its PDFBox
+     * document then opened on FINDER (Text.open), never on the thread asking. No LOCK:
+     * the map has its own.
+     */
     static Text text(int h) {
         Text t = known(h);
         if(t == null) {
@@ -169,21 +186,44 @@ final class FudePdfBox {
             if(file == null) {
                 return null;
             }
-            t = new Text(file);
+            boolean made = false;
             synchronized(texts) {
-                texts.put(h, t);
+                t = texts.get(h);
+                if(t == null) {
+                    t = new Text(file);
+                    texts.put(h, t);
+                    made = true;
+                }
+            }
+            if(made) {
+                t.open();
             }
         }
         return t;
     }
 
-    /** FudePdf's document _h let go: its text's too (a search going on stops). */
+    /**
+     * Begins opening document _h's text (the first time), and says whether it is open,
+     * so that pdf_android.c asks about its pages only once no question waits for the
+     * opening. True too when there is nothing to wait for (no PDFBox, no such document).
+     */
+    static boolean prepare(int h) {
+        if(!available()) {
+            return true;
+        }
+        Text t = text(h);
+        return t == null || t.opened;
+    }
+
+    /**
+     * FudePdf's document _h let go: its text's too. Never waits on LOCK (it is called on
+     * the engine's thread, or on a PDF worker's closing an orphaned piece's PDF): the
+     * search going on stops at its next page, and the document is closed on FINDER.
+     */
     static void close(int h) {
         Text t;
-        synchronized(LOCK) {
-            synchronized(texts) {
-                t = texts.remove(h);
-            }
+        synchronized(texts) {
+            t = texts.remove(h);
         }
         if(t != null) {
             t.close();
@@ -224,12 +264,7 @@ final class FudePdfBox {
         if(!available()) {
             return;
         }
-        Text t = known(h);
-        if(t == null) {
-            synchronized(LOCK) {
-                t = text(h);
-            }
-        }
+        Text t = text(h);   // (its document opened, if it is not yet, on FINDER, before the search)
         if(t != null) {
             t.findStart(query, max);
         }
@@ -287,7 +322,9 @@ final class FudePdfBox {
     static final class Text {
         final File file;
         PDDocument doc;
-        boolean    tried, closed;
+        boolean    tried;             // (under LOCK)
+        // Opened (or tried and could not be): a question no longer waits for it. Let go: nothing more is opened or read.
+        volatile boolean opened, closed;
         byte[]     hasText;   // each page's: 0 not asked, 1 it has, 2 none
         final LinkedHashMap<Integer, Page> pages = new LinkedHashMap<>(16, 0.75f, true);   // the last asked for last
         int        kept;      // their characters
@@ -303,7 +340,19 @@ final class FudePdfBox {
             this.file = file;
         }
 
-        /** PDFBox's document (LOCK held), opened the first time; null when it cannot be. */
+        /** Opens PDFBox's document on FINDER, under LOCK there: a big PDF takes seconds on a phone, never the engine's. */
+        void open() {
+            FINDER.execute(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized(LOCK) {
+                        document();
+                    }
+                }
+            });
+        }
+
+        /** PDFBox's document (LOCK held), opened the first time (on FINDER, unless asked for first); null when it cannot be. */
         PDDocument document() {
             if(!tried && !closed) {
                 tried = true;
@@ -315,9 +364,15 @@ final class FudePdfBox {
                     doc = null;
                 }
             }
+            opened = true;
             return doc;
         }
 
+        /**
+         * Lets it go without waiting on LOCK: the search stops (at its next page), and the
+         * document is closed on FINDER, after that search and after its opening, under LOCK
+         * there. Once closed, nothing more is opened or read.
+         */
         void close() {
             synchronized(found) {
                 search++;
@@ -325,19 +380,24 @@ final class FudePdfBox {
                 count = 0;
                 version++;
             }
-            synchronized(LOCK) {
-                closed = true;
-                pages.clear();
-                kept = 0;
-                if(doc != null) {
-                    try {
-                        doc.close();
-                    } catch(IOException e) {
-                        // gone all the same
+            closed = true;
+            FINDER.execute(new Runnable() {
+                @Override
+                public void run() {
+                    synchronized(LOCK) {
+                        pages.clear();
+                        kept = 0;
+                        if(doc != null) {
+                            try {
+                                doc.close();
+                            } catch(IOException e) {
+                                // gone all the same
+                            }
+                            doc = null;
+                        }
                     }
-                    doc = null;
                 }
-            }
+            });
         }
 
         /** Has page _p text of its own (LOCK held)? Asked of every page as a document opens: whether it shows any, not the text itself. */
@@ -822,8 +882,11 @@ final class FudePdfBox {
         StringBuilder    over;        // ...what goes over it, in the page as read
         HashMap<Integer, COSName> alphas;   // ...its see-through states, by alpha
         COSName          fontName;    // ...the unseen text's font, as its resources name it
-        com.tom_roush.pdfbox.pdmodel.font.PDType0Font seen;   // the seen text's (the app's Roboto, whole: one for the document)
-        COSName          seenName;    // ...as the page's resources name it
+        // The seen text's fonts, the app's Roboto in its four faces (draw.h's FUDE_DRAW_FONT_*), each embedded whole
+        // the first time text is set in it (one for the document), by the face (pdf.h's FUDE_PDF_FACE_) ...
+        final com.tom_roush.pdfbox.pdmodel.font.PDType0Font[] seen = new com.tom_roush.pdfbox.pdmodel.font.PDType0Font[4];
+        final COSName[]  seenName = new COSName[4];   // ...as the page's resources name each
+        int              face;        // ...and the face the text seen is set in now (writeFace)
         COSDictionary    font;        // that font (one for the whole document)
         COSStream        unicode;     // ...its codes' characters, written at the end
         final HashMap<Integer, Integer> far = new HashMap<>();   // characters past U+FFFF: the code each is written with
@@ -917,7 +980,7 @@ final class FudePdfBox {
                 o.over      = new StringBuilder();
                 o.alphas    = new HashMap<>();
                 o.fontName  = null;
-                o.seenName  = null;
+                java.util.Arrays.fill(o.seenName, null);
             } catch(Throwable e) {
                 Log.e(FudeAndroid.TAG, "could not copy page " + page + ": " + e);
                 o.ok   = false;
@@ -1118,10 +1181,23 @@ final class FudePdfBox {
         }
     }
 
+    /** Roboto's files, by face (pdf.h's FUDE_PDF_FACE_; the same files as draw.h's FUDE_DRAW_FONT_*). */
+    static final String[] FACES = { "Roboto-Regular.ttf", "Roboto-Bold.ttf", "Roboto-Italic.ttf", "Roboto-BoldItalic.ttf" };
+
+    /** The face the text seen is set in from now on: 0 regular, 1 bold, 2 italic, 3 both (anything else: regular). */
+    static void writeFace(int w, int face) {
+        synchronized(LOCK) {
+            Out o = out(w);
+            if(o != null) {
+                o.face = face >= 0 && face < FACES.length ? face : 0;
+            }
+        }
+    }
+
     /**
      * A line of text seen: _size points tall, its baseline's left end at x, y (the page
-     * as read), in _color (RGBA) — in the app's font (Roboto, embedded whole), a letter
-     * it has no glyph for left out.
+     * as read), in _color (RGBA) — in the app's font (Roboto in the face set last,
+     * embedded whole), a letter it has no glyph for left out.
      */
     static void writeText(int w, String text, float x, float y, float size, int color) {
         synchronized(LOCK) {
@@ -1130,26 +1206,27 @@ final class FudePdfBox {
                 return;
             }
             try {
-                if(o.seen == null) {
+                final int face = o.face;
+                if(o.seen[face] == null) {
                     InputStream in;
                     try {
-                        in = FudeAndroid.context.getAssets().open("assets/fonts/Roboto-Regular.ttf");
+                        in = FudeAndroid.context.getAssets().open("assets/fonts/" + FACES[face]);
                     } catch(IOException e) {
-                        in = FudeAndroid.context.getAssets().open("fonts/Roboto-Regular.ttf");
+                        in = FudeAndroid.context.getAssets().open("fonts/" + FACES[face]);
                     }
                     try(InputStream f = in) {
-                        o.seen = com.tom_roush.pdfbox.pdmodel.font.PDType0Font.load(o.doc, f, false);
+                        o.seen[face] = com.tom_roush.pdfbox.pdmodel.font.PDType0Font.load(o.doc, f, false);
                     }
                 }
-                if(o.seenName == null) {
-                    o.seenName = o.resources.add(o.seen);
+                if(o.seenName[face] == null) {
+                    o.seenName[face] = o.resources.add(o.seen[face]);
                 }
                 StringBuilder hex = new StringBuilder();
                 for(int i = 0; i < text.length();) {
                     int cp = text.codePointAt(i);
                     i += Character.charCount(cp);
                     try {
-                        for(byte b : o.seen.encode(new String(Character.toChars(cp)))) {
+                        for(byte b : o.seen[face].encode(new String(Character.toChars(cp)))) {
                             hex.append(String.format("%02X", b & 255));
                         }
                     } catch(IllegalArgumentException e) {
@@ -1167,7 +1244,7 @@ final class FudePdfBox {
                 if(a < 255) {
                     s.append('/').append(alpha(o, a).getName()).append(" gs ");
                 }
-                s.append("BT /").append(o.seenName.getName()).append(' ');
+                s.append("BT /").append(o.seenName[face].getName()).append(' ');
                 num(s, size);
                 s.append("Tf 1 0 0 -1 ");   // the page as read has Y down: the glyphs up again
                 num(s, x);

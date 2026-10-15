@@ -2,29 +2,33 @@
 
 #include "study/chars/kanji.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
-// See kanji.h.
+// See kanji.h, which describes the file's format.
+//
+// The file is read in place: loading only finds where each chunk lies and checks it. The word and sentence chunks
+// are checked string by string once, at load, and an index to each word and sentence is built then (the only memory
+// allocated besides the file), so that reading them later needs no checks. A chunk whose counts do not match the
+// records is dropped, so that the app has none of its data rather than wrong data. The strokes are cubic Béziers,
+// turned into points only when asked for, by halving each curve until it is flat enough (de Casteljau).
 // ===========================================================================
 
-#define FUDE_KANJI_STROKE_HEADER 8u     // 4 bytes of counts/types + start x, y
-#define FUDE_KANJI_SEGMENT_SIZE  12u    // 6 x i16
-#define FUDE_KANJI_MAX_DEPTH     10u    // Bézier subdivision limit
+// A stroke's header: 4 bytes of counts and types, then its start's x and y (an i16 each).
+#define FUDE_KANJI_STROKE_HEADER 8u     // a stroke's header (bytes)
+#define FUDE_KANJI_SEGMENT_SIZE  12u    // a segment (bytes): 6 x i16, two control points and the end
+#define FUDE_KANJI_MAX_DEPTH     10u    // how many times a curve may be halved at most
 
+// Frees the file, the strokes' own file and the indexes built at load, and clears _db.
 void fude_kanji_unload(fude_kanji_db* _db) {
     rde_free(_db->_word_text);
     rde_free((any)_db->_sentences);
     fude_file_free(_db->_file);
     fude_file_free(_db->_strokes_file);
-    memset(_db, 0, sizeof(*_db));
+    rde_memset(_db, 0, sizeof(*_db));
 }
 
-// The WORD chunk (_chunk just past its count, which matched the records): the
-// lists in place, and where each word starts, found once — the strings are
-// checked to be all there, so reading them later needs no checks.
+// Reads the WORD chunk (_chunk is just past its count, which matched the records): the lists stay in place, and the
+// start of each word is found once. The words' strings are checked to be all there, so reading them later needs no
+// checks. A chunk cut short leaves the app with no words rather than broken ones.
 RDE_INTERNAL void fude_kanji_load_words(fude_kanji_db* _db, fude_reader* _chunk) {
     const u32 _count = _db->count;
     if((u64)_count * 4u + 8u > (u64)(_chunk->size - _chunk->pos)) {
@@ -40,13 +44,18 @@ RDE_INTERNAL void fude_kanji_load_words(fude_kanji_db* _db, fude_reader* _chunk)
     const u8* _list_data = &_chunk->data[_chunk->pos];
     const c8* _text      = (const c8*)&_chunk->data[_chunk->pos + _lists];
     const u32 _text_size = _chunk->size - _chunk->pos - _lists;
+    // Each word is three NUL-ended strings, so it takes three bytes at least: a count the text cannot hold is a
+    // damaged file, refused before its count is allocated.
+    if(_words > _text_size / 3u) {
+        return;
+    }
 
     const c8** _starts = (const c8**)rde_malloc(sizeof(const c8*) * _words);
     u32        _at     = 0;
     for(u32 _w = 0; _w < _words; _w++) {
         _starts[_w] = &_text[_at];
-        for(u32 _s = 0; _s < 3u; _s++) {   // written, reading, meaning
-            const c8* _nul = _at < _text_size ? memchr(&_text[_at], 0, _text_size - _at) : NULL;
+        for(u32 _s = 0; _s < 3u; _s++) {   // the written form, the reading and the meaning
+            const c8* _nul = _at < _text_size ? rde_memchr(&_text[_at], 0, _text_size - _at) : NULL;
             if(_nul == NULL) {
                 rde_free(_starts);
                 return;   // cut short: no words rather than broken ones
@@ -62,8 +71,9 @@ RDE_INTERNAL void fude_kanji_load_words(fude_kanji_db* _db, fude_reader* _chunk)
     _db->_word_text       = _starts;
 }
 
-// An 'LNxx' chunk: its pairs and text in place, when all there — the text
-// ends with a NUL, so every string in it does.
+// Reads an 'LNxx' chunk: its pairs and text stay in place, when they are all there. The text must end with a NUL, so
+// that every string in it does. At most FUDE_KANJI_LANGUAGES languages are kept; the code comes from the tag's last
+// two letters.
 RDE_INTERNAL void fude_kanji_load_language(fude_kanji_db* _db, u32 _tag, fude_reader* _chunk) {
     if(_db->_language_count >= FUDE_KANJI_LANGUAGES) {
         return;
@@ -89,7 +99,8 @@ RDE_INTERNAL void fude_kanji_load_language(fude_kanji_db* _db, u32 _tag, fude_re
     _db->_languages[_db->_language_count++] = _l;
 }
 
-// A pair list's text for _key (pairs sorted by key), or NULL.
+// Finds _key in a list of _count (key, text offset) pairs sorted by key, by binary search. Returns the text of
+// language _l at that offset, or NULL when the key is not there.
 RDE_INTERNAL const c8* fude_kanji_lookup(const fude_kanji_language* _l, const u8* _pairs, u32 _count, u32 _key) {
     u32 _lo = 0, _hi = _count;
     while(_lo < _hi) {
@@ -106,21 +117,24 @@ RDE_INTERNAL const c8* fude_kanji_lookup(const fude_kanji_language* _l, const u8
     return NULL;
 }
 
+// Sets the language of the meanings (see the header): -1, which is English, unless the file has _code.
 void fude_kanji_set_language(fude_kanji_db* _db, const c8* _code) {
     _db->_language = -1;
     for(u32 _i = 0; _code != NULL && _i < _db->_language_count; _i++) {
-        if(strcmp(_db->_languages[_i].code, _code) == 0) {
+        if(rde_strcmp(_db->_languages[_i].code, _code) == 0) {
             _db->_language = (i32)_i;
         }
     }
 }
 
-// The 'SENT' chunk: an index to each sentence (five strings each, all checked
-// there), and the words' table when it is for these words.
+// Reads the 'SENT' chunk: an index to each sentence is built (five strings each, all checked to be there), and the
+// words' table of sentences is kept when it is for these words.
 RDE_INTERNAL void fude_kanji_load_sentences(fude_kanji_db* _db, fude_reader* _r) {
     const u32 _n    = fude_get_u32(_r);
     const u32 _size = fude_get_u32(_r);
-    if(!_r->ok || _n == 0 || (u64)_size > (u64)(_r->size - _r->pos)) {
+    // Each sentence is five NUL-ended strings, so five bytes at least: a count the text cannot hold is a damaged file,
+    // refused before its count is allocated.
+    if(!_r->ok || _n == 0 || (u64)_size > (u64)(_r->size - _r->pos) || _n > _size / 5u) {
         return;
     }
     const c8* _text  = (const c8*)&_r->data[_r->pos];
@@ -129,7 +143,7 @@ RDE_INTERNAL void fude_kanji_load_sentences(fude_kanji_db* _db, fude_reader* _r)
     for(u32 _s = 0; _s < _n; _s++) {
         _starts[_s] = &_text[_at];
         for(u32 _k = 0; _k < 5u; _k++) {
-            const c8* _nul = _at < _size ? memchr(&_text[_at], 0, _size - _at) : NULL;
+            const c8* _nul = _at < _size ? rde_memchr(&_text[_at], 0, _size - _at) : NULL;
             if(_nul == NULL) {
                 rde_free(_starts);
                 return;   // cut short: no sentences rather than broken ones
@@ -141,19 +155,20 @@ RDE_INTERNAL void fude_kanji_load_sentences(fude_kanji_db* _db, fude_reader* _r)
     const u32 _words = fude_get_u32(_r);
     if(!_r->ok || _words != _db->word_count || (u64)_words * 4u > (u64)(_r->size - _r->pos)) {
         rde_free(_starts);
-        return;   // for other words: none rather than wrong ones
+        return;   // the table is for other words: none rather than wrong ones
     }
     _db->_sentences     = _starts;
     _db->sentence_count = _n;
     _db->_sentence_of   = &_r->data[_r->pos];
 }
 
+// Loads the character data (see the header). The chunks are found first, then checked against the records' count.
 b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
-    memset(_db, 0, sizeof(*_db));
+    rde_memset(_db, 0, sizeof(*_db));
     _db->_language = -1;
 
     if(!rde_file_exists(_path)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: no character data at %s (run the desktop build with --bake)", _path);
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "data: no character data at %s (run the desktop build with --bake)", _path);
         return false;
     }
 
@@ -161,7 +176,7 @@ b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
     fude_reader _r = fude_reader_make(_db->_file, _db->_file_size);
 
     if(!fude_read_header(&_r, FUDE_KANJI_VERSION, FUDE_KANJI_KIND)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s is not a character data file this build reads", _path);
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "data: %s is not a character data file this build reads", _path);
         fude_kanji_unload(_db);
         return false;
     }
@@ -222,11 +237,11 @@ b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
         }
     }
 
-    // No strokes in it: they are in their own file beside it (kanji.h).
+    // No strokes in the file: they are in their own file beside it (kanji.h), found in the same folder.
     if(_r.ok && _db->_geometry == NULL) {
         c8 _strokes[RDE_MAX_PATH];
-        const c8* _slash = strrchr(_path, '/');
-        snprintf(_strokes, sizeof(_strokes), "%.*s%s", _slash != NULL ? (int)(_slash - _path + 1) : 0, _path, FUDE_KANJI_STROKES_FILE);
+        const c8* _slash = rde_strrchr(_path, '/');
+        rde_snprintf(_strokes, sizeof(_strokes), "%.*s%s", _slash != NULL ? (int)(_slash - _path + 1) : 0, _path, FUDE_KANJI_STROKES_FILE);
         u32 _size = 0;
         _db->_strokes_file = rde_file_exists(_strokes) ? fude_file_read(_strokes, &_size) : NULL;
         fude_reader _s = fude_reader_make(_db->_strokes_file, _size);
@@ -241,12 +256,12 @@ b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
     }
 
     if(!_r.ok || _db->_records == NULL || _db->_geometry == NULL) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "kana: %s is damaged", _path);
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "data: %s is damaged", _path);
         fude_kanji_unload(_db);
         return false;
     }
     if(_parts_count != _db->count) {
-        _db->_parts_index = NULL;   // parts for another set of records: none rather than wrong ones
+        _db->_parts_index = NULL;   // the parts are for another set of records: none rather than wrong ones
         _db->_parts       = NULL;
         _db->_parts_size  = 0;
     }
@@ -257,11 +272,12 @@ b8 fude_kanji_load(fude_kanji_db* _db, const c8* _path) {
     if(_has_sent) {
         fude_kanji_load_sentences(_db, &_sent);
     }
-    _db->_look = _look != NULL && _look_count == _db->count ? _look : NULL;   // for these characters, or none
+    _db->_look = _look != NULL && _look_count == _db->count ? _look : NULL;   // only when it is for these characters
 
     return true;
 }
 
+// Gets a character's look-alikes (see the header). They are stored as little-endian u32 code points.
 u32 fude_kanji_lookalikes(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
     if(_db->_look == NULL || _index >= _db->count) {
         return 0u;
@@ -277,6 +293,7 @@ u32 fude_kanji_lookalikes(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _
     return _n;
 }
 
+// Gets a character's words (see the header). Word numbers out of range are skipped.
 u32 fude_kanji_words(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _max, u32* _examples) {
     if(_examples != NULL) {
         *_examples = 0;
@@ -310,13 +327,15 @@ u32 fude_kanji_words(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _max, 
     return _k;
 }
 
+// Gets a word (see the header): its three strings follow one another, and the meaning is replaced by the language
+// set when that has one for it.
 b8 fude_kanji_word_at(const fude_kanji_db* _db, u32 _word, fude_kanji_word* _out) {
     if(_db->_word_text == NULL || _word >= _db->word_count) {
         return false;
     }
     _out->written = _db->_word_text[_word];
-    _out->reading = _out->written + strlen(_out->written) + 1u;
-    _out->meaning = _out->reading + strlen(_out->reading) + 1u;
+    _out->reading = _out->written + rde_strlen(_out->written) + 1u;
+    _out->meaning = _out->reading + rde_strlen(_out->reading) + 1u;
     if(_db->_language >= 0) {
         const fude_kanji_language* _l = &_db->_languages[_db->_language];
         const c8*                  _m = fude_kanji_lookup(_l, _l->words, _l->word_count, _word);
@@ -327,6 +346,8 @@ b8 fude_kanji_word_at(const fude_kanji_db* _db, u32 _word, fude_kanji_word* _out
     return true;
 }
 
+// Gets a word's example sentence (see the header). The translation falls back to English when the sentence has none
+// in the language set.
 b8 fude_kanji_word_sentence(const fude_kanji_db* _db, u32 _word, fude_kanji_sentence* _out) {
     if(_db->_sentences == NULL || _db->_sentence_of == NULL || _word >= _db->word_count) {
         return false;
@@ -336,22 +357,24 @@ b8 fude_kanji_word_sentence(const fude_kanji_db* _db, u32 _word, fude_kanji_sent
     if(_s >= _db->sentence_count) {
         return false;
     }
-    // Its texts: the Japanese, then en, es, fr, pt.
+    // Its texts: the sentence in the language taught (Japanese in Kana), then its translations into English, Spanish,
+    // French and Portuguese.
     const c8* _texts[5];
     _texts[0] = _db->_sentences[_s];
     for(u32 _k = 1; _k < 5u; _k++) {
-        _texts[_k] = _texts[_k - 1u] + strlen(_texts[_k - 1u]) + 1u;
+        _texts[_k] = _texts[_k - 1u] + rde_strlen(_texts[_k - 1u]) + 1u;
     }
-    u32 _slot = 1u;   // English
+    u32 _slot = 1u;   // English, unless the language set is one of the others
     if(_db->_language >= 0) {
         const c8* _code = _db->_languages[_db->_language].code;
-        _slot = strcmp(_code, "es") == 0 ? 2u : strcmp(_code, "fr") == 0 ? 3u : strcmp(_code, "pt") == 0 ? 4u : 1u;
+        _slot = rde_strcmp(_code, "es") == 0 ? 2u : rde_strcmp(_code, "fr") == 0 ? 3u : rde_strcmp(_code, "pt") == 0 ? 4u : 1u;
     }
-    _out->japanese    = _texts[0];
+    _out->taught    = _texts[0];
     _out->translation = _texts[_slot][0] != 0 ? _texts[_slot] : _texts[1];
     return true;
 }
 
+// Returns how common a word is (see the header): a little-endian u16.
 u16 fude_kanji_word_freq(const fude_kanji_db* _db, u32 _word) {
     if(_db->_word_freq == NULL || _word >= _db->word_count) {
         return 0xFFFFu;
@@ -359,18 +382,21 @@ u16 fude_kanji_word_freq(const fude_kanji_db* _db, u32 _word) {
     return (u16)(_db->_word_freq[_word * 2u] | (_db->_word_freq[_word * 2u + 1u] << 8));
 }
 
+// Returns a word's English meaning, the third of its strings, whatever the language set.
 const c8* fude_kanji_word_meaning_english(const fude_kanji_db* _db, u32 _word) {
     if(_db->_word_text == NULL || _word >= _db->word_count) {
         return "";
     }
-    const c8* _reading = _db->_word_text[_word] + strlen(_db->_word_text[_word]) + 1u;
-    return _reading + strlen(_reading) + 1u;
+    const c8* _reading = _db->_word_text[_word] + rde_strlen(_db->_word_text[_word]) + 1u;
+    return _reading + rde_strlen(_reading) + 1u;
 }
 
+// True when the file has parts that match its records.
 b8 fude_kanji_has_parts(const fude_kanji_db* _db) {
     return _db->_parts_index != NULL;
 }
 
+// Gets a character's parts (see the header): a u8 count, then u32 code points.
 u32 fude_kanji_parts(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _max) {
     if(_db->_parts_index == NULL || _index >= _db->count) {
         return 0;
@@ -397,6 +423,7 @@ u32 fude_kanji_parts(const fude_kanji_db* _db, u32 _index, u32* _out, u32 _max) 
 
 // --- records ---------------------------------------------------------------------
 
+// Decodes a FUDE_KANJI_RECORD_SIZE-byte record (see 'CHRS' in kanji.h).
 RDE_INTERNAL void fude_kanji_decode(const u8* _record, fude_kanji_info* _out) {
     fude_reader _r = fude_reader_make(_record, FUDE_KANJI_RECORD_SIZE);
     _out->codepoint = fude_get_u32(&_r);
@@ -410,8 +437,9 @@ RDE_INTERNAL void fude_kanji_decode(const u8* _record, fude_kanji_info* _out) {
     _out->level    = fude_get_u8(&_r);
 }
 
+// Decodes record _index (see the header).
 b8 fude_kanji_at(const fude_kanji_db* _db, u32 _index, fude_kanji_info* _out) {
-    if(_index >= _db->count) {
+    if(_db == NULL || _index >= _db->count) {   // an app started without its character data has none
         return false;
     }
 
@@ -419,12 +447,17 @@ b8 fude_kanji_at(const fude_kanji_db* _db, u32 _index, fude_kanji_info* _out) {
     return true;
 }
 
+// Decodes the record of a code point (see the header).
 b8 fude_kanji_find(const fude_kanji_db* _db, u32 _codepoint, fude_kanji_info* _out) {
     u32 _index = 0;
     return fude_kanji_find_index(_db, _codepoint, &_index) && fude_kanji_at(_db, _index, _out);
 }
 
+// Finds the record index of a code point by binary search (see the header).
 b8 fude_kanji_find_index(const fude_kanji_db* _db, u32 _codepoint, u32* _index) {
+    if(_db == NULL) {
+        return false;   // an app started without its character data has none
+    }
     u32 _lo = 0;
     u32 _hi = _db->count;
 
@@ -451,14 +484,18 @@ b8 fude_kanji_find_index(const fude_kanji_db* _db, u32 _codepoint, u32* _index) 
 
 // --- strokes ---------------------------------------------------------------------
 
+// A stroke type as stored (0 for none, else the code point's offset in the CJK Strokes block plus 1), as a code
+// point.
 RDE_INTERNAL u32 fude_kanji_type(u8 _stored) {
     return _stored == 0 ? 0u : FUDE_KANJI_STROKE_BASE + (u32)_stored - 1u;
 }
 
+// Reads a coordinate: an i16 in fixed point, back into KanjiVG units.
 RDE_INTERNAL f32 fude_kanji_coord(fude_reader* _r) {
     return (f32)fude_get_i16(_r) / FUDE_KANJI_FIXED;
 }
 
+// Gets a stroke of a character (see the header).
 b8 fude_kanji_stroke_at(const fude_kanji_db* _db, const fude_kanji_info* _info, u32 _index, fude_kanji_stroke* _out) {
     if(_index >= _info->strokes || _info->geometry >= _db->_geometry_size) {
         return false;
@@ -467,7 +504,7 @@ b8 fude_kanji_stroke_at(const fude_kanji_db* _db, const fude_kanji_info* _info, 
     fude_reader _r = fude_reader_make(_db->_geometry, _db->_geometry_size);
     _r.pos = _info->geometry;
 
-    // Strokes are variable length: walk past the ones before.
+    // The strokes are of different lengths, so walk past the ones before.
     for(u32 _s = 0; _s < _index; _s++) {
         const u32 _segments = fude_get_u8(&_r);
         const u32 _skip     = (FUDE_KANJI_STROKE_HEADER - 1u) + _segments * FUDE_KANJI_SEGMENT_SIZE;
@@ -488,21 +525,22 @@ b8 fude_kanji_stroke_at(const fude_kanji_db* _db, const fude_kanji_info* _info, 
     return _r.ok && fude_reader_has(&_r, _out->segments * FUDE_KANJI_SEGMENT_SIZE);
 }
 
-// Distance from _p to the line through _a and _b (to _a when they coincide).
+// The distance from _p to the line through _a and _b (or to _a when they coincide).
 RDE_INTERNAL f32 fude_kanji_line_distance(rde_vec_2F _p, rde_vec_2F _a, rde_vec_2F _b) {
     const f32 _dx  = _b.x - _a.x;
     const f32 _dy  = _b.y - _a.y;
-    const f32 _len = sqrtf(_dx * _dx + _dy * _dy);
+    const f32 _len = rde_math_sqrt_f32(_dx * _dx + _dy * _dy);
 
     if(_len < 1e-6f) {
-        return sqrtf((_p.x - _a.x) * (_p.x - _a.x) + (_p.y - _a.y) * (_p.y - _a.y));
+        return rde_math_sqrt_f32((_p.x - _a.x) * (_p.x - _a.x) + (_p.y - _a.y) * (_p.y - _a.y));
     }
 
-    return fabsf(_dx * (_p.y - _a.y) - _dy * (_p.x - _a.x)) / _len;
+    return rde_math_abs_f32(_dx * (_p.y - _a.y) - _dy * (_p.x - _a.x)) / _len;
 }
 
-// Emits the curve's points after p0: split in half until the control points lie
-// within _tolerance of the chord, which is then close enough to the curve.
+// Adds the curve's points after _p0 to _out (at most _max; *_count is how many are there). The curve is halved until
+// both control points lie within _tolerance of the chord, which is then close enough to the curve, or until it has
+// been halved FUDE_KANJI_MAX_DEPTH times.
 RDE_INTERNAL void fude_kanji_flatten(rde_vec_2F _p0, rde_vec_2F _p1, rde_vec_2F _p2, rde_vec_2F _p3,
                                      f32 _tolerance, u32 _depth, rde_vec_2F* _out, u32 _max, u32* _count) {
     const f32 _d1 = fude_kanji_line_distance(_p1, _p0, _p3);
@@ -515,7 +553,7 @@ RDE_INTERNAL void fude_kanji_flatten(rde_vec_2F _p0, rde_vec_2F _p1, rde_vec_2F 
         return;
     }
 
-    // de Casteljau at t = 0.5.
+    // Split at t = 0.5 (de Casteljau).
     const rde_vec_2F _a   = { (_p0.x + _p1.x) * 0.5f, (_p0.y + _p1.y) * 0.5f };
     const rde_vec_2F _b   = { (_p1.x + _p2.x) * 0.5f, (_p1.y + _p2.y) * 0.5f };
     const rde_vec_2F _c   = { (_p2.x + _p3.x) * 0.5f, (_p2.y + _p3.y) * 0.5f };
@@ -527,16 +565,18 @@ RDE_INTERNAL void fude_kanji_flatten(rde_vec_2F _p0, rde_vec_2F _p1, rde_vec_2F 
     fude_kanji_flatten(_mid, _bc, _c, _p3, _tolerance, _depth + 1u, _out, _max, _count);
 }
 
+// Gets a segment of a stroke (see the header).
 void fude_kanji_stroke_segment(const fude_kanji_stroke* _stroke, u32 _segment, rde_vec_2F _out[3]) {
     fude_reader _r = fude_reader_make(_stroke->_data, _stroke->segments * FUDE_KANJI_SEGMENT_SIZE);
     _r.pos         = _segment < _stroke->segments ? _segment * FUDE_KANJI_SEGMENT_SIZE : _r.size;
     for(u32 _i = 0; _i < 3u; _i++) {
-        const f32 _x = fude_kanji_coord(&_r);   // one read per statement (see below)
+        const f32 _x = fude_kanji_coord(&_r);   // one read per statement (see fude_kanji_stroke_points)
         const f32 _y = fude_kanji_coord(&_r);
         _out[_i]     = _r.ok ? (rde_vec_2F){ _x, _y } : _stroke->start;
     }
 }
 
+// Turns a stroke into points (see the header). The tolerance is never taken below 1e-4 units.
 u32 fude_kanji_stroke_points(const fude_kanji_stroke* _stroke, f32 _tolerance, rde_vec_2F* _out, u32 _max) {
     if(_max == 0) {
         return 0;
@@ -548,8 +588,8 @@ u32 fude_kanji_stroke_points(const fude_kanji_stroke* _stroke, f32 _tolerance, r
 
     fude_reader _r = fude_reader_make(_stroke->_data, _stroke->segments * FUDE_KANJI_SEGMENT_SIZE);
     for(u32 _s = 0; _s < _stroke->segments; _s++) {
-        // One read per statement: the order of side effects inside an initializer
-        // list is unspecified in C, and x and y could swap.
+        // One read per statement, because the order of side effects inside an initializer list is unspecified in C, and
+        // x and y could swap.
         f32 _v[6];
         for(u32 _i = 0; _i < 6u; _i++) {
             _v[_i] = fude_kanji_coord(&_r);
@@ -566,7 +606,8 @@ u32 fude_kanji_stroke_points(const fude_kanji_stroke* _stroke, f32 _tolerance, r
 
 // --- text ------------------------------------------------------------------------
 
-// The _nth NUL-terminated string at the character's text offset.
+// Returns the _nth NUL-terminated string at the character's text offset, or "" when there is none or it does not end
+// inside the chunk.
 RDE_INTERNAL const c8* fude_kanji_text(const fude_kanji_db* _db, const fude_kanji_info* _info, u32 _nth) {
     if(_db->_text == NULL || _info->text >= _db->_text_size) {
         return "";
@@ -574,7 +615,7 @@ RDE_INTERNAL const c8* fude_kanji_text(const fude_kanji_db* _db, const fude_kanj
 
     u32 _at = _info->text;
     for(u32 _i = 0; _i < _nth; _i++) {
-        const c8* _nul = memchr(&_db->_text[_at], 0, _db->_text_size - _at);
+        const c8* _nul = rde_memchr(&_db->_text[_at], 0, _db->_text_size - _at);
         if(_nul == NULL) {
             return "";
         }
@@ -584,13 +625,16 @@ RDE_INTERNAL const c8* fude_kanji_text(const fude_kanji_db* _db, const fude_kanj
         }
     }
 
-    // Only a string that ends inside the chunk.
-    return memchr(&_db->_text[_at], 0, _db->_text_size - _at) != NULL ? &_db->_text[_at] : "";
+    // Only a string that ends inside the chunk is returned.
+    return rde_memchr(&_db->_text[_at], 0, _db->_text_size - _at) != NULL ? &_db->_text[_at] : "";
 }
 
+// The readings of kind _kind (0 or 1), and the English meanings, which are the character's first, second and third
+// strings.
 const c8* fude_kanji_reading(const fude_kanji_db* _db, const fude_kanji_info* _info, u32 _kind) { return _kind < 2u ? fude_kanji_text(_db, _info, _kind) : ""; }
 const c8* fude_kanji_meanings_english(const fude_kanji_db* _db, const fude_kanji_info* _info) { return fude_kanji_text(_db, _info, 2); }
 
+// The meanings in the language set, when the file has them for this character; in English otherwise.
 const c8* fude_kanji_meanings(const fude_kanji_db* _db, const fude_kanji_info* _info) {
     if(_db->_language >= 0) {
         const fude_kanji_language* _l = &_db->_languages[_db->_language];

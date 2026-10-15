@@ -3,19 +3,20 @@
 #include "zoom/handmath.h"
 #include "zoom/hand_maths.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 // ===========================================================================
 // See handmath.h.
+//
+// Internal names start fzhm_. Laid out as: the shapes (the Hershey table's lookup, the symbols drawn here as text
+// specs, and fzhm_put, which writes either), the characters a font's glyphs stand for, and the writer. A shape is
+// made in Hershey units and only fitted to the glyph's ink box as it is written, so the same shapes serve the reader
+// (mathread.c) and the writer.
 // ===========================================================================
 
 #define FZHM_STEPS 4u   // points between two of a shape's, smoothed
 
 // --- the shapes ------------------------------------------------------------------------------------
 
+// Returns _cp's index in hand_maths.h's table (its code points are in ascending order, so a binary search), or -1.
 RDE_INTERNAL i32 fzhm_find(u32 _cp) {
     u32 _lo = 0, _hi = FUDE_ZOOM_HAND_MATHS;
     while(_lo < _hi) {
@@ -32,6 +33,7 @@ RDE_INTERNAL i32 fzhm_find(u32 _cp) {
     return -1;
 }
 
+// See the header.
 u32 fude_zoom_handmath_symbols(const u32** _cps) {
     *_cps = FUDE_ZOOM_HAND_MATHS_CP;
     return FUDE_ZOOM_HAND_MATHS;
@@ -45,6 +47,8 @@ typedef struct {
     const c8* spec;
 } fzhm_custom;
 
+// The symbols drawn here, searched in order. 0xE000 and 0xE001, in the private use area, are no characters: they are
+// the small integral's and the root-with-its-bar's shapes, kept here beside the others.
 RDE_INTERNAL const fzhm_custom FZHM_CUSTOM[] = {
     { 0x00AC, "-6,10 6,10 6,5" },                                        // ¬
     { 0x0300, "2,14 -2,19" }, { 0x0301, "-2,14 2,19" },                 // ` ´
@@ -128,33 +132,37 @@ RDE_INTERNAL const fzhm_custom FZHM_CUSTOM[] = {
 
 #define FZHM_DEPTH 3u   // a symbol's shape made of others', so deep at most
 
+// A move and a scale put on a shape's points: each point (x, y) becomes (dx + x * sx, dy + y * sy).
 typedef struct {
     f64 dx, dy, sx, sy;
 } fzhm_move;
 
 RDE_INTERNAL u32 fzhm_put(u32 _cp, fzhm_move _m, rde_arr* _points, rde_arr* _ends, u32 _depth);
 
+// Ends a stroke: the number of points so far goes on _ends.
 RDE_INTERNAL void fzhm_end(rde_arr* _points, rde_arr* _ends) {
     const u32 _end = (u32)rde_arr_length(_points);
     rde_arr_add(_ends, (any)&_end);
 }
 
-// A custom symbol's strokes (its spec), moved by _m.
+// Appends a custom symbol's strokes (its spec, FZHM_CUSTOM's format), moved by _m, and returns how many. A part longer
+// than 95 bytes is cut; a stroke whose points cannot be read adds nothing. A ring is 6 points, or 13 from a radius of
+// 1.5. Another symbol's shape is taken only while _depth is under FZHM_DEPTH.
 RDE_INTERNAL u32 fzhm_spec(const c8* _spec, fzhm_move _m, rde_arr* _points, rde_arr* _ends, u32 _depth) {
     u32 _strokes = 0;
     for(const c8* _s = _spec; *_s != 0;) {
-        const c8* _bar = strchr(_s, '|');
-        const usize _len = _bar != NULL ? (usize)(_bar - _s) : strlen(_s);
+        const c8* _bar = rde_strchr(_s, '|');
+        const usize _len = _bar != NULL ? (usize)(_bar - _s) : rde_strlen(_s);
         c8 _part[96];
-        snprintf(_part, sizeof(_part), "%.*s", (int)(_len < sizeof(_part) - 1u ? _len : sizeof(_part) - 1u), _s);
+        rde_snprintf(_part, sizeof(_part), "%.*s", (int)(_len < sizeof(_part) - 1u ? _len : sizeof(_part) - 1u), _s);
         _s = _bar != NULL ? _bar + 1 : _s + _len;
         if(_part[0] == '@') {
-            // (another symbol's shape, moved and scaled — its own move put after this one's)
+            // (another symbol's shape, moved and scaled: its own move put after this one's)
             c8* _after = NULL;
-            const u32 _sub = (u32)strtoul(_part + 1, &_after, 16);
+            const u32 _sub = (u32)rde_strtoul(_part + 1, &_after, 16);
             fzhm_move _n = { 0.0, 0.0, 1.0, 1.0 };
             if(_after != NULL && *_after == ':') {
-                sscanf(_after + 1, "%lf,%lf,%lf,%lf", &_n.dx, &_n.dy, &_n.sx, &_n.sy);
+                rde_sscanf(_after + 1, "%lf,%lf,%lf,%lf", &_n.dx, &_n.dy, &_n.sx, &_n.sy);
             }
             const fzhm_move _both = { _m.dx + _n.dx * _m.sx, _m.dy + _n.dy * _m.sy, _m.sx * _n.sx, _m.sy * _n.sy };
             _strokes += _depth < FZHM_DEPTH ? fzhm_put(_sub, _both, _points, _ends, _depth + 1u) : 0u;
@@ -162,11 +170,11 @@ RDE_INTERNAL u32 fzhm_spec(const c8* _spec, fzhm_move _m, rde_arr* _points, rde_
         }
         if(_part[0] == 'o' && _part[1] == ':') {
             f64 _cx = 0.0, _cy = 0.0, _r = 1.0;
-            sscanf(_part + 2, "%lf,%lf,%lf", &_cx, &_cy, &_r);
+            rde_sscanf(_part + 2, "%lf,%lf,%lf", &_cx, &_cy, &_r);
             const u32 _n = _r < 1.5 ? 6u : 13u;
             for(u32 _i = 0; _i < _n; _i++) {
-                const f64 _a = 2.0 * 3.14159265358979323846 * (f64)_i / (f64)(_n - 1u) + 1.2;
-                const fude_zoom_v2 _p = { _m.dx + (_cx + cos(_a) * _r) * _m.sx, _m.dy + (_cy + sin(_a) * _r) * _m.sy };
+                const f64 _a = 2.0 * RDE_PI * (f64)_i / (f64)(_n - 1u) + 1.2;
+                const fude_zoom_v2 _p = { _m.dx + (_cx + rde_math_cos_f64(_a) * _r) * _m.sx, _m.dy + (_cy + rde_math_sin_f64(_a) * _r) * _m.sy };
                 rde_arr_add(_points, (any)&_p);
             }
             fzhm_end(_points, _ends);
@@ -177,7 +185,7 @@ RDE_INTERNAL u32 fzhm_spec(const c8* _spec, fzhm_move _m, rde_arr* _points, rde_
         for(const c8* _q = _part; *_q != 0;) {
             f64 _x = 0.0, _y = 0.0;
             i32 _used = 0;
-            if(sscanf(_q, " %lf,%lf%n", &_x, &_y, &_used) != 2 || _used <= 0) {
+            if(rde_sscanf(_q, " %lf,%lf%n", &_x, &_y, &_used) != 2 || _used <= 0) {
                 break;
             }
             _q += _used;
@@ -193,6 +201,9 @@ RDE_INTERNAL u32 fzhm_spec(const c8* _spec, fzhm_move _m, rde_arr* _points, rde_
     return _strokes;
 }
 
+// Appends character _cp's shape, moved by _m, and returns how many strokes; 0 when it has none. _cp is mapped through
+// fude_zoom_handmath_base first, and a symbol drawn here is used before the Hershey one. _depth: how many shapes deep
+// this one is inside others (fzhm_spec).
 RDE_INTERNAL u32 fzhm_put(u32 _cp, fzhm_move _m, rde_arr* _points, rde_arr* _ends, u32 _depth) {
     _cp = fude_zoom_handmath_base(_cp);
     for(u32 _i = 0; _i < sizeof(FZHM_CUSTOM) / sizeof(FZHM_CUSTOM[0]); _i++) {
@@ -227,10 +238,13 @@ RDE_INTERNAL u32 fzhm_put(u32 _cp, fzhm_move _m, rde_arr* _points, rde_arr* _end
     return _strokes;
 }
 
+// See the header.
 u32 fude_zoom_handmath_shape(u32 _cp, rde_arr* _points, rde_arr* _ends) {
     return fzhm_put(_cp, (fzhm_move){ 0.0, 0.0, 1.0, 1.0 }, _points, _ends, 0u);
 }
 
+// See the header. The maths alphabets are worked out from their blocks' layout in Unicode; the letterlike symbols that
+// fill their holes are listed one by one.
 u32 fude_zoom_handmath_base(u32 _cp) {
     // Mathematical Alphanumeric Symbols: 13 alphabets of A–Z a–z, 5 of Greek, 5 of digits.
     if(_cp >= 0x1D400u && _cp < 0x1D6A4u) {
@@ -278,16 +292,19 @@ u32 fude_zoom_handmath_base(u32 _cp) {
 
 // --- a font's glyphs' characters ----------------------------------------------------------------------
 
+// See the header.
 void fude_zoom_handmath_chars_init(fude_zoom_handmath_chars* _c) {
-    memset(_c, 0, sizeof(*_c));
+    rde_memset(_c, 0, sizeof(*_c));
     _c->chars = rde_hash_map_new(sizeof(u64), sizeof(u32), rde_hash_map_fn_u64_hash, rde_hash_map_fn_u64_cmp, NULL, rde_memory_allocator_get_default_std());
 }
 
+// See the header.
 void fude_zoom_handmath_chars_free(fude_zoom_handmath_chars* _c) {
     rde_hash_map_free(&_c->chars);
-    memset(_c, 0, sizeof(*_c));
+    rde_memset(_c, 0, sizeof(*_c));
 }
 
+// Notes that glyph _g stands for _cp, unless either is 0.
 RDE_INTERNAL void fzhm_note(fude_zoom_handmath_chars* _c, u32 _g, u32 _cp) {
     if(_g != 0u && _cp != 0u) {
         const u64 _key = _g;
@@ -295,8 +312,11 @@ RDE_INTERNAL void fzhm_note(fude_zoom_handmath_chars* _c, u32 _g, u32 _cp) {
     }
 }
 
+// See the header. A font's glyph map goes from characters to glyphs, so each character a formula may use is looked up
+// in turn: first every one's own glyph, then the bigger forms and pieces of each, so a glyph that is both keeps its
+// own character.
 void fude_zoom_handmath_chars_read(fude_zoom_handmath_chars* _c, const fude_zoom_mfont* _font) {
-    if(_font == NULL || _c->font == (const void*)_font) {
+    if(_font == NULL || _c->font == (const any)_font) {
         return;
     }
     rde_hash_map_clear(&_c->chars);
@@ -350,6 +370,7 @@ void fude_zoom_handmath_chars_read(fude_zoom_handmath_chars* _c, const fude_zoom
     rde_arr_free(&_cps);
 }
 
+// See the header.
 u32 fude_zoom_handmath_char(const fude_zoom_handmath_chars* _c, u32 _g) {
     const u64  _key = _g;
     const u32* _cp = (const u32*)rde_hash_map_find(&_c->chars, &_key);
@@ -358,36 +379,40 @@ u32 fude_zoom_handmath_char(const fude_zoom_handmath_chars* _c, u32 _g) {
 
 // --- written ----------------------------------------------------------------------------------------
 
+// One thing to write: a glyph's character, or several pieces of a tall one joined.
 typedef struct {
     u32 cp;
     f64 x0, y0, x1, y1;   // its ink box (the points' units, y up)
     f64 em;               // its own em (a script's smaller)
 } fzhm_item;
 
+// A linear congruential generator's state (the same as hand.c's): the unevenness, seeded.
 typedef struct {
     u32 state;
 } fzhm_rng;
 
+// Steps the generator and returns a number between -_by and _by.
 RDE_INTERNAL f64 fzhm_spread(fzhm_rng* _r, f64 _by) {
     _r->state = _r->state * 1664525u + 1013904223u;
     return ((f64)(_r->state >> 8) / 16777216.0 * 2.0 - 1.0) * _by;
 }
 
-// Is _cp one the font grows by stacking pieces (a tall bracket, a root, an integral, a bar)?
+// Returns whether _cp is one the font grows by stacking pieces (a tall bracket, a root, an integral, a bar).
 RDE_INTERNAL b8 fzhm_stretches(u32 _cp) {
     return _cp == '(' || _cp == ')' || _cp == '[' || _cp == ']' || _cp == '{' || _cp == '}' || _cp == '|' || _cp == 0x2016u || _cp == 0x2225u ||
            _cp == 0x221Au || _cp == 0x222Bu || _cp == 0x230Au || _cp == 0x230Bu || _cp == 0x2308u || _cp == 0x2309u || _cp == 0x27E8u || _cp == 0x27E9u ||
            _cp == '/' || _cp == '\\';
 }
 
-// Does the line turn sharply at _b (from _a, on to _c)?
+// Returns whether the line turns sharply at _b, from _a on to _c: by more than 60°.
 RDE_INTERNAL b8 fzhm_sharp(fude_zoom_v2 _a, fude_zoom_v2 _b, fude_zoom_v2 _c) {
     const f64 _ux = _b.x - _a.x, _uy = _b.y - _a.y, _vx = _c.x - _b.x, _vy = _c.y - _b.y;
-    const f64 _lu = hypot(_ux, _uy), _lv = hypot(_vx, _vy);
+    const f64 _lu = rde_math_hypot_f64(_ux, _uy), _lv = rde_math_hypot_f64(_vx, _vy);
     return _lu > 1e-12 && _lv > 1e-12 && (_ux * _vx + _uy * _vy) / (_lu * _lv) < 0.5;
 }
 
-// A stroke (_n points, the units, y up) smoothed through them (Catmull-Rom), wavering by _waver, appended; its end too.
+// Appends a stroke of _n points (the caller's units, y up) smoothed through them (Catmull-Rom), wavering by _waver,
+// and its end. A one-point stroke becomes a tiny line, a dot; an empty one adds nothing.
 RDE_INTERNAL void fzhm_stroke(const fude_zoom_v2* _p, u32 _n, f64 _waver, f64 _phase, rde_arr* _points, rde_arr* _ends) {
     if(_n == 0u) {
         return;
@@ -399,7 +424,8 @@ RDE_INTERNAL void fzhm_stroke(const fude_zoom_v2* _p, u32 _n, f64 _waver, f64 _p
     } else {
         for(u32 _i = 0; _i + 1u < _n; _i++) {
             fude_zoom_v2 _p0 = _p[_i > 0 ? _i - 1u : 0u], _p1 = _p[_i], _p2 = _p[_i + 1u], _p3 = _p[_i + 2u < _n ? _i + 2u : _n - 1u];
-            // (a corner — turning more than 60° — kept a corner: no curve round it bowing the strokes out, an E's spine off its bar)
+            // (a corner, turning more than 60°, kept a corner: no curve round it bowing the strokes out, an E's spine
+            // off its bar)
             if(fzhm_sharp(_p0, _p1, _p2)) {
                 _p0 = _p1;
             }
@@ -413,8 +439,8 @@ RDE_INTERNAL void fzhm_stroke(const fude_zoom_v2* _p, u32 _n, f64 _waver, f64 _p
                     0.5 * ((2.0 * _p1.y) + (-_p0.y + _p2.y) * _t + (2.0 * _p0.y - 5.0 * _p1.y + 4.0 * _p2.y - _p3.y) * _t2 + (-_p0.y + 3.0 * _p1.y - 3.0 * _p2.y + _p3.y) * _t3),
                 };
                 const f64 _w = _phase + ((f64)_i + _t) * 0.9;
-                _u.x += sin(_w) * _waver;
-                _u.y += cos(_w * 1.3) * _waver * 0.8;
+                _u.x += rde_math_sin_f64(_w) * _waver;
+                _u.y += rde_math_cos_f64(_w * 1.3) * _waver * 0.8;
                 rde_arr_add(_points, (any)&_u);
             }
         }
@@ -423,6 +449,9 @@ RDE_INTERNAL void fzhm_stroke(const fude_zoom_v2* _p, u32 _n, f64 _waver, f64 _p
     rde_arr_add(_ends, (any)&_end);
 }
 
+// See the header. Three steps: the glyphs are gathered with their ink boxes (a tall bracket's pieces joined into one),
+// put in writing order with the rules, and each written, a glyph as its shape fitted into its box, a rule as a line
+// along its middle.
 u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom_mfont* _font, const fude_zoom_tex_box* _box, f64 _em, u32 _seed,
                              rde_arr* _points, rde_arr* _ends, u32* _missing) {
     if(_missing != NULL) {
@@ -434,7 +463,7 @@ u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _items = rde_arr_new(sizeof(fzhm_item), _heap);
     const f64 _upem = (f64)_font->units_per_em;
-    // Each glyph: its character and its ink box — a tall bracket's pieces, one above another, one box.
+    // Each glyph: its character and its ink box; a tall bracket's pieces, one above another, one box.
     const fude_zoom_tex_glyph* _g = (const fude_zoom_tex_glyph*)_box->glyphs.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_box->glyphs); _i++) {
         i32 _ink[4];
@@ -447,17 +476,17 @@ u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom
                           _g[_i].size * _em };
         fzhm_item* _last = rde_arr_length(&_items) > 0u ? &((fzhm_item*)_items.memory)[rde_arr_length(&_items) - 1u] : NULL;
         if(_last != NULL && _cp != 0u && _last->cp == _cp && fzhm_stretches(_cp)) {
-            const f64 _over = fmin(_last->x1, _it.x1) - fmax(_last->x0, _it.x0);
-            const f64 _gap  = fmax(_last->y0, _it.y0) - fmin(_last->y1, _it.y1);   // (below nothing: they overlap)
-            if(_over >= 0.5 * fmin(_last->x1 - _last->x0, _it.x1 - _it.x0) && _gap <= 0.2 * _it.em) {
-                _last->x0 = fmin(_last->x0, _it.x0); _last->y0 = fmin(_last->y0, _it.y0);
-                _last->x1 = fmax(_last->x1, _it.x1); _last->y1 = fmax(_last->y1, _it.y1);
+            const f64 _over = rde_math_min_f64(_last->x1, _it.x1) - rde_math_max_f64(_last->x0, _it.x0);
+            const f64 _gap  = rde_math_max_f64(_last->y0, _it.y0) - rde_math_min_f64(_last->y1, _it.y1);   // (below nothing: they overlap)
+            if(_over >= 0.5 * rde_math_min_f64(_last->x1 - _last->x0, _it.x1 - _it.x0) && _gap <= 0.2 * _it.em) {
+                _last->x0 = rde_math_min_f64(_last->x0, _it.x0); _last->y0 = rde_math_min_f64(_last->y0, _it.y0);
+                _last->x1 = rde_math_max_f64(_last->x1, _it.x1); _last->y1 = rde_math_max_f64(_last->y1, _it.y1);
                 continue;
             }
         }
         rde_arr_add(&_items, (any)&_it);
     }
-    // In the order a hand writes them — left to right, a fraction's bar before what is over it — each its shape, fitted
+    // In the order a hand writes them (left to right, a fraction's bar before what is over it), each its shape, fitted
     // into its box, a little uneven; a rule a line.
     fzhm_rng _rng = { _seed * 2654435761u + 12345u };
     rde_arr _shape = rde_arr_new(sizeof(fude_zoom_v2), _heap), _shape_ends = rde_arr_new(sizeof(u32), _heap), _one = rde_arr_new(sizeof(fude_zoom_v2), _heap);
@@ -481,7 +510,7 @@ u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom
         }
         rde_arr_add(&_order_arr, (any)&_i);
         u32* _ow = (u32*)_order_arr.memory;
-        memmove(_ow + _at + 1u, _ow + _at, sizeof(u32) * ((u32)rde_arr_length(&_order_arr) - 1u - _at));
+        rde_memmove(_ow + _at + 1u, _ow + _at, sizeof(u32) * ((u32)rde_arr_length(&_order_arr) - 1u - _at));
         _ow[_at] = _i;
     }
     const u32* _order = (const u32*)_order_arr.memory;
@@ -511,10 +540,10 @@ u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom
         const fude_zoom_v2* _s = (const fude_zoom_v2*)_shape.memory;
         f64 _sx0 = 1e300, _sy0 = 1e300, _sx1 = -1e300, _sy1 = -1e300;
         for(u32 _k = 0; _k < (u32)rde_arr_length(&_shape); _k++) {
-            _sx0 = fmin(_sx0, _s[_k].x); _sx1 = fmax(_sx1, _s[_k].x);
-            _sy0 = fmin(_sy0, _s[_k].y); _sy1 = fmax(_sy1, _s[_k].y);
+            _sx0 = rde_math_min_f64(_sx0, _s[_k].x); _sx1 = rde_math_max_f64(_sx1, _s[_k].x);
+            _sy0 = rde_math_min_f64(_sy0, _s[_k].y); _sy1 = rde_math_max_f64(_sy1, _s[_k].y);
         }
-        // (the hand: a slant, a size and a place each a touch off — less for what stretches over others)
+        // (the hand: a slant, a size and a place each a touch off, less for what stretches over others)
         const b8  _tall  = fzhm_stretches(_it[_i].cp);
         const f64 _e     = _it[_i].em;
         const f64 _slant = fzhm_spread(&_rng, _tall ? 0.02 : 0.07);
@@ -522,13 +551,14 @@ u32 fude_zoom_handmath_write(const fude_zoom_handmath_chars* _c, const fude_zoom
         const f64 _dx = fzhm_spread(&_rng, 0.025 * _e), _dy = fzhm_spread(&_rng, 0.025 * _e);
         const f64 _bw = _it[_i].x1 - _it[_i].x0, _bh = _it[_i].y1 - _it[_i].y0;
         const f64 _cx = 0.5 * (_it[_i].x0 + _it[_i].x1), _cy = 0.5 * (_it[_i].y0 + _it[_i].y1);
-        const f64 _phase = fzhm_spread(&_rng, 3.14159265358979);
+        const f64 _phase = fzhm_spread(&_rng, RDE_PI);
         const u32* _se = (const u32*)_shape_ends.memory;
         u32 _from = 0;
         for(u32 _k = 0; _k < _n; _k++) {
             rde_arr_clear(&_one);
             for(u32 _q = _from; _q < _se[_k]; _q++) {
-                // (a shape with no width — a bar's, a 1's — kept upright through the box's middle; no height: across it)
+                // (a shape with no width, a bar's or a 1's, kept upright through the box's middle; one with no
+                // height, across it)
                 const f64 _u = _sx1 > _sx0 ? (_s[_q].x - _sx0) / (_sx1 - _sx0) - 0.5 : 0.0;
                 const f64 _v = _sy1 > _sy0 ? (_s[_q].y - _sy0) / (_sy1 - _sy0) - 0.5 : 0.0;
                 const f64 _y = _cy + _v * _bh * _grow + _dy;

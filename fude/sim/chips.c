@@ -1,16 +1,19 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "sim/sim.h"
-#include <string.h>
 
 // ===========================================================================
-// THE CHIPS: logic chips as custom parts made of the primitives (logic.c),
-// each a part's text as one is saved (fude_sim_def_read), its ports in its
-// pins' order (pin 1 first: what a breadboard and a board's footprint go by;
-// the first half down its left, the rest up its right), VCC and GND electric
-// pins joined to nothing inside. "~" before a name: active when low.
+// See sim.h ("the chips"). The built-in logic chips: the 74HC series, with two CD4000 chips, as custom parts made of
+// the primitives (logic.c). Each is a part's text as one is saved, read by fude_sim_def_read when fude_sim_chips_add
+// puts it in a library. Its ports are in its pins' order, pin 1 first, since a breadboard and a board's footprint go
+// by that order: the first half down its left side, the rest up its right. Its supply pins (VCC and GND, or VDD and
+// VSS on the CD4000 chips) are electric ports joined to nothing inside. A "~" before a name marks a pin active when
+// low, and a "-" in an inst line leaves that port of the part unjoined.
+//
+// Its names are FSC_ ("fude sim chips").
 // ===========================================================================
 
+// The chips' texts, one string each, in the order fude_sim_chip_text numbers them.
 RDE_INTERNAL const c8* const FSC_CHIPS[] = {
     // 74HC00
     "fude-part 1\n"
@@ -503,7 +506,8 @@ RDE_INTERNAL const c8* const FSC_CHIPS[] = {
     "inst tribuf T4 \"\" nq4 oe ~Q4\n"
     "end\n"
     ,
-    // CD4511
+    // CD4511: each of A to D is held by a latch made of gates (it holds while LE is high), and 6 and 9 are drawn
+    // without their tails (no a on 6, no d on 9), as the real chip draws them.
     "fude-part 1\n"
     "id CD4511\n"
     "name BCD to 7-segment decoder (CD4511)\n"
@@ -581,8 +585,8 @@ RDE_INTERNAL const c8* const FSC_CHIPS[] = {
     "end\n"
     ,
     // CD4017: a decade counter — five D flip-flops in a Johnson ring (each the one before's Q, the first the last's /Q:
-    // 00000, 10000, 11000 … 11111, 01111 … 00001, ten states), each output where two neighbours say which; INH high stops
-    // the clock, RST high clears it to 0; CO high for 0 to 4.
+    // 00000, 10000, 11000 … 11111, 01111 … 00001, ten states), each output where two neighbours say which; INH high
+    // stops the clock, RST high clears it to 0; CO high for 0 to 4.
     "fude-part 1\n"
     "id CD4017\n"
     "name Decade counter (CD4017)\n"
@@ -627,21 +631,26 @@ RDE_INTERNAL const c8* const FSC_CHIPS[] = {
     ,
 };
 
+// How many chips there are.
 #define FSC_N ((u32)(sizeof(FSC_CHIPS) / sizeof(FSC_CHIPS[0])))
 
+// See sim.h.
 u32 fude_sim_chip_count(void) {
     return FSC_N;
 }
 
+// See sim.h.
 const c8* fude_sim_chip_text(u32 _i) {
     return _i < FSC_N ? FSC_CHIPS[_i] : NULL;
 }
 
+// See sim.h. Each text is read and handed to the library; one that cannot be read is counted and skipped, and the
+// reason fude_sim_def_read gives is not kept.
 u32 fude_sim_chips_add(fude_sim_lib* _lib) {
     u32 _failed = 0;
     for(u32 _i = 0; _i < FSC_N; _i++) {
         c8 _error[160];
-        fude_sim_def* _def = fude_sim_def_read(FSC_CHIPS[_i], strlen(FSC_CHIPS[_i]), _error, sizeof(_error));
+        fude_sim_def* _def = fude_sim_def_read(FSC_CHIPS[_i], rde_strlen(FSC_CHIPS[_i]), _error, sizeof(_error));
         if(_def == NULL) {
             _failed++;
             continue;

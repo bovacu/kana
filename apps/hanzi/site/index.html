@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Hanzi Learn! — Help and support</title>
+<style>
+:root { --page:#f6f3ec; --ink:#1d1d22; --soft:#5f5f6b; --line:#ddd8cc; --card:#fffdf8; --accent:#3b6fe0; --on-accent:#fff; }
+@media (prefers-color-scheme: dark) { :root { --page:#17181c; --ink:#ececf0; --soft:#a3a3ae; --line:#2e3038; --card:#1f2026; --accent:#7ea2ff; --on-accent:#10131a; } }
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+body { margin:0; background:var(--page); color:var(--ink); font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif; overflow-wrap:break-word; }
+:lang(ja) { font-family:-apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif; }
+:lang(zh) { font-family:-apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+:lang(ko) { font-family:-apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; word-break:keep-all; }
+:lang(th) { font-family:-apple-system, "Thonburi", "Noto Sans Thai", "Leelawadee UI", sans-serif; line-height:1.8; }
+:lang(hi) { font-family:-apple-system, "Kohinoor Devanagari", "Noto Sans Devanagari", "Nirmala UI", sans-serif; line-height:1.8; }
+:lang(ar) { font-family:-apple-system, "Geeza Pro", "Noto Naskh Arabic", "Noto Sans Arabic", "Segoe UI", sans-serif; line-height:1.9; }
+main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+header { display:flex; align-items:center; gap:14px; margin-bottom:8px; }
+.mark { width:44px; height:44px; border-radius:11px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:24px; line-height:1; flex:none; }
+h1 { font-size:26px; line-height:1.25; margin:0; }
+h2 { font-size:21px; line-height:1.3; margin:8px 0 4px; }
+h3 { font-size:17px; line-height:1.35; margin:28px 0 4px; }
+.card h3 { margin-top:20px; }
+ul { padding-inline-start:22px; }
+li { margin:6px 0; }
+.soft { color:var(--soft); font-size:14px; }
+nav.langs { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 22px; }
+nav.langs a { padding:6px 12px; border-radius:999px; border:1px solid var(--line); color:var(--ink); text-decoration:none; font-size:14px; }
+nav.langs a.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+a { color:var(--accent); }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+section.lang { display:none; }
+section.lang.on { display:block; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:2px 18px 14px; margin-top:18px; }
+footer { margin-top:40px; border-top:1px solid var(--line); padding-top:14px; }
+</style>
+</head>
+<body>
+<main>
+<header><div class="mark" aria-hidden="true">汉</div><h1><bdi>Hanzi Learn!</bdi></h1></header>
+<nav class="langs" aria-label="Languages"><a id="l-en" href="#en" hreflang="en" lang="en">English</a><a id="l-es" href="#es" hreflang="es" lang="es">Español</a><a id="l-pt" href="#pt" hreflang="pt-BR" lang="pt-BR">Português</a><a id="l-zh" href="#zh" hreflang="zh-Hans" lang="zh-Hans">简体中文</a><a id="l-fr" href="#fr" hreflang="fr" lang="fr">Français</a></nav>
+<noscript><style>section.lang { display:block; border-top:1px solid var(--line); margin-top:24px; }</style></noscript>
+<section class="lang" id="s-en" lang="en" dir="ltr" data-title="Hanzi Learn! — Help and support">
+<h2>Help and support</h2>
+<p>Hanzi Learn! teaches you to write Chinese by hand: the characters stroke by stroke, simplified and traditional, by HSK level; words to read and listen to, your own vocabulary, exams and reviews — on iPad and Android tablets, with a pen or your finger, offline.</p>
+<div class="card">
+<h3>Where do I start?</h3>
+<p>Open the menu at the top left: it has everything to study, and Reviews, Vocabulary, Lectures, Exams and Statistics. Pick a character to see its strokes in order, then write it: Hanzi Learn! reads what you write and tells you how well it went. Tutorial, in the same menu, shows the first steps again.</p>
+<h3>Do I need an Apple Pencil or a stylus?</h3>
+<p>No. With the hand on the toolbar on, one finger writes and two move the page. With an Apple Pencil, or a stylus on Android, Hanzi Learn! switches to it by itself: the pen writes, fingers move the page, and your hand can rest on the screen.</p>
+<h3>Does Hanzi Learn! work offline?</h3>
+<p>Yes. Google ML Kit’s handwriting model (about 20 MB) downloads once, when Hanzi Learn! first starts, and each language’s model for Translate with Google the first time you translate; after that, everything works offline.</p>
+<h3>Where is my work kept? Can I move it to a new device?</h3>
+<p>On your device, and in its iCloud Backup or Google backup when those are on. To keep a copy yourself, or to move to another iPad or tablet: Settings › Your data › Export, then Import on the other one (it replaces what is there). The file works on iPad and Android alike.</p>
+<h3>My handwriting is not read well</h3>
+<p>In Settings › Handwriting, Read with Google ML Kit should be on and its model downloaded (it needs the internet once). With it off, Hanzi Learn! reads handwriting on its own, less accurately.</p>
+<h3>Can Hanzi Learn! read text from a book or a sign?</h3>
+<p>Yes: tap the camera on the toolbar, or press and hold the page and choose Text from photo, then point it at Chinese text, or pick a photo. Hanzi Learn! reads each line: Hold keeps them, Write puts them on the page as handwriting to trace, and Translate with Google shows them in your language.</p>
+<h3>How do I translate?</h3>
+<p>Lasso your writing and choose Translate with Google to read it in your language. In Vocabulary, Translate with Google goes the other way: type in your language and get it in Chinese, with its words to save or practise. It all happens on your device: each language’s model (about 30 MB) downloads once, then works offline.</p>
+<h3>There is no voice, or it sounds robotic</h3>
+<p>Hanzi Learn! reads aloud with your device’s own voices. On iPad: for a clearer voice, download a Chinese one in Settings › Accessibility › Spoken Content › Voices. On Android, install a Chinese voice for the text-to-speech engine (Speech Services by Google, for example) in the system settings; when there is none, Set up the voice in Hanzi Learn! opens them for you.</p>
+<h3>How do reviews work?</h3>
+<p>Mark characters as Studying: Reviews brings each one back when it is due, the next day, then three days later, then longer each time you write it right, and sooner when you do not. New ones join at most ten a day, so marking many at once does not flood the next day. The words you save have their own reviews, in Vocabulary.</p>
+<h3>Can I print practice sheets?</h3>
+<p>Yes: Sheet, in a character’s page, in Select mode or in Vocabulary, makes a PDF to print or share.</p>
+<h3>What does Hanzi Learn! send, and to whom?</h3>
+<p>Your work stays on your device. Google ML Kit, which reads handwriting and text and translates on the device, downloads its models and sends Google anonymous diagnostics while it is on: Settings › Handwriting › Read with Google ML Kit switches it off. Everything else is in the <a href="privacy.html#en">privacy policy</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Write to <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. If something goes wrong, tell us your device’s model and system version, and what you were doing.</p>
+<footer><a href="privacy.html#en">Privacy policy</a></footer>
+</section>
+<section class="lang" id="s-es" lang="es" dir="ltr" data-title="Hanzi Learn! — Ayuda y soporte">
+<h2>Ayuda y soporte</h2>
+<p>Hanzi Learn! te enseña a escribir chino a mano: los caracteres trazo a trazo, simplificados y tradicionales, por nivel del HSK; palabras para leer y escuchar, tu propio vocabulario, exámenes y repasos — en iPad y tabletas Android, con lápiz o con el dedo, sin conexión.</p>
+<div class="card">
+<h3>¿Por dónde empiezo?</h3>
+<p>Abre el menú de arriba a la izquierda: tiene todo para estudiar, además de Repasos, Vocabulario, Lecciones, Exámenes y Estadísticas. Elige un carácter para ver sus trazos en orden y luego escribe tú: Hanzi Learn! lee lo que escribes y te dice qué tal te ha salido. Tutorial, en el mismo menú, vuelve a mostrarte los primeros pasos.</p>
+<h3>¿Necesito un Apple Pencil o un lápiz óptico?</h3>
+<p>No. Con la mano de la barra activada, un dedo escribe y dos mueven la página. Si usas un Apple Pencil, o un lápiz óptico en Android, Hanzi Learn! cambia a él automáticamente: escribe el lápiz, los dedos mueven la página y puedes apoyar la mano en la pantalla.</p>
+<h3>¿Hanzi Learn! funciona sin conexión?</h3>
+<p>Sí. El modelo de escritura de Google ML Kit (unos 20 MB) se descarga una vez, la primera vez que abres Hanzi Learn!, y el modelo de cada idioma para Traducir con Google, la primera vez que traduces; después, todo funciona sin conexión.</p>
+<h3>¿Dónde se guarda lo que hago? ¿Puedo pasarlo a otro dispositivo?</h3>
+<p>En tu dispositivo, y en su copia en iCloud o de Google si las tienes activadas. Para guardar una copia por tu cuenta, o para pasarlo a otro iPad o tableta: Ajustes › Tus datos › Exportar, y luego Importar en el otro (sustituye lo que haya en él). El archivo sirve igual en iPad que en Android.</p>
+<h3>No reconoce bien mi escritura</h3>
+<p>En Ajustes › Escritura, Leer con Google ML Kit debe estar activado y su modelo descargado (necesita internet una vez). Desactivado, Hanzi Learn! lee la escritura por su cuenta, con menos precisión.</p>
+<h3>¿Hanzi Learn! puede leer el texto de un libro o de un cartel?</h3>
+<p>Sí: toca la cámara de la barra, o mantén pulsada la página y elige Texto de foto, y apunta a un texto en chino, o elige una foto. Hanzi Learn! lee cada línea: Congelar las conserva, Escribir las pone en la página como escritura a mano para repasar, y Traducir con Google las muestra en tu idioma.</p>
+<h3>¿Cómo traduzco?</h3>
+<p>Rodea tu escritura con el lazo y elige Traducir con Google para leerla en tu idioma. En Vocabulario, Traducir con Google va al revés: escribe en tu idioma y obtenlo en chino, con sus palabras para guardar o practicar. Todo se hace en tu dispositivo: el modelo de cada idioma (unos 30 MB) se descarga una vez y después funciona sin conexión.</p>
+<h3>No hay voz, o suena robótica</h3>
+<p>Hanzi Learn! lee en voz alta con las voces de tu dispositivo. En el iPad: para una voz más clara, descarga una china en Ajustes › Accesibilidad › Contenido leído › Voces. En Android, instala una voz en chino para el motor de texto a voz (por ejemplo, Servicios de voz de Google) en los ajustes del sistema; si no hay ninguna, Configurar la voz, en Hanzi Learn!, te los abre.</p>
+<h3>¿Cómo funcionan los repasos?</h3>
+<p>Marca caracteres como Estudiando: Repasos te los trae cuando toca, al día siguiente, luego a los tres días, y cada vez más tarde si los escribes bien; antes si no. Los nuevos entran como mucho de diez en diez al día, para que marcar muchos a la vez no te llene el día siguiente. Las palabras que guardas tienen sus propios repasos, en Vocabulario.</p>
+<h3>¿Puedo imprimir hojas de práctica?</h3>
+<p>Sí: Hoja, en la página de un carácter, en el modo Seleccionar o en Vocabulario, crea un PDF para imprimir o compartir.</p>
+<h3>¿Qué envía Hanzi Learn!, y a quién?</h3>
+<p>Lo que haces se queda en tu dispositivo. Google ML Kit, que lee la escritura y el texto y traduce en el dispositivo, descarga sus modelos y envía a Google diagnósticos anónimos mientras está activado: Ajustes › Escritura › Leer con Google ML Kit lo desactiva. Todo lo demás está en la <a href="privacy.html#es">política de privacidad</a>.</p>
+</div>
+<h3>Contacto</h3>
+<p>Escribe a <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Si algo falla, cuéntanos el modelo de tu dispositivo, la versión del sistema y qué estabas haciendo.</p>
+<footer><a href="privacy.html#es">Política de privacidad</a></footer>
+</section>
+<section class="lang" id="s-pt" lang="pt-BR" dir="ltr" data-title="Hanzi Learn! — Ajuda e suporte">
+<h2>Ajuda e suporte</h2>
+<p>O Hanzi Learn! ensina você a escrever chinês à mão: os caracteres traço a traço, simplificados e tradicionais, por nível do HSK; palavras para ler e ouvir, seu próprio vocabulário, testes e revisões — no iPad e em tablets Android, com caneta ou com o dedo, offline.</p>
+<div class="card">
+<h3>Por onde eu começo?</h3>
+<p>Abra o menu no canto superior esquerdo: ele tem tudo para estudar, além de Revisões, Vocabulário, Lições, Testes e Estatísticas. Escolha um caractere para ver os traços na ordem e depois escreva você: o Hanzi Learn! lê o que você escreve e diz como foi. Tutorial, no mesmo menu, mostra de novo os primeiros passos.</p>
+<h3>Preciso de um Apple Pencil ou de uma caneta?</h3>
+<p>Não. Com a mão da barra ligada, um dedo escreve e dois movem a página. Se você usar um Apple Pencil, ou uma caneta no Android, o Hanzi Learn! muda para ela sozinho: a caneta escreve, os dedos movem a página e você pode apoiar a mão na tela.</p>
+<h3>O Hanzi Learn! funciona offline?</h3>
+<p>Sim. O modelo de escrita do Google ML Kit (cerca de 20 MB) é baixado uma vez, na primeira vez que o Hanzi Learn! é aberto, e o modelo de cada idioma para Traduzir com o Google, na primeira vez que você traduz; depois disso, tudo funciona offline.</p>
+<h3>Onde fica o que eu faço? Posso passar para outro dispositivo?</h3>
+<p>No seu dispositivo, e no backup do iCloud ou do Google quando estão ativados. Para guardar uma cópia você mesmo, ou para passar para outro iPad ou tablet: Configurações › Seus dados › Exportar, e depois Importar no outro (substitui o que houver nele). O arquivo serve tanto no iPad quanto no Android.</p>
+<h3>Minha escrita não é bem reconhecida</h3>
+<p>Em Configurações › Escrita, Ler com o Google ML Kit deve estar ligado e o modelo baixado (precisa de internet uma vez). Desligado, o Hanzi Learn! lê a escrita por conta própria, com menos precisão.</p>
+<h3>O Hanzi Learn! consegue ler o texto de um livro ou de uma placa?</h3>
+<p>Sim: toque na câmera da barra, ou toque e segure a página e escolha Texto de foto, e aponte para um texto em chinês, ou escolha uma foto. O Hanzi Learn! lê cada linha: Congelar as mantém, Escrever as coloca na página como escrita à mão para cobrir, e Traduzir com o Google as mostra no seu idioma.</p>
+<h3>Como eu traduzo?</h3>
+<p>Selecione sua escrita com o laço e escolha Traduzir com o Google para lê-la no seu idioma. Em Vocabulário, Traduzir com o Google faz o caminho inverso: digite no seu idioma e receba em chinês, com as palavras para salvar ou praticar. Tudo acontece no seu dispositivo: o modelo de cada idioma (cerca de 30 MB) é baixado uma vez e depois funciona offline.</p>
+<h3>Não tem voz, ou ela soa robótica</h3>
+<p>O Hanzi Learn! lê em voz alta com as vozes do seu dispositivo. No iPad: para uma voz mais clara, baixe uma chinesa em Ajustes › Acessibilidade › Conteúdo Falado › Vozes. No Android, instale uma voz em chinês para o mecanismo de conversão de texto em voz (por exemplo, Serviços de fala do Google) nas configurações do sistema; se não houver nenhuma, Configurar a voz, no Hanzi Learn!, as abre para você.</p>
+<h3>Como funcionam as revisões?</h3>
+<p>Marque caracteres como Estudando: Revisões traz cada um de volta no momento certo, no dia seguinte, depois em três dias, e cada vez mais tarde quando você acerta; mais cedo quando erra. Os novos entram no máximo dez por dia, para que marcar muitos de uma vez não lote o dia seguinte. As palavras que você salva têm revisões próprias, em Vocabulário.</p>
+<h3>Posso imprimir folhas de prática?</h3>
+<p>Sim: Folha, na página de um caractere, no modo Selecionar ou em Vocabulário, cria um PDF para imprimir ou compartilhar.</p>
+<h3>O que o Hanzi Learn! envia, e para quem?</h3>
+<p>O que você faz fica no seu dispositivo. O Google ML Kit, que lê a escrita e o texto e traduz no dispositivo, baixa seus modelos e envia ao Google diagnósticos anônimos enquanto está ligado: Configurações › Escrita › Ler com o Google ML Kit o desliga. Todo o resto está na <a href="privacy.html#pt">política de privacidade</a>.</p>
+</div>
+<h3>Contato</h3>
+<p>Escreva para <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. Se algo der errado, informe o modelo do seu dispositivo, a versão do sistema e o que você estava fazendo.</p>
+<footer><a href="privacy.html#pt">Política de privacidade</a></footer>
+</section>
+<section class="lang" id="s-zh" lang="zh-Hans" dir="ltr" data-title="Hanzi Learn! — 帮助与支持">
+<h2>帮助与支持</h2>
+<p>Hanzi Learn! 教你亲手书写中文：汉字按笔顺一笔一画地写，简体繁体都有，按 HSK 等级排列；还有可以阅读和收听的词语、你自己的生词本、测验和复习。适用于 iPad 和 Android 平板，用笔或手指都能写，无需联网。</p>
+<div class="card">
+<h3>我该从哪里开始？</h3>
+<p>打开左上角的菜单：这里有学习所需的一切，还有“复习”“生词本”“教材”“测验”和“统计”。选一个字就能看到它的笔顺，然后自己写一写：Hanzi Learn! 会识别你写的字，并告诉你写得怎么样。同一菜单里的“教程”可以再次展示入门步骤。</p>
+<h3>需要 Apple Pencil 或触控笔吗？</h3>
+<p>不需要。打开工具栏上的手形按钮后，用一根手指书写，两根手指移动页面。使用 Apple Pencil（在 Android 上是触控笔）时，Hanzi Learn! 会自动切换：用笔书写，用手指移动页面，手还可以放在屏幕上。</p>
+<h3>Hanzi Learn! 可以离线使用吗？</h3>
+<p>可以。Google ML Kit 的手写识别模型（约 20 MB）会在首次启动 Hanzi Learn! 时下载一次；“用 Google 翻译”所用的每种语言的模型会在你第一次翻译时下载。之后，一切都能离线使用。</p>
+<h3>我的内容保存在哪里？可以转移到新设备吗？</h3>
+<p>保存在你的设备上；如果开启了 iCloud 云备份或 Google 备份，也会包含在其中。要自己保留一份副本，或者转移到另一台 iPad 或平板，请使用“设置 › 你的数据 › 导出”，然后在另一台设备上使用“导入”（会替换那里已有的内容）。这个文件在 iPad 和 Android 上通用。</p>
+<h3>我的手写识别得不好</h3>
+<p>请在“设置 › 手写识别”中确认“用 Google ML Kit 识别”已开启，并且模型已下载（需要联网一次）。关闭时，Hanzi Learn! 会自行识别手写，但准确度较低。</p>
+<h3>Hanzi Learn! 能识别书本或招牌上的文字吗？</h3>
+<p>可以：点按工具栏上的相机，或长按页面并选择“照片文字”，然后对准中文文字，或选择一张照片。Hanzi Learn! 会逐行识别：“定格”保留这些行，“写下”把它们作为可以描写的手写字放到页面上，“用 Google 翻译”则显示译文。</p>
+<h3>如何翻译？</h3>
+<p>用套索圈出你写的字，选择“用 Google 翻译”，即可译成英文（以中文使用本应用时，翻译在中文和英文之间进行）。在“生词本”中，“用 Google 翻译”方向相反：输入英文，得到中文，还可以保存或练习其中的词语。一切都在设备上完成：每种语言的模型（约 30 MB）只需下载一次，之后即可离线使用。</p>
+<h3>没有语音，或者听起来很生硬</h3>
+<p>Hanzi Learn! 使用设备自带的语音朗读。在 iPad 上：如需更清晰的语音，请在“设置 › 辅助功能 › 朗读内容 › 声音”中下载一种中文语音。在 Android 上，请在系统设置中为文字转语音引擎（例如 Google 语音服务）安装中文语音；没有语音时，Hanzi Learn! 中的“设置语音”会为你打开相应设置。</p>
+<h3>复习是怎么安排的？</h3>
+<p>把字标记为“学习中”后，“复习”会在到期时让它们重新出现：第二天，然后是三天后，之后每写对一次间隔就更长，写错则会更早出现。新字每天最多加入十个，所以一次标记很多也不会挤满第二天。你保存的词语在“生词本”中有自己的复习。</p>
+<h3>可以打印练习纸吗？</h3>
+<p>可以：在字的页面、“选择”模式或“生词本”中使用“字帖”，即可生成可打印或分享的 PDF。</p>
+<h3>Hanzi Learn! 会发送什么？发给谁？</h3>
+<p>你的内容留在你的设备上。在设备上识别手写和印刷文字并进行翻译的 Google ML Kit，在开启期间会下载模型，并向 Google 发送匿名诊断数据：在“设置 › 手写识别 › 用 Google ML Kit 识别”中可以将其关闭。其他所有内容都在<a href="privacy.html#zh">隐私政策</a>中。</p>
+</div>
+<h3>联系我们</h3>
+<p>请发邮件至 <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>。如果出现问题，请告诉我们你的设备型号、系统版本以及当时在做什么。</p>
+<footer><a href="privacy.html#zh">隐私政策</a></footer>
+</section>
+<section class="lang" id="s-fr" lang="fr" dir="ltr" data-title="Hanzi Learn! — Aide et assistance">
+<h2>Aide et assistance</h2>
+<p>Hanzi Learn! vous apprend à écrire le chinois à la main : les caractères trait par trait, simplifiés et traditionnels, par niveau HSK ; des mots à lire et à écouter, votre propre vocabulaire, examens et révisions — sur iPad et tablettes Android, au stylet ou du doigt, hors ligne.</p>
+<div class="card">
+<h3>Par où commencer ?</h3>
+<p>Ouvrez le menu en haut à gauche : il a tout pour étudier, plus Révisions, Vocabulaire, Leçons, Examens et Statistiques. Choisissez un caractère pour voir ses traits dans l’ordre, puis écrivez à votre tour : l’app lit ce que vous écrivez et vous dit comment c’était. Tutoriel, dans le même menu, remontre les premiers pas.</p>
+<h3>Faut-il un Apple Pencil ou un stylet ?</h3>
+<p>Non. Avec la main de la barre activée, un doigt écrit et deux déplacent la page. Avec un Apple Pencil, ou un stylet sur Android, l’app bascule d’elle-même : le stylet écrit, les doigts déplacent la page, et vous pouvez poser la main sur l’écran.</p>
+<h3>Hanzi Learn! fonctionne-t-il hors ligne ?</h3>
+<p>Oui. Le modèle d’écriture de Google ML Kit (environ 20 Mo) se télécharge une fois, au premier lancement de l’app, et le modèle de chaque langue pour Traduire avec Google, la première fois que vous traduisez ; ensuite, tout fonctionne hors ligne.</p>
+<h3>Où est enregistré mon travail ? Puis-je le passer sur un autre appareil ?</h3>
+<p>Sur votre appareil, et dans sa sauvegarde iCloud ou Google si elle est activée. Pour en garder une copie vous-même, ou pour passer à un autre iPad ou à une autre tablette : Réglages › Vos données › Exporter, puis Importer sur l’autre (cela remplace ce qui s’y trouve). Le fichier sert aussi bien sur iPad que sur Android.</p>
+<h3>Mon écriture est mal reconnue</h3>
+<p>Dans Réglages › Écriture, Lire avec Google ML Kit doit être activé et son modèle téléchargé (il faut internet une fois). Désactivé, l’app lit l’écriture par elle-même, moins précisément.</p>
+<h3>Hanzi Learn! peut-il lire le texte d’un livre ou d’un panneau ?</h3>
+<p>Oui : touchez l’appareil photo de la barre, ou appuyez longuement sur la page et choisissez Texte d’une photo, puis visez un texte en chinois, ou choisissez une photo. L’app lit chaque ligne : Figer les garde, Écrire les pose sur la page en écriture à la main à repasser, et Traduire avec Google les affiche dans votre langue.</p>
+<h3>Comment traduire ?</h3>
+<p>Entourez votre écriture au lasso et choisissez Traduire avec Google pour la lire dans votre langue. Dans Vocabulaire, Traduire avec Google va dans l’autre sens : tapez dans votre langue et obtenez le résultat en chinois, avec ses mots à enregistrer ou à travailler. Tout se fait sur votre appareil : le modèle de chaque langue (environ 30 Mo) se télécharge une fois, puis fonctionne hors ligne.</p>
+<h3>Il n’y a pas de voix, ou elle semble robotique</h3>
+<p>L’app lit à voix haute avec les voix de votre appareil. Sur iPad : pour une voix plus claire, téléchargez-en une chinoise dans Réglages › Accessibilité › Contenu énoncé › Voix. Sur Android, installez une voix pour le chinois dans le moteur de synthèse vocale (Services vocaux de Google, par exemple), dans les réglages du système ; s’il n’y en a aucune, Configurer la voix, dans Hanzi Learn!, vous les ouvre.</p>
+<h3>Comment fonctionnent les révisions ?</h3>
+<p>Marquez des caractères En cours : Révisions vous les ramène au bon moment, le lendemain, puis trois jours plus tard, et de plus en plus tard à chaque bonne réponse ; plus tôt sinon. Les nouveaux arrivent au plus dix par jour, pour qu’en marquer beaucoup d’un coup ne surcharge pas le lendemain. Les mots que vous enregistrez ont leurs propres révisions, dans Vocabulaire.</p>
+<h3>Puis-je imprimer des feuilles d’entraînement ?</h3>
+<p>Oui : Feuille, sur la page d’un caractère, en mode Sélectionner ou dans Vocabulaire, crée un PDF à imprimer ou à partager.</p>
+<h3>Qu’envoie Hanzi Learn!, et à qui ?</h3>
+<p>Votre travail reste sur votre appareil. Google ML Kit, qui lit l’écriture et le texte et traduit sur l’appareil, télécharge ses modèles et envoie à Google des diagnostics anonymes tant qu’il est activé : Réglages › Écriture › Lire avec Google ML Kit le désactive. Tout le reste se trouve dans la <a href="privacy.html#fr">politique de confidentialité</a>.</p>
+</div>
+<h3>Contact</h3>
+<p>Écrivez à <a href="mailto:rde.apps.support@gmail.com">rde.apps.support@gmail.com</a>. En cas de problème, indiquez le modèle de votre appareil, la version du système et ce que vous faisiez.</p>
+<footer><a href="privacy.html#fr">Politique de confidentialité</a></footer>
+</section>
+</main>
+<script>
+(function(){
+  var codes = ['en','es','pt','zh','fr'], pick = (location.hash || '').slice(1);
+  if(codes.indexOf(pick) < 0) {
+    var langs = navigator.languages || [navigator.language || 'en'];
+    for(var i = 0; i < langs.length && codes.indexOf(pick) < 0; i++) { pick = (langs[i] || '').slice(0, 2).toLowerCase(); }
+  }
+  if(codes.indexOf(pick) < 0) { pick = 'en'; }
+  function show(c){
+    codes.forEach(function(x){
+      var s = document.getElementById('s-' + x), l = document.getElementById('l-' + x), on = x === c;
+      s.classList.toggle('on', on);
+      l.classList.toggle('on', on);
+      if(on) {
+        l.setAttribute('aria-current', 'true');
+        document.documentElement.lang = s.getAttribute('lang');
+        document.documentElement.dir = s.getAttribute('dir');
+        document.title = s.getAttribute('data-title');
+      } else {
+        l.removeAttribute('aria-current');
+      }
+    });
+  }
+  codes.forEach(function(c){ document.getElementById('l-' + c).addEventListener('click', function(e){ e.preventDefault(); history.replaceState(null, '', '#' + c); show(c); }); });
+  show(pick);
+})();
+</script>
+</body>
+</html>

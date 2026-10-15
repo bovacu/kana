@@ -7,8 +7,9 @@
 #
 #   zsh tools/whisper/build.sh            # Mac (arm64) and Android (arm64-v8a)
 #
-# Into build/whisper/<platform>/lib and build/whisper/include. The apps that transcribe (InfiNote, Sketching:
-# tools/android/build.sh, COMMANDS.txt) link them and are built with -DFUDE_WHISPER.
+# Into build/whisper/<platform>/lib and build/whisper/include. The apps that transcribe (InfiNote, Sketching: their
+# project files, apps/<app>/<app>.rdeproj) link them and are built with -DFUDE_WHISPER; tools/build/app.sh runs this
+# when they are missing. A new or renamed CPU variant goes into those files' [android] libs.
 #
 #   mac            static libraries, for Apple silicon (every one has the dot product and half floats)
 #   android-arm64  shared ones (libwhisper.so, libggml.so, libggml-base.so) and the CPU's code four times over, each a

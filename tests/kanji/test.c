@@ -68,6 +68,40 @@ int main(int argc, char** argv) {
         printf("words: %u kanji with words, %u listed, %u distinct\n", with, total, db.word_count);
         CHECK(with > 2000);
     }
+
+    // A damaged file whose words and sentences are counted past what their chunks hold (four billion of each): both
+    // counts are refused before anything that size is allocated, and the file is read without its words and
+    // sentences rather than with broken ones; the characters are all there.
+    {
+        FILE* f = fopen(argv[1], "rb");
+        CHECK(f != NULL);
+        static unsigned char data[16u << 20];
+        const size_t size = f != NULL ? fread(data, 1, sizeof data, f) : 0u;
+        if(f != NULL) fclose(f);
+        CHECK(size > 12u && size < sizeof data);
+        b8 word = false, sent = false;
+        for(size_t at = 12u; at + 8u <= size;) {
+            u32 len; memcpy(&len, &data[at + 4u], 4u);
+            const u32 big = 0xFFFFFFF0u;
+            if(memcmp(&data[at], "WORD", 4u) == 0) {   // u32 count, count u32 offsets, then u32 the words' count
+                u32 count; memcpy(&count, &data[at + 8u], 4u);
+                memcpy(&data[at + 12u + (size_t)count * 4u], &big, 4u);
+                word = true;
+            } else if(memcmp(&data[at], "SENT", 4u) == 0) {   // u32 the sentences' count first
+                memcpy(&data[at + 8u], &big, 4u);
+                sent = true;
+            }
+            at += 8u + len;
+        }
+        CHECK(word && sent);
+        FILE* out = fopen("damaged.kana", "wb");
+        CHECK(out != NULL);
+        if(out != NULL) { fwrite(data, 1, size, out); fclose(out); }
+        fude_kanji_db bad;
+        CHECK(fude_kanji_load(&bad, "damaged.kana"));
+        CHECK(bad.count == db.count && bad.word_count == 0u && bad.sentence_count == 0u);
+        fude_kanji_unload(&bad);
+    }
     fude_kanji_unload(&db);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

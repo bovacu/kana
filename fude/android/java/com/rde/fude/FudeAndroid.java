@@ -9,6 +9,8 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.graphics.Bitmap;
+import android.graphics.ImageDecoder;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -82,7 +84,6 @@ public final class FudeAndroid {
      */
     static volatile int  fetchStatus = 0;   // 0 idle, 1 running, 2 done, 3 failed
     static volatile long fetchGot = 0, fetchTotal = 0;
-    static volatile boolean fetchStop = false;
 
     public static boolean fetchStart(byte[] url, byte[] path) {
         if(fetchStatus == 1) {
@@ -92,7 +93,6 @@ public final class FudeAndroid {
         fetchStatus = 1;
         fetchGot    = 0;
         fetchTotal  = 0;
-        fetchStop   = false;
         new Thread(new Runnable() {
             @Override public void run() {
                 File part = new File(to + ".part");
@@ -125,9 +125,6 @@ public final class FudeAndroid {
                         byte[] buf = new byte[1 << 16];
                         int n;
                         while((n = in.read(buf)) > 0) {
-                            if(fetchStop) {
-                                throw new java.io.IOException("stopped");
-                            }
                             out.write(buf, 0, n);
                             fetchGot += n;
                         }
@@ -139,7 +136,7 @@ public final class FudeAndroid {
                 } catch(Throwable e) {
                     Log.w(TAG, "fetch: " + e);
                     part.delete();
-                    fetchStatus = fetchStop ? 0 : 3;
+                    fetchStatus = 3;
                 }
             }
         }, "FudeFetch").start();
@@ -150,19 +147,31 @@ public final class FudeAndroid {
         return new long[] { fetchStatus, fetchGot, fetchTotal };
     }
 
-    public static void fetchCancel() {
-        fetchStop = true;
-        if(fetchStatus != 1) {
-            fetchStatus = 0;
-        }
-    }
-
     static String text(byte[] utf8) {
         return utf8 != null ? new String(utf8, StandardCharsets.UTF_8) : "";
     }
 
     static byte[] bytes(String s) {
         return s != null ? s.getBytes(StandardCharsets.UTF_8) : new byte[0];
+    }
+
+    /**
+     * A picture's pixels, upright (as taken), at most max pixels on its longer side, in memory the CPU can read (a
+     * software bitmap). Shared by the documents made from pictures (FudePdf) and the study apps' photos (FudeText).
+     */
+    static Bitmap decodePicture(Uri uri, final int max) throws Exception {
+        ImageDecoder.Source src = ImageDecoder.createSource(context.getContentResolver(), uri);
+        return ImageDecoder.decodeBitmap(src, new ImageDecoder.OnHeaderDecodedListener() {
+            @Override
+            public void onHeaderDecoded(ImageDecoder d, ImageDecoder.ImageInfo info, ImageDecoder.Source s) {
+                d.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                final int w = info.getSize().getWidth(), h = info.getSize().getHeight();
+                final int longer = Math.max(w, h);
+                if(longer > max) {
+                    d.setTargetSize(Math.max(1, w * max / longer), Math.max(1, h * max / longer));
+                }
+            }
+        });
     }
 
     /** What a request's answer is handed to, on the main thread. */

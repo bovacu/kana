@@ -1,6 +1,9 @@
 data/raw/
-build/
+# The builds' output, at the top only: a bare "build/" also matched tools/build/, the build scripts.
+/build/
 saves/
 .DS_Store
 third_party/mlkit/
 tests/build/
+# Written beside each project file by `builder compdb` (tools/check/warnings.sh): generated, for editors.
+compile_commands.json

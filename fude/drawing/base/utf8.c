@@ -4,59 +4,109 @@
 
 // ===========================================================================
 // See utf8.h.
+//
+// The decoder takes a sequence only when it is well formed: a lead byte, then as many continuation bytes (10xxxxxx)
+// as it says, holding a code point in Unicode's range written in its shortest form and not a surrogate. Anything else
+// (a byte out of place, an overlong form such as C0 80, a surrogate's three bytes, a code point past U+10FFFF) is
+// one malformed byte, read as U+FFFD, so two spellings of one character never compare unequal and no NUL hides in
+// a longer form.
 // ===========================================================================
 
-u32 fude_utf8_next(const c8** _s) {
-    const u8* _u = (const u8*)*_s;
-
+// Decodes the code point at _s; *_len gets its length in bytes (0 at the end, 1 for a malformed byte, given U+FFFD).
+u32 fude_utf8_decode(const c8* _s, u32* _len) {
+    const u8* _u = (const u8*)_s;
     if(_u[0] == 0) {
+        *_len = 0;
         return 0;
     }
     if(_u[0] < 0x80u) {
-        *_s += 1;
+        *_len = 1;
         return _u[0];
     }
-    if((_u[0] & 0xE0u) == 0xC0u && _u[1] != 0) {
-        *_s += 2;
-        return ((u32)(_u[0] & 0x1Fu) << 6) | (u32)(_u[1] & 0x3Fu);
+    // The bytes after a lead byte must be continuation bytes (10xxxxxx). A character cut short (its lead byte, then
+    // plain text) is one malformed byte, so the letters after it are read as themselves, not swallowed into it. A
+    // continuation byte is never 0, so the end of the string stops a sequence too.
+    // A form longer than the code point needs, a surrogate (U+D800 to U+DFFF, which UTF-8 never holds) and a code
+    // point past U+10FFFF are malformed too.
+    #define FUDE_UTF8_MORE(_b) (((_b) & 0xC0u) == 0x80u)
+    if((_u[0] & 0xE0u) == 0xC0u && FUDE_UTF8_MORE(_u[1])) {
+        const u32 _cp = ((u32)(_u[0] & 0x1Fu) << 6) | (u32)(_u[1] & 0x3Fu);
+        if(_cp >= 0x80u) {
+            *_len = 2;
+            return _cp;
+        }
+    } else if((_u[0] & 0xF0u) == 0xE0u && FUDE_UTF8_MORE(_u[1]) && FUDE_UTF8_MORE(_u[2])) {
+        const u32 _cp = ((u32)(_u[0] & 0x0Fu) << 12) | ((u32)(_u[1] & 0x3Fu) << 6) | (u32)(_u[2] & 0x3Fu);
+        if(_cp >= 0x800u && (_cp < 0xD800u || _cp > 0xDFFFu)) {
+            *_len = 3;
+            return _cp;
+        }
+    } else if((_u[0] & 0xF8u) == 0xF0u && FUDE_UTF8_MORE(_u[1]) && FUDE_UTF8_MORE(_u[2]) && FUDE_UTF8_MORE(_u[3])) {
+        const u32 _cp = ((u32)(_u[0] & 0x07u) << 18) | ((u32)(_u[1] & 0x3Fu) << 12) | ((u32)(_u[2] & 0x3Fu) << 6) | (u32)(_u[3] & 0x3Fu);
+        if(_cp >= 0x10000u && _cp <= 0x10FFFFu) {
+            *_len = 4;
+            return _cp;
+        }
     }
-    if((_u[0] & 0xF0u) == 0xE0u && _u[1] != 0 && _u[2] != 0) {
-        *_s += 3;
-        return ((u32)(_u[0] & 0x0Fu) << 12) | ((u32)(_u[1] & 0x3Fu) << 6) | (u32)(_u[2] & 0x3Fu);
-    }
-    if((_u[0] & 0xF8u) == 0xF0u && _u[1] != 0 && _u[2] != 0 && _u[3] != 0) {
-        *_s += 4;
-        return ((u32)(_u[0] & 0x07u) << 18) | ((u32)(_u[1] & 0x3Fu) << 12) | ((u32)(_u[2] & 0x3Fu) << 6) | (u32)(_u[3] & 0x3Fu);
-    }
-
-    *_s += 1;          // malformed: skip the byte
+    #undef FUDE_UTF8_MORE
+    *_len = 1;   // A malformed byte: skip it on its own.
     return 0xFFFDu;
 }
 
-void fude_utf8_put(u32 _cp, c8* _out) {
+// Decodes the code point at *_s and moves *_s past it; returns 0, without moving, at the end.
+u32 fude_utf8_next(const c8** _s) {
+    u32       _len = 0;
+    const u32 _cp  = fude_utf8_decode(*_s, &_len);
+    *_s += _len;
+    return _cp;
+}
+
+// Encodes _cp as 1 to 4 bytes of UTF-8 into _out, followed by a NUL. Returns the bytes written, without the NUL.
+u32 fude_utf8_put(u32 _cp, c8* _out) {
     if(_cp < 0x80u) {
         _out[0] = (c8)_cp;
         _out[1] = 0;
-    } else if(_cp < 0x800u) {
+        return 1u;
+    }
+    if(_cp < 0x800u) {
         _out[0] = (c8)(0xC0u | (_cp >> 6));
         _out[1] = (c8)(0x80u | (_cp & 0x3Fu));
         _out[2] = 0;
-    } else if(_cp < 0x10000u) {
+        return 2u;
+    }
+    if(_cp < 0x10000u) {
         _out[0] = (c8)(0xE0u | (_cp >> 12));
         _out[1] = (c8)(0x80u | ((_cp >> 6) & 0x3Fu));
         _out[2] = (c8)(0x80u | (_cp & 0x3Fu));
         _out[3] = 0;
-    } else {
-        _out[0] = (c8)(0xF0u | (_cp >> 18));
-        _out[1] = (c8)(0x80u | ((_cp >> 12) & 0x3Fu));
-        _out[2] = (c8)(0x80u | ((_cp >> 6) & 0x3Fu));
-        _out[3] = (c8)(0x80u | (_cp & 0x3Fu));
-        _out[4] = 0;
+        return 3u;
     }
+    _out[0] = (c8)(0xF0u | (_cp >> 18));
+    _out[1] = (c8)(0x80u | ((_cp >> 12) & 0x3Fu));
+    _out[2] = (c8)(0x80u | ((_cp >> 6) & 0x3Fu));
+    _out[3] = (c8)(0x80u | (_cp & 0x3Fu));
+    _out[4] = 0;
+    return 4u;
 }
 
-// Each accented Latin letter's base letter (Unicode's decompositions, lower
-// case), and the IPA vowels a romanization writes (ɛ ɔ ʉ ə), by code point.
+// Returns how many code points _s holds, counting every byte that is not a continuation byte.
+u32 fude_utf8_count(const c8* _s) {
+    u32 _n = 0;
+    for(; *_s != 0; _s++) {
+        _n += ((u8)*_s & 0xC0u) != 0x80u ? 1u : 0u;   // Count it unless it is a continuation byte (10xxxxxx).
+    }
+    return _n;
+}
+
+// Returns whether _cp is a Han character: the main CJK block (U+4E00 to U+9FFF), Extension A (U+3400 to U+4DBF), the
+// compatibility forms (U+F900 to U+FAFF), or the supplementary planes' extensions (U+20000 to U+2FFFF).
+b8 fude_utf8_is_han(u32 _cp) {
+    return (_cp >= 0x4E00u && _cp <= 0x9FFFu) || (_cp >= 0x3400u && _cp <= 0x4DBFu) || (_cp >= 0xF900u && _cp <= 0xFAFFu) ||
+           (_cp >= 0x20000u && _cp <= 0x2FFFFu);
+}
+
+// Each accented Latin letter's base letter (from Unicode's decompositions, in lower case), and the IPA vowels a
+// romanization writes (ɛ ɔ ʉ ə and their capitals). The table must stay sorted by code point: it is binary-searched.
 typedef struct { u16 codepoint; c8 base; } fude_utf8_latin;
 static const fude_utf8_latin FUDE_UTF8_LATIN[] = {
     { 0x00C0, 'a' }, { 0x00C1, 'a' }, { 0x00C2, 'a' }, { 0x00C3, 'a' }, { 0x00C4, 'a' }, { 0x00C5, 'a' },
@@ -144,12 +194,14 @@ static const fude_utf8_latin FUDE_UTF8_LATIN[] = {
     { 0x1EF6, 'y' }, { 0x1EF7, 'y' }, { 0x1EF8, 'y' }, { 0x1EF9, 'y' },
 };
 
+// Returns a letter as a romanization search compares it: ASCII capitals in lower case, an accented letter as its base
+// (looked up in FUDE_UTF8_LATIN), 0 for a combining accent or a modifier letter, anything else as it is.
 u32 fude_utf8_latin_base(u32 _cp) {
     if(_cp >= 'A' && _cp <= 'Z') {
         return _cp + ('a' - 'A');
     }
     if((_cp >= 0x0300u && _cp <= 0x036Fu) || (_cp >= 0x02B9u && _cp <= 0x02C1u)) {
-        return 0u;   // a combining accent; ʿ ʾ ʔ ʕ and their kin
+        return 0u;   // A combining accent, or a modifier letter (U+02B9 to U+02C1: ʹ ʻ ʼ ʾ ʿ ˀ ˁ and their kin).
     }
     u32 _lo = 0, _hi = (u32)(sizeof(FUDE_UTF8_LATIN) / sizeof(FUDE_UTF8_LATIN[0]));
     while(_lo < _hi) {
@@ -160,4 +212,81 @@ u32 fude_utf8_latin_base(u32 _cp) {
         if(FUDE_UTF8_LATIN[_mid].codepoint < _cp) { _lo = _mid + 1u; } else { _hi = _mid; }
     }
     return _cp;
+}
+
+// Returns a character as a search compares it (see the header): a full-width form or the ideographic space as its
+// ASCII, then through fude_utf8_latin_base.
+u32 fude_utf8_search_fold(u32 _cp) {
+    if(_cp >= 0xFF01u && _cp <= 0xFF5Eu) {
+        _cp -= 0xFF01u - 0x21u;   // The full-width forms of ! to ~ run in the same order as ASCII's.
+    } else if(_cp == 0x3000u) {
+        _cp = ' ';
+    }
+    return fude_utf8_latin_base(_cp);
+}
+
+// Reads the next character of *_s that a search compares, folded, moving *_s past it and past the characters folded
+// away before it. Returns 0 at the end.
+RDE_INTERNAL u32 fude_utf8_next_folded(const c8** _s) {
+    for(;;) {
+        const u32 _cp = fude_utf8_next(_s);
+        if(_cp == 0u) {
+            return 0u;
+        }
+        const u32 _folded = fude_utf8_search_fold(_cp);
+        if(_folded != 0u) {
+            return _folded;
+        }
+    }
+}
+
+// Looks for _needle in _hay, a character at a time, comparing them folded (see the header). A match starts on a
+// character that is compared, never on an accent left out.
+i32 fude_utf8_find(const c8* _hay, const c8* _needle, usize _from, usize* _end) {
+    const c8* _first = _needle;
+    if(fude_utf8_next_folded(&_first) == 0u) {
+        return -1;   // Nothing to compare: an empty needle, or one of accents alone.
+    }
+    for(usize _i = _from; _hay[_i] != 0;) {
+        u32       _len  = 0;
+        const u32 _here = fude_utf8_search_fold(fude_utf8_decode(&_hay[_i], &_len));
+        const c8* _h    = &_hay[_i];
+        const c8* _n    = _needle;
+        u32       _want = fude_utf8_next_folded(&_n);
+        b8        _same = _here != 0u;
+        while(_same && _want != 0u) {
+            _same = fude_utf8_next_folded(&_h) == _want;
+            _want = fude_utf8_next_folded(&_n);
+        }
+        if(_same) {
+            // The accents after its last letter belong to that letter, so they are part of the match.
+            for(const c8* _after = _h; *_after != 0 && fude_utf8_search_fold(fude_utf8_next(&_after)) == 0u;) {
+                _h = _after;
+            }
+            *_end = (usize)(_h - _hay);
+            return (i32)_i;
+        }
+        _i += _len;
+    }
+    return -1;
+}
+
+// Copies at most _len bytes of _s into _out, NUL-terminated, cutting before a whole character when they do not fit.
+void fude_utf8_copy(c8* _out, usize _size, const c8* _s, usize _len) {
+    if(_size == 0) {
+        return;   // There is no room even for the NUL, so nothing is written.
+    }
+    usize _n = _len < _size - 1u ? _len : _size - 1u;
+    while(_n > 0 && _n < _len && ((u8)_s[_n] & 0xC0u) == 0x80u) {
+        _n--;   // The byte after the cut continues a character, so move the cut back to that character's start.
+    }
+    if(_n > 0) {
+        rde_memcpy(_out, _s, _n);
+    }
+    _out[_n] = 0;
+}
+
+// Copies the whole of _s into _out as fude_utf8_copy does; NULL copies as "".
+void fude_utf8_set(c8* _out, usize _size, const c8* _s) {
+    fude_utf8_copy(_out, _size, _s != NULL ? _s : "", _s != NULL ? rde_strlen(_s) : 0u);
 }

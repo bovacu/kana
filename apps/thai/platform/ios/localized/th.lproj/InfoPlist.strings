@@ -1,0 +1,3 @@
+/* The camera prompt (Text from a photo, Scan pages), in th. UTF-8. */
+"NSCameraUsageDescription" = "Thai Learn! ใช้กล้องสแกนหน้ากระดาษ เพื่อให้คุณอ่านและเขียนลงบนหน้านั้นได้";
+"CFBundleDisplayName" = "Thai Learn!";

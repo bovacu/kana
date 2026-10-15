@@ -1,5 +1,7 @@
-#include "drawing/base/save.h"
+#include "drawing/ink/pagefile.h"
+#include "drawing/app/settings.h"
 #include "drawing/base/theme.h"
+#include "drawing/base/kfile.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +25,7 @@ rde_file* rde_file_open(const c8* p, RDE_FILE_MODE_ m) {
     rde_file* r = malloc(sizeof(*r)); r->f = f; return r;
 }
 void rde_file_write_bytes(rde_file* f, const u8* d, usize n) { g_failed = fwrite(d, 1, n, f->f) != n; }
+b8   rde_file_sync(rde_file* f) { return fflush(f->f) == 0; }   // (a save syncs before its renames: kfile.c)
 void rde_file_close(rde_file* f) { fclose(f->f); free(f); }
 u8* rde_file_read_full_file_bytes(rde_file* f, usize* n, rde_memory_allocator* a) {
     fseek(f->f, 0, SEEK_END); long sz = ftell(f->f); rewind(f->f);
@@ -42,7 +45,7 @@ static fude_page PG;   // a page's options where the test is not about them
 
 static void stroke(fude_ink* k, f32 y, u32 n, rde_color col) {
     k->color = col;
-    fude_ink_begin(k, (rde_vec_2F){ 0.0f, y }, true, false);
+    fude_ink_begin(k, (rde_vec_2F){ 0.0f, y }, true);
     for(u32 i = 1; i < n; i++) { k->sample_time += 0.004; k->pressure = 0.002f * (f32)i; fude_ink_extend(k, (rde_vec_2F){ 3.5f * (f32)i, y + 0.25f * (f32)i }); }
     fude_ink_end(k);
 }
@@ -98,14 +101,29 @@ int main(void) {
     CHECK(memcmp(&va, &vb, sizeof va) == 0);
     { fude_ink k; fude_ink_init(&k); fude_view v = { {0,0}, 1 };                                       // a document's turned pages round trip
       fude_page t = { .paper = FUDE_PAPER_NONE }, u;
+      CHECK(fude_page_turn_count(&t) == 0 && fude_page_turned(&t, 3) == 0);                         // no list until a turn
       CHECK(fude_page_turn_more(&t, 3) && fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 3) && fude_page_turn_more(&t, 70));
       CHECK(fude_page_turned(&t, 3) == 2 && fude_page_turned(&t, 0) == 1 && fude_page_turned(&t, 70) == 1 && fude_page_turned(&t, 5) == 0);
+      CHECK(t.revision == 4 && !fude_page_turn_more(&t, 70000));                                      // a page past 16 bits: refused
+      { fude_page e = { .paper = FUDE_PAPER_NONE };                                                  // the last page that turns, and the first that does not
+        CHECK(fude_page_turn_more(&e, FUDE_PAGE_TURN_PAGES - 1u) && fude_page_turned(&e, FUDE_PAGE_TURN_PAGES - 1u) == 1 && !fude_page_turn_more(&e, FUDE_PAGE_TURN_PAGES));
+        fude_page_reset(&e); }
       CHECK(fude_save_document(doc2, &k, v, t, NULL));
       memset(&u, 0, sizeof(u));
-      CHECK(fude_load_document(doc2, &k, &v, &u) == FUDE_LOAD_OK && fude_page_same(&t, &u) && u.turn_count == 3 && fude_page_turned(&u, 3) == 2);
-      CHECK(fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turned(&t, 0) == 0 && t.turn_count == 2);   // round again: upright, gone
+      CHECK(fude_load_document(doc2, &k, &v, &u) == FUDE_LOAD_OK && u.paper == FUDE_PAPER_NONE && fude_page_turn_count(&u) == 3);
+      CHECK(fude_page_turned(&u, 3) == 2 && fude_page_turned(&u, 0) == 1 && fude_page_turned(&u, 70) == 1 && u.revision > 0);
+      CHECK(fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turn_more(&t, 0) && fude_page_turned(&t, 0) == 0 && fude_page_turn_count(&t) == 2);   // round again: upright, gone
+      // No cap on how many: a whole book turned page by page round trips, and a reload replaces the list.
+      for(u32 p = 100; p < 400; p++) CHECK(fude_page_turn_more(&t, p));
+      CHECK(fude_page_turn_count(&t) == 302 && fude_save_document(doc2, &k, v, t, NULL));
+      { fude_ink k2; fude_ink_init(&k2); const u32 before = u.revision;
+        CHECK(fude_load_document(doc2, &k2, &v, &u) == FUDE_LOAD_OK && fude_page_turn_count(&u) == 302 && u.revision != before);
+        CHECK(fude_page_turned(&u, 399) == 1 && fude_page_turned(&u, 3) == 2 && fude_page_turned(&u, 0) == 0);
+        fude_ink_destroy(&k2); }
+      fude_page_reset(&t); CHECK(fude_page_turn_count(&t) == 0 && t.paper == FUDE_PAPER_DOTS && t.turns.memory == NULL);
+      fude_page_reset(&u);
       fude_ink_destroy(&k); }
-    { fude_ink k; fude_ink_init(&k); fude_view v = { {0,0}, 1 }; fude_page q;                      // every paper round trips
+    { fude_ink k; fude_ink_init(&k); fude_view v = { {0,0}, 1 }; fude_page q = { 0 };              // every paper round trips
       for(u32 i = 0; i < FUDE_PAPER_COUNT; i++) { CHECK(fude_save_document(doc2, &k, v, (fude_page){ .paper = (FUDE_PAPER_)i }, NULL));
                                                  q.paper = (FUDE_PAPER_)((i + 1) % FUDE_PAPER_COUNT); CHECK(fude_load_document(doc2, &k, &v, &q) == FUDE_LOAD_OK && q.paper == (FUDE_PAPER_)i); }
       fude_ink_destroy(&k); }
@@ -127,7 +145,11 @@ int main(void) {
 
     // Main missing (kill between the two renames): the backup.
     { remove(doc); fude_ink c; fude_ink_init(&c); fude_view vc = { {0,0}, 1 };
-      CHECK(fude_load_document(doc, &c, &vc, &PG) == FUDE_LOAD_RECOVERED); CHECK(same_page(&a, &c)); fude_ink_destroy(&c); }
+      CHECK(fude_load_document(doc, &c, &vc, &PG) == FUDE_LOAD_RECOVERED); CHECK(same_page(&a, &c)); fude_ink_destroy(&c);
+      // The backup is put back as the main file (save.h), so the next load reads it as any, and a save builds on it.
+      CHECK(rde_file_exists(doc) && file_size(doc) == file_size(bak));
+      fude_ink d; fude_ink_init(&d); fude_view vd = { {0,0}, 1 };
+      CHECK(fude_load_document(doc, &d, &vd, &PG) == FUDE_LOAD_OK); CHECK(same_page(&a, &d)); fude_ink_destroy(&d); }
 
     // Garbage everywhere: CORRUPT, ink untouched.
     { FILE* f = fopen(doc, "wb"); fputs("not a kana file at all", f); fclose(f);
@@ -173,6 +195,24 @@ int main(void) {
         fude_ink_destroy(&c); fude_ink_destroy(&l);
     }
 
+    // A damaged settings file: the backup's settings (save.h: fude_save_load, every saved file's rule), the damaged one
+    // set aside — and a settings file read from its backup is applied like any (the session takes RECOVERED too).
+    {
+        c8 sbak[512], sbad[512]; snprintf(sbak, sizeof sbak, "%s.bak", set); snprintf(sbad, sizeof sbad, "%s.bad", set);
+        remove(set); remove(sbak); remove(sbad);
+        fude_settings first = { .tool = 2, .radius = 3.0f, .theme = FUDE_THEME_NIGHT };
+        fude_settings second = { .tool = 1, .radius = 9.0f, .theme = FUDE_THEME_PAPER };
+        CHECK(fude_save_settings(set, &first) && fude_save_settings(set, &second));   // the first is the .bak now
+        { FILE* f = fopen(set, "r+b"); ftruncate(fileno(f), 6); fclose(f); }           // not even a header
+        fude_settings t; memset(&t, 0, sizeof t);
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_RECOVERED);
+        CHECK(t.tool == 2 && t.radius == 3.0f && t.theme == FUDE_THEME_NIGHT);
+        CHECK(rde_file_exists(sbad) && rde_file_exists(set));   // the damaged one set aside, the backup in its place
+        remove(set); remove(sbak); remove(sbad);
+        memset(&t, 0, sizeof t); t.tool = 3;
+        CHECK(fude_load_settings(set, &t) == FUDE_LOAD_MISSING && t.tool == 3);          // neither there: untouched
+    }
+
     // Settings round trip, and an older (shorter) file keeps the missing fields.
     {
         fude_settings s = { .tool = 1, .vertical = false, .show_hud = true, .brush_scale = 1, .width_mode = 0,
@@ -213,6 +253,11 @@ int main(void) {
         s.print_x = 3.0f;                                                                             // a printer factor out of reach: never checked
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
         CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK && t.print_x == 0.0f && t.print_y == 0.0f && t.true_mm_per_point == 0.16f);
+        for(u8 u = 0; u < 8u; u++) {                                                                  // a length Measurements does not offer: millimetres
+            s.units = u;
+            CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
+            CHECK(fude_load_settings(set, &t) == FUDE_LOAD_OK && t.units == (u < FUDE_SETTINGS_UNITS ? u : 0u));
+        }
         s.units = 0; s.true_mm_per_point = 0.0f; s.print_x = 0.0f; s.print_y = 0.0f; s.kerf_mm = 0.0f;
         s.show_fps = true;                                                                            // Sketching's frame rate on screen: saved too
         CHECK(fude_save_settings(set, &s)); memset(&t, 0, sizeof t);
@@ -247,6 +292,16 @@ int main(void) {
         fude_settings sc = s; sc.smooth_chosen = true; sc.keep_grain = true;                          // from before them: the smoothing never chosen (its
         CHECK(fude_load_settings(set, &sc) == FUDE_LOAD_OK && !sc.smooth_chosen && sc.keep_grain);    // default: off); the grain as it was
 
+        // A file from before mlkit_chosen, its ML Kit byte 0 (the canvas apps wrote 0 before they had the switch): no
+        // choice, so ML Kit stays on, its default. A file saved now keeps an off (the round trip above).
+        n = 0;
+        P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');
+        P8('P'); P8('R'); P8('E'); P8('F'); P32(5 + 4 + 4 + 8 + 1 + 1);
+        P8(0); P8(1); P8(0); P8(0); P8(0); P8(30); P8(30); P8(36); P8(255); PF(2.0f); PF(10.0f); PF(20.0f); P8(0); P8(0);
+        f = fopen(set, "wb"); fwrite(buf, 1, n, f); fclose(f);
+        fude_settings ml = s; ml.mlkit = true;
+        CHECK(fude_load_settings(set, &ml) == FUDE_LOAD_OK && ml.mlkit && ml.radius == 2.0f);
+
         // An out-of-range theme (a newer build's) keeps the current one.
         n = 0;
         P8('K'); P8('A'); P8('N'); P8('A'); P32(1); P8('S'); P8('E'); P8('T'); P8('T');
@@ -259,6 +314,15 @@ int main(void) {
     }
 
     fude_ink_destroy(&a); fude_ink_destroy(&b);
+    // The same file damaged twice: both copies kept, the first one untouched (kfile.h: fude_file_set_aside).
+    { c8 twice[256], first[300], second[300];
+      snprintf(twice, sizeof twice, "%stwice.kana", dir); snprintf(first, sizeof first, "%s.bad", twice); snprintf(second, sizeof second, "%s.2.bad", twice);
+      remove(first); remove(second);
+      FILE* f = fopen(twice, "wb"); fputs("first damage", f); fclose(f); fude_file_set_aside(twice);
+      f = fopen(twice, "wb"); fputs("second", f); fclose(f); fude_file_set_aside(twice);
+      CHECK(!rde_file_exists(twice) && file_size(first) == 12 && file_size(second) == 6);
+      remove(first); remove(second); }
+
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

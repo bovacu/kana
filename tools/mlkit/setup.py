@@ -35,11 +35,12 @@
 #
 # and, into each study app's assets (they ship, and Settings > Licences shows them):
 #   apps/<app>/assets/licenses/ml-kit-notices.txt   ML Kit's NOTICES (the software inside it)
-#   apps/<app>/assets/licenses/libraries.txt        the source pods' licences
+# (the source pods' licences go into apps/<app>/assets/licenses/libraries.txt with the rest: tools/licences/build.py,
+# run at the end)
 #
 # Run from the project root:  python3 tools/mlkit/setup.py
 # ===========================================================================
-import glob, os, shutil, subprocess, tarfile, urllib.request
+import glob, os, shutil, subprocess, sys, tarfile, urllib.request
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 OUT  = os.path.join(ROOT, "third_party", "mlkit")
@@ -226,22 +227,18 @@ for code, (ocr_fw, _, app) in list(OCR.items()) + [(c, (None, None, a)) for c, a
                 continue   # the same notices again
             written.add(text)
             out.write("-" * 60 + "\n" + fw + "\n" + "-" * 60 + "\n\n" + text + "\n")
-    LICENCES = [   # what, pod, its licence files
-        ("GTMSessionFetcher (Google) - Apache License 2.0",   "GTMSessionFetcher",   ["LICENSE"]),
-        ("GoogleDataTransport (Google) - Apache License 2.0", "GoogleDataTransport", ["LICENSE"]),
-        ("GoogleUtilities (Google) - Apache License 2.0",     "GoogleUtilities",     ["LICENSE"]),
-        ("GoogleToolboxForMac (Google) - Apache License 2.0", "GoogleToolboxForMac", ["LICENSE"]),
-        ("Promises (Google) - Apache License 2.0",            "PromisesObjC",        ["LICENSE"]),
-        ("nanopb - zlib License",                             "nanopb",              ["LICENSE.txt"]),
-        ("SSZipArchive - MIT License",                        "SSZipArchive",        ["LICENSE.txt"]),
-        ("minizip-ng (in SSZipArchive) - zlib License",       "SSZipArchive",        ["SSZipArchive/minizip/LICENSE"]),
-    ]
-    with open(os.path.join(LIC, "libraries.txt"), "w") as out:
-        out.write("OPEN-SOURCE LIBRARIES that Google ML Kit uses, built into " + app.capitalize() + ":\n\n")
-        for what, pod, files in LICENCES:
-            out.write("=" * 60 + "\n" + what + "\n" + "=" * 60 + "\n\n")
-            for f in files:
-                out.write(open(os.path.join(root[pod], f), encoding="utf-8", errors="replace").read().strip() + "\n\n")
-        # Then the apps' own, on Android (PDFBox: a PDF's text and Share as PDF), kept in fude/android.
-        out.write(open(os.path.join(ROOT, "fude", "android", "libraries-android.txt"), encoding="utf-8").read().replace("{APP}", app.capitalize()))
+# The canvas apps' (Sketching's assets, which InfiNote and InfiniWorkshop are built over): the handwriting reader
+# alone, which is all of ML Kit they link, so no translation disclaimer.
+CANVAS_LIC = os.path.join(ROOT, "apps", "sketching", "assets", "licenses")
+os.makedirs(CANVAS_LIC, exist_ok=True)
+with open(os.path.join(CANVAS_LIC, "ml-kit-notices.txt"), "w") as out:
+    out.write("GOOGLE ML KIT (MLKitDigitalInkRecognition, MLKitCommon, MLKitMDD)\n"
+              "Used under Google's terms: developers.google.com/ml-kit/terms\n\n"
+              "Notices for the software it contains, as Google ships them:\n\n")
+    out.write("-" * 60 + "\nMLKitDigitalInkRecognition\n" + "-" * 60 + "\n\n" +
+              open(os.path.join(PODS, "MLKitDigitalInkRecognition", "NOTICES"), encoding="utf-8", errors="replace").read() + "\n")
 print("ML Kit ready in", OUT, "-", len(objs), "objects in libmlkit_deps.a,", len(os.listdir(BUNDLES)), "bundles, text models", ", ".join(OCR))
+# The source pods' licences are in every app's libraries.txt, which tools/licences/build.py writes with everything
+# else built into the app (its texts/ keep a verbatim copy of each pod's licence file: copy them again there when
+# PINS changes a pod's release).
+subprocess.run([sys.executable, os.path.join(ROOT, "tools", "licences", "build.py")], check=True)

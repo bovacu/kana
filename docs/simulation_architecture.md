@@ -1,6 +1,6 @@
 # Simulation architecture: circuits, logic, mechanisms, custom parts
 
-Sketching's simulations — electronics (analog and digital), mechanisms, and whatever comes after (PCBs, thermal, optics) — built as one system, not one per topic. This document is the design every later piece follows. Status of each part is at the end.
+The canvas apps' simulations (Sketching's and InfiniWorkshop's; InfiNote has neither circuits nor mechanisms) — electronics (analog and digital), mechanisms, and whatever comes after (PCBs, thermal, optics) — built as one system, not one per topic. This document is the design every later piece follows. Status of each part is at the end.
 
 ## 1. What it must do
 
@@ -28,7 +28,7 @@ Sketching's simulations — electronics (analog and digital), mechanisms, and wh
   view (zoom/)              overlays, instruments, moving parts — never the reverse
 ```
 
-- The **canvas** is never written by a simulation, and the engines never read the canvas: they read a netlist compiled from it (`circuit.c`'s build and `mech.c`'s plan today; `sim/` from now on).
+- The **canvas** is never written by a simulation, and the engines never read the canvas: they read a netlist compiled from it (today: logic through `sim/`'s netlist, compiled by `zoom/logic.c`; the analog circuit through its own build, `zoom/circuit_build.c`; mechanisms through `zoom/mech.c`'s plan).
 - Everything below the canvas is **pure C with no canvas, no UI, no RDE rendering**, and is unit-tested on its own (`tests/sim/`). Only the mechanical engine uses RDE (its physics).
 - The **view** draws from the published state only (as a game's view draws its world).
 
@@ -110,7 +110,7 @@ Models reach the engines only through the context (`fude_sim_in`, `fude_sim_out(
 ## 5. Engines and how they run together
 
 - **Digital** (events): an event queue (time, port, value); a net's value resolved from its drivers (0/1 win over Z; 0 against 1 is X); when it changes, the models reading it are asked; delays (each model's, by default a few nanoseconds) order them. Clocks and timers wake themselves. Thousands of gates at interactive speed.
-- **Analog** (MNA): the nodes' voltages and the sources' currents solved together; Newton for what is not linear, with SPICE's limiting; trapezoidal integration (backward Euler to start and after a jump); steps that grow and shrink with the circuit's error; breakpoints at sources' edges; a sparse LU. (Today's `circuit.c` is the start of it: §27 of the design notes; it moves here, model by model.)
+- **Analog** (nodal analysis): every source stamped as its Norton equivalent (a voltage behind a small resistance: a DC source's 1 mΩ, a battery's 0.5 Ω, a logic output's 25 Ω), so the unknowns are the nodes' voltages alone, with no rows for sources' currents (`circuit.h`'s overview); Newton for what is not linear, its steps damped to 2 V a node in place of SPICE's junction limiting; trapezoidal integration (backward Euler to start and after a jump); steps that grow and shrink with the circuit's error; breakpoints at sources' edges; a sparse LU. (Today it is the canvas's: `zoom/circuit.c` and its `circuit_*.c` modules, on `sim/sparse.c`'s LU; §27, §46, §48 and §59 of the design notes. It moves here, model by model.)
 - **Mechanical**: RDE's 2D physics (Box2D v3 with RDE's own pulley and gear joints, `mechrun.h`), stepped in 240ths of a second.
 
 A **scheduler** runs them together in steps of the mechanical engine's (1/240 s; finer when analog needs it):
@@ -150,10 +150,10 @@ A truth table or one expression per output (`Y = S1 ? (S0 ? D3 : D2) : (S0 ? D1 
 - Its shape: its outline in the home frame, simplified, cut into convex pieces (at most eight corners each: the physics' polygons) — a concave shape is several pieces of one body.
 - An **open** line made into a body is fixed ground: a ramp, a track, a funnel (its line as a chain of thin capsules).
 - Pins and welds placed on it join it to the rest; holes are where pins go.
-- Stored as an attribute on the drawing (a BODY object naming it by its id, as constraints and wires name theirs), so the drawing stays a drawing, and the body follows it when it is moved or re-made.
+- Stored as an attribute on the drawing (a PROPS object of kind BODY, `zoom/props.h`, naming it by its id, as constraints and wires name theirs), so the drawing stays a drawing, and the body follows it when it is moved or re-made.
 
 ### With circuits
-Ports in ROTATION and TRANSLATION are a body's: a **motor** symbol over a body's hole is its shaft (wired: its torque from its current, its back-EMF from its speed; not wired: an ideal speed, as today); a **servo** turns to the angle its PWM says; a **potentiometer** or **encoder** on a shaft reads its angle; a **limit switch** is closed while a body presses it; a **solenoid** pushes a plunger body; a motor turned by a mechanism is a generator.
+Ports in ROTATION and TRANSLATION are a body's: a **motor** symbol over a body's hole is its shaft (wired: its torque from its current, its back-EMF from its speed; not wired: an ideal speed, as a mechanism's own motor turns); a **servo** turns to the angle its PWM says; a **potentiometer** or **encoder** on a shaft reads its angle; a **limit switch** is closed while a body presses it; a **solenoid** pushes a plunger body; a motor turned by a mechanism is a generator.
 
 ## 8. PCBs (later; why the model is as it is)
 
@@ -174,19 +174,21 @@ Each layer by itself, with answers known:
 
 ## 10. Where it stands, and the order of work
 
+Checked against the code on 2026-10-15. Only the digital engine runs in `sim/` so far, as `sim/sim.h` says: `sim/` holds the definitions and elaboration (`def.c`, `elab.c`), the digital engine and its logic models (`digital.c`, `logic.c`), the chips (`chips.c`), the sparse solver the analog engine uses (`sparse.c`), and bodies' shapes and materials (`body.c`). The analog engine (`zoom/circuit.c` and its `circuit_*.c` modules), the mechanical engine (`zoom/mech.c`, `zoom/mechrun.c`) and what joins them (`zoom/coupling.c`) are still in the canvas layer. They are tested by `tests/sim` (the core on its own), `tests/spice` (the analog engine against ngspice), `tests/mech` (mechanisms, and motors coupled to them) and the canvas's suite, `tests/zoom` (`tests/README.md`). The releases below are the design notes' (`docs/infinite_canvas_design.md`).
+
 | step | what | status |
 |---|---|---|
 | 0 | this design | written (0.1.51) |
-| 1 | `sim/` core: definitions, ports, domains, library, hierarchical netlists, elaboration, the text format; the digital engine and its logic models (gates of any inputs, buffers, tri-states, flip-flops with set and reset, clocks, constants, a memory); the chips (74HC…) as part texts | 0.1.51 |
-| 2 | drawings made into bodies (Mechanisms) | 0.1.51 |
+| 1 | `sim/` core: definitions, ports, domains, library, hierarchical netlists, elaboration, the text format; the digital engine and its logic models (gates of any inputs, buffers, tri-states, flip-flops with set and reset, clocks, constants, a memory); the chips (74HC…) as part texts | 0.1.51; the CD4511 (0.1.67) and the CD4017 (0.1.75) added to the chips |
+| 2 | drawings made into bodies (Mechanisms) | 0.1.51; materials' strength, joints that break and motors that jam 0.1.65 |
 | 3 | the canvas compiled into `sim/`'s netlist (every logic part: `zoom/logic.h`), bridges where logic meets the analog circuit, **Make part** (logic inputs and probes its ports), custom part symbols, My parts kept and learnt | 0.1.51 |
-| 3b | Look inside, Edit part, My parts as a library tab, each canvas keeping a copy of the definitions it uses | next |
-| 4 | the analog engine moved into `sim/` model by model, with the solver's core (§34 of the design notes: trapezoidal, adaptive steps, analytic Jacobians, sparse LU, limiting) | |
-| 5 | mixed nets bridged; the scheduler running digital, analog and mechanical together | |
-| 6 | instruments: oscilloscope, function generator, multimeter, ratings | |
-| 7 | electromechanical parts: motors with back-EMF, servos, encoders, potentiometers on shafts, limit switches, solenoids | |
-| 8 | models in depth (diodes, BJTs, MOSFETs, op-amps, transformers, relays, batteries, sensors) | |
-| 9 | microcontroller boards running sketches; I²C/SPI parts | |
-| 10 | behavioural parts (truth tables, expressions, state machines) | |
-| 11 | analyses: operating point, sweeps, AC (Bode), Monte Carlo | |
-| 12 | PCBs: footprints, netlist out, the board canvas, Gerbers | |
+| 3b | Look inside, Edit part, My parts as a library tab, each canvas keeping a copy of the definitions it uses | in part (0.1.57): My parts are in the library's Custom tab; Inside opens a part's own canvas (its template: the drawing it was made of, or its inside drawn from its definition), and that canvas, changed, makes the part again, every use of it on every canvas following; Rename and Delete. Not yet: each canvas keeping a copy of the definitions it uses (a custom part is found in My parts alone, `page_custom.c`), zooming into a part to see its inside, Unpack |
+| 4 | the analog engine moved into `sim/` model by model, with the solver's core (§34 of the design notes: trapezoidal, adaptive steps, analytic Jacobians, sparse LU, limiting) | the solver's core in part, still in the canvas layer: circuits solved in independent blocks (0.1.60), each on `sim/sparse.c`'s LU (0.1.62); trapezoidal integration with backward Euler after a jump, adaptive steps and breakpoints (0.1.64); rails held and quiet blocks (0.1.78). Not yet: analytic Jacobians (each is worked out by nudging the voltages, `circuit_stamp.c`), SPICE's junction limiting (instead, each block's Newton step is scaled down so that no node moves more than 2 V, `circuit_solve.c`), gmin and source stepping, and the move into `sim/` |
+| 5 | mixed nets bridged; the scheduler running digital, analog and mechanical together | in the canvas layer: logic bridged to the analog circuit both ways (0.1.51, `zoom/logic.c`); a circuit and a mechanism stepped together in the mechanism's steps of 1/240 s, each told what the other did (0.1.58, `zoom/coupling.c`), the circuit's own steps finer inside them (0.1.64). Not yet as `sim/`'s scheduler |
+| 6 | instruments: oscilloscope, function generator, multimeter, ratings | in part: the oscilloscope (0.1.71; its knobs 0.1.76 and 0.1.77), the voltmeter, the ammeter and the panel meter (0.1.67), each part's ratings and what happens past them (0.1.63). Not yet: a function generator (there are an AC source and a clock with a set pulse width), a multimeter's ohms and continuity |
+| 7 | electromechanical parts: motors with back-EMF, servos, encoders, potentiometers on shafts, limit switches, solenoids | done: motors with back-EMF and push buttons pressed by a mechanism (0.1.58), servos (0.1.64), encoders, pots on shafts, solenoids, steppers and slotted sensors (0.1.73) |
+| 8 | models in depth (diodes, BJTs, MOSFETs, op-amps, transformers, relays, batteries, sensors) | in part: diodes, LEDs, BJTs (Ebers–Moll) and MOSFETs (the square law) checked against ngspice (0.1.64); breakdown past a part's voltage (0.1.73); a relay module (0.1.46); LDRs and thermistors (0.1.72); transformers, SCRs and TRIACs, comparators, optocouplers, photodiodes and phototransistors (0.1.75). Not yet: Gummel–Poon's effects, JFETs, op-amp macromodels (an op-amp is a tanh behind 1 Ω), batteries that run down (a battery is a source behind 0.5 Ω), crystals |
+| 9 | microcontroller boards running sketches; I²C/SPI parts | not yet: a board's pins are driven by lines of its text ("D13 blink", "D9 high"), and the I²C modules (an LCD, an OLED) are drawn only |
+| 10 | behavioural parts (truth tables, expressions, state machines) | not yet |
+| 11 | analyses: operating point, sweeps, AC (Bode), Monte Carlo | not yet: Play starts every circuit from 0 V, its first step a backward Euler one of 1 µs (`FZC_STEP_FIRST`), and runs it in time; a DC operating point (`fude_zoom_circuit_dc`) exists for the tests only |
+| 12 | PCBs: footprints, netlist out, the board canvas, Gerbers | not yet |

@@ -2,19 +2,22 @@
 
 #include "study/app/welcome.h"
 #include "drawing/app/screen.h"
-#include "drawing/widgets/draw.h"
-#include "drawing/widgets/icons.h"
+#include "drawing/base/draw.h"
+#include "drawing/base/icons.h"
 #include "drawing/widgets/kit.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
 #include "study/services/speech.h"
 
-#include <math.h>
-
 // ===========================================================================
 // See welcome.h.
+//
+// The welcome is drawn directly each frame (not with the UI's widgets), in screen units with the origin in the middle
+// of the screen. Its buttons' rectangles are kept from the last frame's drawing, for the pointer.
 // ===========================================================================
 
+// The card's size and its words' sizes, in screen units: its width, the padding inside it, the icon's size, the
+// title's and the body's text sizes, the body's line height, and the size of the Next and Skip buttons.
 #define FUDE_WELCOME_CARD_W  560.0f
 #define FUDE_WELCOME_PAD     32.0f
 #define FUDE_WELCOME_ICON    64.0f
@@ -23,22 +26,25 @@
 #define FUDE_WELCOME_LINE    27.0f
 #define FUDE_WELCOME_BUTTON  (rde_vec_2F){ 190.0f, 48.0f }
 
+// The pages, in order: each one's icon, title and body.
 static const struct { const c8* icon; FUDE_TEXT_ title; FUDE_TEXT_ body; } FUDE_WELCOME_PAGE[FUDE_WELCOME_PAGES] = {
     { FUDE_ICON_BOOK,  FUDE_TEXT_WELCOME_1_TITLE, FUDE_TEXT_WELCOME_1 },
     { FUDE_ICON_PEN,   FUDE_TEXT_WELCOME_2_TITLE, FUDE_TEXT_WELCOME_2 },
-    { FUDE_ICON_CAMERA,     FUDE_TEXT_WELCOME_3_TITLE, FUDE_TEXT_WELCOME_3 },   // text from the camera
+    { FUDE_ICON_CAMERA,     FUDE_TEXT_WELCOME_3_TITLE, FUDE_TEXT_WELCOME_3 },   // reading text with the camera
     { FUDE_ICON_LASSO,      FUDE_TEXT_WELCOME_4_TITLE, FUDE_TEXT_WELCOME_4 },   // copy, paste as handwriting, check
     { FUDE_ICON_TRANSLATE,  FUDE_TEXT_WELCOME_5_TITLE, FUDE_TEXT_WELCOME_5 },   // translation, both ways
     { FUDE_ICON_MENU,       FUDE_TEXT_WELCOME_6_TITLE, FUDE_TEXT_WELCOME_6 },   // what to study
     { FUDE_ICON_CHART_LINE, FUDE_TEXT_WELCOME_7_TITLE, FUDE_TEXT_WELCOME_7 },   // statistics, the album, your data
 };
 
+// Opens the welcome at its first page.
 void fude_welcome_open(fude_welcome* _welcome) {
     _welcome->open    = true;
     _welcome->page    = 0;
     _welcome->pressed = 0;
 }
 
+// Opens the must-read card on why the app works offline; once its Close is pressed, the card's bit is set.
 void fude_welcome_offline(fude_welcome* _welcome) {
     if(_welcome->card != NULL) {
         fude_readcard_open(_welcome->card, FUDE_TEXT_OFFLINE_TITLE, FUDE_TEXT_OFFLINE, FUDE_WELCOME_CARD_SECONDS, _welcome->cards_read,
@@ -46,11 +52,12 @@ void fude_welcome_offline(fude_welcome* _welcome) {
     }
 }
 
-// Open settings: the device's text-to-speech (Android).
+// The voice card's Open settings button opens the device's text-to-speech settings (Android).
 RDE_INTERNAL void fude_welcome_on_voice_settings(void) {
     fude_speech_open_settings();
 }
 
+// Opens the voice card with Android's steps and its Open settings button, or iOS's steps.
 void fude_welcome_voice_as(fude_welcome* _welcome, b8 _android) {
     if(_welcome->card == NULL) {
         return;
@@ -63,6 +70,7 @@ void fude_welcome_voice_as(fude_welcome* _welcome, b8 _android) {
     }
 }
 
+// Opens the voice card with the steps for the platform the app runs on.
 void fude_welcome_voice(fude_welcome* _welcome) {
 #if defined(RDE_PLATFORM_ANDROID)
     fude_welcome_voice_as(_welcome, true);
@@ -71,11 +79,15 @@ void fude_welcome_voice(fude_welcome* _welcome) {
 #endif
 }
 
+// Once a frame: opens the voice card once, when the device has no voice for the language, after the welcome and the
+// offline card are closed and read, and when nothing else is open.
 void fude_welcome_update(fude_welcome* _welcome) {
     if(_welcome == NULL || _welcome->cards_read == NULL) {
         return;
     }
-    const FUDE_SPEECH_ _voice = fude_speech_state();   // each frame: Android's engine starts, and is asked again coming back
+    // The voice's state is asked for every frame, so that Android's engine starts, and is asked again when the app
+    // comes back.
+    const FUDE_SPEECH_ _voice = fude_speech_state();   // read before the checks below, so it is asked every frame
     const u8           _read  = *_welcome->cards_read;
     if(_welcome->open || (_welcome->card != NULL && _welcome->card->open) || (_read & FUDE_WELCOME_CARD_OFFLINE) == 0u ||
        (_read & FUDE_WELCOME_CARD_VOICE) != 0u) {
@@ -86,7 +98,7 @@ void fude_welcome_update(fude_welcome* _welcome) {
     }
 }
 
-// Skipped or finished: the card, the first time.
+// Closes the welcome, when it is skipped or finished, and opens the offline card the first time.
 RDE_INTERNAL void fude_welcome_close(fude_welcome* _welcome) {
     _welcome->open = false;
     if(_welcome->cards_read != NULL && (*_welcome->cards_read & FUDE_WELCOME_CARD_OFFLINE) == 0u) {
@@ -94,15 +106,19 @@ RDE_INTERNAL void fude_welcome_close(fude_welcome* _welcome) {
     }
 }
 
+// True when _p is inside the rectangle from _min to _max.
 RDE_INTERNAL b8 fude_welcome_inside(rde_vec_2F _p, rde_vec_2F _min, rde_vec_2F _max) {
     return _p.x >= _min.x && _p.x <= _max.x && _p.y >= _min.y && _p.y <= _max.y;
 }
 
+// Remembers which button the pointer went down on: 1 for Next, 2 for Skip, 0 for none.
 void fude_welcome_pointer_down(fude_welcome* _welcome, rde_vec_2F _screen) {
     _welcome->pressed = fude_welcome_inside(_screen, _welcome->next_min, _welcome->next_max) ? 1
                       : fude_welcome_inside(_screen, _welcome->skip_min, _welcome->skip_max) ? 2 : 0;
 }
 
+// A button acts when the pointer goes up on the same button it went down on. Next on the last page is Start writing,
+// which closes the welcome.
 void fude_welcome_pointer_up(fude_welcome* _welcome, rde_vec_2F _screen) {
     const i32 _was = _welcome->pressed;
     _welcome->pressed = 0;
@@ -117,6 +133,8 @@ void fude_welcome_pointer_up(fude_welcome* _welcome, rde_vec_2F _screen) {
     }
 }
 
+// Draws the page over everything, then the card in the middle of the safe area: the icon, the title, the body, the
+// dots that show the page, and the buttons. The card shrinks its words and icon when the screen is too short.
 void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* _font, f32 _font_px) {
     if(!_welcome->open || _font == NULL) {
         return;
@@ -127,14 +145,14 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     const f32         _sw     = (f32)_size.x;
     const f32         _sh     = (f32)_size.y;
 
-    // The page's colour over everything, then the card in the middle.
+    // The page's colour covers everything, then the card goes in the middle.
     rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), 0.0f }, (rde_vec_2F){ _sw, _sh }, _t->page);
-    const f32 _w     = fminf(FUDE_WELCOME_CARD_W, _sw - (f32)(_insets.x + _insets.z) - 32.0f);
+    const f32 _w     = rde_math_min_f32(FUDE_WELCOME_CARD_W, _sw - (f32)(_insets.x + _insets.z) - 32.0f);
     const f32 _inner = _w - 2.0f * FUDE_WELCOME_PAD;
     const u32 _page  = _welcome->page < FUDE_WELCOME_PAGES ? _welcome->page : FUDE_WELCOME_PAGES - 1u;
     FUDE_TEXT_ _title_id = FUDE_WELCOME_PAGE[_page].title, _body_id = FUDE_WELCOME_PAGE[_page].body;
 #if defined(RDE_PLATFORM_ANDROID)
-    // A stylus, not the Apple Pencil.
+    // Android's page speaks of a stylus, not the Apple Pencil.
     if(_body_id == FUDE_TEXT_WELCOME_2) {
         _title_id = FUDE_TEXT_WELCOME_2_TITLE_ANDROID;
         _body_id  = FUDE_TEXT_WELCOME_2_ANDROID;
@@ -143,12 +161,14 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     const c8* _title = fude_text(_title_id);
     const c8* _body  = fude_text(_body_id);
     const f32 _title_px = fude_draw_text_px_to_fit(_font, _font_px, _title, FUDE_WELCOME_TITLE, _inner);
-    // On a phone the first page says the app is made for tablets, under its words.
+    // On a phone, the first page also says, under its words, that the app is made for tablets.
     const c8* _phone = _page == 0u && fude_kit_compact(_window) ? fude_text(FUDE_TEXT_WELCOME_PHONE) : NULL;
-    // A screen too short for it (a phone): smaller words and icon.
+    // When the screen is too short for the card (a phone), its words and icon get smaller.
     f32 _body_px = FUDE_WELCOME_BODY, _line = FUDE_WELCOME_LINE, _icon = FUDE_WELCOME_ICON;
     u32 _lines   = fude_draw_text_wrap_lines(_font, _font_px, _body, _body_px, _inner);
     u32 _notes   = _phone != NULL ? fude_draw_text_wrap_lines(_font, _font_px, _phone, _body_px, _inner) : 0u;
+    // The card's height, from its parts top to bottom: the padding, the icon, the title, the body, the phone's note,
+    // the dots and the buttons.
     #define FUDE_WELCOME_H() (FUDE_WELCOME_PAD + _icon + 24.0f + _title_px * 1.4f + 16.0f + (f32)_lines * _line + (_notes > 0u ? 14.0f + (f32)_notes * _line : 0.0f) + \
                               28.0f + 12.0f + 28.0f + FUDE_WELCOME_BUTTON.y + FUDE_WELCOME_PAD)
     if(FUDE_WELCOME_H() > _sh - (f32)(_insets.y + _insets.w) - 32.0f) {
@@ -160,7 +180,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     }
     const f32 _h = FUDE_WELCOME_H();
     #undef FUDE_WELCOME_H
-    const f32 _cy  = ((f32)_insets.w - (f32)_insets.y) * 0.5f;   // the safe area's middle
+    const f32 _cy  = ((f32)_insets.w - (f32)_insets.y) * 0.5f;   // the middle of the safe area
     const f32 _top = _cy + _h * 0.5f;
     const f32 _l   = -_w * 0.5f;
     fude_draw_card((rde_vec_2F){ _l, _top - _h }, (rde_vec_2F){ _l + _w, _top }, 24.0f, _t->surface, _t->outline);
@@ -178,14 +198,14 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
         _y -= 14.0f + (f32)_notes * _line;
     }
 
-    // Where it is: a dot a page.
+    // A dot for each page, the current one larger and in the accent colour.
     for(u32 _i = 0; _i < FUDE_WELCOME_PAGES; _i++) {
         const f32 _x = ((f32)_i - (f32)(FUDE_WELCOME_PAGES - 1u) * 0.5f) * 18.0f;
         rde_rendering_2d_draw_circle((rde_vec_2F){ fude_draw_x(_x), _y }, _i == _page ? 5.0f : 3.5f, 20, _i == _page ? _t->accent : _t->outline, NULL);
     }
 
-    // Skip (not on the last page) at the left, Next / Start writing at the right.
-    const rde_vec_2F _b    = { fminf(FUDE_WELCOME_BUTTON.x, (_inner - 12.0f) * 0.5f), FUDE_WELCOME_BUTTON.y };   // halves of a narrow card
+    // Skip at the left (not on the last page), and Next, or Start writing on the last page, at the right.
+    const rde_vec_2F _b    = { rde_math_min_f32(FUDE_WELCOME_BUTTON.x, (_inner - 12.0f) * 0.5f), FUDE_WELCOME_BUTTON.y };   // each half of a narrow card
     const f32        _by   = _top - _h + FUDE_WELCOME_PAD + _b.y * 0.5f;
     const b8         _last = _page + 1u == FUDE_WELCOME_PAGES;
     const f32        _nx   = _l + _w - FUDE_WELCOME_PAD - _b.x * 0.5f;
@@ -193,6 +213,7 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
     _welcome->next_max = (rde_vec_2F){ _nx + _b.x * 0.5f, _by + _b.y * 0.5f };
     rde_color _next_c = _t->accent;
     if(_welcome->pressed == 1) {
+        // Pressed, the Next button darkens to 85% of its colour.
         _next_c.r = (u8)((u32)_next_c.r * 85u / 100u); _next_c.g = (u8)((u32)_next_c.g * 85u / 100u); _next_c.b = (u8)((u32)_next_c.b * 85u / 100u);
     }
     fude_draw_card(_welcome->next_min, _welcome->next_max, 14.0f, _next_c, _next_c);
@@ -217,16 +238,18 @@ void fude_welcome_render(fude_welcome* _welcome, rde_window* _window, rde_font* 
 }
 
 // --- the screen (screen.h) ----------------------------------------------------------------
+//
+// The screen's hooks hand the pointer and the drawing on to the functions above.
 
-RDE_INTERNAL b8   fude_welcome_screen_is_open(const void* _self) { return ((const fude_welcome*)_self)->open; }
-RDE_INTERNAL void fude_welcome_screen_down(void* _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); RDE_UNUSED(_now); fude_welcome_pointer_down((fude_welcome*)_self, _at); }
-RDE_INTERNAL void fude_welcome_screen_moved(void* _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_self); RDE_UNUSED(_at); RDE_UNUSED(_now); }
-RDE_INTERNAL void fude_welcome_screen_up(void* _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_now); fude_welcome_pointer_up((fude_welcome*)_self, _at); }
-RDE_INTERNAL void fude_welcome_screen_render(void* _self, const fude_screen_frame* _f) {
+RDE_INTERNAL b8   fude_welcome_screen_is_open(const any _self) { return ((const fude_welcome*)_self)->open; }
+RDE_INTERNAL void fude_welcome_screen_down(any _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); RDE_UNUSED(_now); fude_welcome_pointer_down((fude_welcome*)_self, _at); }
+RDE_INTERNAL void fude_welcome_screen_moved(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_self); RDE_UNUSED(_at); RDE_UNUSED(_now); }
+RDE_INTERNAL void fude_welcome_screen_up(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_now); fude_welcome_pointer_up((fude_welcome*)_self, _at); }
+RDE_INTERNAL void fude_welcome_screen_render(any _self, const fude_screen_frame* _f) {
     fude_welcome_render((fude_welcome*)_self, _f->window, _f->font, _f->font_px);
 }
 
-// Over everything, the page and the screens drawn under it; no row of its own.
+// It lies over everything, the page and the screens drawn under it, and has no row of its own.
 const fude_screen FUDE_WELCOME_SCREEN = {
     .name = "welcome", .input = FUDE_SCREEN_INPUT_POINT, .overlay = true,
     .is_open = fude_welcome_screen_is_open,

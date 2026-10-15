@@ -1,3 +1,4 @@
 /* The camera prompt (scanning pages to draw on), in es. UTF-8. */
 "NSCameraUsageDescription" = "InfiniWorkshop escanea páginas con la cámara para que puedas dibujar sobre ellas.";
 "CFBundleDisplayName" = "InfiniWorkshop";
+"NSPhotoLibraryAddUsageDescription" = "InfiniWorkshop guarda en tu fototeca las imágenes y los vídeos que exportas.";

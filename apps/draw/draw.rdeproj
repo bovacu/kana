@@ -1,0 +1,43 @@
+# Draw: the drawing core alone, built to check that it builds and runs on its own. Not released, so it has the
+# computer's builds only (no package names, icon or signing for a phone or tablet).
+# Everything RDE's builder needs to make it. The ten apps' files are alike line for line; docs/architecture.md,
+# "The builds", says why each line is there. Build through tools/build/app.sh, which gives the builder the version
+# from src/version.h (its one place):
+#   zsh tools/build/app.sh draw [command] [profile]      e.g. draw, draw release, draw run
+# Paths are from this file's folder.
+
+[project]
+# Its shell, and every file of the drawing core.
+sources = draw.c
+          ../../fude/drawing/*/*.c ../../fude/drawing/*/*.m
+# A platform's own files are named after it. Android's (JNI) are out everywhere else; [macos] says the Mac's.
+exclude = ../../fude/**/*_android.c ../../fude/drawing/base/android.c
+include = ../../fude src
+# A call to a function nothing declares is an error: C would guess its type.
+flags   = -Wall -Wextra -Werror=implicit-function-declaration
+assets  = assets/
+output  = ../../build/draw/
+default_profile = debug
+
+[macos]
+exclude   += ../../fude/**/*_ios.m
+frameworks = CoreFoundation CoreGraphics ImageIO Foundation PDFKit CoreText
+# A Mac package (`builder package`): not released, but RDE's test plan packages one (its part C).
+bundle_id  = com.rde.draw
+app_name   = Draw
+
+[windows]
+exclude += ../../fude/**/*.m
+
+# The developer's build, which reads the look flags (COMMANDS.txt).
+[profile debug]
+config = debug
+
+# A release takes no launch arguments.
+[profile release]
+config = release
+
+# A release that does, to measure it (--perf). It has a folder of its own.
+[profile measure : release]
+define.FUDE_ALLOW_ARGS =
+output = ../../build/draw-measure/

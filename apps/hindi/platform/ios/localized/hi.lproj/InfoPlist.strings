@@ -1,0 +1,3 @@
+/* The camera prompt (Text from a photo, Scan pages), in hi. UTF-8. */
+"NSCameraUsageDescription" = "Hindi Learn! कैमरे में दिख रहा हिंदी पाठ पढ़ता है, ताकि आप उसे पेज पर लिख सकें, और पेज स्कैन करता है ताकि आप उन्हें पढ़ सकें और उन पर लिख सकें।";
+"CFBundleDisplayName" = "Hindi Learn!";

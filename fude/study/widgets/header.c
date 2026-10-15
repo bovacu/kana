@@ -1,15 +1,16 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/widgets/header.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
 
 // ===========================================================================
 // See header.h.
 // ===========================================================================
 
-#define FUDE_HEADER_TITLE_LARGE 24.0f   // fude_header_title's
+#define FUDE_HEADER_TITLE_LARGE 24.0f   // The text size of fude_header_title's large title.
 
+// See the header. The character sits 14% of the box in from each side, on a card with corners 26% of the box round.
 void fude_header_badge(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _tl, f32 _box) {
     const fude_theme* _theme = fude_theme_active();
     const f32         _in    = _box * 0.14f;
@@ -17,6 +18,7 @@ void fude_header_badge(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _tl, f32 _
     fude_glyph_character(_glyph, _codepoint, (rde_vec_2F){ _tl.x + _in, _tl.y - _in }, _box - 2.0f * _in, _theme->accent);
 }
 
+// See the header. The character sits 4 units in from each side of the label.
 void fude_header_label(fude_glyph* _glyph, u32 _codepoint, f32 _left, f32 _mid) {
     const fude_theme* _theme = fude_theme_active();
     const f32         _box   = FUDE_HEADER_LABEL;
@@ -24,6 +26,8 @@ void fude_header_label(fude_glyph* _glyph, u32 _codepoint, f32 _left, f32 _mid) 
     fude_glyph_character(_glyph, _codepoint, (rde_vec_2F){ _left + 4.0f, _mid + _box * 0.5f - 4.0f }, _box - 8.0f, _theme->accent);
 }
 
+// See the header. The text at the right is 14 units tall, and the title and caption have the room left of it, less a
+// 16-unit gap.
 void fude_header_draw(fude_glyph* _glyph, u32 _codepoint, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top,
                       const c8* _title, const c8* _caption, const c8* _right_text) {
     const fude_theme* _theme = fude_theme_active();
@@ -39,6 +43,7 @@ void fude_header_draw(fude_glyph* _glyph, u32 _codepoint, rde_font* _font, f32 _
     }
 }
 
+// See the header. The title is FUDE_HEADER_TITLE_LARGE tall, in the theme's text colour.
 void fude_header_title(rde_font* _font, f32 _font_px, const c8* _title, f32 _left, f32 _top) {
     fude_draw_text(_font, _font_px, _title, _left, _top - 30.0f, FUDE_HEADER_TITLE_LARGE, fude_theme_active()->text);
 }

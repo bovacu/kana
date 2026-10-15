@@ -5,14 +5,16 @@
 #include "zoom/shape.h"
 #include "zoom/symbol.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-
 // ===========================================================================
 // See piece.h.
+//
+// In order: one piece's file (written and read through kfile.h's chunks), the list and its index, and a piece's
+// lines. The list is a fixed array, the newest first; adding moves every piece down one, and each change writes only
+// what it changed: the piece's own file, the index, or both.
 // ===========================================================================
 
+// The tags of the piece file's kind, the index file's kind and their chunks, each four ASCII letters read as a
+// little-endian u32. The index and the pieces share FUDE_ZOOM_PIECE_VERSION.
 #define FUDE_ZOOM_PIECE_KIND     0x43454950u   // 'PIEC'
 #define FUDE_ZOOM_PIECE_INDEX    0x58444950u   // 'PIDX'
 #define FUDE_ZOOM_PIECE_VERSION  1u
@@ -23,21 +25,24 @@
 
 // --- numbers as bytes (kfile.h has no 64-bit ones: two words, low first) ---
 
+// Appends _v's 64 bits exactly, as two u32 words, the low one first.
 RDE_INTERNAL void fude_zoom_piece_put_f64(fude_bytes* _b, f64 _v) {
     u64 _bits;
-    memcpy(&_bits, &_v, sizeof(_bits));
+    rde_memcpy(&_bits, &_v, sizeof(_bits));
     fude_put_u32(_b, (u32)(_bits & 0xFFFFFFFFull));
     fude_put_u32(_b, (u32)(_bits >> 32));
 }
 
+// Reads an f64 written by fude_zoom_piece_put_f64.
 RDE_INTERNAL f64 fude_zoom_piece_get_f64(fude_reader* _r) {
     const u64 _lo = fude_get_u32(_r), _hi = fude_get_u32(_r);
     const u64 _bits = _lo | (_hi << 32);
     f64 _v;
-    memcpy(&_v, &_bits, sizeof(_v));
+    rde_memcpy(&_v, &_bits, sizeof(_v));
     return _v;
 }
 
+// See the header. Safe on a zeroed piece.
 void fude_zoom_piece_clear(fude_zoom_piece* _piece) {
     if(rde_arr_is_inited(&_piece->items)) {
         fude_zoom_clip* _c = (fude_zoom_clip*)_piece->items.memory;
@@ -46,13 +51,16 @@ void fude_zoom_piece_clear(fude_zoom_piece* _piece) {
         }
         rde_arr_free(&_piece->items);
     }
-    memset(_piece, 0, sizeof(*_piece));
+    rde_memset(_piece, 0, sizeof(*_piece));
 }
 
+// See the header. The NAME chunk holds the name's bytes without its NUL, the BOX chunk the box's four f64s (min x,
+// min y, max x, max y), and each ITEM chunk one thing: its kind, channels, q and flags as bytes, its point count, its
+// colour and fill, its radius, its place (a, b, tx, ty as f64s), and its bytes' size followed by its bytes.
 void fude_zoom_piece_write(const fude_zoom_piece* _piece, fude_bytes* _out) {
     fude_put_header(_out, FUDE_ZOOM_PIECE_VERSION, FUDE_ZOOM_PIECE_KIND);
     u32 _at = fude_chunk_begin(_out, FUDE_ZOOM_PIECE_TAG_NAME);
-    fude_put_data(_out, _piece->name, (u32)strlen(_piece->name));
+    fude_put_data(_out, _piece->name, (u32)rde_strlen(_piece->name));
     fude_chunk_end(_out, _at);
     _at = fude_chunk_begin(_out, FUDE_ZOOM_PIECE_TAG_BOX);
     fude_zoom_piece_put_f64(_out, _piece->box.min_x);
@@ -82,6 +90,8 @@ void fude_zoom_piece_write(const fude_zoom_piece* _piece, fude_bytes* _out) {
     }
 }
 
+// See the header. A name longer than FUDE_ZOOM_PIECE_NAME is cut; things past FUDE_ZOOM_PIECE_ITEMS, an ITEM whose
+// bytes run past its chunk, and chunks of unknown tags are skipped. Every thing read is marked alive.
 b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
     fude_zoom_piece_clear(_piece);
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
@@ -95,7 +105,7 @@ b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
     while(fude_next_chunk(&_file, &_tag, &_chunk)) {
         if(_tag == FUDE_ZOOM_PIECE_TAG_NAME) {
             const u32 _n = _chunk.size < FUDE_ZOOM_PIECE_NAME - 1u ? _chunk.size : FUDE_ZOOM_PIECE_NAME - 1u;
-            memcpy(_piece->name, _chunk.data, _n);
+            rde_memcpy(_piece->name, _chunk.data, _n);
             _piece->name[_n] = 0;
         } else if(_tag == FUDE_ZOOM_PIECE_TAG_BOX) {
             _piece->box.min_x = fude_zoom_piece_get_f64(&_chunk);
@@ -104,7 +114,7 @@ b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
             _piece->box.max_y = fude_zoom_piece_get_f64(&_chunk);
         } else if(_tag == FUDE_ZOOM_PIECE_TAG_ITEM && rde_arr_length(&_piece->items) < FUDE_ZOOM_PIECE_ITEMS) {
             fude_zoom_clip _c;
-            memset(&_c, 0, sizeof(_c));
+            rde_memset(&_c, 0, sizeof(_c));
             _c.look.kind     = fude_get_u8(&_chunk);
             _c.look.channels = fude_get_u8(&_chunk);
             _c.look.q        = (i8)fude_get_u8(&_chunk);
@@ -132,11 +142,13 @@ b8 fude_zoom_piece_read(fude_zoom_piece* _piece, const u8* _data, u32 _size) {
 
 // --- the list ---
 
+// Writes piece _id's file path, <_dir><_id>.piece, into _out.
 RDE_INTERNAL void fude_zoom_pieces_path(const c8* _dir, u32 _id, c8* _out, usize _size) {
-    snprintf(_out, _size, "%s%u.piece", _dir, _id);
+    rde_snprintf(_out, _size, "%s%u.piece", _dir, _id);
 }
 
-// Their order, written.
+// Writes the index, <_dir>index.kana: one IDS chunk with the next id, the count, and each piece's id in list order. A
+// failed write is not reported.
 RDE_INTERNAL void fude_zoom_pieces_write_index(const fude_zoom_pieces* _p, const c8* _dir) {
     fude_bytes _b = fude_bytes_new(256u);
     fude_put_header(&_b, FUDE_ZOOM_PIECE_VERSION, FUDE_ZOOM_PIECE_INDEX);
@@ -148,19 +160,21 @@ RDE_INTERNAL void fude_zoom_pieces_write_index(const fude_zoom_pieces* _p, const
     }
     fude_chunk_end(&_b, _at);
     c8 _path[RDE_MAX_PATH];
-    snprintf(_path, sizeof(_path), "%sindex.kana", _dir);
+    rde_snprintf(_path, sizeof(_path), "%sindex.kana", _dir);
     fude_bytes_write_and_free(&_b, _path, NULL);
 }
 
+// See the header. Without an index the list starts empty. The next id is kept above every id read, even when the
+// index says less.
 void fude_zoom_pieces_load(fude_zoom_pieces* _p, const c8* _dir) {
     if(_p->loaded) {
         return;
     }
-    memset(_p, 0, sizeof(*_p));
+    rde_memset(_p, 0, sizeof(*_p));
     _p->loaded  = true;
     _p->next_id = 1u;
     c8 _path[RDE_MAX_PATH];
-    snprintf(_path, sizeof(_path), "%sindex.kana", _dir);
+    rde_snprintf(_path, sizeof(_path), "%sindex.kana", _dir);
     u32 _size = 0;
     u8* _data = fude_file_read(_path, &_size);
     if(_data == NULL) {
@@ -202,13 +216,15 @@ void fude_zoom_pieces_load(fude_zoom_pieces* _p, const c8* _dir) {
     }
 }
 
+// See the header. Zeroing clears loaded as well.
 void fude_zoom_pieces_free(fude_zoom_pieces* _p) {
     for(u32 _i = 0; _i < _p->count; _i++) {
         fude_zoom_piece_clear(&_p->list[_i]);
     }
-    memset(_p, 0, sizeof(*_p));
+    rde_memset(_p, 0, sizeof(*_p));
 }
 
+// Writes one piece to its file in _dir. Returns false when it could not be written.
 RDE_INTERNAL b8 fude_zoom_pieces_write_one(const fude_zoom_piece* _piece, const c8* _dir) {
     fude_bytes _b = fude_bytes_new(4096u);
     fude_zoom_piece_write(_piece, &_b);
@@ -217,17 +233,19 @@ RDE_INTERNAL b8 fude_zoom_pieces_write_one(const fude_zoom_piece* _piece, const 
     return fude_bytes_write_and_free(&_b, _path, NULL);
 }
 
+// See the header. The piece's file is written before it joins the list, so a piece that could not be written is never
+// listed; at most FUDE_ZOOM_PIECE_ITEMS things are kept. The id is used up even when the write fails.
 u32 fude_zoom_pieces_add(fude_zoom_pieces* _p, const c8* _dir, const c8* _name, const fude_zoom_clip* _items, u32 _n, fude_zoom_box _box) {
     if(_p->count >= FUDE_ZOOM_PIECES || _n == 0u) {
         return FUDE_ZOOM_NONE;
     }
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fude_zoom_piece _new;
-    memset(&_new, 0, sizeof(_new));
+    rde_memset(&_new, 0, sizeof(_new));
     _new.id    = _p->next_id++;
     _new.box   = _box;
     _new.items = rde_arr_new(sizeof(fude_zoom_clip), _heap);
-    snprintf(_new.name, sizeof(_new.name), "%s", _name);
+    rde_snprintf(_new.name, sizeof(_new.name), "%s", _name);
     for(u32 _i = 0; _i < _n && _i < FUDE_ZOOM_PIECE_ITEMS; _i++) {
         fude_zoom_clip _c = _items[_i];
         fude_zoom_clip_put(&_c, fude_zoom_clip_data(&_items[_i]), fude_zoom_clip_size(&_items[_i]));
@@ -239,13 +257,14 @@ u32 fude_zoom_pieces_add(fude_zoom_pieces* _p, const c8* _dir, const c8* _name, 
         return FUDE_ZOOM_NONE;
     }
     // First in the list (the newest first).
-    memmove(&_p->list[1], &_p->list[0], sizeof(_p->list[0]) * _p->count);
+    rde_memmove(&_p->list[1], &_p->list[0], sizeof(_p->list[0]) * _p->count);
     _p->list[0] = _new;
     _p->count++;
     fude_zoom_pieces_write_index(_p, _dir);
     return 0u;
 }
 
+// See the header. The index is written before the file is deleted, so it never names a piece whose file is gone.
 void fude_zoom_pieces_remove(fude_zoom_pieces* _p, const c8* _dir, u32 _i) {
     if(_i >= _p->count) {
         return;
@@ -253,21 +272,24 @@ void fude_zoom_pieces_remove(fude_zoom_pieces* _p, const c8* _dir, u32 _i) {
     c8 _path[RDE_MAX_PATH];
     fude_zoom_pieces_path(_dir, _p->list[_i].id, _path, sizeof(_path));
     fude_zoom_piece_clear(&_p->list[_i]);
-    memmove(&_p->list[_i], &_p->list[_i + 1u], sizeof(_p->list[0]) * (_p->count - _i - 1u));
+    rde_memmove(&_p->list[_i], &_p->list[_i + 1u], sizeof(_p->list[0]) * (_p->count - _i - 1u));
     _p->count--;
-    memset(&_p->list[_p->count], 0, sizeof(_p->list[0]));
+    rde_memset(&_p->list[_p->count], 0, sizeof(_p->list[0]));
     fude_zoom_pieces_write_index(_p, _dir);
     rde_file_delete(_path);
 }
 
-void fude_zoom_pieces_rename(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const c8* _name) {
+// See the header. The name is cut to FUDE_ZOOM_PIECE_NAME bytes. A failed write is logged by fude_bytes_write_and_free.
+b8 fude_zoom_pieces_rename(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const c8* _name) {
     if(_i >= _p->count) {
-        return;
+        return false;
     }
-    snprintf(_p->list[_i].name, sizeof(_p->list[_i].name), "%s", _name);
-    fude_zoom_pieces_write_one(&_p->list[_i], _dir);
+    rde_snprintf(_p->list[_i].name, sizeof(_p->list[_i].name), "%s", _name);
+    return fude_zoom_pieces_write_one(&_p->list[_i], _dir);
 }
 
+// See the header. The old things are freed before the new are copied in, so a failed write leaves the new ones in
+// memory but the old file on disk.
 b8 fude_zoom_pieces_replace(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const fude_zoom_clip* _items, u32 _n, fude_zoom_box _box) {
     if(_i >= _p->count || _n == 0u) {
         return false;
@@ -284,12 +306,14 @@ b8 fude_zoom_pieces_replace(fude_zoom_pieces* _p, const c8* _dir, u32 _i, const 
     return fude_zoom_pieces_write_one(_piece, _dir);
 }
 
+// See the header.
 b8 fude_zoom_piece_save(const fude_zoom_piece* _piece, const c8* _path) {
     fude_bytes _b = fude_bytes_new(4096u);
     fude_zoom_piece_write(_piece, &_b);
     return fude_bytes_write_and_free(&_b, _path, NULL);
 }
 
+// See the header.
 b8 fude_zoom_piece_load(fude_zoom_piece* _piece, const c8* _path) {
     u32 _size = 0;
     u8* _data = fude_file_read(_path, &_size);
@@ -303,6 +327,8 @@ b8 fude_zoom_piece_load(fude_zoom_piece* _piece, const c8* _path) {
 
 // --- its lines ---
 
+// Adds one line of _n points _p, carried by _to into the piece's units, to _points and its fude_zoom_piece_line to
+// _lines. An empty line adds nothing.
 RDE_INTERNAL void fude_zoom_piece_line_add(rde_arr* _points, rde_arr* _lines, const fude_zoom_v2* _p, u32 _n, b8 _closed, fude_zoom_sim _to) {
     if(_n == 0u) {
         return;
@@ -315,6 +341,7 @@ RDE_INTERNAL void fude_zoom_piece_line_add(rde_arr* _points, rde_arr* _lines, co
     rde_arr_add(_lines, (any)&_line);
 }
 
+// See the header. A symbol's kind is its shape's first number; one the library does not know adds nothing.
 u32 fude_zoom_piece_families(const fude_zoom_piece* _piece) {
     u32 _bits = 0;
     const fude_zoom_clip* _c = (const fude_zoom_clip*)_piece->items.memory;
@@ -323,13 +350,15 @@ u32 fude_zoom_piece_families(const fude_zoom_piece* _piece) {
             continue;
         }
         f64 _kind;
-        memcpy(&_kind, fude_zoom_clip_data(&_c[_i]), sizeof(_kind));
+        rde_memcpy(&_kind, fude_zoom_clip_data(&_c[_i]), sizeof(_kind));
         const fude_zoom_symbol_info* _info = _kind >= 0.0 ? fude_zoom_symbol_info_of((u32)_kind) : NULL;
         _bits |= _info != NULL ? 1u << _info->family : 0u;
     }
     return _bits;
 }
 
+// See the header. A shape's outline is cut with 48 segments (fude_zoom_shape_outline's _segments); a stroke's and a
+// fill's points are decoded from their bytes (codec.h) and scaled by 2^q. A thing that cannot be decoded is left out.
 u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _points, rde_arr* _lines) {
     rde_arr_clear(_points);
     rde_arr_clear(_lines);
@@ -352,7 +381,7 @@ u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _po
             if(_it->look.count == 0u || !fude_zoom_codec_decode(fude_zoom_clip_data(_it), fude_zoom_clip_size(_it), _qp, _it->look.count, _it->look.channels)) {
                 continue;
             }
-            const f64 _g = ldexp(1.0, _it->look.q);
+            const f64 _g = rde_math_ldexp_f64(1.0, _it->look.q);
             rde_arr_clear(&_pts);
             fude_zoom_v2* _v = rde_arr_add_n(&_pts, _it->look.count);
             for(u32 _k = 0; _k < _it->look.count; _k++) {
@@ -374,12 +403,13 @@ u32 fude_zoom_piece_lines(const fude_zoom_piece* _piece, b8 _boxes, rde_arr* _po
             continue;
         }
         if(_boxes && (_it->look.kind == FUDE_ZOOM_KIND_IMAGE || _it->look.kind == FUDE_ZOOM_KIND_TEXT) && fude_zoom_clip_size(_it) >= 2u * sizeof(f64)) {
-            // A picture: its half sizes first; a text: its letters' size, then its width and height (its box from its top left).
+            // A picture: its half sizes first; a text: its letters' size, then its width and height (its box from its
+            // top left).
             f64 _a, _b, _cc = 0.0;
-            memcpy(&_a, fude_zoom_clip_data(_it), sizeof(f64));
-            memcpy(&_b, fude_zoom_clip_data(_it) + sizeof(f64), sizeof(f64));
+            rde_memcpy(&_a, fude_zoom_clip_data(_it), sizeof(f64));
+            rde_memcpy(&_b, fude_zoom_clip_data(_it) + sizeof(f64), sizeof(f64));
             if(_it->look.kind == FUDE_ZOOM_KIND_TEXT && fude_zoom_clip_size(_it) >= 3u * sizeof(f64)) {
-                memcpy(&_cc, fude_zoom_clip_data(_it) + 2u * sizeof(f64), sizeof(f64));
+                rde_memcpy(&_cc, fude_zoom_clip_data(_it) + 2u * sizeof(f64), sizeof(f64));
             }
             fude_zoom_v2 _box[4];
             if(_it->look.kind == FUDE_ZOOM_KIND_IMAGE) {

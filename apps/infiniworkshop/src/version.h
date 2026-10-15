@@ -1,26 +1,21 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
-#ifndef SKETCHING_VERSION_H
-#define SKETCHING_VERSION_H
+#ifndef INFINIWORKSHOP_VERSION_H
+#define INFINIWORKSHOP_VERSION_H
 
-// InfiniWorkshop: the hobby-projects app made from the deep-zoom canvas (docs/product_split.md) — circuits that run, mechanisms that move, plans at true size, wood and sewing — Workshop
-// (zoom/product.h). Its shell is Sketching's (apps/sketching/sketching.c), which reads who it is here.
+// InfiniWorkshop: the hobby-projects app made from the deep-zoom canvas (docs/product_split.md) — circuits that run,
+// mechanisms that move, plans at true size, wood and sewing. What it is and offers is
+// apps/infiniworkshop/infiniworkshop.c, which the canvas apps' shell (fude/zoom/shell.h) runs.
 //
 // Its name: the window's title, the side panel's version line, Your data's file, and in its words where the strings
-// say {APP} (apps/infiniworkshop/tools/strings.py reads it here). Its id comes from it: the save folder on a device and the
-// backup's extension (infiniworkshop/, .infiniworkshopbackup) — once it has users they must not change.
-#define SKETCHING_NAME "InfiniWorkshop"
+// say {APP} (apps/infiniworkshop/tools/strings.py reads it here). Its id comes from it: the save folder on a device and
+// the backup's extension (infiniworkshop/, .infiniworkshopbackup) — once it has users they must not change.
+#define INFINIWORKSHOP_NAME "InfiniWorkshop"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define SKETCHING_VERSION "0.1.96"
+#define INFINIWORKSHOP_VERSION "0.1.97"
 
 // The app's Apple ID on the App Store (digits only). Empty until the app is there.
-#define SKETCHING_APP_STORE_ID ""
-
-// What it offers (zoom/product.h).
-#define SKETCHING_PRODUCT FUDE_ZOOM_PRODUCT_WORKSHOP
-
-// Sketching's Your data files opened too (Settings › Your data › Import): what was drawn there carried over.
-#define SKETCHING_IMPORTS "sketching"
+#define INFINIWORKSHOP_APP_STORE_ID ""
 
 #endif

@@ -45,10 +45,10 @@ t('WORD_TRANSLATE_HINT', 'Your meaning, into Japanese', 'Tu significado, al japo
 t('VOCAB_SEARCH_HINT', 'Find: kanji, kana, romaji or meaning', 'Buscar: kanji, kana, romaji o significado', 'Buscar: kanji, kana, romaji ou significado', '検索：漢字、かな、ローマ字、意味', 'Chercher : kanji, kana, romaji ou sens')
 
 # Google ML Kit's handwriting model (mlkit.h).
-t('MLKIT_READY', 'Ready: the Japanese model is on this device.', 'Listo: el modelo japonés está en este dispositivo.', 'Pronto: o modelo japonês está neste dispositivo.', '準備完了：日本語モデルはこの端末にあります。', 'Prêt : le modèle japonais est sur cet appareil.')
-t('MLKIT_DOWNLOADING', 'Downloading the Japanese model (about 20 MB)...', 'Descargando el modelo japonés (unos 20 MB)...', 'Baixando o modelo japonês (cerca de 20 MB)...', '日本語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle japonais (environ 20 Mo)...')
-t('MLKIT_FAILED', 'The Japanese model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo japonés. ¿Hay conexión?', 'Não foi possível baixar o modelo japonês. O dispositivo está conectado?', '日本語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle japonais. L’appareil est-il connecté ?')
-t('MLKIT_MISSING', 'The Japanese model (about 20 MB) is not downloaded yet.', 'El modelo japonés (unos 20 MB) aún no está descargado.', 'O modelo japonês (cerca de 20 MB) ainda não foi baixado.', '日本語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle japonais (environ 20 Mo) n’est pas encore téléchargé.')
+o('MLKIT_READY', 'Ready: the Japanese model is on this device.', 'Listo: el modelo japonés está en este dispositivo.', 'Pronto: o modelo japonês está neste dispositivo.', '準備完了：日本語モデルはこの端末にあります。', 'Prêt : le modèle japonais est sur cet appareil.')
+o('MLKIT_DOWNLOADING', 'Downloading the Japanese model (about 20 MB)...', 'Descargando el modelo japonés (unos 20 MB)...', 'Baixando o modelo japonês (cerca de 20 MB)...', '日本語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle japonais (environ 20 Mo)...')
+o('MLKIT_FAILED', 'The Japanese model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo japonés. ¿Hay conexión?', 'Não foi possível baixar o modelo japonês. O dispositivo está conectado?', '日本語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle japonais. L’appareil est-il connecté ?')
+o('MLKIT_MISSING', 'The Japanese model (about 20 MB) is not downloaded yet.', 'El modelo japonés (unos 20 MB) aún no está descargado.', 'O modelo japonês (cerca de 20 MB) ainda não foi baixado.', '日本語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle japonais (environ 20 Mo) n’est pas encore téléchargé.')
 
 # Read aloud (speech.h): the device's basic voice spoke.
 # No voice for the language yet (speech.h): how to add one, Android's and iOS's (study's VOICE_TITLE over it).

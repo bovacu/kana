@@ -39,10 +39,10 @@ o('SEARCH_HINT', 'A meaning or a reading: tree, mu', 'Un significado o una lectu
 t('VOCAB_SEARCH_HINT', 'Find: hanzi, pinyin or meaning', 'Buscar: hanzi, pinyin o significado', 'Buscar: hanzi, pinyin ou significado', '検索：漢字、ピンイン、意味', 'Chercher : hanzi, pinyin ou sens')
 
 # Google ML Kit's handwriting model (mlkit.h).
-t('MLKIT_READY', 'Ready: the Chinese model is on this device.', 'Listo: el modelo chino está en este dispositivo.', 'Pronto: o modelo chinês está neste dispositivo.', '準備完了：中国語モデルはこの端末にあります。', 'Prêt : le modèle chinois est sur cet appareil.')
-t('MLKIT_DOWNLOADING', 'Downloading the Chinese model (about 20 MB)...', 'Descargando el modelo chino (unos 20 MB)...', 'Baixando o modelo chinês (cerca de 20 MB)...', '中国語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle chinois (environ 20 Mo)...')
-t('MLKIT_FAILED', 'The Chinese model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo chino. ¿Hay conexión?', 'Não foi possível baixar o modelo chinês. O dispositivo está conectado?', '中国語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle chinois. L’appareil est-il connecté ?')
-t('MLKIT_MISSING', 'The Chinese model (about 20 MB) is not downloaded yet.', 'El modelo chino (unos 20 MB) aún no está descargado.', 'O modelo chinês (cerca de 20 MB) ainda não foi baixado.', '中国語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle chinois (environ 20 Mo) n’est pas encore téléchargé.')
+o('MLKIT_READY', 'Ready: the Chinese model is on this device.', 'Listo: el modelo chino está en este dispositivo.', 'Pronto: o modelo chinês está neste dispositivo.', '準備完了：中国語モデルはこの端末にあります。', 'Prêt : le modèle chinois est sur cet appareil.')
+o('MLKIT_DOWNLOADING', 'Downloading the Chinese model (about 20 MB)...', 'Descargando el modelo chino (unos 20 MB)...', 'Baixando o modelo chinês (cerca de 20 MB)...', '中国語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle chinois (environ 20 Mo)...')
+o('MLKIT_FAILED', 'The Chinese model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo chino. ¿Hay conexión?', 'Não foi possível baixar o modelo chinês. O dispositivo está conectado?', '中国語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle chinois. L’appareil est-il connecté ?')
+o('MLKIT_MISSING', 'The Chinese model (about 20 MB) is not downloaded yet.', 'El modelo chino (unos 20 MB) aún no está descargado.', 'O modelo chinês (cerca de 20 MB) ainda não foi baixado.', '中国語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle chinois (environ 20 Mo) n’est pas encore téléchargé.')
 
 # Read aloud (speech.h): the device's basic voice spoke.
 # No voice for the language yet (speech.h): how to add one, Android's and iOS's (study's VOICE_TITLE over it).
@@ -54,3 +54,7 @@ t('SPEECH_BETTER_VOICE', 'For a clearer voice, download a Chinese one in Setting
 t('EXAM_INTRO', 'Each character once, from memory: from its meaning and its pinyin.', 'Cada carácter una vez, de memoria: a partir de su significado y su pinyin.', 'Cada caractere uma vez, de memória: a partir do significado e do pinyin.', '各字を1回ずつ、何も見ずに：意味とピンインから書きます。', 'Chaque caractère une fois, de mémoire : d’après son sens et son pinyin.')
 t('ALBUM_EMPTY', 'Nothing practised yet: open a character (Hanzi), then Practice, then Score.', 'Aún no hay nada practicado: abre un carácter (Hanzi), luego Practicar y luego Puntuar.', 'Ainda não há nada praticado: abra um caractere (Hanzi), depois Praticar e depois Avaliar.', 'まだ練習がありません。字を開いて（漢字）、「練習」、「採点」の順に。', 'Rien de pratiqué pour l’instant : ouvrez un caractère (Hanzi), puis S’entraîner, puis Noter.')
 t('SHEET_CREDIT', 'Stroke order from Make Me a Hanzi (Arphic Public License). Made with {APP}.', 'Orden de trazos de Make Me a Hanzi (Arphic Public License). Hecho con {APP}.', 'Ordem dos traços do Make Me a Hanzi (Arphic Public License). Feito com o {APP}.', '書き順: Make Me a Hanzi (Arphic Public License)。{APP}で作成。', 'Ordre des traits : Make Me a Hanzi (Arphic Public License). Fait avec {APP}.')
+
+# The app's fourth language, once its strings have every row (tools/strings/build.py): this one, in its
+# strings_zh.py beside each layer's.
+language('ZH-CN', 'Chinese (Simplified)', ['@plural = 1'])

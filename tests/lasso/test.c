@@ -7,7 +7,10 @@ static f64 fake_now = 1.0;
 f64  rde_engine_get_time_now(void) { return fake_now; }
 static u32 drawn = 0;
 void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)c; if(n) drawn++; }
-void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
+// The circles drawn (the ink's sample dots among them): how many, and where the first 256 are.
+static u32 dots = 0;
+static rde_vec_2F dot_at[256];
+void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)r; (void)s; (void)c; (void)sh; if(dots < 256u) dot_at[dots] = p; dots++; }
 void rde_rendering_2d_draw_rectangle(const rde_vec_2F c, const rde_vec_2F s, const rde_color col) { (void)c; (void)s; (void)col; }
 
 static int fails = 0;
@@ -15,7 +18,7 @@ static int fails = 0;
 
 // Horizontal stroke from (x0, y) to (x0 + 5*(n-1), y).
 static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) {
-    fude_ink_begin(k, (rde_vec_2F){ x0, y }, true, false);
+    fude_ink_begin(k, (rde_vec_2F){ x0, y }, true);
     for(u32 i = 1; i < n; i++) { k->sample_time += 0.004; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); }
     fude_ink_end(k);
 }
@@ -28,6 +31,8 @@ static void loop(fude_lasso* l, fude_ink* k, f32 x0, f32 y0, f32 x1, f32 y1) {
     fude_lasso_pen_up(l, k, 1.0f);
 }
 static rde_vec_2F first_point(const fude_ink* k, u32 s) { return fude_ink_stroke_points(k, fude_ink_stroke_at(k, s))[0].position; }
+// A page turned under the ink (fude_ink_remap's _map): every point 1000 to the right.
+static void shift_right(any user, u32 stroke, fude_ink_point* p) { (void)user; (void)stroke; p->position.x += 1000.0f; }
 
 int main(void) {
     fude_ink k; fude_ink_init(&k);
@@ -176,7 +181,101 @@ int main(void) {
         fude_canvas_finger_up(&cv, 9);
     }
 
+    // A page turned after an erase: undoing the erase brings the stroke back where the page now is.
+    { fude_ink t; fude_ink_init(&t);
+      stroke(&t, 0, 0, 11); stroke(&t, 0, 100, 11);
+      fude_ink_erase_at(&t, (rde_vec_2F){ 25.0f, 100.0f }, 2.0f); fude_ink_erase_end(&t);
+      CHECK(fude_ink_alive_strokes(&t) == 1);
+      fude_ink_remap(&t, shift_right, NULL);
+      CHECK(fude_ink_undo(&t) && fude_ink_alive_strokes(&t) == 2);
+      CHECK(first_point(&t, 0).x == 1000.0f && first_point(&t, 1).x == 1000.0f && fude_ink_stroke_at(&t, 1)->bounds_min.x > 990.0f);
+      fude_ink_destroy(&t); }
+
+    // A tap on the selection keeps what was undone; a drag that moves drops it, and is still one undoable step.
+    { fude_ink t; fude_ink_init(&t); fude_lasso s; fude_lasso_init(&s);
+      stroke(&t, 0, 0, 11); stroke(&t, 0, 100, 11); stroke(&t, 0, 200, 11);
+      fude_ink_erase_at(&t, (rde_vec_2F){ 25.0f, 100.0f }, 2.0f); fude_ink_erase_end(&t);
+      CHECK(fude_ink_undo(&t) && fude_ink_undo(&t));                             // the erase and s2: a branch with targets
+      CHECK(fude_ink_redo_steps(&t) == 2 && fude_ink_alive_strokes(&t) == 2);
+      fude_lasso_pen_down(&s, &t, (rde_vec_2F){ 25, 2 }, 1.0f); fude_lasso_pen_up(&s, &t, 1.0f);   // tap-select s0
+      CHECK(fude_lasso_count(&s) == 1 && ((u32*)s.selected.memory)[0] == 0);
+      fude_lasso_pen_down(&s, &t, (rde_vec_2F){ 25, 0 }, 1.0f);
+      CHECK(s.state == FUDE_LASSO_MOVING && fude_ink_can_redo(&t));             // pressed, not moved: redo still offered
+      fude_lasso_pen_up(&s, &t, 1.0f);
+      CHECK(fude_ink_redo_steps(&t) == 2 && fude_ink_undo_steps(&t) == 2 && rde_arr_length(&t.targets) == 1);
+      CHECK(fude_ink_redo(&t) && fude_ink_redo(&t) && fude_ink_alive_strokes(&t) == 2 && !fude_ink_stroke_at(&t, 1)->alive);
+      CHECK(fude_ink_undo(&t) && fude_ink_undo(&t) && fude_ink_redo_steps(&t) == 2);
+      // Now a drag: redo greys out once it has moved, and the branch goes as it ends.
+      fude_lasso_pen_down(&s, &t, (rde_vec_2F){ 25, 0 }, 1.0f);
+      fude_lasso_pen_moved(&s, &t, (rde_vec_2F){ 25, 50 }, 1.0f);
+      CHECK(!fude_ink_can_redo(&t));
+      fude_lasso_pen_up(&s, &t, 1.0f);
+      CHECK(fude_ink_redo_steps(&t) == 0 && fude_ink_undo_steps(&t) == 3 && fude_ink_stroke_count(&t) == 2);
+      CHECK(rde_arr_length(&t.targets) == 1 && ((u32*)t.targets.memory)[0] == 0);   // the erase's target gone, the move's kept
+      CHECK(first_point(&t, 0).y == 50.0f && fude_ink_alive_strokes(&t) == 2);
+      CHECK(fude_ink_undo(&t) && first_point(&t, 0).y == 0.0f);
+      CHECK(fude_ink_redo(&t) && first_point(&t, 0).y == 50.0f);
+      { u32 next = 0; for(u32 s2 = 0; s2 < fude_ink_stroke_count(&t); s2++) { CHECK(fude_ink_stroke_at(&t, s2)->first_point == next); next += fude_ink_stroke_at(&t, s2)->point_count; } CHECK(next == t.points.count); }
+      fude_lasso_destroy(&s); fude_ink_destroy(&t); }
+
+    // Another canvas: the page empties, and every setting is kept (the marker's and the eraser's were once lost).
+    { fude_ink t; fude_ink_init(&t);
+      t.marker_color = (rde_color){ 10, 20, 30, 90 }; t.marker_radius = 7.5f; t.eraser_radius = 33.0f;
+      t.color = (rde_color){ 1, 2, 3, 255 }; t.constant_radius = 2.25f; t.width_mode = FUDE_INK_WIDTH_MODE_PRESSURE; t.pressure_live = true;
+      stroke(&t, 0, 0, 11);
+      fude_ink_clear_page(&t);
+      CHECK(fude_ink_stroke_count(&t) == 0u && fude_ink_undo_steps(&t) == 0u);
+      CHECK(t.marker_color.r == 10 && t.marker_color.a == 90 && t.marker_radius == 7.5f && t.eraser_radius == 33.0f);
+      CHECK(t.color.b == 3 && t.constant_radius == 2.25f && t.width_mode == FUDE_INK_WIDTH_MODE_PRESSURE && t.pressure_live);
+      stroke(&t, 0, 0, 11); CHECK(fude_ink_alive_strokes(&t) == 1u);   // and it still writes
+      fude_ink_destroy(&t); }
+
+    // A loop that crosses itself (a figure eight: its lobes left and right, crossing at (50, 50)) takes what is in each
+    // lobe and not what lies between them: the even-odd rule, which the lasso's inside test has always kept (it is
+    // rde_math's point in polygon now, plan 3.6).
+    { fude_ink e; fude_ink_init(&e); fude_lasso b; fude_lasso_init(&b);
+      stroke(&e, 5, 50, 3);      // s0: x 5..15, y 50: in the left lobe
+      stroke(&e, 85, 50, 3);     // s1: x 85..95, y 50: in the right lobe
+      stroke(&e, 45, 10, 3);     // s2: x 45..55, y 10: under the crossing, in neither
+      const rde_vec_2F corners[5] = { { 0, 0 }, { 100, 100 }, { 100, 0 }, { 0, 100 }, { 0, 0 } };
+      fude_lasso_pen_down(&b, &e, corners[0], 1.0f);
+      for(u32 c = 0; c + 1u < 5u; c++) {
+          for(u32 s = 1; s <= 25u; s++) {
+              const f32 t = (f32)s / 25.0f;
+              fude_lasso_pen_moved(&b, &e, (rde_vec_2F){ corners[c].x + (corners[c + 1u].x - corners[c].x) * t, corners[c].y + (corners[c + 1u].y - corners[c].y) * t }, 1.0f);
+          }
+      }
+      fude_lasso_pen_up(&b, &e, 1.0f);
+      b8 left = false, right = false, between = false;
+      for(u32 i = 0; i < fude_lasso_count(&b); i++) {
+          const u32 id = ((const u32*)b.selected.memory)[i];
+          left = left || id == 0u; right = right || id == 1u; between = between || id == 2u;
+      }
+      CHECK(fude_lasso_count(&b) == 2 && left && right && !between);
+      fude_lasso_destroy(&b); fude_ink_destroy(&e); }
+
     fude_lasso_destroy(&l); fude_ink_destroy(&k);
+    // The sample dots (a developer's diagnostic): one where each point of each stroke is, the marker's too, though the
+    // marker draws fewer of its points than it has. A pen's stroke far off is drawn a frame before, so what the drawing
+    // left in its scratch array is not where any of the marker's points are.
+    { fude_ink m; fude_ink_init(&m);
+      stroke(&m, 10000, 0, 30);
+      m.marking = true;
+      fude_ink_begin(&m, (rde_vec_2F){ 0, 0 }, true);
+      for(u32 i = 1; i < 30u; i++) { m.sample_time += 0.004; fude_ink_extend(&m, (rde_vec_2F){ 2.0f * (f32)i, 0 }); }
+      fude_ink_end(&m);
+      const fude_ink_stroke* mark = fude_ink_stroke_at(&m, 1);
+      CHECK(mark->marker && mark->point_count == 30u);
+      const rde_vec_2F half = { 1e6f, 1e6f };
+      fude_ink_render(&m, (rde_vec_2F){ 0, 0 }, 1.0f, half, 1.0, false);
+      dots = 0;
+      fude_ink_render(&m, (rde_vec_2F){ 0, 0 }, 1.0f, half, 1.0, true);
+      CHECK(dots == 60u);
+      u32 wrong = 0;
+      for(u32 i = 0; i < 30u && i < dots; i++) wrong += dot_at[i].x == 2.0f * (f32)i && dot_at[i].y == 0.0f ? 0u : 1u;            // the marker's, first
+      for(u32 i = 0; i < 30u && 30u + i < dots; i++) wrong += dot_at[30u + i].x == 10000.0f + 5.0f * (f32)i ? 0u : 1u;            // then the pen's
+      CHECK(wrong == 0u);
+      fude_ink_destroy(&m); }
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

@@ -1,17 +1,30 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
-//
-// Generated from the Hershey fonts' scripts.jhf (Script Simplex); see zoom/hand.h.
 
 #ifndef FUDE_ZOOM_HAND_GLYPHS_H
 #define FUDE_ZOOM_HAND_GLYPHS_H
 
-// Hershey Script Simplex (ASCII 32-126), as a table of our own: each glyph its
-// left and right bearings, then its points (x, y: y down, the baseline at 9,
-// a small letter's top at 0, a capital's at -12), -128 -128 lifting the pen.
-// The Hershey Fonts were originally created by Dr. A. V. Hershey while working
-// at the U. S. National Bureau of Standards. The format of the Font data in this
-// distribution was originally created by James Hurt, Cognition, Inc., 900
-// Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).
+// ===========================================================================
+// Hand glyphs: the letter shapes zoom/hand.h writes typed text with, Dr. A. V. Hershey's Script Simplex font for
+// ASCII 32 to 126, as tables of our own.
+//
+// Where it sits: zoom, the canvas apps' layer; only hand.c includes it. It is data only: static constant tables.
+// Threads: the tables are constant, so they are safe to read from any thread.
+// Files: generated from the Hershey fonts' scripts.jhf (Script Simplex). Neither that file nor the script that made
+//   the tables is in the repository. tools/hershey/hand_maths.py, which generates hand_maths.h, reads the same .jhf
+//   format and is the place to start if the tables ever need making again.
+// The format, in font units:
+//   FUDE_ZOOM_HAND_GLYPHS glyphs, glyph i being ASCII character 32 + i.
+//   FUDE_ZOOM_HAND_BEARINGS: each glyph's left and right bearings, so its advance is right minus left.
+//   FUDE_ZOOM_HAND_STARTS: where each glyph's points begin in FUDE_ZOOM_HAND_POINTS; the next entry is where they end.
+//   FUDE_ZOOM_HAND_POINTS: x, y pairs with y down, the baseline at 9, a small letter's top at 0 and a capital's at -12.
+//   A -128, -128 pair lifts the pen between two strokes.
+// Licence: the acknowledgement below must stay with the data; the app shows it in Licences, Handwriting
+//   (apps/sketching/assets/fonts/LICENSE-Hershey.txt).
+//   The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of
+//   Standards. The format of the Font data in this distribution was originally created by James Hurt, Cognition,
+//   Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).
+// ===========================================================================
+
 #define FUDE_ZOOM_HAND_GLYPHS 95u
 static const i8 FUDE_ZOOM_HAND_BEARINGS[FUDE_ZOOM_HAND_GLYPHS][2] = {
     { -8, 8 }, { -5, 6 }, { -9, 9 }, { -10, 11 }, { -10, 11 }, { -12, 12 }, { -13, 13 }, { -5, 6 },

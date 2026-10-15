@@ -2,15 +2,16 @@
 
 #include "lang/ja/romaji.h"
 
-#include <stdio.h>
-#include <ctype.h>
-#include <string.h>
-
 // ===========================================================================
 // See romaji.h.
+//
+// The chart's table is two constant arrays of columns, in hiragana. Typed romaji is turned into kana by a separate
+// table of spellings, Hepburn and Kunrei alike, matched greedily from the left, longest spelling first, after the
+// rules for ん, ー and the small っ have had their turn.
 // ===========================================================================
 
-// The gojūon: vowels first, then consonant by consonant.
+// Block 0, the gojūon: the vowels first, then consonant by consonant. Each column is a i u e o, top to bottom; a cell
+// with no kana is 0 and has no romaji.
 static const fude_romaji_column FUDE_ROMAJI_BASIC[] = {
     { { 0x3042, 0x3044, 0x3046, 0x3048, 0x304A }, { "a",  "i",   "u",   "e",  "o"  } },
     { { 0x304B, 0x304D, 0x304F, 0x3051, 0x3053 }, { "ka", "ki",  "ku",  "ke", "ko" } },
@@ -25,7 +26,8 @@ static const fude_romaji_column FUDE_ROMAJI_BASIC[] = {
     { { 0x3093, 0,      0,      0,      0      }, { "n",  NULL,  NULL,  NULL, NULL } },
 };
 
-// The voiced columns (dakuten ゛, handakuten ゜), then the small kana.
+// Block 1: the voiced columns (with the dakuten ゛ or the handakuten ゜), then the small kana, whose romaji are in
+// parentheses. The last column holds the odd ones: the small っ and ゎ, ゔ, and the small ゕ and ゖ.
 static const fude_romaji_column FUDE_ROMAJI_EXTRA[] = {
     { { 0x304C, 0x304E, 0x3050, 0x3052, 0x3054 }, { "ga", "gi",  "gu",  "ge", "go" } },
     { { 0x3056, 0x3058, 0x305A, 0x305C, 0x305E }, { "za", "ji",  "zu",  "ze", "zo" } },
@@ -37,28 +39,33 @@ static const fude_romaji_column FUDE_ROMAJI_EXTRA[] = {
     { { 0x3063, 0x308E, 0x3094, 0x3095, 0x3096 }, { "(tsu)", "(wa)", "vu", "(ka)", "(ke)" } },
 };
 
+// How many columns each block has.
 #define FUDE_ROMAJI_BASIC_COLUMNS (sizeof(FUDE_ROMAJI_BASIC) / sizeof(FUDE_ROMAJI_BASIC[0]))
 #define FUDE_ROMAJI_EXTRA_COLUMNS (sizeof(FUDE_ROMAJI_EXTRA) / sizeof(FUDE_ROMAJI_EXTRA[0]))
 
+// Returns block 0 (the gojūon) or, for any other _block, block 1, and sets *_columns to its number of columns.
 const fude_romaji_column* fude_romaji_block(u32 _block, u32* _columns) {
     *_columns = _block == 0u ? (u32)FUDE_ROMAJI_BASIC_COLUMNS : (u32)FUDE_ROMAJI_EXTRA_COLUMNS;
     return _block == 0u ? FUDE_ROMAJI_BASIC : FUDE_ROMAJI_EXTRA;
 }
 
-// Characters of the kana (and CJK symbol) blocks the table leaves out, named
-// short enough for a Browse caption.
+// The characters of the kana and CJK symbol blocks that the table leaves out, each with a name short enough for a
+// caption in Browse.
 static const struct { u32 cp; const c8* name; } FUDE_ROMAJI_OTHERS[] = {
-    { 0x309B, "tenten" }, { 0x309C, "maru" },          // ゛ ゜ on their own
-    { 0x309D, "repeat" }, { 0x309E, "repeat+" },        // ゝ ゞ: repeat the kana before (voiced)
-    { 0x30FD, "repeat" }, { 0x30FE, "repeat+" },        // ヽ ヾ
+    { 0x309B, "tenten" }, { 0x309C, "maru" },          // ゛ and ゜ on their own.
+    { 0x309D, "repeat" }, { 0x309E, "repeat+" },        // ゝ repeats the kana before it, and ゞ repeats it voiced.
+    { 0x30FD, "repeat" }, { 0x30FE, "repeat+" },        // ヽ and ヾ, the same in katakana.
     { 0x30F7, "va" }, { 0x30F8, "vi" }, { 0x30F9, "ve" }, { 0x30FA, "vo" },
-    { 0x30FB, "dot" }, { 0x30FC, "long" },              // ・ ー
-    { 0x3005, "repeat" }, { 0x3006, "shime" },          // 々: repeat the kanji before; 〆
-    { 0x3001, "comma" }, { 0x3002, "period" },          // 、 。
+    { 0x30FB, "dot" }, { 0x30FC, "long" },              // ・ and ー.
+    { 0x3005, "repeat" }, { 0x3006, "shime" },          // 々 repeats the kanji before it; 〆.
+    { 0x3001, "comma" }, { 0x3002, "period" },          // 、 and 。.
 };
 
+// Returns whether _cp is a core kana: any hiragana from ぁ to ゖ (U+3041..U+3096), or the katakana in the same cells,
+// except the small kana and the old ゐ ゑ ゔ listed in _left_out. That leaves 71 in each script. ヷ..ヺ have no
+// hiragana cell, so they are left out too.
 b8 fude_romaji_core(u32 _cp) {
-    const u32 _h = (_cp >= 0x30A1u && _cp <= 0x30F6u) ? _cp - 0x60u : _cp;   // katakana as hiragana
+    const u32 _h = (_cp >= 0x30A1u && _cp <= 0x30F6u) ? _cp - 0x60u : _cp;   // Katakana is looked at as hiragana.
     if(_h < 0x3041u || _h > 0x3096u) {
         return false;
     }
@@ -72,6 +79,8 @@ b8 fude_romaji_core(u32 _cp) {
     return true;
 }
 
+// Returns a kana's or a mark's romaji: first the marks' short names, then the two blocks of the table, a katakana
+// being looked up as its hiragana. Returns NULL for anything else.
 const c8* fude_romaji(u32 _codepoint) {
     for(u32 _i = 0; _i < sizeof(FUDE_ROMAJI_OTHERS) / sizeof(FUDE_ROMAJI_OTHERS[0]); _i++) {
         if(FUDE_ROMAJI_OTHERS[_i].cp == _codepoint) {
@@ -97,13 +106,15 @@ const c8* fude_romaji(u32 _codepoint) {
 
 // --- typed romaji, as kana ----------------------------------------------------------
 
+// One spelling: lower-case romaji, and the hiragana it is written as (UTF-8).
 typedef struct {
     const c8* romaji;
     const c8* kana;
 } fude_romaji_pair;
 
-// Longest spellings first within each length is not needed: the matcher tries
-// 4, 3, 2, then 1 letters.
+// Every spelling read, Hepburn and Kunrei alike (shi and si, tsu and tu), with x for the small kana (xa, xtsu). The
+// table need not be in any order, because the matcher tries 4 letters first, then 3, 2 and 1, so a longer spelling
+// always wins over a shorter one it starts with.
 RDE_INTERNAL const fude_romaji_pair fude_romaji_table[] = {
     { "a", "あ" }, { "i", "い" }, { "u", "う" }, { "e", "え" }, { "o", "お" },
     { "ka", "か" }, { "ki", "き" }, { "ku", "く" }, { "ke", "け" }, { "ko", "こ" },
@@ -142,83 +153,104 @@ RDE_INTERNAL const fude_romaji_pair fude_romaji_table[] = {
     { "xya", "ゃ" }, { "xyu", "ゅ" }, { "xyo", "ょ" }, { "xtsu", "っ" }, { "xtu", "っ" },
 };
 
+// Returns whether _c is a lower-case vowel letter.
 RDE_INTERNAL b8 fude_romaji_vowel(c8 _c) {
     return _c == 'a' || _c == 'i' || _c == 'u' || _c == 'e' || _c == 'o';
 }
 
-RDE_INTERNAL void fude_romaji_append(c8* _out, usize _size, usize* _len, const c8* _kana) {
-    const usize _n = strlen(_kana);
-    if(*_len + _n + 1 <= _size) {
-        memcpy(_out + *_len, _kana, _n);
-        *_len += _n;
-        _out[*_len] = 0;
+// The most bytes of romaji, its spaces dropped, that fude_romaji_to_hiragana reads. What it is given comes from the
+// app's fields and searches, none longer than 127 bytes (Check's text, Browse's search), so this is room to spare; a
+// longer text is not a reading, and is refused rather than read in part.
+#define FUDE_ROMAJI_MAX 255u
+
+// Appends _kana to _out, whose text is *_len bytes long and which holds _size bytes, keeping it NUL-terminated.
+// Returns false when the kana do not fit whole, and then leaves them out.
+RDE_INTERNAL b8 fude_romaji_append(c8* _out, usize _size, usize* _len, const c8* _kana) {
+    const usize _n = rde_strlen(_kana);
+    if(*_len + _n + 1 > _size) {
+        return false;
     }
+    rde_memcpy(_out + *_len, _kana, _n);
+    *_len += _n;
+    _out[*_len] = 0;
+    return true;
 }
 
+// Turns typed romaji into hiragana (see the header). The text is first lowered and its spaces dropped; one longer than
+// FUDE_ROMAJI_MAX bytes is refused. Then, at each place: "-" is ー; an n that cannot start a syllable is ん; a doubled
+// consonant (or the t of "tch") is a small っ; otherwise the longest spelling in the table that matches. A letter
+// nothing matches is skipped and makes the result false. Kana that do not fit _out end the reading there, and make it
+// false too.
 b8 fude_romaji_to_hiragana(const c8* _romaji, c8* _out, usize _size) {
-    usize _len = 0;
-    b8    _ok  = true;
+    usize _len  = 0;
+    b8    _ok   = true;
+    b8    _fits = true;   // Every kana so far fitted in _out.
     _out[0] = 0;
 
-    // Lower case, no spaces.
-    c8    _s[256];
+    // Lower the case and drop the spaces.
+    c8    _s[FUDE_ROMAJI_MAX + 1u];
     usize _n = 0;
-    for(const c8* _p = _romaji; *_p != 0 && _n + 1 < sizeof(_s); _p++) {
-        if(*_p != ' ') {
-            _s[_n++] = (c8)tolower((unsigned char)*_p);
+    for(const c8* _p = _romaji; *_p != 0; _p++) {
+        if(*_p == ' ') {
+            continue;
         }
+        if(_n == FUDE_ROMAJI_MAX) {
+            return false;   // Longer than any reading, and it is not read in part.
+        }
+        _s[_n++] = (c8)rde_char_to_lower((unsigned char)*_p);
     }
     _s[_n] = 0;
 
-    for(usize _i = 0; _i < _n;) {
+    for(usize _i = 0; _i < _n && _fits;) {
         const c8 _c = _s[_i];
 
         if(_c == '-') {
-            fude_romaji_append(_out, _size, &_len, "ー");
+            _fits = fude_romaji_append(_out, _size, &_len, "ー");
             _i++;
             continue;
         }
 
         if(_c == 'n') {
             const c8 _next = _s[_i + 1];
-            if(_next == '\'') {                                  // n' — ん, and nothing merges
-                fude_romaji_append(_out, _size, &_len, "ん");
+            if(_next == '\'') {                                  // n' is ん, and keeps it from joining what follows.
+                _fits = fude_romaji_append(_out, _size, &_len, "ん");
                 _i += 2;
                 continue;
             }
             if(_next == 'n' && !fude_romaji_vowel(_s[_i + 2]) && _s[_i + 2] != 'y') {
-                fude_romaji_append(_out, _size, &_len, "ん");    // nn — ん
+                _fits = fude_romaji_append(_out, _size, &_len, "ん");   // nn is ん, unless a vowel or y follows.
                 _i += 2;
                 continue;
             }
             if(_next != 0 && !fude_romaji_vowel(_next) && _next != 'y') {
-                fude_romaji_append(_out, _size, &_len, "ん");    // n before a consonant
+                _fits = fude_romaji_append(_out, _size, &_len, "ん");   // An n before a consonant is ん.
                 _i++;
                 continue;
             }
             if(_next == 0) {
-                fude_romaji_append(_out, _size, &_len, "ん");    // n at the end
+                _fits = fude_romaji_append(_out, _size, &_len, "ん");   // An n at the end is ん.
                 _i++;
                 continue;
             }
         }
 
-        // A doubled consonant is a small っ ("kitte", "matcha").
+        // A doubled consonant is a small っ ("kitte"), and so is the t of "tch" ("matcha").
         if(_c >= 'a' && _c <= 'z' && !fude_romaji_vowel(_c) && _c != 'n' &&
            (_s[_i + 1] == _c || (_c == 't' && _s[_i + 1] == 'c' && _s[_i + 2] == 'h'))) {
-            fude_romaji_append(_out, _size, &_len, "っ");
+            _fits = fude_romaji_append(_out, _size, &_len, "っ");
             _i++;
             continue;
         }
 
+        // The longest spelling that matches here, trying 4 letters down to 1.
         b8 _matched = false;
         for(usize _try = 4; _try >= 1 && !_matched; _try--) {
             if(_i + _try > _n) {
                 continue;
             }
             for(u32 _t = 0; _t < sizeof(fude_romaji_table) / sizeof(fude_romaji_table[0]); _t++) {
-                if(strlen(fude_romaji_table[_t].romaji) == _try && strncmp(&_s[_i], fude_romaji_table[_t].romaji, _try) == 0) {
-                    fude_romaji_append(_out, _size, &_len, fude_romaji_table[_t].kana);
+                if(rde_strlen(fude_romaji_table[_t].romaji) == _try && rde_strncmp(&_s[_i], fude_romaji_table[_t].romaji, _try) == 0) {
+                    _fits = fude_romaji_append(_out, _size, &_len, fude_romaji_table[_t].kana);
                     _i += _try;
                     _matched = true;
                     break;
@@ -232,5 +264,5 @@ b8 fude_romaji_to_hiragana(const c8* _romaji, c8* _out, usize _size) {
         }
     }
 
-    return _ok && _len > 0;
+    return _ok && _fits && _len > 0;
 }

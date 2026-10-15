@@ -2,44 +2,52 @@
 
 #include "zoom/index.h"
 
-#include <stdlib.h>
-#include <string.h>
-
 // ===========================================================================
 // See index.h.
+//
+// In order: the nodes, splitting a full node, inserting one value, building the tree packed (Sort-Tile-Recursive),
+// the box query, and the nearest-first search. The nodes are one rde_arr and refer to one another by index, so every
+// pointer into it is fetched again after a node is added (the add may move the array).
 // ===========================================================================
 
-#define FUDE_ZOOM_INDEX_DEPTH 32u   // far more than any tree gets (16^32 entries)
+// The deepest a path is followed or a query's stack is sized for: far more than any tree gets (16^32 entries).
+#define FUDE_ZOOM_INDEX_DEPTH 32u
 
+// Returns the nodes as an array; valid until the next node is added.
 RDE_INTERNAL fude_zoom_index_node* fude_zoom_index_nodes(const fude_zoom_index* _ix) {
     return (fude_zoom_index_node*)_ix->nodes.memory;
 }
 
+// See the header. The nodes go on the std allocator.
 void fude_zoom_index_init(fude_zoom_index* _ix) {
-    memset(_ix, 0, sizeof(*_ix));
+    rde_memset(_ix, 0, sizeof(*_ix));
     _ix->nodes = rde_arr_new(sizeof(fude_zoom_index_node), rde_memory_allocator_get_default_std());
 }
 
+// See the header.
 void fude_zoom_index_destroy(fude_zoom_index* _ix) {
     if(rde_arr_is_inited(&_ix->nodes)) {
         rde_arr_free(&_ix->nodes);
     }
-    memset(_ix, 0, sizeof(*_ix));
+    rde_memset(_ix, 0, sizeof(*_ix));
 }
 
+// See the header.
 void fude_zoom_index_clear(fude_zoom_index* _ix) {
     rde_arr_clear(&_ix->nodes);
     _ix->count = 0;
 }
 
+// Adds an empty node (an empty box, no entries) and returns its index. Pointers to nodes taken before it may be stale.
 RDE_INTERNAL u32 fude_zoom_index_new_node(fude_zoom_index* _ix, b8 _leaf) {
     fude_zoom_index_node* _n = rde_arr_add(&_ix->nodes, NULL);
-    memset(_n, 0, sizeof(*_n));
+    rde_memset(_n, 0, sizeof(*_n));
     _n->leaf = _leaf;
     _n->box  = fude_zoom_box_empty();
     return (u32)rde_arr_length(&_ix->nodes) - 1u;
 }
 
+// Sets a node's box to the union of its entries' boxes.
 RDE_INTERNAL void fude_zoom_index_refit(fude_zoom_index_node* _n) {
     _n->box = fude_zoom_box_empty();
     for(u32 _i = 0; _i < _n->count; _i++) {
@@ -49,20 +57,23 @@ RDE_INTERNAL void fude_zoom_index_refit(fude_zoom_index_node* _n) {
 
 // --- splitting ---------------------------------------------------------------------------
 
+// One entry while a node splits: the value or child index, its box, and its place along the split's axis.
 typedef struct {
     u32           item;
     fude_zoom_box box;
     f64           key;
 } fude_zoom_index_entry;
 
-RDE_INTERNAL int fude_zoom_index_by_key(const void* _a, const void* _b) {
+// rde_sort's comparison: the smaller key first.
+RDE_INTERNAL int fude_zoom_index_by_key(const any _a, const any _b) {
     const f64 _ka = ((const fude_zoom_index_entry*)_a)->key;
     const f64 _kb = ((const fude_zoom_index_entry*)_b)->key;
     return _ka < _kb ? -1 : (_ka > _kb ? 1 : 0);
 }
 
-// Node _at is full and _item comes in: half its entries (and _item) move to a new
-// node, its sibling. Returns the sibling.
+// Node _at is full and _item comes in: its entries and _item are sorted by their centres along the longer side of
+// the box round them all, the first half stay in _at and the rest go to a new node, its sibling, of the same kind.
+// Both boxes are refitted; the parent's are left to the caller. Returns the sibling's index.
 RDE_INTERNAL u32 fude_zoom_index_split(fude_zoom_index* _ix, u32 _at, u32 _item, fude_zoom_box _box) {
     fude_zoom_index_entry _all[FUDE_ZOOM_INDEX_FAN + 1u];
     fude_zoom_index_node* _n = &fude_zoom_index_nodes(_ix)[_at];
@@ -75,9 +86,10 @@ RDE_INTERNAL u32 fude_zoom_index_split(fude_zoom_index* _ix, u32 _at, u32 _item,
     const u32 _total = _n->count + 1u;
     const b8  _wide  = _span.max_x - _span.min_x >= _span.max_y - _span.min_y;
     for(u32 _i = 0; _i < _total; _i++) {
+        // The sum of the two edges: twice the centre, which sorts the same.
         _all[_i].key = _wide ? _all[_i].box.min_x + _all[_i].box.max_x : _all[_i].box.min_y + _all[_i].box.max_y;
     }
-    qsort(_all, _total, sizeof(_all[0]), fude_zoom_index_by_key);
+    rde_sort(_all, _total, sizeof(_all[0]), fude_zoom_index_by_key);
 
     const b8  _leaf    = _n->leaf;
     const u32 _sibling = fude_zoom_index_new_node(_ix, _leaf);
@@ -102,6 +114,8 @@ RDE_INTERNAL u32 fude_zoom_index_split(fude_zoom_index* _ix, u32 _at, u32 _item,
 
 // --- inserting ---------------------------------------------------------------------------
 
+// See the header. Goes down to a leaf by the least growth (the smaller box on a tie) and adds the value there; a full
+// node splits and its sibling goes into the parent, up to a split root, which moves down a level.
 void fude_zoom_index_insert(fude_zoom_index* _ix, u32 _value, fude_zoom_box _box) {
     if(rde_arr_length(&_ix->nodes) == 0) {
         fude_zoom_index_new_node(_ix, true);
@@ -156,13 +170,13 @@ void fude_zoom_index_insert(fude_zoom_index* _ix, u32 _value, fude_zoom_box _box
         }
         const u32 _sibling = fude_zoom_index_split(_ix, _path[_d], _item, _ibox);
         if(_d == 0) {
-            // The root split: it moves down into a new node, and the root holds
-            // the two halves. The root stays node 0.
+            // The root split: it moves down into a new node, and the root holds the two halves. The root stays
+            // node 0.
             const u32 _moved = fude_zoom_index_new_node(_ix, false);
             fude_zoom_index_node* _nodes = fude_zoom_index_nodes(_ix);
             _nodes[_moved] = _nodes[0];
             fude_zoom_index_node* _root = &_nodes[0];
-            memset(_root, 0, sizeof(*_root));
+            rde_memset(_root, 0, sizeof(*_root));
             _root->leaf    = false;
             _root->count   = 2u;
             _root->item[0] = _moved;
@@ -172,8 +186,7 @@ void fude_zoom_index_insert(fude_zoom_index* _ix, u32 _value, fude_zoom_box _box
             fude_zoom_index_refit(_root);
             return;
         }
-        // The parent's slot for the split node shrank to its half; the sibling
-        // goes into the parent next.
+        // The parent's slot for the split node shrank to its half; the sibling goes into the parent next.
         fude_zoom_index_node* _p = &fude_zoom_index_nodes(_ix)[_path[_d - 1]];
         _p->ibox[_slot[_d - 1]] = fude_zoom_index_nodes(_ix)[_path[_d]].box;
         fude_zoom_index_refit(_p);
@@ -184,26 +197,30 @@ void fude_zoom_index_insert(fude_zoom_index* _ix, u32 _value, fude_zoom_box _box
 
 // --- building packed ---------------------------------------------------------------------
 
+// One entry while the tree is packed: a value or a child node, its box, and the box's centre.
 typedef struct {
     u32           item;
     fude_zoom_box box;
     f64           cx, cy;
 } fude_zoom_index_pack;
 
-RDE_INTERNAL int fude_zoom_index_by_x(const void* _a, const void* _b) {
+// rde_sort's comparison by the centre's x, the smaller first.
+RDE_INTERNAL int fude_zoom_index_by_x(const any _a, const any _b) {
     const f64 _ka = ((const fude_zoom_index_pack*)_a)->cx;
     const f64 _kb = ((const fude_zoom_index_pack*)_b)->cx;
     return _ka < _kb ? -1 : (_ka > _kb ? 1 : 0);
 }
 
-RDE_INTERNAL int fude_zoom_index_by_y(const void* _a, const void* _b) {
+// rde_sort's comparison by the centre's y, the smaller first.
+RDE_INTERNAL int fude_zoom_index_by_y(const any _a, const any _b) {
     const f64 _ka = ((const fude_zoom_index_pack*)_a)->cy;
     const f64 _kb = ((const fude_zoom_index_pack*)_b)->cy;
     return _ka < _kb ? -1 : (_ka > _kb ? 1 : 0);
 }
 
-// One level packed: _in's entries sorted into vertical slices by x, each slice
-// by y, then cut into nodes of FAN — the next level's entries, into _out.
+// One level packed (Sort-Tile-Recursive): _in's _count entries are sorted by x into about sqrt(nodes) vertical
+// slices, each slice by y, and cut into nodes of FUDE_ZOOM_INDEX_FAN. Each new node is written to _out as an entry of
+// the level above. Returns how many nodes it made.
 RDE_INTERNAL u32 fude_zoom_index_pack_level(fude_zoom_index* _ix, fude_zoom_index_pack* _in, u32 _count, b8 _leaf, fude_zoom_index_pack* _out) {
     const u32 _nodes  = (_count + FUDE_ZOOM_INDEX_FAN - 1u) / FUDE_ZOOM_INDEX_FAN;
     u32       _slices = 1u;
@@ -211,11 +228,11 @@ RDE_INTERNAL u32 fude_zoom_index_pack_level(fude_zoom_index* _ix, fude_zoom_inde
         _slices++;
     }
     const u32 _per_slice = _slices * FUDE_ZOOM_INDEX_FAN;
-    qsort(_in, _count, sizeof(_in[0]), fude_zoom_index_by_x);
+    rde_sort(_in, _count, sizeof(_in[0]), fude_zoom_index_by_x);
     u32 _made = 0;
     for(u32 _s = 0; _s < _count; _s += _per_slice) {
         const u32 _n = _count - _s < _per_slice ? _count - _s : _per_slice;
-        qsort(&_in[_s], _n, sizeof(_in[0]), fude_zoom_index_by_y);
+        rde_sort(&_in[_s], _n, sizeof(_in[0]), fude_zoom_index_by_y);
         for(u32 _i = 0; _i < _n; _i += FUDE_ZOOM_INDEX_FAN) {
             const u32 _node = fude_zoom_index_new_node(_ix, _leaf);
             fude_zoom_index_node* _nd = &fude_zoom_index_nodes(_ix)[_node];
@@ -231,6 +248,8 @@ RDE_INTERNAL u32 fude_zoom_index_pack_level(fude_zoom_index* _ix, fude_zoom_inde
     return _made;
 }
 
+// See the header. The levels are packed one by one, each from the one below, until a level is one node; the two
+// scratch arrays take turns as a level's input and output.
 void fude_zoom_index_build(fude_zoom_index* _ix, const u32* _values, const fude_zoom_box* _boxes, u32 _count) {
     fude_zoom_index_clear(_ix);
     if(_count == 0) {
@@ -244,8 +263,7 @@ void fude_zoom_index_build(fude_zoom_index* _ix, const u32* _values, const fude_
     for(u32 _i = 0; _i < _count; _i++) {
         _a[_i] = (fude_zoom_index_pack){ _values[_i], _boxes[_i], (_boxes[_i].min_x + _boxes[_i].max_x) * 0.5, (_boxes[_i].min_y + _boxes[_i].max_y) * 0.5 };
     }
-    // Node 0 is kept for the root: the levels are built after it, and the top
-    // level's single node is copied into it.
+    // Node 0 is kept for the root: the levels are built after it, and the top level's single node is copied into it.
     fude_zoom_index_new_node(_ix, true);
     u32 _n    = _count;
     b8  _leaf = true;
@@ -269,6 +287,8 @@ void fude_zoom_index_build(fude_zoom_index* _ix, const u32* _values, const fude_
 
 // --- querying ----------------------------------------------------------------------------
 
+// See the header. Depth first, with a fixed stack of FUDE_ZOOM_INDEX_DEPTH · FUDE_ZOOM_INDEX_FAN nodes, which a tree
+// up to FUDE_ZOOM_INDEX_DEPTH levels deep never fills (a child that would not fit is skipped).
 void fude_zoom_index_query(const fude_zoom_index* _ix, fude_zoom_box _box, rde_arr* _out) {
     if(rde_arr_length(&_ix->nodes) == 0 || _ix->count == 0) {
         return;
@@ -294,67 +314,40 @@ void fude_zoom_index_query(const fude_zoom_index* _ix, fude_zoom_box _box, rde_a
 
 // --- nearest first -----------------------------------------------------------------------------
 
+// One item in the nearest-first heap: a node not yet opened, or one entry of a leaf, with its squared distance.
 typedef struct {
-    f64 d2;
-    u32 node;
+    f64 d2;   // Squared, from the point to the box's nearest point.
+    u32 node;   // The node, or the leaf the entry is in.
     i32 entry;   // a leaf's entry; -1: the node itself, unopened
 } fude_zoom_index_near;
 
+// Returns the squared distance from _p to the nearest point of _b; 0 when _p is inside.
 RDE_INTERNAL f64 fude_zoom_index_d2(fude_zoom_box _b, fude_zoom_v2 _p) {
     const f64 _dx = _p.x < _b.min_x ? _b.min_x - _p.x : (_p.x > _b.max_x ? _p.x - _b.max_x : 0.0);
     const f64 _dy = _p.y < _b.min_y ? _b.min_y - _p.y : (_p.y > _b.max_y ? _p.y - _b.max_y : 0.0);
     return _dx * _dx + _dy * _dy;
 }
 
-RDE_INTERNAL void fude_zoom_index_heap_push(rde_arr* _h, fude_zoom_index_near _e) {
-    rde_arr_add(_h, (any)&_e);
-    fude_zoom_index_near* _a = (fude_zoom_index_near*)_h->memory;
-    u32 _i = (u32)rde_arr_length(_h) - 1u;
-    while(_i > 0u) {
-        const u32 _up = (_i - 1u) / 2u;
-        if(_a[_up].d2 <= _a[_i].d2) {
-            break;
-        }
-        const fude_zoom_index_near _t = _a[_up];
-        _a[_up] = _a[_i];
-        _a[_i]  = _t;
-        _i      = _up;
-    }
+// The heap's comparison: the nearer first, by squared distance only, so equal ones come in the order the heap gives.
+RDE_INTERNAL i32 fude_zoom_index_by_d2(const any _a, const any _b) {
+    const f64 _da = ((const fude_zoom_index_near*)_a)->d2, _db = ((const fude_zoom_index_near*)_b)->d2;
+    return _da < _db ? -1 : (_da > _db ? 1 : 0);
 }
 
-RDE_INTERNAL fude_zoom_index_near fude_zoom_index_heap_pop(rde_arr* _h) {
-    fude_zoom_index_near* _a   = (fude_zoom_index_near*)_h->memory;
-    const fude_zoom_index_near _top = _a[0];
-    const u32 _n = (u32)rde_arr_length(_h) - 1u;
-    _a[0] = _a[_n];
-    _h->count--;
-    u32 _i = 0;
-    for(;;) {
-        const u32 _l = 2u * _i + 1u, _r = _l + 1u;
-        u32 _m = _i;
-        if(_l < _n && _a[_l].d2 < _a[_m].d2) { _m = _l; }
-        if(_r < _n && _a[_r].d2 < _a[_m].d2) { _m = _r; }
-        if(_m == _i) {
-            break;
-        }
-        const fude_zoom_index_near _t = _a[_m];
-        _a[_m] = _a[_i];
-        _a[_i] = _t;
-        _i     = _m;
-    }
-    return _top;
-}
-
+// See the header. Best first: the heap starts with the root; a node popped is opened (counted against _budget) and
+// its entries pushed, a leaf's as values and an inner node's as nodes; a value popped is handed to _visit. Since a
+// node's distance is never more than any of its entries', the values come nearest first.
 void fude_zoom_index_nearest(const fude_zoom_index* _ix, fude_zoom_v2 _at, fude_zoom_index_visit _visit, any _user, u32 _budget) {
     if(rde_arr_length(&_ix->nodes) == 0 || _ix->count == 0 || _visit == NULL) {
         return;
     }
     const fude_zoom_index_node* _nodes = fude_zoom_index_nodes(_ix);
-    rde_arr _heap = rde_arr_new(sizeof(fude_zoom_index_near), rde_memory_allocator_get_default_std());
-    fude_zoom_index_heap_push(&_heap, (fude_zoom_index_near){ fude_zoom_index_d2(_nodes[0].box, _at), 0u, -1 });
-    u32 _opened = 0;
-    while(rde_arr_length(&_heap) > 0) {
-        const fude_zoom_index_near _e = fude_zoom_index_heap_pop(&_heap);
+    rde_heap _heap = rde_heap_new(sizeof(fude_zoom_index_near), fude_zoom_index_by_d2, rde_memory_allocator_get_default_std());
+    const fude_zoom_index_near _root = { fude_zoom_index_d2(_nodes[0].box, _at), 0u, -1 };
+    rde_heap_push(&_heap, (any)&_root);
+    u32                  _opened = 0;
+    fude_zoom_index_near _e;
+    while(rde_heap_pop(&_heap, (any)&_e)) {
         const fude_zoom_index_node* _n = &_nodes[_e.node];
         if(_e.entry >= 0) {
             if(!_visit(_user, _n->item[_e.entry], _n->ibox[_e.entry], _n->box, _e.d2)) {
@@ -367,8 +360,9 @@ void fude_zoom_index_nearest(const fude_zoom_index* _ix, fude_zoom_v2 _at, fude_
         }
         for(u32 _i = 0; _i < _n->count; _i++) {
             const f64 _d2 = fude_zoom_index_d2(_n->ibox[_i], _at);
-            fude_zoom_index_heap_push(&_heap, _n->leaf ? (fude_zoom_index_near){ _d2, _e.node, (i32)_i } : (fude_zoom_index_near){ _d2, _n->item[_i], -1 });
+            const fude_zoom_index_near _next = _n->leaf ? (fude_zoom_index_near){ _d2, _e.node, (i32)_i } : (fude_zoom_index_near){ _d2, _n->item[_i], -1 };
+            rde_heap_push(&_heap, (any)&_next);
         }
     }
-    rde_arr_free(&_heap);
+    rde_heap_free(&_heap);
 }

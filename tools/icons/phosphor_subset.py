@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 #
 # The icon fonts every app ships (assets/fonts/Phosphor-Regular.ttf and Phosphor-Fill.ttf): Phosphor's full fonts
-# (data/raw/phosphor-icons/, not shipped) cut down to the icons fude/drawing/widgets/icons.h names — each line's
+# (data/raw/phosphor-icons/, not shipped) cut down to the icons fude/drawing/base/icons.h names — each line's
 # "U+XXXX". Add an icon there, then run this:
 #
 #   python3 -m pip install fonttools      # once (a virtual environment is fine)
@@ -14,7 +14,7 @@ from fontTools import subset
 from fontTools.ttLib import TTFont
 
 K = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-HEADER = os.path.join(K, 'fude/drawing/widgets/icons.h')
+HEADER = os.path.join(K, 'fude/drawing/base/icons.h')
 FULL = {
     'Phosphor-Regular.ttf': os.path.join(K, 'data/raw/phosphor-icons/Fonts/regular/Phosphor.ttf'),
     'Phosphor-Fill.ttf':    os.path.join(K, 'data/raw/phosphor-icons/Fonts/fill/Phosphor-Fill.ttf'),

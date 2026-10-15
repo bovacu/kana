@@ -1,0 +1,11 @@
+Copyright (C) 2025 Katharine Chui <katharine.chui@gmail.com>
+Copyright (C) 2025 Simon Wood <simon@mungewell.org>
+Copyright (C) 2025 Michal Malý <madcatxster@devoid-pointer.net>
+Copyright (C) 2025 Bernat Arlandis <berarma@hotmail.com>
+Copyright (C) 2022 Valve Corporation
+Copyright (C) 2021 Valve Corporation
+Copyright (C) Valve Corporation
+Copyright (C) 2025 Mitchell Cairns <mitch.cairns@handheldlegend.com>
+Copyright (C) 2023 Max Maisel <max.maisel@posteo.de>
+Copyright (C) 2025 Zuiki Inc.
+This function Copyright 2023 Collabora Ltd., contributed to SDL under the ZLib license

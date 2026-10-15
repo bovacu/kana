@@ -281,6 +281,25 @@ static void test_sequential(void) {
     CHECK(w.run.oscillating);
     world_done(&w);
     fude_sim_def_free(ring);
+    // The same loop beside a clock: stopped, the clock still ticks (only the loop's changes are dropped, its wakes
+    // kept; all of them went once, and the clock with them, for good).
+    fude_sim_def* ticking = fude_sim_def_new("test/ticking", "a loop and a clock");
+    fude_sim_def_inst(ticking, "nand", "G", "", rq, 3u);
+    fude_sim_def_inst(ticking, "input", "EN", "0", re, 1u);
+    fude_sim_def_inst(ticking, "clock", "CK", "period=1", ck, 1u);   // (rising at 0.5, falling at 1, rising at 1.5)
+    fude_sim_def_inst(ticking, "probe", "PC", "", ck, 1u);
+    world_run(&w, ticking);
+    set(&w, "EN", 1);
+    fude_sim_run_until(&w.run, 0.1);
+    CHECK(w.run.oscillating && at(&w, "PC", 0) == 0u);
+    fude_sim_run_until(&w.run, 0.6);
+    CHECK(at(&w, "PC", 0) == 1u);
+    fude_sim_run_until(&w.run, 1.1);
+    CHECK(at(&w, "PC", 0) == 0u);
+    fude_sim_run_until(&w.run, 1.6);
+    CHECK(at(&w, "PC", 0) == 1u && w.run.now == 1.6);
+    world_done(&w);
+    fude_sim_def_free(ticking);
     fude_sim_lib_destroy(&w.lib);
 }
 
@@ -332,6 +351,71 @@ static void test_errors(void) {
     CHECK(fude_sim_elaborate(&lib, top, &flat));
     const fude_sim_prim* pr = (const fude_sim_prim*)flat.prims.memory;
     CHECK(fabs(pr[fude_sim_flat_find(&flat, "S1/B")].params[0] - 5e-9) < 1e-18 && fabs(pr[fude_sim_flat_find(&flat, "S2/B")].params[0] - 2e-8) < 1e-18);
+    fude_sim_def_free(top);
+    fude_sim_flat_destroy(&flat);
+    fude_sim_lib_destroy(&lib);
+}
+
+// Two models of this test's own, a pin each and nothing else: an electric one ("E") and a shaft's ("S"), to put ports
+// of three domains on one net.
+static u32 epin_ports(const f64* p, fude_sim_port* o, u32 m) {
+    (void)p;
+    if(m == 0u) return 0u;
+    memset(o, 0, sizeof *o); snprintf(o->name, sizeof o->name, "E"); o->domain = FUDE_SIM_ELECTRIC; o->dir = FUDE_SIM_PASSIVE; o->width = 1u;
+    return 1u;
+}
+static u32 spin_ports(const f64* p, fude_sim_port* o, u32 m) {
+    (void)p;
+    if(m == 0u) return 0u;
+    memset(o, 0, sizeof *o); snprintf(o->name, sizeof o->name, "S"); o->domain = FUDE_SIM_ROTATION; o->dir = FUDE_SIM_INOUT; o->width = 1u;
+    return 1u;
+}
+static const fude_sim_model EPIN = { "test/epin", "electric pin", NULL, 0u, 0u, epin_ports, NULL, NULL, NULL, NULL };
+static const fude_sim_model SPIN = { "test/spin", "shaft", NULL, 0u, 0u, spin_ports, NULL, NULL, NULL, NULL };
+
+// A net holding logic, electric and rotation ports: each port's error names the domain it may not meet — the rotation
+// for the logic and the electric ports (bridged to each other, never the culprit), the electric (the first) for the
+// shaft's —, with its article ("an electric"). A custom part's electric port on a net of logic and a shaft the same.
+static void test_domain_errors(void) {
+    fude_sim_lib lib; fude_sim_lib_init(&lib);
+    fude_sim_def* e = fude_sim_def_new("test/epin", "electric pin");
+    e->kind = FUDE_SIM_PRIMITIVE; e->model = &EPIN;
+    fude_sim_lib_add(&lib, e);
+    fude_sim_def* r = fude_sim_def_new("test/spin", "shaft");
+    r->kind = FUDE_SIM_PRIMITIVE; r->model = &SPIN;
+    fude_sim_lib_add(&lib, r);
+    const c8* m[1] = { "m" };
+    fude_sim_def* top = fude_sim_def_new("test/mixed", "mixed");
+    fude_sim_def_inst(top, "test/epin", "E1", "", m, 1u);
+    fude_sim_def_inst(top, "test/spin", "R1", "", m, 1u);
+    fude_sim_def_inst(top, "probe", "P", "", m, 1u);
+    fude_sim_flat flat; fude_sim_flat_init(&flat);
+    CHECK(!fude_sim_elaborate(&lib, top, &flat));
+    const c8* said = fude_sim_flat_errors(&flat);
+    CHECK(strstr(said, "P's A (logic) is joined to a rotation connection") != NULL);
+    CHECK(strstr(said, "E1's E (electric) is joined to a rotation connection") != NULL);
+    CHECK(strstr(said, "R1's S (rotation) is joined to an electric connection") != NULL);
+    CHECK(strstr(said, "(logic) is joined to an electric") == NULL && strstr(said, "(electric) is joined to a logic") == NULL);
+    fude_sim_def_free(top);
+    // A custom part's electric port, on a net a probe and a shaft are on outside it.
+    fude_sim_def* cw = fude_sim_def_new("user/ewire", "a wire");
+    fude_sim_def_port(cw, "W", FUDE_SIM_ELECTRIC, FUDE_SIM_PASSIVE, 1u);
+    fude_sim_lib_add(&lib, cw);
+    const c8* n[1] = { "n" };
+    top = fude_sim_def_new("test/mixed2", "mixed");
+    fude_sim_def_inst(top, "user/ewire", "C", "", n, 1u);
+    fude_sim_def_inst(top, "probe", "Q", "", n, 1u);
+    fude_sim_def_inst(top, "test/spin", "R2", "", n, 1u);
+    CHECK(!fude_sim_elaborate(&lib, top, &flat));
+    said = fude_sim_flat_errors(&flat);
+    CHECK(strstr(said, "C's W (electric) is joined to a rotation connection") != NULL);
+    CHECK(strstr(said, "C's W (electric) is joined to a logic") == NULL);
+    // Logic and electric alone on a net: bridged, no error.
+    fude_sim_def_free(top);
+    top = fude_sim_def_new("test/bridged", "bridged");
+    fude_sim_def_inst(top, "test/epin", "E2", "", m, 1u);
+    fude_sim_def_inst(top, "probe", "P2", "", m, 1u);
+    CHECK(fude_sim_elaborate(&lib, top, &flat));
     fude_sim_def_free(top);
     fude_sim_flat_destroy(&flat);
     fude_sim_lib_destroy(&lib);
@@ -439,7 +523,8 @@ static const c8* wrapped(fude_sim_lib* lib, u32 gate, u32 n, u32 depth, c8* id, 
     for(u32 i = 0; i < n; i++) { snprintf(names[i], sizeof names[i], "A%u", i + 1u); fude_sim_def_port(d, names[i], FUDE_SIM_LOGIC, FUDE_SIM_IN, 1u); nets[i] = names[i]; }
     fude_sim_def_port(d, "Y", FUDE_SIM_LOGIC, FUDE_SIM_OUT, 1u);
     nets[n] = "Y";
-    c8 params[24]; snprintf(params, sizeof params, depth == 1u && gate < 6u ? "inputs=%u" : "", n);
+    c8 params[24] = { 0 };
+    if(depth == 1u && gate < 6u) snprintf(params, sizeof params, "inputs=%u", n);
     fude_sim_def_inst(d, inner, "W", params, nets, n + 1u);
     fude_sim_lib_add(lib, d);
     return id;
@@ -464,7 +549,8 @@ static void test_random_networks(void) {
             nets[r->n] = name[inputs + g];
             c8 ref[8], id[FUDE_SIM_ID], params[24];
             snprintf(ref, sizeof ref, "G%u", g);
-            snprintf(params, sizeof params, r->gate < 6u ? "inputs=%u" : "", r->n);
+            params[0] = 0;
+            if(r->gate < 6u) snprintf(params, sizeof params, "inputs=%u", r->n);
             wrapped(&w.lib, r->gate, r->n, depth, id, sizeof id);
             fude_sim_def_inst(top, id, ref, depth == 0u ? params : "", nets, r->n + 1u);
             c8 pr[8]; snprintf(pr, sizeof pr, "P%u", g);
@@ -846,6 +932,223 @@ static void test_elaboration_edges(void) {
     fude_sim_lib_destroy(&lib);
 }
 
+// The flat circuit's nets (elab.c) come from RDE's disjoint set, each set named by its smallest number, and are
+// numbered in that order: so a part joining the same nets, given them in another order (its joins coming in another
+// order), makes the same flat circuit, every port on the same net. A part whose three ports are one net inside, on
+// three of the top's nets (p, q, r: the first ones met), given them as p q r, as r q p and as q r p; a fourth net (s)
+// apart, numbered after them.
+static void test_elaboration_join_order(void) {
+    fude_sim_lib lib; fude_sim_lib_init(&lib);
+    fude_sim_def* tie = fude_sim_def_new("user/tie3", "tie3");
+    fude_sim_def_port(tie, "A", FUDE_SIM_LOGIC, FUDE_SIM_INOUT, 1u);
+    fude_sim_def_port(tie, "B", FUDE_SIM_LOGIC, FUDE_SIM_INOUT, 1u);
+    fude_sim_def_port(tie, "C", FUDE_SIM_LOGIC, FUDE_SIM_INOUT, 1u);
+    ((u32*)tie->port_nets.memory)[1] = ((u32*)tie->port_nets.memory)[0];   // (B's and C's nets inside are A's)
+    ((u32*)tie->port_nets.memory)[2] = ((u32*)tie->port_nets.memory)[0];
+    fude_sim_lib_add(&lib, tie);
+    const c8* orders[3][3] = { { "p", "q", "r" }, { "r", "q", "p" }, { "q", "r", "p" } };
+    const c8* paths[5] = { "X", "P", "R", "S", "Q" };
+    u32 nets[3][5], count[3];
+    for(u32 o = 0; o < 3u; o++) {
+        fude_sim_def* top = fude_sim_def_new("test/tied", "top");
+        const c8* pn[1] = { "p" }; const c8* qn[1] = { "q" }; const c8* rn[1] = { "r" }; const c8* sn[1] = { "s" };
+        fude_sim_def_inst(top, "input", "X", "1", pn, 1u);
+        fude_sim_def_inst(top, "probe", "P", "", qn, 1u);
+        fude_sim_def_inst(top, "probe", "R", "", rn, 1u);
+        fude_sim_def_inst(top, "input", "S", "0", sn, 1u);
+        fude_sim_def_inst(top, "probe", "Q", "", sn, 1u);
+        fude_sim_def_inst(top, "user/tie3", "T", "", orders[o], 3u);
+        fude_sim_flat flat; fude_sim_flat_init(&flat);
+        CHECK(fude_sim_elaborate(&lib, top, &flat));
+        const u32* pnet = (const u32*)flat.port_nets.memory;
+        const fude_sim_prim* pr = (const fude_sim_prim*)flat.prims.memory;
+        for(u32 k = 0; k < 5u; k++) {
+            const u32 at = fude_sim_flat_find(&flat, paths[k]);
+            CHECK(at != FUDE_SIM_NONE);
+            nets[o][k] = at != FUDE_SIM_NONE ? pnet[pr[at].first] : FUDE_SIM_NONE;
+        }
+        count[o] = flat.nets;
+        // p, q and r one net, the first (0); s the next (1).
+        CHECK(nets[o][0] == 0u && nets[o][1] == 0u && nets[o][2] == 0u && nets[o][3] == 1u && nets[o][4] == 1u);
+        fude_sim_flat_destroy(&flat);
+        fude_sim_def_free(top);
+    }
+    CHECK(count[0] == count[1] && count[1] == count[2]);
+    fude_sim_lib_destroy(&lib);
+}
+
+// A name or a description holding a line break (as a pasted text's may): written on its one line, the part read back
+// whole rather than refused at the line that followed the break.
+static void test_text_line_breaks(void) {
+    fude_sim_def* d = fude_sim_def_new("user/broken", "two\nlines");
+    snprintf(d->desc, sizeof d->desc, "first\r\nsecond");
+    fude_sim_def_port(d, "A", FUDE_SIM_LOGIC, FUDE_SIM_IN, 1u);
+    fude_sim_def_port(d, "Y", FUDE_SIM_LOGIC, FUDE_SIM_OUT, 1u);
+    const c8* n[2] = { "A", "Y" };
+    fude_sim_def_inst(d, "not", "N", "", n, 2u);
+    rde_arr t = rde_arr_new(sizeof(c8), rde_memory_allocator_get_default_std());
+    fude_sim_def_write(d, &t);
+    c8 err[160];
+    fude_sim_def* back = fude_sim_def_read((const c8*)t.memory, rde_arr_length(&t), err, sizeof err);
+    if(back == NULL) printf("  not read: %s\n", err);
+    CHECK(back != NULL);
+    if(back != NULL) {
+        CHECK(strcmp(back->name, "two lines") == 0 && strcmp(back->desc, "first  second") == 0 && strcmp(back->id, "user/broken") == 0);
+        CHECK(rde_arr_length(&back->ports) == 2u && rde_arr_length(&back->insts) == 1u);
+        fude_sim_def_free(back);
+    }
+    rde_arr_free(&t);
+    fude_sim_def_free(d);
+}
+
+// A custom part's ports and parameters are as many as it has: more ports than a primitive ever has (70), and more
+// parameters than a primitive keeps (10), the last of them named by a part inside, at the top and one level down.
+static void test_wide_parts(void) {
+    world w; fude_sim_lib_init(&w.lib);
+    enum { HALF = 35 };
+    fude_sim_def* wide = fude_sim_def_new("user/wide", "wide");
+    for(u32 k = 0; k < HALF; k++) { c8 n[8]; snprintf(n, sizeof n, "I%u", k); fude_sim_def_port(wide, n, FUDE_SIM_LOGIC, FUDE_SIM_IN, 1u); }
+    for(u32 k = 0; k < HALF; k++) { c8 n[8]; snprintf(n, sizeof n, "O%u", k); fude_sim_def_port(wide, n, FUDE_SIM_LOGIC, FUDE_SIM_OUT, 1u); }
+    for(u32 k = 0; k < HALF; k++) {
+        c8 i[8], o[8], r[8];
+        snprintf(i, sizeof i, "I%u", k); snprintf(o, sizeof o, "O%u", k); snprintf(r, sizeof r, "N%u", k);
+        const c8* n[2] = { i, o };
+        fude_sim_def_inst(wide, "not", r, "", n, 2u);
+    }
+    CHECK(rde_arr_length(&wide->ports) == 2u * HALF);
+    fude_sim_lib_add(&w.lib, wide);
+    // Ten parameters, all 0 but what is given; its switch inside takes the tenth's value.
+    fude_sim_def* many = fude_sim_def_new("user/many", "many");
+    for(u32 k = 0; k < 10u; k++) {
+        fude_sim_param q; memset(&q, 0, sizeof q); snprintf(q.name, sizeof q.name, "p%u", k);
+        rde_arr_add(&many->params, (any)&q);
+    }
+    fude_sim_def_port(many, "Y", FUDE_SIM_LOGIC, FUDE_SIM_OUT, 1u);
+    const c8* yn[1] = { "Y" };
+    fude_sim_def_inst(many, "input", "S", "p9", yn, 1u);
+    fude_sim_lib_add(&w.lib, many);
+
+    fude_sim_def* top = fude_sim_def_new("test/wide", "top");
+    for(u32 k = 0; k < 10u; k++) {
+        fude_sim_param q; memset(&q, 0, sizeof q); snprintf(q.name, sizeof q.name, "t%u", k); q.value = k == 9u ? 1.0 : 0.0;
+        rde_arr_add(&top->params, (any)&q);
+    }
+    const c8* nets[2u * HALF];
+    c8 names[2u * HALF][8];
+    for(u32 k = 0; k < HALF; k++) {
+        snprintf(names[k], sizeof names[k], "x%u", k); snprintf(names[HALF + k], sizeof names[HALF + k], "y%u", k);
+        nets[k] = names[k]; nets[HALF + k] = names[HALF + k];
+        c8 r[8]; snprintf(r, sizeof r, "X%u", k);
+        const c8* xn[1] = { names[k] };
+        fude_sim_def_inst(top, "input", r, "0", xn, 1u);
+    }
+    fude_sim_def_inst(top, "user/wide", "W", "", nets, 2u * HALF);
+    for(u32 k = 0; k < HALF; k++) {
+        c8 r[8]; snprintf(r, sizeof r, "P%u", k);
+        const c8* pn[1] = { names[HALF + k] };
+        fude_sim_def_inst(top, "probe", r, "", pn, 1u);
+    }
+    const c8* mn[1] = { "m" }; const c8* tn[1] = { "t" };
+    fude_sim_def_inst(top, "user/many", "M", "p9=1", mn, 1u);
+    fude_sim_def_inst(top, "probe", "PM", "", mn, 1u);
+    fude_sim_def_inst(top, "input", "T", "t9", tn, 1u);   // (the top's own tenth, 1)
+    fude_sim_def_inst(top, "probe", "PT", "", tn, 1u);
+    world_run(&w, top);
+    // Every one of the 70 joined as it says: each output the NOT of its input.
+    u32 right = 0;
+    for(u32 k = 0; k < HALF; k++) {
+        c8 r[8]; snprintf(r, sizeof r, "X%u", k);
+        set(&w, r, (u8)(k & 1u));
+    }
+    for(u32 k = 0; k < HALF; k++) {
+        c8 r[8]; snprintf(r, sizeof r, "P%u", k);
+        right += at(&w, r, 0) == (u8)(1u - (k & 1u)) ? 1u : 0u;
+    }
+    CHECK(right == HALF);
+    CHECK(fude_sim_flat_find(&w.flat, "W/N34") != FUDE_SIM_NONE);
+    // The tenth parameter's value reaches the part that names it.
+    CHECK(at(&w, "PM", 0) == 1u && at(&w, "PT", 0) == 1u);
+    world_done(&w);
+    fude_sim_def_free(top);
+    fude_sim_lib_destroy(&w.lib);
+}
+
+// A custom part of 70 ports nested in another, both kept as text and read back, as My parts' files are: every one of
+// its 70 joins is kept. Its line in the other's text names 70 nets, more than the 64 the reader kept, in 74 words, more
+// than the 72 it split; with long net names it runs to near 2000 bytes, past the 1023 it read of a line. The outputs
+// past what was read were joined to nothing.
+static void test_wide_text(void) {
+    enum { HALF = 35 };
+    rde_memory_allocator* heap = rde_memory_allocator_get_default_std();
+    for(u32 named = 0; named < 2u; named++) {   // (short net names, then long ones)
+        world w; fude_sim_lib_init(&w.lib);
+        c8 err[160];
+        rde_arr t = rde_arr_new(sizeof(c8), heap);
+        // The wide part: I_k into a NOT, out of O_k. As text and back, into the library.
+        fude_sim_def* wide = fude_sim_def_new("user/wide", "wide");
+        for(u32 k = 0; k < HALF; k++) { c8 n[8]; snprintf(n, sizeof n, "I%u", k); fude_sim_def_port(wide, n, FUDE_SIM_LOGIC, FUDE_SIM_IN, 1u); }
+        for(u32 k = 0; k < HALF; k++) { c8 n[8]; snprintf(n, sizeof n, "O%u", k); fude_sim_def_port(wide, n, FUDE_SIM_LOGIC, FUDE_SIM_OUT, 1u); }
+        for(u32 k = 0; k < HALF; k++) {
+            c8 i[8], o[8], r[8];
+            snprintf(i, sizeof i, "I%u", k); snprintf(o, sizeof o, "O%u", k); snprintf(r, sizeof r, "N%u", k);
+            const c8* n[2] = { i, o };
+            fude_sim_def_inst(wide, "not", r, "", n, 2u);
+        }
+        fude_sim_def_write(wide, &t);
+        fude_sim_def_free(wide);
+        fude_sim_def* wide_back = fude_sim_def_read((const c8*)t.memory, rde_arr_length(&t), err, sizeof err);
+        CHECK(wide_back != NULL);
+        if(wide_back == NULL) { rde_arr_free(&t); fude_sim_lib_destroy(&w.lib); continue; }
+        fude_sim_lib_add(&w.lib, wide_back);
+        // The part it is in: a switch on each of its inputs' nets, a probe on each of its outputs'.
+        fude_sim_def* holder = fude_sim_def_new("user/holder", "holder");
+        const c8* nets[2u * HALF];
+        c8 names[2u * HALF][FUDE_SIM_NAME];
+        for(u32 k = 0; k < 2u * HALF; k++) {
+            snprintf(names[k], sizeof names[k], named == 0u ? "%c%u" : "%c_net_with_a_long_name_%02u", k < HALF ? 'a' : 'z', k);
+            nets[k] = names[k];
+        }
+        for(u32 k = 0; k < HALF; k++) {
+            c8 r[8];
+            snprintf(r, sizeof r, "X%u", k);
+            fude_sim_def_inst(holder, "input", r, "0", &nets[k], 1u);
+            snprintf(r, sizeof r, "P%u", k);
+            fude_sim_def_inst(holder, "probe", r, "", &nets[HALF + k], 1u);
+        }
+        fude_sim_def_inst(holder, "user/wide", "W", "", nets, 2u * HALF);
+        rde_arr_clear(&t);
+        fude_sim_def_write(holder, &t);
+        fude_sim_def_free(holder);
+        // (its line: 74 words, and with long names past 1023 bytes)
+        rde_arr_add(&t, &(c8){ 0 });
+        const c8* line_at = strstr((const c8*)t.memory, "inst user/wide");
+        const c8* line_end = line_at != NULL ? strchr(line_at, '\n') : NULL;
+        CHECK(line_at != NULL && line_end != NULL && (named == 0u || line_end - line_at > 1023));
+        fude_sim_def* back = fude_sim_def_read((const c8*)t.memory, rde_arr_length(&t) - 1u, err, sizeof err);
+        if(back == NULL) printf("  not read: %s\n", err);
+        CHECK(back != NULL);
+        if(back != NULL) {
+            const fude_sim_inst* in = (const fude_sim_inst*)back->insts.memory;
+            const fude_sim_inst* wi = &in[rde_arr_length(&back->insts) - 1u];
+            const u32* inets = (const u32*)back->inst_nets.memory;
+            const c8 (*bn)[FUDE_SIM_NAME] = (const c8 (*)[FUDE_SIM_NAME])back->nets.memory;
+            CHECK(strcmp(wi->def, "user/wide") == 0 && wi->count == 2u * HALF);
+            CHECK(wi->count == 2u * HALF && inets[wi->first + 2u * HALF - 1u] < rde_arr_length(&back->nets) &&
+                  strcmp(bn[inets[wi->first + 2u * HALF - 1u]], names[2u * HALF - 1u]) == 0);
+            // Run: each output the NOT of its input, all 35.
+            world_run(&w, back);
+            for(u32 k = 0; k < HALF; k++) { c8 r[8]; snprintf(r, sizeof r, "X%u", k); set(&w, r, (u8)(k & 1u)); }
+            u32 right = 0;
+            for(u32 k = 0; k < HALF; k++) { c8 r[8]; snprintf(r, sizeof r, "P%u", k); right += at(&w, r, 0) == (u8)(1u - (k & 1u)) ? 1u : 0u; }
+            CHECK(right == HALF);
+            world_done(&w);
+            fude_sim_def_free(back);
+        }
+        rde_arr_free(&t);
+        fude_sim_lib_destroy(&w.lib);
+    }
+}
+
 // --- bodies' shapes: measures against formulas; outlines simplified; concave shapes cut into convex pieces ----------
 
 static f64 frand(f64 lo, f64 hi) { return lo + (hi - lo) * (f64)rnd(1000001u) / 1000000.0; }
@@ -1204,7 +1507,8 @@ static void test_universal(void) {
     put(&w, "nR", 0u); CHECK(get(&w, "q") == 0u && get(&w, "nq") == 1u);
     put(&w, "nR", 1u); CHECK(get(&w, "q") == 0u && get(&w, "nq") == 1u);
     put(&w, "nS", 0u); put(&w, "nR", 0u); CHECK(get(&w, "q") == 1u && get(&w, "nq") == 1u);
-    // The D latch: through while EN; held when not. The flip-flop of latches: as the primitive one, on each rising edge only.
+    // The D latch: through while EN; held when not. The flip-flop of latches: as the primitive one, on
+    // each rising edge only.
     u8 ref_latch = FUDE_SIM_X, ref_ff = FUDE_SIM_X, d = 0, en = 0, clk = 0;
     u32 steps = 0, latch_right = 0, ff_right = 0;
     for(u32 k = 0; k < 3000u; k++) {
@@ -1234,7 +1538,8 @@ static void test_memory(void) {
     line(&b, "inst user/ram4x4 RAM \"\" A0 A1 D0 D1 D2 D3 WE CLK Q0 Q1 Q2 Q3");
     probes(&b, "Q0 Q1 Q2 Q3");
     fude_sim_def* top = bench_run(&b, &w);
-    // Its primitives: 4 registers of 4 (a multiplexer of 4 gates, a flip-flop of 11) + its decoder (6) + 4 multiplexers (7).
+    // Its primitives: 4 registers of 4 (a multiplexer of 4 gates, a flip-flop of 11) + its decoder (6)
+    // + 4 multiplexers (7).
     CHECK(rde_arr_length(&w.flat.prims) == 8u + 4u + 4u * 4u * (4u + 11u) + 6u + 4u * 7u);
     u32 mem[4]; b8 known_w[4] = { false, false, false, false };
     u32 ops = 0, right = 0;
@@ -1301,7 +1606,8 @@ static void test_clock(void) {
     CHECK(get_num(&w, "su%u", 0u, 4u) == 0u && get_num(&w, "st%u", 0u, 4u) == 0u && get_num(&w, "mu%u", 0u, 4u) == 0u && get_num(&w, "mt%u", 0u, 4u) == 0u);
     world_free(&w, top);
 
-    // The same seconds driven by a clock part on its own: run on to a time, the count is how many rising edges there were.
+    // The same seconds driven by a clock part on its own: run on to a time, the count is how many
+    // rising edges there were.
     fude_sim_lib_init(&w.lib); load_parts(&w.lib);
     bench_start(&b);
     inputs(&b, "RST EN");
@@ -1536,8 +1842,8 @@ static void test_chips(void) {
         CHECK(got == 0);
         world_free(&w, top);
     }
-    // The decade counter: 0 at reset, a step on each rising clock — one output at a time, 9 then 0 again —, CO high for 0
-    // to 4; INH high holds it; RST high back to 0.
+    // The decade counter: 0 at reset, a step on each rising clock — one output at a time, 9 then 0 again —, CO high for
+    // 0 to 4; INH high holds it; RST high back to 0.
     {
         fude_sim_def* top = chip_bench(&w, "CD4017");
         static const c8* const q[10] = { "Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9" };
@@ -1862,7 +2168,7 @@ static void test_keep(void) {
     world w3 = a; w3.flat = f2; w3.run = r3;
     CHECK(get_num(&w3, "q%u", 0u, 4u) == 0xFFFFFFFFu);
     fude_sim_run_destroy(&r3);
-    fude_sim_run_destroy(&r2);
+    fude_sim_run_destroy(&w2.run);   // (the copy that ran: its events may have grown into new memory since r2's)
     fude_sim_flat_destroy(&f2);
     world_free(&a, top);
 
@@ -1883,11 +2189,62 @@ static void test_keep(void) {
         fude_sim_run_keep(&kr, &k.run);
         world k2 = k; k2.flat = kf; k2.run = kr;
         CHECK(get_num(&k2, "q%u", 0u, 3u) == before && before == 3u);
-        fude_sim_run_until(&k2.run, 2.2);   // (its own time from 0: its first rising edge at 0.5, two more by 2.2)
-        CHECK(get_num(&k2, "q%u", 0u, 3u) == ((before + 2u) & 7u) || get_num(&k2, "q%u", 0u, 3u) == ((before + 3u) & 7u));
+        // It goes on from the last one's time, not from 0 (driven to 5.2, the edges since 0 would all fire at once):
+        // its rising edges at 3.5 and 4.5, as the last one's would have been.
+        CHECK(k2.run.now >= 3.2 && k2.run.now < 3.2 + 1e-3);   // (and settled a moment on)
+        fude_sim_run_until(&k2.run, 5.2);
+        CHECK(get_num(&k2, "q%u", 0u, 3u) == ((before + 2u) & 7u));
         CHECK(!k2.run.oscillating);
-        fude_sim_run_destroy(&kr);
+        fude_sim_run_destroy(&k2.run);   // (the copy that ran: its events may have grown into new memory since kr's)
         fude_sim_flat_destroy(&kf);
+        world_free(&k, kt);
+    }
+    // A clock whose duty is not a half, carried over while it is high: it keeps its phase (its level and when it next
+    // turns), where the fresh start's first wake, a rising edge, would turn it low and swap its high and low times.
+    {
+        world k; fude_sim_lib_init(&k.lib);
+        bench_start(&b);
+        line(&b, "inst clock CK \"period=1 duty=0.25\" clk");   // (low 0.75, then high 0.25: rising at 0.75, 1.75...)
+        probes(&b, "clk");
+        fude_sim_def* kt = bench_run(&b, &k);
+        fude_sim_run_until(&k.run, 2.9);
+        CHECK(get(&k, "clk") == 1u);
+        fude_sim_flat kf; fude_sim_flat_init(&kf);
+        CHECK(fude_sim_elaborate(&k.lib, kt, &kf));
+        fude_sim_run kr; fude_sim_run_init(&kr, &kf);
+        fude_sim_run_keep(&kr, &k.run);
+        world k2 = k; k2.flat = kf; k2.run = kr;
+        const f64 at_t[6]  = { 2.95, 3.05, 3.7, 3.8, 3.95, 4.05 };
+        const u8  want[6]  = { 1u, 0u, 0u, 1u, 1u, 0u };
+        u32 right = 0;
+        for(u32 i = 0; i < 6u; i++) {
+            fude_sim_run_until(&k2.run, at_t[i]);
+            right += get(&k2, "clk") == want[i] ? 1u : 0u;
+        }
+        CHECK(right == 6u);
+        fude_sim_run_destroy(&k2.run);   // (the copy that ran)
+        fude_sim_flat_destroy(&kf);
+        world_free(&k, kt);
+    }
+    // Setting what is not an input is refused, and changes nothing: an AND gate keeps no numbers, so its state's place
+    // is the flip-flop's after it, which a value written there would change.
+    {
+        world k; fude_sim_lib_init(&k.lib);
+        bench_start(&b);
+        inputs(&b, "A B D C");
+        line(&b, "inst and G \"\" A B y");
+        line(&b, "inst dff F \"\" D C zero q -"); line(&b, "inst const Z \"0\" zero");
+        probes(&b, "y q");
+        fude_sim_def* kt = bench_run(&b, &k);
+        const u32 g = fude_sim_flat_find(&k.flat, "G"), f = fude_sim_flat_find(&k.flat, "F");
+        CHECK(g != FUDE_SIM_NONE && f != FUDE_SIM_NONE && fude_sim_state(&k.run, g) == fude_sim_state(&k.run, f));
+        const f64 kept[2] = { fude_sim_state(&k.run, f)[0], fude_sim_state(&k.run, f)[1] };
+        const u8 v = kept[0] == 1.0 ? 0u : 1u;
+        CHECK(!fude_sim_run_set(&k.run, g, v));
+        CHECK(!fude_sim_run_set(&k.run, fude_sim_flat_find(&k.flat, "Z"), 1u));   // (a constant is not a switch either)
+        fude_sim_run_settle(&k.run, 1e-6);
+        CHECK(fude_sim_state(&k.run, f)[0] == kept[0] && fude_sim_state(&k.run, f)[1] == kept[1]);
+        CHECK(fude_sim_run_set(&k.run, fude_sim_flat_find(&k.flat, "i:A"), 1u));   // (an input is set)
         world_free(&k, kt);
     }
     // A bus of three tri-states: the net without each, as the others drive it.
@@ -2070,6 +2427,59 @@ static void test_sparse(void) {
     }
 }
 
+// --- nets found by name and primitives by path, each a look-up (they were searches through all of them) -------------
+
+static void test_lookups(void) {
+    // Thousands of nets: each found again where it was added; a name cleaned before it is looked for.
+    fude_sim_def* d = fude_sim_def_new("test/nets", "nets");
+    u32 right = 0;
+    for(u32 pass = 0; pass < 2u; pass++) {
+        for(u32 k = 0; k < 3000u; k++) {
+            c8 n[16];
+            snprintf(n, sizeof n, "n%u", k);
+            right += fude_sim_def_net(d, n) == k ? 1u : 0u;
+        }
+    }
+    CHECK(right == 6000u && rde_arr_length(&d->nets) == 3000u);
+    CHECK(fude_sim_def_net(d, "a b") == fude_sim_def_net(d, "a_b") && rde_arr_length(&d->nets) == 3001u);
+    fude_sim_def_free(d);
+    // Thousands of primitives: each found by its path; of two with one path, the first; a path that is none, none.
+    world w; fude_sim_lib_init(&w.lib);
+    fude_sim_def* top = fude_sim_def_new("test/paths", "paths");
+    for(u32 k = 0; k < 2000u; k++) {
+        c8 r[16], n[16];
+        snprintf(r, sizeof r, "P%u", k);
+        snprintf(n, sizeof n, "n%u", k);
+        const c8* nets[1] = { n };
+        fude_sim_def_inst(top, "probe", r, "", nets, 1u);
+    }
+    const c8* again[1] = { "x" };
+    fude_sim_def_inst(top, "probe", "P7", "", again, 1u);
+    world_run(&w, top);
+    right = 0;
+    for(u32 k = 0; k < 2000u; k++) {
+        c8 r[16];
+        snprintf(r, sizeof r, "P%u", k);
+        right += fude_sim_flat_find(&w.flat, r) == k ? 1u : 0u;
+    }
+    CHECK(right == 2000u && rde_arr_length(&w.flat.prims) == 2001u);
+    c8 longest[FUDE_SIM_PATH + 8];
+    memset(longest, 'P', sizeof longest - 1u);
+    longest[sizeof longest - 1u] = 0;
+    CHECK(fude_sim_flat_find(&w.flat, "nope") == FUDE_SIM_NONE && fude_sim_flat_find(&w.flat, NULL) == FUDE_SIM_NONE);
+    CHECK(fude_sim_flat_find(&w.flat, longest) == FUDE_SIM_NONE);
+    // Elaborated again into the same flat circuit: found as now, nothing of before left.
+    fude_sim_def* small = fude_sim_def_new("test/small", "small");
+    fude_sim_def_inst(small, "probe", "Q", "", again, 1u);
+    CHECK(fude_sim_elaborate(&w.lib, small, &w.flat));
+    CHECK(fude_sim_flat_find(&w.flat, "Q") == 0u && fude_sim_flat_find(&w.flat, "P7") == FUDE_SIM_NONE);
+    fude_sim_run_destroy(&w.run);
+    fude_sim_flat_destroy(&w.flat);
+    fude_sim_def_free(small);
+    fude_sim_def_free(top);
+    fude_sim_lib_destroy(&w.lib);
+}
+
 int main(void) {
     test_sparse();
     test_gates();
@@ -2077,12 +2487,17 @@ int main(void) {
     test_adder();
     test_sequential();
     test_errors();
+    test_domain_errors();
     test_gate_tables();
     test_random_networks();
     test_text_fuzz();
     test_sequences();
     test_buses();
     test_elaboration_edges();
+    test_elaboration_join_order();
+    test_text_line_breaks();
+    test_wide_parts();
+    test_wide_text();
     test_bodies();
     test_universal();
     test_memory();
@@ -2092,6 +2507,7 @@ int main(void) {
     test_chip_machine();
     test_ram_primitive();
     test_keep();
+    test_lookups();
     if(fails == 0) printf("ALL PASSED\n"); else printf("%d FAILED\n", fails);
     return fails == 0 ? 0 : 1;
 }

@@ -3,15 +3,23 @@
 #include "zoom/fetch.h"
 
 // ===========================================================================
-// See fetch.h. Android's: com.rde.fude.FudeAndroid's fetch* (a thread of its own
-// reading the URL into <path>.part, renamed when whole), its state polled.
+// See fetch.h. Android's: com.rde.fude.FudeAndroid's fetchStart and fetchState (a thread of its own reading the URL
+// into <path>.part, renamed when whole), its state polled. The Java side keeps the state and refuses a second download
+// while one runs; this file only passes the strings across and reads the state back.
+//
+// Elsewhere than Android and Apple's platforms (fetch_apple.m) the two functions are stubs: there are no downloads.
 // ===========================================================================
 
 #if defined(RDE_PLATFORM_ANDROID)
 
 #include "drawing/base/android.h"
 
+// See the header. Calls FudeAndroid.fetchStart(url, path) with both as UTF-8 bytes; false also when there is no JNI
+// environment or the method is missing, or the Java threw.
 b8 fude_fetch_start(const c8* _url, const c8* _path) {
+    if(_url == NULL || _path == NULL) {
+        return false;
+    }
     JNIEnv*   _env = fude_android_env();
     jmethodID _m   = _env != NULL ? fude_android_method(FUDE_JAVA_ANDROID, "fetchStart", "([B[B)Z") : NULL;
     if(_m == NULL) {
@@ -24,6 +32,9 @@ b8 fude_fetch_start(const c8* _url, const c8* _path) {
     return !fude_android_threw(_env, "FudeAndroid.fetchStart") && _ok;
 }
 
+// See the header. FudeAndroid.fetchState returns { state, bytes got, bytes in all }; its state numbers (0 idle,
+// 1 running, 2 done, 3 failed) are FUDE_FETCH_'s, so the first is cast across. Without Java, or when it threw, the
+// state is IDLE.
 FUDE_FETCH_ fude_fetch_state(u64* _got, u64* _total) {
     *_got = *_total = 0u;
     JNIEnv*   _env = fude_android_env();
@@ -43,29 +54,18 @@ FUDE_FETCH_ fude_fetch_state(u64* _got, u64* _total) {
     return (FUDE_FETCH_)_v[0];
 }
 
-void fude_fetch_cancel(void) {
-    JNIEnv*   _env = fude_android_env();
-    jmethodID _m   = _env != NULL ? fude_android_method(FUDE_JAVA_ANDROID, "fetchCancel", "()V") : NULL;
-    if(_m != NULL) {
-        (*_env)->CallStaticVoidMethod(_env, fude_android_class(FUDE_JAVA_ANDROID), _m);
-        fude_android_threw(_env, "FudeAndroid.fetchCancel");
-    }
-}
-
 #elif !defined(__APPLE__)
 
-// (no downloads here)
+// No downloads on this platform: never starts one.
 b8 fude_fetch_start(const c8* _url, const c8* _path) {
     RDE_UNUSED(_url); RDE_UNUSED(_path);
     return false;
 }
 
+// No downloads on this platform: always IDLE, with no bytes.
 FUDE_FETCH_ fude_fetch_state(u64* _got, u64* _total) {
     *_got = *_total = 0u;
     return FUDE_FETCH_IDLE;
-}
-
-void fude_fetch_cancel(void) {
 }
 
 #endif

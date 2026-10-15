@@ -1,4 +1,6 @@
 #include "study/chars/catalog.h"
+#include "study/models/marks.h"
+#include "lang/ja/romaji.h"
 #include <stdio.h>
 #include <string.h>
 static int fails = 0;
@@ -22,6 +24,17 @@ int main(int argc, char** argv) {
     romaji("matcha", "まっちゃ", 1); romaji("konnichiha", "こんにちは", 1); romaji("hon", "ほん", 1); romaji("kan'i", "かんい", 1);
     romaji("ryokou", "りょこう", 1); { char o[64]; CHECK(!fude_romaji_to_hiragana("tree", o, sizeof o)); } romaji("jinja", "じんじゃ", 1); romaji("fuji", "ふじ", 1);
     romaji("shinbun", "しんぶん", 1); romaji("oo-", "おおー", 1);
+    // Never true for a cut answer: kana that do not fit stop the reading (what fitted is kept), and a text longer than
+    // any reading (255 bytes, its spaces dropped) is refused, not read in part.
+    { char o[4]; CHECK(!fude_romaji_to_hiragana("kaki", o, sizeof o) && strcmp(o, "か") == 0); }
+    { char o[7]; CHECK(fude_romaji_to_hiragana("kaki", o, sizeof o) && strcmp(o, "かき") == 0); }   // just fits
+    { static char in[600], o[1024];
+      memset(in, 'a', 255); in[255] = 0;
+      CHECK(fude_romaji_to_hiragana(in, o, sizeof o) && strlen(o) == 255u * 3u);
+      for(int i = 0; i < 255; i++) { in[2 * i] = 'a'; in[2 * i + 1] = ' '; } in[510] = 0;   // the spaces do not count
+      CHECK(fude_romaji_to_hiragana(in, o, sizeof o) && strlen(o) == 255u * 3u);
+      memset(in, 'a', 256); in[256] = 0;
+      CHECK(!fude_romaji_to_hiragana(in, o, sizeof o)); }
 
     fude_kanji_db db; CHECK(fude_kanji_load(&db, argv[1]));
     fude_catalog c; fude_catalog_init(&c, &db);
@@ -59,7 +72,22 @@ int main(int argc, char** argv) {
     fude_catalog_query(&c, fude_filter_group(2u), FUDE_SORT_DEFAULT, "Árbol"); CHECK(rank_of(&c, 0x6728) >= 0 && rank_of(&c, 0x6728) < 3);
     fude_catalog_query(&c, fude_filter_level(0u), FUDE_SORT_DEFAULT, "water"); CHECK(rank_of(&c, 0x6C34) == 0);
     { char f[64]; fude_catalog_fold("Été, Ñandú, straße", f, sizeof f); CHECK(strcmp(f, "ete, nandu, strasse") == 0); }
+    // Cut short by the room, before a whole character: never inside one (a 4-byte one with 3 bytes of room).
+    { char f[6]; fude_catalog_fold("AB\xF0\x9F\x98\x80", f, sizeof f); CHECK(strcmp(f, "ab") == 0); }
     fude_catalog_destroy(&c); fude_kanji_unload(&db);
+    // A marks file whose marks are damaged is set aside and its backup read (save.h), not read as having none.
+    {
+        mkdir("saves", 0755);
+        fude_marks_open("saves/marks.kana");
+        CHECK(fude_marks_set(0x6728, FUDE_MARK_STUDYING));   // saved: the file
+        CHECK(fude_marks_set(0x6C34, FUDE_MARK_KNOWN));      // saved again: the first is now the .bak
+        FILE* f = fopen("saves/marks.kana", "r+b");
+        CHECK(f != NULL);
+        if(f != NULL) { const unsigned char big[4] = { 0xFF, 0xFF, 0xFF, 0x0F }; fseek(f, 20, SEEK_SET); fwrite(big, 1, 4, f); fclose(f); }   // 'MRKS' count
+        fude_marks_open("saves/marks.kana");
+        CHECK(fude_marks_get(0x6728) == FUDE_MARK_STUDYING && fude_marks_get(0x6C34) == FUDE_MARK_NONE);
+        fude_marks_close();
+    }
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

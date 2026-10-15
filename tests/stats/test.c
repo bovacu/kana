@@ -16,15 +16,15 @@ void rde_rendering_end_clipping_rect(void) {}
 static rde_vec_2I g_window = { 744, 1133 };
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return g_window; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 f64 rde_engine_get_time_now(void) { return 100.0; }
 void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)n; (void)c; }
 void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
 void rde_rendering_2d_draw_circle_border(const rde_vec_2F p, f32 r, f32 t, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)t; (void)s; (void)c; (void)sh; }
 
-static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) { fude_ink_begin(k, (rde_vec_2F){ x0, y }, true, false); for(u32 i = 1; i < n; i++) { k->sample_time += 0.05; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); } fude_ink_end(k); }
+static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) { fude_ink_begin(k, (rde_vec_2F){ x0, y }, true); for(u32 i = 1; i < n; i++) { k->sample_time += 0.05; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); } fude_ink_end(k); }
 
-// A session of _cp, _days_ago, two squares scored _a and _b (one with the mistakes in _m: order, direction, missing, extra).
+// A session of _cp, _days_ago, two squares scored _a and _b (one with the mistakes in _m: order,
+// direction, missing, extra).
 static void session(u32 cp, i32 days_ago, f32 a, f32 b, const u8 m[4], f32 shape) {
     fude_ink ink; fude_ink_init(&ink); stroke(&ink, 10, 100, 11);   // one stroke, ~0.5 s
     fude_score sc[2]; memset(sc, 0, sizeof sc);

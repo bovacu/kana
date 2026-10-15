@@ -3,12 +3,21 @@
 #include "zoom/cut.h"
 #include "zoom/fill.h"
 #include "zoom/shape.h"
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
 
-#define FUDE_ZOOM_CUT_PI 3.14159265358979323846
+// ===========================================================================
+// See cut.h.
+//
+// fude_zoom_cut_combine does all the work, in steps: every ring gathered into one set (points a hair from the one
+// before dropped), every edge split at every crossing and every end lying on it, each piece of edge kept or not by
+// testing the material a hair to each side of its middle, the kept pieces' ends numbered by their exact points (a
+// hash map of their bits), the pieces joined into loops, and the loops sorted into outlines and their holes. Finding
+// the crossings is O(edges²), cut down by each pair's boxes. Each step is a function of its own just before it
+// (fude_zoom_cut_combine_*, in the order it takes them), handing on what it made through a context
+// (fude_zoom_cut_combine_state). fude_zoom_cut_board uses it on a board; the band is separate. The file's own names
+// start with fude_zoom_cut_.
+// ===========================================================================
 
+// An edge of a ring: from a to b.
 typedef struct {
     fude_zoom_v2 a, b;
 } fude_zoom_cut_edge;
@@ -22,9 +31,10 @@ typedef struct {
 // A kept piece of edge, the material on its left: its ends' vertex numbers.
 typedef struct {
     u32 from, to;
-    b8  used;
+    b8  used;   // put in a loop already, or the same as a side before it
 } fude_zoom_cut_side;
 
+// See the header (the shoelace formula).
 f64 fude_zoom_cut_area(const fude_zoom_v2* _p, u32 _n) {
     f64 _a = 0.0;
     for(u32 _i = 0; _i < _n; _i++) {
@@ -34,7 +44,8 @@ f64 fude_zoom_cut_area(const fude_zoom_v2* _p, u32 _n) {
     return _a * 0.5;
 }
 
-// Edges of rings given as runs (points, each one's ring): each run closed.
+// Appends the edges of rings given as runs (points, each one's ring; _rings NULL: all one ring) to _edges, each run
+// closed. A run of fewer than three points is not a ring, and an edge of no length is left out.
 RDE_INTERNAL void fude_zoom_cut_edges(const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_arr* _edges) {
     for(u32 _from = 0; _from < _n;) {
         u32 _to = _from;
@@ -54,51 +65,62 @@ RDE_INTERNAL void fude_zoom_cut_edges(const fude_zoom_v2* _p, const u32* _rings,
     }
 }
 
-RDE_INTERNAL int fude_zoom_cut_by_t(const void* _a, const void* _b) {
+// rde_sort's order for an edge's splits: along it, by t.
+RDE_INTERNAL int fude_zoom_cut_by_t(const any _a, const any _b) {
     const f64 _x = ((const fude_zoom_cut_split*)_a)->t, _y = ((const fude_zoom_cut_split*)_b)->t;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
-// A vertex's number by its exact point (the same point, bit for bit, the same number).
+// A vertex's key in the map of vertices: its exact point's bits, x's then y's (the same point, bit for bit, the same
+// vertex).
 typedef struct {
-    u64* keys;      // x's bits, y's bits, a pair a slot (0, 0: empty — the point (0, 0) is held apart)
-    u32* values;
-    u32  capacity;
-} fude_zoom_cut_map;
+    u64 x, y;
+} fude_zoom_cut_key;
 
-RDE_INTERNAL u64 fude_zoom_cut_hash(u64 _x, u64 _y) {
-    u64 _h = _x * 0x9E3779B97F4A7C15ull ^ (_y + 0x632BE59BD9B4E019ull + (_x << 6) + (_x >> 2));
-    _h ^= _h >> 31;
-    return _h * 0xBF58476D1CE4E5B9ull;
+// rde_hash_map's hash of a vertex's key. The map hands keys over unaligned, so it is copied out to be read.
+RDE_INTERNAL u64 fude_zoom_cut_key_hash(const any _key) {
+    fude_zoom_cut_key _k;
+    rde_memcpy(&_k, _key, sizeof(_k));
+    return rde_hash_64((any)&_k, sizeof(_k));
 }
 
-RDE_INTERNAL u32 fude_zoom_cut_vertex(fude_zoom_cut_map* _m, rde_arr* _vertices, fude_zoom_v2 _p) {
-    u64 _x, _y;
+// rde_hash_map's comparison of two vertices' keys: by x's bits, then y's (copied out to be read, as in the hash).
+RDE_INTERNAL i32 fude_zoom_cut_key_cmp(const any _a, const any _b) {
+    fude_zoom_cut_key _ka, _kb;
+    rde_memcpy(&_ka, _a, sizeof(_ka));
+    rde_memcpy(&_kb, _b, sizeof(_kb));
+    if(_ka.x != _kb.x) {
+        return _ka.x < _kb.x ? -1 : 1;
+    }
+    return _ka.y < _kb.y ? -1 : (_ka.y > _kb.y ? 1 : 0);
+}
+
+// Returns the number of the vertex at exactly _p, adding it to _vertices and to _map (rde_hash_map TYPE(
+// fude_zoom_cut_key, u32): each point's vertex number) when it is new. An rde_hash_map, because it grows as it fills:
+// the vertices are the edges' ends and their crossings, and the crossings can grow as the square of the edges, so a
+// table sized from the edges could fill (and a full open table's search would never end).
+RDE_INTERNAL u32 fude_zoom_cut_vertex(rde_hash_map* _map, rde_arr* _vertices, fude_zoom_v2 _p) {
     // (-0 and 0 the same point)
     const f64 _px = _p.x == 0.0 ? 0.0 : _p.x, _py = _p.y == 0.0 ? 0.0 : _p.y;
-    memcpy(&_x, &_px, sizeof(u64));
-    memcpy(&_y, &_py, sizeof(u64));
-    u32 _slot = (u32)(fude_zoom_cut_hash(_x, _y) & (u64)(_m->capacity - 1u));
-    for(;;) {
-        const u64 _kx = _m->keys[_slot * 2u], _ky = _m->keys[_slot * 2u + 1u];
-        if(_m->values[_slot] == 0xFFFFFFFFu) {
-            _m->keys[_slot * 2u]      = _x;
-            _m->keys[_slot * 2u + 1u] = _y;
-            _m->values[_slot]         = (u32)rde_arr_length(_vertices);
-            const fude_zoom_v2 _v = { _px, _py };
-            rde_arr_add(_vertices, (any)&_v);
-            return _m->values[_slot];
-        }
-        if(_kx == _x && _ky == _y) {
-            return _m->values[_slot];
-        }
-        _slot = (_slot + 1u) & (_m->capacity - 1u);
+    fude_zoom_cut_key _k;
+    rde_memcpy(&_k.x, &_px, sizeof(u64));
+    rde_memcpy(&_k.y, &_py, sizeof(u64));
+    const any _found = rde_hash_map_find(_map, (any)&_k);
+    u32 _number = (u32)rde_arr_length(_vertices);
+    if(_found != NULL) {
+        rde_memcpy(&_number, _found, sizeof(u32));
+        return _number;
     }
+    rde_hash_map_add(_map, (any)&_k, (any)&_number);
+    const fude_zoom_v2 _v = { _px, _py };
+    rde_arr_add(_vertices, (any)&_v);
+    return _number;
 }
 
-// Inside what is left: the region less every cut (fill.h: the outline's
-// inside, less every other ring — its holes and the cuts — however they overlap).
-// Combined (FUDE_ZOOM_CUT_ _op): the region's own rings the first _region_n points, the others' each a ring after them.
+// Returns whether _p is in the material that is kept. Subtracting: inside the region less every cut (fill.h: the
+// outline's inside, less every other ring, its holes and the cuts, however they overlap). Combining (FUDE_ZOOM_CUT_
+// _op): the region's own rings are the first _region_n points, the others' each a ring after them; a union keeps
+// what is in either, an intersection what is in the region and in one of the others.
 RDE_INTERNAL b8 fude_zoom_cut_material(const fude_zoom_v2* _all, const u32* _all_rings, u32 _all_n, u32 _region_n, u8 _op, fude_zoom_v2 _p) {
     if(_op == FUDE_ZOOM_CUT_SUBTRACT) {
         return fude_zoom_fill_inside_rings(_all, _all_rings, _all_n, _p);
@@ -123,27 +145,63 @@ RDE_INTERNAL b8 fude_zoom_cut_material(const fude_zoom_v2* _all, const u32* _all
     return false;
 }
 
+// See the header: fude_zoom_cut_combine, subtracting.
 u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
                          rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
     return fude_zoom_cut_combine(_points, _rings, _n, _cut, _cut_rings, _cut_n, FUDE_ZOOM_CUT_SUBTRACT, _out, _out_rings, _out_piece);
 }
 
-u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
-                          u8 _op, rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
-    rde_arr_clear(_out);
-    rde_arr_clear(_out_rings);
-    rde_arr_clear(_out_piece);
-    if(_n < 3u && _op != FUDE_ZOOM_CUT_UNION) {
-        return 0;
-    }
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+// What fude_zoom_cut_combine's steps hand on to the ones after them, under the names the function had (each step takes
+// what it reads of it and hands back what it made; the function frees it all at its end): the allocator and the
+// operation; how big it all is (size, eps); everything as one set of rings (all, all_rings, all_n of them, the
+// region's own the first region_n); the edges (e of them, ed) and each one's splits; the vertices (their map, vx) and
+// the kept sides (sd, ns of them; side_eps: how far off a side the material is tested); each vertex's outgoing
+// sides (first_out, order); the loops (loops, loop_at; nl of them), their points (lp, lpp, lp_at) and areas; and
+// the pieces (piece_of each loop's, pieces of them).
+typedef struct {
+    rde_memory_allocator*     heap;
+    u8                        op;
+    f64                       size, eps, side_eps;
+    rde_arr                   all_arr, all_rings_arr;
+    fude_zoom_v2*             all;
+    u32*                      all_rings;
+    u32                       all_n, region_n;
+    rde_arr                   edges;
+    u32                       e;
+    const fude_zoom_cut_edge* ed;
+    rde_arr                   splits_arr;
+    rde_arr*                  splits;
+    rde_hash_map              map;
+    rde_arr                   vertices, sides;
+    fude_zoom_cut_side*       sd;
+    u32                       ns;
+    const fude_zoom_v2*       vx;
+    rde_arr                   first_out_arr, order_arr;
+    u32*                      first_out;
+    u32*                      order;
+    rde_arr                   loops, loop_at;
+    u32                       nl;
+    rde_arr                   lp, lp_at_arr, area_arr;
+    u32*                      lp_at;
+    f64*                      area;
+    u32                       pieces;
+    rde_arr                   piece_of_arr;
+    u32*                      piece_of;
+    const fude_zoom_v2*       lpp;
+} fude_zoom_cut_combine_state;
+
+// Everything gathered as one set of rings: how big it all is (what touching and the same point mean), then the
+// region's rings (_points, _rings, _n of them) and the cuts' (_cut, _cut_rings, _cut_n), points a hair from the one
+// before dropped, each ring an id of its own (the region's outline 0), what is too short to be a ring left out.
+RDE_INTERNAL void fude_zoom_cut_combine_gather(fude_zoom_cut_combine_state* _cs, const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n) {
+    rde_memory_allocator* _heap = _cs->heap;
     // How big it all is: what "touching" and "the same point" mean.
     fude_zoom_box _all_box = fude_zoom_box_empty();
     for(u32 _i = 0; _i < _n + _cut_n; _i++) {
         const fude_zoom_v2 _q = _i < _n ? _points[_i] : _cut[_i - _n];
         _all_box = fude_zoom_box_union(_all_box, (fude_zoom_box){ _q.x, _q.y, _q.x, _q.y });
     }
-    const f64 _size = fmax(hypot(_all_box.max_x - _all_box.min_x, _all_box.max_y - _all_box.min_y), 1e-300);
+    const f64 _size = rde_math_max_f64(rde_math_hypot_f64(_all_box.max_x - _all_box.min_x, _all_box.max_y - _all_box.min_y), 1e-300);
     const f64 _eps  = _size * 1e-9;
     // Everything as one set of rings (the region's, then each cut a ring of its
     // own): what the material test reads. A point next to nothing from the one
@@ -170,14 +228,14 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             const u32 _id    = _part == 0 && _from == 0 ? 0u : ++_ring_id;
             const u32 _start = _all_n;
             for(u32 _i = _from; _i < _to; _i++) {
-                if(_all_n > _start && hypot(_src[_i].x - _all[_all_n - 1u].x, _src[_i].y - _all[_all_n - 1u].y) <= _eps * 100.0) {
+                if(_all_n > _start && rde_math_hypot_f64(_src[_i].x - _all[_all_n - 1u].x, _src[_i].y - _all[_all_n - 1u].y) <= _eps * 100.0) {
                     continue;
                 }
                 _all[_all_n]       = _src[_i];
                 _all_rings[_all_n] = _id;
                 _all_n++;
             }
-            while(_all_n - _start >= 2u && hypot(_all[_all_n - 1u].x - _all[_start].x, _all[_all_n - 1u].y - _all[_start].y) <= _eps * 100.0) {
+            while(_all_n - _start >= 2u && rde_math_hypot_f64(_all[_all_n - 1u].x - _all[_start].x, _all[_all_n - 1u].y - _all[_start].y) <= _eps * 100.0) {
                 _all_n--;
             }
             if(_all_n - _start < 3u) {
@@ -186,6 +244,29 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             _from = _to;
         }
     }
+    _cs->size          = _size;
+    _cs->eps           = _eps;
+    _cs->all_arr       = _all_arr;
+    _cs->all_rings_arr = _all_rings_arr;
+    _cs->all           = _all;
+    _cs->all_rings     = _all_rings;
+    _cs->all_n         = _all_n;
+    _cs->region_n      = _region_n;
+}
+
+// The rings' edges, and where each is split: its ends, every crossing with another (found pair by pair, cut down by
+// their boxes), and every other edge's end lying on it.
+// Pair by pair is O(edges²) box tests, kept so on purpose: the edges are one region's (a board's or a fill's outline)
+// and the cuts made on it at once, hundreds of them, a few thousand for a board already cut into thousands of pieces
+// (tests/zoom checks that one), never the canvas's. A sweep of the plane (Bentley–Ottmann) would need an event queue
+// and its own exact ordering where several crossings meet at one point, which this gets from working each crossing
+// out once and sharing its point between both edges. Revisit when a measure shows it (coding_rules.md §8).
+RDE_INTERNAL void fude_zoom_cut_combine_splits(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap      = _cs->heap;
+    fude_zoom_v2*         _all       = _cs->all;
+    u32*                  _all_rings = _cs->all_rings;
+    const u32             _all_n     = _cs->all_n;
+    const f64             _eps       = _cs->eps;
     rde_arr _edges = rde_arr_new(sizeof(fude_zoom_cut_edge), _heap);
     fude_zoom_cut_edges(_all, _all_rings, _all_n, &_edges);
     const u32 _e = (u32)rde_arr_length(&_edges);
@@ -204,18 +285,18 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
         const fude_zoom_v2 _a = _ed[_i].a, _b = _ed[_i].b;
         const fude_zoom_v2 _d = { _b.x - _a.x, _b.y - _a.y };
         const f64 _l2 = _d.x * _d.x + _d.y * _d.y;
-        const f64 _ix0 = fmin(_a.x, _b.x) - _eps, _ix1 = fmax(_a.x, _b.x) + _eps, _iy0 = fmin(_a.y, _b.y) - _eps, _iy1 = fmax(_a.y, _b.y) + _eps;
+        const f64 _ix0 = rde_math_min_f64(_a.x, _b.x) - _eps, _ix1 = rde_math_max_f64(_a.x, _b.x) + _eps, _iy0 = rde_math_min_f64(_a.y, _b.y) - _eps, _iy1 = rde_math_max_f64(_a.y, _b.y) + _eps;
         for(u32 _j = _i + 1u; _j < _e; _j++) {
             const fude_zoom_v2 _c = _ed[_j].a, _f = _ed[_j].b;
-            if(fmax(_c.x, _f.x) < _ix0 || fmin(_c.x, _f.x) > _ix1 || fmax(_c.y, _f.y) < _iy0 || fmin(_c.y, _f.y) > _iy1) {
+            if(rde_math_max_f64(_c.x, _f.x) < _ix0 || rde_math_min_f64(_c.x, _f.x) > _ix1 || rde_math_max_f64(_c.y, _f.y) < _iy0 || rde_math_min_f64(_c.y, _f.y) > _iy1) {
                 continue;
             }
             const fude_zoom_v2 _g = { _f.x - _c.x, _f.y - _c.y };
             const f64 _den = _d.x * _g.y - _d.y * _g.x;
             const f64 _m2  = _g.x * _g.x + _g.y * _g.y;
-            if(fabs(_den) <= 1e-12 * sqrt(_l2 * _m2)) {
+            if(rde_math_abs_f64(_den) <= 1e-12 * rde_math_sqrt_f64(_l2 * _m2)) {
                 // Along each other: each split where the other ends on it.
-                const f64 _off = fabs((_c.x - _a.x) * _d.y - (_c.y - _a.y) * _d.x) / sqrt(_l2);
+                const f64 _off = rde_math_abs_f64((_c.x - _a.x) * _d.y - (_c.y - _a.y) * _d.x) / rde_math_sqrt_f64(_l2);
                 if(_off > _eps) {
                     continue;
                 }
@@ -260,29 +341,47 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             }
         }
     }
+    _cs->edges      = _edges;
+    _cs->e          = _e;
+    _cs->ed         = _ed;
+    _cs->splits_arr = _splits_arr;
+    _cs->splits     = _splits;
+}
+
+// Each edge's pieces between its splits kept where the material is on one side only (tested a hair to each side of
+// its middle), turned to have it on the left, its ends numbered by their exact points; the splits let go; the same
+// piece kept twice (edges along each other) used once.
+RDE_INTERNAL void fude_zoom_cut_combine_keep(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap      = _cs->heap;
+    const u8              _op        = _cs->op;
+    const f64             _size      = _cs->size;
+    const f64             _eps       = _cs->eps;
+    fude_zoom_v2*         _all       = _cs->all;
+    u32*                  _all_rings = _cs->all_rings;
+    const u32             _all_n     = _cs->all_n;
+    const u32             _region_n  = _cs->region_n;
+    const u32             _e         = _cs->e;
+    rde_arr*              _splits    = _cs->splits;
     // Each edge's pieces: kept where the material is on one side only, turned to have it on the left.
-    const u32 _cap = 1u << (u32)ceil(log2(fmax(64.0, 4.0 * (f64)(_e * 4u + 16u))));
-    rde_arr _keys_arr = rde_arr_new(sizeof(u64), _heap), _values_arr = rde_arr_new(sizeof(u32), _heap);
-    rde_arr_resize(&_keys_arr, (usize)_cap * 2u);
-    rde_arr_resize(&_values_arr, _cap);
-    fude_zoom_cut_map _map = { (u64*)_keys_arr.memory, (u32*)_values_arr.memory, _cap };
-    memset(_map.values, 0xFF, (usize)_cap * sizeof(u32));
+    // The vertices by their exact points (fude_zoom_cut_vertex), room made at first for each edge's two ends.
+    rde_hash_map TYPE(fude_zoom_cut_key, u32) _map = rde_hash_map_new(sizeof(fude_zoom_cut_key), sizeof(u32), fude_zoom_cut_key_hash, fude_zoom_cut_key_cmp, NULL, _heap);
+    rde_hash_map_reserve(&_map, (usize)_e * 2u + 16u);
     rde_arr _vertices = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     rde_arr _sides    = rde_arr_new(sizeof(fude_zoom_cut_side), _heap);
     const f64 _side_eps = _size * 1e-7;
     for(u32 _i = 0; _i < _e; _i++) {
         fude_zoom_cut_split* _sp = (fude_zoom_cut_split*)_splits[_i].memory;
         const u32 _k = (u32)rde_arr_length(&_splits[_i]);
-        qsort(_sp, _k, sizeof(fude_zoom_cut_split), fude_zoom_cut_by_t);
+        rde_sort(_sp, _k, sizeof(fude_zoom_cut_split), fude_zoom_cut_by_t);
         for(u32 _q = 0; _q + 1u < _k; _q++) {
             const fude_zoom_v2 _p0 = _sp[_q].p, _p1 = _sp[_q + 1u].p;
-            const f64 _len = hypot(_p1.x - _p0.x, _p1.y - _p0.y);
+            const f64 _len = rde_math_hypot_f64(_p1.x - _p0.x, _p1.y - _p0.y);
             if(_len <= _eps) {
                 continue;
             }
             const fude_zoom_v2 _m = { (_p0.x + _p1.x) * 0.5, (_p0.y + _p1.y) * 0.5 };
             const fude_zoom_v2 _nl = { -(_p1.y - _p0.y) / _len, (_p1.x - _p0.x) / _len };
-            const f64 _o = fmin(_side_eps, _len * 0.25);
+            const f64 _o = rde_math_min_f64(_side_eps, _len * 0.25);
             const b8 _left  = fude_zoom_cut_material(_all, _all_rings, _all_n, _region_n, _op, (fude_zoom_v2){ _m.x + _nl.x * _o, _m.y + _nl.y * _o });
             const b8 _right = fude_zoom_cut_material(_all, _all_rings, _all_n, _region_n, _op, (fude_zoom_v2){ _m.x - _nl.x * _o, _m.y - _nl.y * _o });
             if(_left == _right) {
@@ -299,7 +398,7 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
     for(u32 _i = 0; _i < _e; _i++) {
         rde_arr_free(&_splits[_i]);
     }
-    rde_arr_free(&_splits_arr);
+    rde_arr_free(&_cs->splits_arr);
     // The same piece of edge kept twice (edges along each other): once.
     fude_zoom_cut_side* _sd = (fude_zoom_cut_side*)_sides.memory;
     const u32 _ns = (u32)rde_arr_length(&_sides);
@@ -310,6 +409,20 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             }
         }
     }
+    _cs->map      = _map;
+    _cs->vertices = _vertices;
+    _cs->sides    = _sides;
+    _cs->side_eps = _side_eps;
+    _cs->sd       = _sd;
+    _cs->ns       = _ns;
+}
+
+// Each vertex's outgoing sides: where each vertex's begin (first_out) in the sides' order by vertex (order).
+RDE_INTERNAL void fude_zoom_cut_combine_outgoing(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap     = _cs->heap;
+    const rde_arr         _vertices = _cs->vertices;
+    fude_zoom_cut_side*   _sd       = _cs->sd;
+    const u32             _ns       = _cs->ns;
     // Outgoing sides of each vertex.
     const u32 _nv = (u32)rde_arr_length(&_vertices);
     const fude_zoom_v2* _vx = (const fude_zoom_v2*)_vertices.memory;
@@ -327,11 +440,28 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
     rde_arr _fill_at_arr = rde_arr_new(sizeof(u32), _heap);
     rde_arr_resize(&_fill_at_arr, _nv);
     u32* _fill_at = (u32*)_fill_at_arr.memory;
-    memcpy(_fill_at, _first_out, (usize)_nv * sizeof(u32));
+    rde_memcpy(_fill_at, _first_out, (usize)_nv * sizeof(u32));
     for(u32 _i = 0; _i < _ns; _i++) {
         _order[_fill_at[_sd[_i].from]++] = _i;
     }
     rde_arr_free(&_fill_at_arr);
+    _cs->vx            = _vx;
+    _cs->first_out_arr = _first_out_arr;
+    _cs->order_arr     = _order_arr;
+    _cs->first_out     = _first_out;
+    _cs->order         = _order;
+}
+
+// The loops: from each side not used yet, on and on, at each vertex the side going on that keeps the same material on
+// the left; one that does not close (numbers not good enough) left out.
+RDE_INTERNAL void fude_zoom_cut_combine_loops(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap      = _cs->heap;
+    const f64             _size      = _cs->size;
+    fude_zoom_cut_side*   _sd        = _cs->sd;
+    const u32             _ns        = _cs->ns;
+    const fude_zoom_v2*   _vx        = _cs->vx;
+    u32*                  _first_out = _cs->first_out;
+    u32*                  _order     = _cs->order;
     // Loops: from a side, on and on, at each vertex the side going on that keeps
     // the same material on the left (the first met turning clockwise from back).
     rde_arr _loops = rde_arr_new(sizeof(u32), _heap);     // vertex numbers, loop after loop
@@ -352,7 +482,7 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
                 break;
             }
             const fude_zoom_v2 _back = { _vx[_sd[_cur].from].x - _vx[_at].x, _vx[_sd[_cur].from].y - _vx[_at].y };
-            const f64 _back_a = atan2(_back.y, _back.x);
+            const f64 _back_a = rde_math_atan2_f64(_back.y, _back.x);
             u32 _next = 0xFFFFFFFFu;
             f64 _best = 1e300;
             for(u32 _o = _first_out[_at]; _o < _first_out[_at + 1u]; _o++) {
@@ -361,9 +491,9 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
                     continue;
                 }
                 const fude_zoom_v2 _dir = { _vx[_sd[_c].to].x - _vx[_at].x, _vx[_sd[_c].to].y - _vx[_at].y };
-                f64 _cw = fmod(_back_a - atan2(_dir.y, _dir.x) + 4.0 * FUDE_ZOOM_CUT_PI, 2.0 * FUDE_ZOOM_CUT_PI);
+                f64 _cw = rde_math_fmod_f64(_back_a - rde_math_atan2_f64(_dir.y, _dir.x) + 4.0 * RDE_PI, 2.0 * RDE_PI);
                 if(_cw < 1e-12) {
-                    _cw = 2.0 * FUDE_ZOOM_CUT_PI;
+                    _cw = 2.0 * RDE_PI;
                 }
                 if(_cw < _best) {
                     _best = _cw;
@@ -371,9 +501,10 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
                 }
             }
             if(_next == 0xFFFFFFFFu) {
-                // Nothing goes on from here: a side beginning a hair away (numbers' rounding), or the start itself, does.
+                // Nothing goes on from here: a side beginning a hair away (numbers' rounding), or
+                // the start itself, does.
                 const f64 _gap = _size * 1e-6;
-                if(hypot(_vx[_at].x - _vx[_sd[_start].from].x, _vx[_at].y - _vx[_sd[_start].from].y) <= _gap) {
+                if(rde_math_hypot_f64(_vx[_at].x - _vx[_sd[_start].from].x, _vx[_at].y - _vx[_sd[_start].from].y) <= _gap) {
                     _closed = true;
                     break;
                 }
@@ -382,7 +513,7 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
                     if(_sd[_c].used) {
                         continue;
                     }
-                    const f64 _d = hypot(_vx[_sd[_c].from].x - _vx[_at].x, _vx[_sd[_c].from].y - _vx[_at].y);
+                    const f64 _d = rde_math_hypot_f64(_vx[_sd[_c].from].x - _vx[_at].x, _vx[_sd[_c].from].y - _vx[_at].y);
                     if(_d <= _near) {
                         _near = _d;
                         _next = _c;
@@ -395,12 +526,22 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             }
             _cur = _next;
         }
-            if(_closed && (u32)rde_arr_length(&_loops) - _begin >= 3u) {
+        if(_closed && (u32)rde_arr_length(&_loops) - _begin >= 3u) {
             rde_arr_add(&_loop_at, (any)&_begin);
         } else {
-            _loops.count = _begin;   // (an open chain: numbers not good enough to close it — left out)
+            rde_arr_resize(&_loops, _begin);   // (an open chain: numbers not good enough to close it — left out)
         }
     }
+    _cs->loops   = _loops;
+    _cs->loop_at = _loop_at;
+}
+
+// Each loop's points (a point along a straight run left out) and its area.
+RDE_INTERNAL void fude_zoom_cut_combine_loop_points(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap    = _cs->heap;
+    const fude_zoom_v2*   _vx      = _cs->vx;
+    const rde_arr         _loops   = _cs->loops;
+    const rde_arr         _loop_at = _cs->loop_at;
     const u32 _nl = (u32)rde_arr_length(&_loop_at);
     // Each loop's points (straight runs made one), its area.
     rde_arr _lp = rde_arr_new(sizeof(fude_zoom_v2), _heap);
@@ -419,7 +560,7 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             const fude_zoom_v2 _a = _vx[_ids[_from + (_i + _k - 1u) % _k]], _b = _vx[_ids[_from + _i]], _c = _vx[_ids[_from + (_i + 1u) % _k]];
             const f64 _cross = (_b.x - _a.x) * (_c.y - _b.y) - (_b.y - _a.y) * (_c.x - _b.x);
             const f64 _dot   = (_b.x - _a.x) * (_c.x - _b.x) + (_b.y - _a.y) * (_c.y - _b.y);
-            if(fabs(_cross) <= 1e-12 * hypot(_b.x - _a.x, _b.y - _a.y) * hypot(_c.x - _b.x, _c.y - _b.y) && _dot > 0.0) {
+            if(rde_math_abs_f64(_cross) <= 1e-12 * rde_math_hypot_f64(_b.x - _a.x, _b.y - _a.y) * rde_math_hypot_f64(_c.x - _b.x, _c.y - _b.y) && _dot > 0.0) {
                 continue;   // a point along a straight run
             }
             rde_arr_add(&_lp, (any)&_b);
@@ -427,6 +568,22 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
         _area[_l] = fude_zoom_cut_area(&((const fude_zoom_v2*)_lp.memory)[_lp_at[_l]], (u32)rde_arr_length(&_lp) - _lp_at[_l]);
     }
     _lp_at[_nl] = (u32)rde_arr_length(&_lp);
+    _cs->nl        = _nl;
+    _cs->lp        = _lp;
+    _cs->lp_at_arr = _lp_at_arr;
+    _cs->area_arr  = _area_arr;
+    _cs->lp_at     = _lp_at;
+    _cs->area      = _area;
+}
+
+// The pieces: each outline (counter-clockwise) a piece of its own; each hole to the smallest outline round it.
+RDE_INTERNAL void fude_zoom_cut_combine_pieces(fude_zoom_cut_combine_state* _cs) {
+    rde_memory_allocator* _heap     = _cs->heap;
+    const f64             _side_eps = _cs->side_eps;
+    const u32             _nl       = _cs->nl;
+    const rde_arr         _lp       = _cs->lp;
+    u32*                  _lp_at    = _cs->lp_at;
+    f64*                  _area     = _cs->area;
     // Outlines (counter-clockwise) a piece each; each hole to the smallest outline round it.
     u32 _pieces = 0;
     rde_arr _piece_of_arr = rde_arr_new(sizeof(u32), _heap);
@@ -445,8 +602,8 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
         }
         // A point just off its first edge on the material's side (its left).
         const fude_zoom_v2 _a = _lpp[_lp_at[_l]], _b = _lpp[_lp_at[_l] + 1u];
-        const f64 _len = hypot(_b.x - _a.x, _b.y - _a.y);
-        const f64 _o = fmin(_side_eps, _len * 0.25);
+        const f64 _len = rde_math_hypot_f64(_b.x - _a.x, _b.y - _a.y);
+        const f64 _o = rde_math_min_f64(_side_eps, _len * 0.25);
         const fude_zoom_v2 _q = { (_a.x + _b.x) * 0.5 - (_b.y - _a.y) / _len * _o, (_a.y + _b.y) * 0.5 + (_b.x - _a.x) / _len * _o };
         u32 _best = 0xFFFFFFFFu;
         f64 _best_area = 1e300;
@@ -461,6 +618,20 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
         }
         _piece_of[_l] = _best != 0xFFFFFFFFu ? 0x80000000u | _piece_of[_best] : 0xFFFFFFFFu;
     }
+    _cs->pieces       = _pieces;
+    _cs->piece_of_arr = _piece_of_arr;
+    _cs->piece_of     = _piece_of;
+    _cs->lpp          = _lpp;
+}
+
+// Out: each piece, its outline then its holes, into _out (points), _out_rings (each one's ring in its piece) and
+// _out_piece (its piece).
+RDE_INTERNAL void fude_zoom_cut_combine_out(fude_zoom_cut_combine_state* _cs, rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
+    const u32           _pieces   = _cs->pieces;
+    const u32           _nl       = _cs->nl;
+    const u32*          _piece_of = _cs->piece_of;
+    const u32*          _lp_at    = _cs->lp_at;
+    const fude_zoom_v2* _lpp      = _cs->lpp;
     // Out: each piece, its outline then its holes.
     for(u32 _p = 0; _p < _pieces; _p++) {
         u32 _ring = 0;
@@ -479,24 +650,50 @@ u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n
             }
         }
     }
-    rde_arr_free(&_piece_of_arr);
-    rde_arr_free(&_lp_at_arr);
-    rde_arr_free(&_area_arr);
-    rde_arr_free(&_lp);
-    rde_arr_free(&_loops);
-    rde_arr_free(&_loop_at);
-    rde_arr_free(&_first_out_arr);
-    rde_arr_free(&_order_arr);
-    rde_arr_free(&_sides);
-    rde_arr_free(&_vertices);
-    rde_arr_free(&_keys_arr);
-    rde_arr_free(&_values_arr);
-    rde_arr_free(&_edges);
-    rde_arr_free(&_all_arr);
-    rde_arr_free(&_all_rings_arr);
-    return _pieces;
 }
 
+// See the header. "Touching" and "the same point" are measured against the size of all of it: _eps is a billionth of
+// its diagonal. Every scratch array is on the std allocator and freed before returning.
+u32 fude_zoom_cut_combine(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
+                          u8 _op, rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece) {
+    rde_arr_clear(_out);
+    rde_arr_clear(_out_rings);
+    rde_arr_clear(_out_piece);
+    if(_n < 3u && _op != FUDE_ZOOM_CUT_UNION) {
+        return 0;
+    }
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    fude_zoom_cut_combine_state _cs;
+    rde_memset(&_cs, 0, sizeof(_cs));
+    _cs.heap = _heap;
+    _cs.op   = _op;
+    fude_zoom_cut_combine_gather(&_cs, _points, _rings, _n, _cut, _cut_rings, _cut_n);
+    fude_zoom_cut_combine_splits(&_cs);
+    fude_zoom_cut_combine_keep(&_cs);
+    fude_zoom_cut_combine_outgoing(&_cs);
+    fude_zoom_cut_combine_loops(&_cs);
+    fude_zoom_cut_combine_loop_points(&_cs);
+    fude_zoom_cut_combine_pieces(&_cs);
+    fude_zoom_cut_combine_out(&_cs, _out, _out_rings, _out_piece);
+    rde_arr_free(&_cs.piece_of_arr);
+    rde_arr_free(&_cs.lp_at_arr);
+    rde_arr_free(&_cs.area_arr);
+    rde_arr_free(&_cs.lp);
+    rde_arr_free(&_cs.loops);
+    rde_arr_free(&_cs.loop_at);
+    rde_arr_free(&_cs.first_out_arr);
+    rde_arr_free(&_cs.order_arr);
+    rde_arr_free(&_cs.sides);
+    rde_arr_free(&_cs.vertices);
+    rde_hash_map_free(&_cs.map);
+    rde_arr_free(&_cs.edges);
+    rde_arr_free(&_cs.all_arr);
+    rde_arr_free(&_cs.all_rings_arr);
+    return _cs.pieces;
+}
+
+// See the header. Points closer than a millionth of _width to the one before are dropped first. The polygon is the
+// left side forwards, then the right side back.
 u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _out) {
     // The line without repeated points.
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
@@ -505,7 +702,7 @@ u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _
     fude_zoom_v2* _p = (fude_zoom_v2*)_p_arr.memory;
     u32 _m = 0;
     for(u32 _i = 0; _i < _n; _i++) {
-        if(_m == 0 || hypot(_path[_i].x - _p[_m - 1u].x, _path[_i].y - _p[_m - 1u].y) > _width * 1e-6) {
+        if(_m == 0 || rde_math_hypot_f64(_path[_i].x - _p[_m - 1u].x, _path[_i].y - _p[_m - 1u].y) > _width * 1e-6) {
             _p[_m++] = _path[_i];
         }
     }
@@ -522,10 +719,10 @@ u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _
             const u32 _i = _side == 0 ? _k : _m - 1u - _k;
             const fude_zoom_v2 _d0 = _i > 0 ? (fude_zoom_v2){ _p[_i].x - _p[_i - 1u].x, _p[_i].y - _p[_i - 1u].y } : (fude_zoom_v2){ _p[1].x - _p[0].x, _p[1].y - _p[0].y };
             const fude_zoom_v2 _d1 = _i + 1u < _m ? (fude_zoom_v2){ _p[_i + 1u].x - _p[_i].x, _p[_i + 1u].y - _p[_i].y } : _d0;
-            const f64 _l0 = hypot(_d0.x, _d0.y), _l1 = hypot(_d1.x, _d1.y);
+            const f64 _l0 = rde_math_hypot_f64(_d0.x, _d0.y), _l1 = rde_math_hypot_f64(_d1.x, _d1.y);
             const fude_zoom_v2 _n0 = { -_d0.y / _l0, _d0.x / _l0 }, _n1 = { -_d1.y / _l1, _d1.x / _l1 };
             fude_zoom_v2 _mt = { _n0.x + _n1.x, _n0.y + _n1.y };
-            const f64 _ml = hypot(_mt.x, _mt.y);
+            const f64 _ml = rde_math_hypot_f64(_mt.x, _mt.y);
             f64 _len = _h;
             if(_ml > 1e-9) {
                 _mt = (fude_zoom_v2){ _mt.x / _ml, _mt.y / _ml };
@@ -542,6 +739,10 @@ u32 fude_zoom_cut_band(const fude_zoom_v2* _path, u32 _n, f64 _width, rde_arr* _
     return (u32)rde_arr_length(_out) - _start;
 }
 
+// See the header. The cuts are taken into the board's own units and laid against its rings there. The result is
+// checked against the areas: less than nothing taken, or more taken than all the cuts' areas together, is numbers
+// gone wrong, and nothing is made; one piece of the same area is no change. Each piece becomes a board round its
+// outline's box's middle, turned and scaled as the board was; a piece of next to no area is left out.
 u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _n, rde_arr* _born) {
     const fude_zoom_object* _o = fude_zoom_scene_object(_s, _board);
     if(_o->kind != FUDE_ZOOM_KIND_SHAPE || _o->channels != FUDE_ZOOM_SHAPE_BOARD || !(_o->flags & FUDE_ZOOM_FLAG_ALIVE) || _n < 3u) {
@@ -594,25 +795,29 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
                 _after += fude_zoom_cut_area(&_op[_from], _to - _from);
                 _from = _to;
             }
-            // What the cuts could take at most: their areas together. Less left than that would be numbers gone wrong (a loop lost): no change then.
+            // What the cuts could take at most: their areas together. Less left than that would be numbers gone wrong
+            // (a loop lost): no change then.
             f64 _cuts = 0.0;
             for(u32 _from = 0; _from < _n;) {
                 u32 _to = _from;
                 while(_to < _n && (_cut_rings != NULL ? _cut_rings[_to] : 0u) == (_cut_rings != NULL ? _cut_rings[_from] : 0u)) {
                     _to++;
                 }
-                _cuts += fabs(fude_zoom_cut_area(&_local[_from], _to - _from));
+                _cuts += rde_math_abs_f64(fude_zoom_cut_area(&_local[_from], _to - _from));
                 _from = _to;
             }
-            const b8 _sane = _after <= _before + fabs(_before) * 1e-6 && _after >= _before - _cuts - fabs(_before) * 1e-6;
-            if(_sane && !(_pieces == 1u && fabs(_after - _before) <= fabs(_before) * 1e-9)) {
+            const b8 _sane = _after <= _before + rde_math_abs_f64(_before) * 1e-6 && _after >= _before - _cuts - rde_math_abs_f64(_before) * 1e-6;
+            if(_sane && !(_pieces == 1u && rde_math_abs_f64(_after - _before) <= rde_math_abs_f64(_before) * 1e-9)) {
                 // Each piece a board where it lies: its box's middle its translation.
                 c8 _name[FUDE_ZOOM_BOARD_NAME];
                 fude_zoom_board_name(_nn, _count, _name, sizeof(_name));
                 const fude_zoom_sim _to_frame = fude_zoom_object_sim(&_look);
                 rde_arr _numbers = rde_arr_new(sizeof(f64), _heap), _piece = rde_arr_new(sizeof(fude_zoom_v2), _heap), _piece_rings = rde_arr_new(sizeof(u32), _heap);
+                // On its layer, in its line style and hatch (a shape's q: scene.h), as every shape made again is.
                 const u16 _was = _s->layer;
+                const i8  _style_was = _s->style;
                 _s->layer = _look.layer;
+                _s->style = _look.q;
                 _made = 0;
                 for(u32 _p = 0; _p < _pieces; _p++) {
                     rde_arr_clear(&_piece);
@@ -642,7 +847,7 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
                         _area += fude_zoom_cut_area(&_pp[_from], _to - _from);
                         _from = _to;
                     }
-                    if(_k < 3u || !(_area > fabs(_before) * 1e-9)) {
+                    if(_k < 3u || !(_area > rde_math_abs_f64(_before) * 1e-9)) {
                         continue;   // (a sliver of nothing)
                     }
                     const fude_zoom_v2 _mid = { (_box.min_x + _box.max_x) * 0.5, (_box.min_y + _box.max_y) * 0.5 };
@@ -652,7 +857,7 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
                     }
                     const f64 _hl = (_box.max_x - _box.min_x) * 0.5, _hw = (_box.max_y - _box.min_y) * 0.5;
                     // Still a plain rectangle (four corners, its box's area): a plain board.
-                    const b8 _plain = _ring_count == 1u && _k == 4u && fabs(_area - 4.0 * _hl * _hw) <= _area * 1e-9;
+                    const b8 _plain = _ring_count == 1u && _k == 4u && rde_math_abs_f64(_area - 4.0 * _hl * _hw) <= _area * 1e-9;
                     f64 _small[FUDE_ZOOM_SHAPE_NUMBERS];
                     const f64* _write;
                     u32 _wn;
@@ -670,6 +875,7 @@ u32 fude_zoom_cut_board(fude_zoom_scene* _s, u32 _board, const fude_zoom_v2* _cu
                     _made++;
                 }
                 _s->layer = _was;
+                _s->style = _style_was;
                 rde_arr_free(&_numbers);
                 rde_arr_free(&_piece);
                 rde_arr_free(&_piece_rings);

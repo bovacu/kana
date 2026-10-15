@@ -2,11 +2,19 @@
 
 #include "zoom/plan.h"
 #include "zoom/symbol.h"
-#include <math.h>
-#include <string.h>
 
-#define FZP_PI 3.14159265358979323846
+// ===========================================================================
+// See plan.h.
+//
+// The parts are one constant table (FZP_PARTS), each naming the look it is drawn with (FZP_LOOK_), so several sizes of
+// one thing (doors, windows, beds) share a look. fude_zoom_plan_draw has one case for each look, in its family's
+// function (fzp_draw_building, fzp_draw_furniture, fzp_draw_wiring), and draws it in the part's own measures,
+// centimetres for the floor plan's parts and points for the house wiring's, from its middle, scaled by fzp.k to its
+// box. Its helpers are fzp_.
+// ===========================================================================
 
+// How a part is drawn: one case of fude_zoom_plan_draw each. The floor plan's looks come first, from FZP_DOOR to
+// FZP_STAIRS, then the house wiring's.
 typedef enum {
     FZP_DOOR = 0, FZP_DOUBLE_DOOR, FZP_SLIDING, FZP_WINDOW, FZP_OPENING,
     FZP_BED1, FZP_BED2, FZP_SOFA, FZP_ARMCHAIR, FZP_TABLE, FZP_ROUND_TABLE, FZP_CHAIR, FZP_DESK, FZP_WARDROBE,
@@ -15,6 +23,8 @@ typedef enum {
     FZP_BOARD, FZP_JUNCTION, FZP_TV, FZP_DATA, FZP_SMOKE, FZP_THERMOSTAT, FZP_FAN, FZP_METER
 } FZP_LOOK_;
 
+// Every plan part: its symbol's id, its look, its size (w × h: centimetres for a true-size part, else points), whether
+// it is at its true size, and the text it starts with.
 RDE_INTERNAL const fude_zoom_plan_part FZP_PARTS[] = {
     { "door 70",         FZP_DOOR,        70, 80, true, "" },
     { "door 80",         FZP_DOOR,        80, 90, true, "" },
@@ -65,35 +75,35 @@ RDE_INTERNAL const fude_zoom_plan_part FZP_PARTS[] = {
     { "ceiling fan",     FZP_FAN,         50, 50, false, "" },
     { "meter",           FZP_METER,       44, 30, false, "kWh" },
 };
+// How many parts there are.
 #define FZP_N ((u32)(sizeof(FZP_PARTS) / sizeof(FZP_PARTS[0])))
 
+// See plan.h. A linear search of the table by id.
 const fude_zoom_plan_part* fude_zoom_plan_find(const c8* _id) {
     for(u32 _i = 0; _id != NULL && _i < FZP_N; _i++) {
-        if(strcmp(FZP_PARTS[_i].id, _id) == 0) {
+        if(rde_strcmp(FZP_PARTS[_i].id, _id) == 0) {
             return &FZP_PARTS[_i];
         }
     }
     return NULL;
 }
 
+// See plan.h: the topics' one kind-to-part map (symbol.h: fude_zoom_symbol_topic_part), which finds each kind's part
+// once by its id (fude_zoom_plan_find) and keeps it, the misses too.
 const fude_zoom_plan_part* fude_zoom_plan_of_kind(u32 _kind) {
-    static const fude_zoom_plan_part* _cache[1024];
-    static u8 _known[1024];
-    const fude_zoom_symbol_info* _info;
-    if(_kind >= 1024u) {
-        _info = fude_zoom_symbol_info_of(_kind);
-        return _info != NULL ? fude_zoom_plan_find(_info->id) : NULL;
-    }
-    if(!_known[_kind]) {
-        _info = fude_zoom_symbol_info_of(_kind);
-        _cache[_kind] = _info != NULL ? fude_zoom_plan_find(_info->id) : NULL;
-        _known[_kind] = 1u;
-    }
-    return _cache[_kind];
+    return (const fude_zoom_plan_part*)fude_zoom_symbol_topic_part(_kind, FUDE_ZOOM_SYMBOL_TOPIC_PLAN);
+}
+
+// See plan.h: a door's, a window's or an opening's look.
+b8 fude_zoom_plan_opening(const fude_zoom_plan_part* _part) {
+    return _part != NULL && (_part->look == FZP_DOOR || _part->look == FZP_DOUBLE_DOOR || _part->look == FZP_SLIDING || _part->look == FZP_WINDOW ||
+                             _part->look == FZP_OPENING);
 }
 
 // --- drawn -------------------------------------------------------------------------------------------
 
+// A part being drawn: where its points and parts go, its box's half sizes, its scale, its curves' segments to a whole
+// turn, and the first point of the polyline being made.
 typedef struct {
     rde_arr* points;
     rde_arr* parts;
@@ -103,81 +113,88 @@ typedef struct {
     u32      first;
 } fzp;
 
+// Appends a point, as it is: in the box's units, already scaled.
 RDE_INTERNAL void fzp_pt(fzp* _d, f64 _x, f64 _y) {
     const fude_zoom_v2 _p = { _x, _y };
     rde_arr_add(_d->points, (any)&_p);
 }
+// Starts a polyline at the next point.
 RDE_INTERNAL void fzp_begin(fzp* _d) {
     _d->first = (u32)rde_arr_length(_d->points);
 }
+// Ends the polyline begun by fzp_begin as a part flagged _flags; one of fewer than 2 points is dropped, its point too.
 RDE_INTERNAL void fzp_end(fzp* _d, u8 _flags) {
     const u32 _n = (u32)rde_arr_length(_d->points) - _d->first;
     if(_n >= 2u) {
-        const fude_zoom_symbol_part _p = { _d->first, _n, _flags };
+        const fude_zoom_symbol_part _p = { .first = _d->first, .count = _n, .flags = _flags };
         rde_arr_add(_d->parts, (any)&_p);
     } else {
-        _d->points->count -= _n;
+        rde_arr_resize(_d->points, _d->first);
     }
 }
-// In centimetres (or points) from the middle.
+// A straight line, its ends in centimetres (or points) from the middle.
 RDE_INTERNAL void fzp_line(fzp* _d, f64 _x0, f64 _y0, f64 _x1, f64 _y1) {
     fzp_begin(_d);
     fzp_pt(_d, _x0 * _d->k, _y0 * _d->k);
     fzp_pt(_d, _x1 * _d->k, _y1 * _d->k);
     fzp_end(_d, 0u);
 }
+// A closed rectangle from corner (_x0, _y0) to (_x1, _y1), in centimetres (or points) from the middle.
 RDE_INTERNAL void fzp_rect(fzp* _d, f64 _x0, f64 _y0, f64 _x1, f64 _y1, u8 _flags) {
     fzp_begin(_d);
     fzp_pt(_d, _x0 * _d->k, _y0 * _d->k); fzp_pt(_d, _x1 * _d->k, _y0 * _d->k);
     fzp_pt(_d, _x1 * _d->k, _y1 * _d->k); fzp_pt(_d, _x0 * _d->k, _y1 * _d->k);
     fzp_end(_d, (u8)(_flags | FUDE_ZOOM_SYMBOL_CLOSED));
 }
+// Appends the points of an elliptical arc from angle _a0 to _a1 (radians, counter-clockwise from +x), round (_cx, _cy)
+// with radii _rx and _ry, in centimetres (or points). Its segments are as many as its share of a whole turn's (at least
+// 16 a turn), and never fewer than 3.
 RDE_INTERNAL void fzp_arc_pts(fzp* _d, f64 _cx, f64 _cy, f64 _rx, f64 _ry, f64 _a0, f64 _a1) {
-    u32 _n = (u32)ceil((f64)(_d->segments < 16u ? 16u : _d->segments) * fabs(_a1 - _a0) / (2.0 * FZP_PI));
+    u32 _n = (u32)rde_math_ceil_f64((f64)(_d->segments < 16u ? 16u : _d->segments) * rde_math_abs_f64(_a1 - _a0) / (2.0 * RDE_PI));
     _n = _n < 3u ? 3u : _n;
     for(u32 _i = 0; _i <= _n; _i++) {
         const f64 _a = _a0 + (_a1 - _a0) * (f64)_i / (f64)_n;
-        fzp_pt(_d, (_cx + cos(_a) * _rx) * _d->k, (_cy + sin(_a) * _ry) * _d->k);
+        fzp_pt(_d, (_cx + rde_math_cos_f64(_a) * _rx) * _d->k, (_cy + rde_math_sin_f64(_a) * _ry) * _d->k);
     }
 }
+// A closed ellipse. Its points stop a 64th of a turn short of where they began, since the part is closed anyway.
 RDE_INTERNAL void fzp_ellipse(fzp* _d, f64 _cx, f64 _cy, f64 _rx, f64 _ry, u8 _flags) {
     fzp_begin(_d);
-    fzp_arc_pts(_d, _cx, _cy, _rx, _ry, 0.0, 2.0 * FZP_PI * (1.0 - 1.0 / 64.0));
+    fzp_arc_pts(_d, _cx, _cy, _rx, _ry, 0.0, 2.0 * RDE_PI * (1.0 - 1.0 / 64.0));
     fzp_end(_d, (u8)(_flags | FUDE_ZOOM_SYMBOL_CLOSED));
 }
+// A closed rectangle with corners rounded by _r (at most half its shorter side), from its bottom right corner round.
 RDE_INTERNAL void fzp_rounded(fzp* _d, f64 _x0, f64 _y0, f64 _x1, f64 _y1, f64 _r, u8 _flags) {
-    _r = fmin(_r, fmin(fabs(_x1 - _x0), fabs(_y1 - _y0)) * 0.5);
+    _r = rde_math_min_f64(_r, rde_math_min_f64(rde_math_abs_f64(_x1 - _x0), rde_math_abs_f64(_y1 - _y0)) * 0.5);
     fzp_begin(_d);
-    fzp_arc_pts(_d, _x1 - _r, _y0 + _r, _r, _r, -FZP_PI * 0.5, 0.0);
-    fzp_arc_pts(_d, _x1 - _r, _y1 - _r, _r, _r, 0.0, FZP_PI * 0.5);
-    fzp_arc_pts(_d, _x0 + _r, _y1 - _r, _r, _r, FZP_PI * 0.5, FZP_PI);
-    fzp_arc_pts(_d, _x0 + _r, _y0 + _r, _r, _r, FZP_PI, FZP_PI * 1.5);
+    fzp_arc_pts(_d, _x1 - _r, _y0 + _r, _r, _r, -RDE_PI * 0.5, 0.0);
+    fzp_arc_pts(_d, _x1 - _r, _y1 - _r, _r, _r, 0.0, RDE_PI * 0.5);
+    fzp_arc_pts(_d, _x0 + _r, _y1 - _r, _r, _r, RDE_PI * 0.5, RDE_PI);
+    fzp_arc_pts(_d, _x0 + _r, _y0 + _r, _r, _r, RDE_PI, RDE_PI * 1.5);
     fzp_end(_d, (u8)(_flags | FUDE_ZOOM_SYMBOL_CLOSED));
 }
 
-u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts) {
-    rde_arr_clear(_points);
-    rde_arr_clear(_parts);
-    if(_part == NULL) {
-        return 0;
-    }
-    fzp _d = { _points, _parts, fabs(_hw), fabs(_hh), 1.0, _segments < 16u ? 16u : (_segments > 96u ? 96u : _segments), 0u };
-    // Drawn in its own size's units (centimetres, points) from its middle, stretched to its box.
-    const f64 _w = (f64)_part->w * 0.5, _h = (f64)_part->h * 0.5;
-    _d.k = fmin(_d.hw / _w, _d.hh / _h);
-    const f64 _ky = _d.hh / _h;   // (stretched one way: what is drawn by its box's corners follows it)
-    const u8 F = FUDE_ZOOM_SYMBOL_FILLED, S = FUDE_ZOOM_SYMBOL_SOLID, D = FUDE_ZOOM_SYMBOL_DASHED;
-    #define BOX(_flags) do { fzp_begin(&_d); fzp_pt(&_d, -_d.hw, -_d.hh); fzp_pt(&_d, _d.hw, -_d.hh); fzp_pt(&_d, _d.hw, _d.hh); fzp_pt(&_d, -_d.hw, _d.hh); fzp_end(&_d, (u8)((_flags) | FUDE_ZOOM_SYMBOL_CLOSED)); } while(0)
+// The box's outline, closed, flagged _flags.
+// (Drawn with the pen _d of the function it is in: fude_zoom_plan_draw's families' and its own, which undefines it.)
+#define BOX(_flags) do { fzp_begin(&_d); fzp_pt(&_d, -_d.hw, -_d.hh); fzp_pt(&_d, _d.hw, -_d.hh); fzp_pt(&_d, _d.hw, _d.hh); fzp_pt(&_d, -_d.hw, _d.hh); fzp_end(&_d, (u8)((_flags) | FUDE_ZOOM_SYMBOL_CLOSED)); } while(0)
+
+// Draws, for fude_zoom_plan_draw, a part of the building: a door, a double door, a sliding door, a window, an opening,
+// stairs (_ky: the box's height over the part's, the door's band stretched with it). It takes the pen under the name
+// the function had, and hands it back. False: _part is none of them (nothing drawn).
+RDE_INTERNAL b8 fzp_draw_building(fzp* _pen, const fude_zoom_plan_part* _part, f64 _ky) {
+    fzp _d = *_pen;
+    // Short names for the parts' flags (symbol.h): filled as the shape is, dashed.
+    const u8 F = FUDE_ZOOM_SYMBOL_FILLED, D = FUDE_ZOOM_SYMBOL_DASHED;
     switch(_part->look) {
     case FZP_DOOR: {
         // Its band (the wall's opening) at its foot, its leaf up from its left, its swing round to its right.
         const f64 _band = 10.0 * _ky, _y0 = -_d.hh, _y1 = -_d.hh + _band, _r = 2.0 * _d.hw;
         fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y0); fzp_pt(&_d, _d.hw, _y0); fzp_pt(&_d, _d.hw, _y1); fzp_pt(&_d, -_d.hw, _y1); fzp_end(&_d, F | FUDE_ZOOM_SYMBOL_CLOSED);
-        fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y1); fzp_pt(&_d, -_d.hw, fmin(_y1 + _r, _d.hh)); fzp_end(&_d, 0u);
+        fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y1); fzp_pt(&_d, -_d.hw, rde_math_min_f64(_y1 + _r, _d.hh)); fzp_end(&_d, 0u);
         fzp_begin(&_d);
         for(u32 _i = 0; _i <= 24u; _i++) {
-            const f64 _a = FZP_PI * 0.5 * (1.0 - (f64)_i / 24.0);
-            fzp_pt(&_d, -_d.hw + cos(_a) * _r, _y1 + sin(_a) * fmin(_r, _d.hh - _y1));
+            const f64 _a = RDE_PI * 0.5 * (1.0 - (f64)_i / 24.0);
+            fzp_pt(&_d, -_d.hw + rde_math_cos_f64(_a) * _r, _y1 + rde_math_sin_f64(_a) * rde_math_min_f64(_r, _d.hh - _y1));
         }
         fzp_end(&_d, 0u);
         break;
@@ -187,11 +204,11 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
         fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y0); fzp_pt(&_d, _d.hw, _y0); fzp_pt(&_d, _d.hw, _y1); fzp_pt(&_d, -_d.hw, _y1); fzp_end(&_d, F | FUDE_ZOOM_SYMBOL_CLOSED);
         for(u32 _s = 0; _s < 2u; _s++) {
             const f64 _x = _s == 0u ? -_d.hw : _d.hw, _dir = _s == 0u ? 1.0 : -1.0;
-            fzp_begin(&_d); fzp_pt(&_d, _x, _y1); fzp_pt(&_d, _x, fmin(_y1 + _r, _d.hh)); fzp_end(&_d, 0u);
+            fzp_begin(&_d); fzp_pt(&_d, _x, _y1); fzp_pt(&_d, _x, rde_math_min_f64(_y1 + _r, _d.hh)); fzp_end(&_d, 0u);
             fzp_begin(&_d);
             for(u32 _i = 0; _i <= 16u; _i++) {
-                const f64 _a = FZP_PI * 0.5 * (1.0 - (f64)_i / 16.0);
-                fzp_pt(&_d, _x + _dir * cos(_a) * _r, _y1 + sin(_a) * fmin(_r, _d.hh - _y1));
+                const f64 _a = RDE_PI * 0.5 * (1.0 - (f64)_i / 16.0);
+                fzp_pt(&_d, _x + _dir * rde_math_cos_f64(_a) * _r, _y1 + rde_math_sin_f64(_a) * rde_math_min_f64(_r, _d.hh - _y1));
             }
             fzp_end(&_d, 0u);
         }
@@ -210,6 +227,31 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
     case FZP_OPENING:
         BOX(F | D);
         break;
+    case FZP_STAIRS: {
+        BOX(F);
+        const f64 _step = 28.0 * _d.k;
+        for(f64 _y = -_d.hh + _step; _y < _d.hh - 1e-9; _y += _step) {
+            fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y); fzp_pt(&_d, _d.hw, _y); fzp_end(&_d, 0u);
+        }
+        fzp_begin(&_d); fzp_pt(&_d, 0.0, -_d.hh + _step * 0.5); fzp_pt(&_d, 0.0, _d.hh - _step * 0.5); fzp_end(&_d, 0u);   // (its way up)
+        fzp_begin(&_d); fzp_pt(&_d, -0.3 * _d.hw, _d.hh - _step * 1.2); fzp_pt(&_d, 0.0, _d.hh - _step * 0.5); fzp_pt(&_d, 0.3 * _d.hw, _d.hh - _step * 1.2); fzp_end(&_d, 0u);
+        break;
+    }
+    default:
+        return false;
+    }
+    *_pen = _d;
+    return true;
+}
+
+// Draws, for fude_zoom_plan_draw, furniture or a fitting: a bed, a sofa, an armchair, a table, a chair, a desk, a
+// wardrobe, a counter, a sink, a stove, a fridge, a washer, a toilet, a bathtub, a shower, a basin. It takes the pen
+// under the name the function had, and hands it back. False: _part is none of them (nothing drawn).
+RDE_INTERNAL b8 fzp_draw_furniture(fzp* _pen, const fude_zoom_plan_part* _part) {
+    fzp _d = *_pen;
+    // Short names for the parts' flags (symbol.h): filled as the shape is.
+    const u8 F = FUDE_ZOOM_SYMBOL_FILLED;
+    switch(_part->look) {
     case FZP_BED1:
     case FZP_BED2: {
         BOX(F);
@@ -247,8 +289,8 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
     case FZP_ROUND_TABLE:
         fzp_begin(&_d);
         for(u32 _i = 0; _i < 48u; _i++) {
-            const f64 _a = 2.0 * FZP_PI * (f64)_i / 48.0;
-            fzp_pt(&_d, cos(_a) * _d.hw, sin(_a) * _d.hh);
+            const f64 _a = 2.0 * RDE_PI * (f64)_i / 48.0;
+            fzp_pt(&_d, rde_math_cos_f64(_a) * _d.hw, rde_math_sin_f64(_a) * _d.hh);
         }
         fzp_end(&_d, F | FUDE_ZOOM_SYMBOL_CLOSED);
         break;
@@ -311,16 +353,21 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
         fzp_rounded(&_d, -_d.hw / _d.k, -_d.hh / _d.k, _d.hw / _d.k, _d.hh / _d.k, 8.0, F);
         fzp_ellipse(&_d, 0.0, -3.0, 22.0, 14.0, 0u);
         break;
-    case FZP_STAIRS: {
-        BOX(F);
-        const f64 _step = 28.0 * _d.k;
-        for(f64 _y = -_d.hh + _step; _y < _d.hh - 1e-9; _y += _step) {
-            fzp_begin(&_d); fzp_pt(&_d, -_d.hw, _y); fzp_pt(&_d, _d.hw, _y); fzp_end(&_d, 0u);
-        }
-        fzp_begin(&_d); fzp_pt(&_d, 0.0, -_d.hh + _step * 0.5); fzp_pt(&_d, 0.0, _d.hh - _step * 0.5); fzp_end(&_d, 0u);   // (its way up)
-        fzp_begin(&_d); fzp_pt(&_d, -0.3 * _d.hw, _d.hh - _step * 1.2); fzp_pt(&_d, 0.0, _d.hh - _step * 0.5); fzp_pt(&_d, 0.3 * _d.hw, _d.hh - _step * 1.2); fzp_end(&_d, 0u);
-        break;
+    default:
+        return false;
     }
+    *_pen = _d;
+    return true;
+}
+
+// Draws, for fude_zoom_plan_draw, a symbol of the house wiring: a socket, a switch, a dimmer, a bell, a light, a tube,
+// a board, a junction box, a TV's or a data point, a smoke alarm, a thermostat, a fan, a meter. It takes the pen under
+// the name the function had, and hands it back. False: _part is none of them (nothing drawn).
+RDE_INTERNAL b8 fzp_draw_wiring(fzp* _pen, const fude_zoom_plan_part* _part) {
+    fzp _d = *_pen;
+    // Short names for the parts' flags (symbol.h): filled as the shape is, filled with its line's colour.
+    const u8 F = FUDE_ZOOM_SYMBOL_FILLED, S = FUDE_ZOOM_SYMBOL_SOLID;
+    switch(_part->look) {
     // House wiring (points).
     case FZP_SOCKET:
     case FZP_SOCKET2: {
@@ -329,7 +376,7 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
         for(u32 _i = 0; _i < _n; _i++) {
             const f64 _cx = _n == 1u ? 0.0 : (_i == 0u ? -10.0 : 10.0);
             fzp_begin(&_d);
-            fzp_arc_pts(&_d, _cx, -6.0, _r, _r, 0.0, FZP_PI);
+            fzp_arc_pts(&_d, _cx, -6.0, _r, _r, 0.0, RDE_PI);
             fzp_end(&_d, _i == 0u ? (u8)(F | FUDE_ZOOM_SYMBOL_CLOSED) : 0u);
         }
         fzp_line(&_d, _n == 1u ? -_r : -22.0, -6.0, _n == 1u ? _r : 22.0, -6.0);
@@ -406,17 +453,40 @@ u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 
     case FZP_FAN:
         fzp_ellipse(&_d, 0.0, 0.0, 4.0, 4.0, F);
         for(u32 _b = 0; _b < 3u; _b++) {
-            const f64 _a = 2.0 * FZP_PI * (f64)_b / 3.0;
+            const f64 _a = 2.0 * RDE_PI * (f64)_b / 3.0;
             fzp_begin(&_d);
-            fzp_pt(&_d, cos(_a) * 4.0 * _d.k, sin(_a) * 4.0 * _d.k);
-            fzp_pt(&_d, (cos(_a + 0.25) * 22.0) * _d.k, (sin(_a + 0.25) * 22.0) * _d.k);
-            fzp_pt(&_d, (cos(_a - 0.15) * 23.0) * _d.k, (sin(_a - 0.15) * 23.0) * _d.k);
+            fzp_pt(&_d, rde_math_cos_f64(_a) * 4.0 * _d.k, rde_math_sin_f64(_a) * 4.0 * _d.k);
+            fzp_pt(&_d, (rde_math_cos_f64(_a + 0.25) * 22.0) * _d.k, (rde_math_sin_f64(_a + 0.25) * 22.0) * _d.k);
+            fzp_pt(&_d, (rde_math_cos_f64(_a - 0.15) * 23.0) * _d.k, (rde_math_sin_f64(_a - 0.15) * 23.0) * _d.k);
             fzp_end(&_d, FUDE_ZOOM_SYMBOL_CLOSED);
         }
         break;
     default:
+        return false;
+    }
+    *_pen = _d;
+    return true;
+}
+
+// See plan.h. Measures are scaled by the same k both ways, the smaller of the two the box allows, so a part keeps its
+// shape. BOX, and the lines drawn from one edge of the box to the other, use the box's half sizes instead, so they
+// fill the box however it is stretched.
+u32 fude_zoom_plan_draw(const fude_zoom_plan_part* _part, f64 _hw, f64 _hh, u32 _segments, rde_arr* _points, rde_arr* _parts) {
+    rde_arr_clear(_points);
+    rde_arr_clear(_parts);
+    if(_part == NULL) {
+        return 0;
+    }
+    fzp _d = { _points, _parts, rde_math_abs_f64(_hw), rde_math_abs_f64(_hh), 1.0, _segments < 16u ? 16u : (_segments > 96u ? 96u : _segments), 0u };
+    // Drawn in its own size's units (centimetres, points) from its middle, stretched to its box.
+    const f64 _w = (f64)_part->w * 0.5, _h = (f64)_part->h * 0.5;
+    _d.k = rde_math_min_f64(_d.hw / _w, _d.hh / _h);
+    const f64 _ky = _d.hh / _h;   // (stretched one way: what is drawn by its box's corners follows it)
+    // The flag a box is drawn with (symbol.h): filled as the shape is.
+    const u8 F = FUDE_ZOOM_SYMBOL_FILLED;
+    // Each look is its family's; any other is its box.
+    if(!fzp_draw_building(&_d, _part, _ky) && !fzp_draw_furniture(&_d, _part) && !fzp_draw_wiring(&_d, _part)) {
         BOX(F);
-        break;
     }
     #undef BOX
     return (u32)rde_arr_length(_parts);

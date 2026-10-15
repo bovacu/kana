@@ -9,11 +9,10 @@
 #include <string.h>
 
 any rde_aligned_alloc(usize _bytes_count, usize _align) {
-    void* _p = NULL;
-    return posix_memalign(&_p, _align < sizeof(void*) ? sizeof(void*) : _align, _bytes_count > 0u ? _bytes_count : 1u) == 0 ? _p : NULL;
+    any _p = NULL;
+    return posix_memalign(&_p, _align < sizeof(any) ? sizeof(any) : _align, _bytes_count > 0u ? _bytes_count : 1u) == 0 ? _p : NULL;
 }
 void rde_aligned_free(any _memory) { free(_memory); }
-void rde_memset(any _dst, i32 _value, usize _dst_len) { memset(_dst, _value, _dst_len); }
 void (rde_assert_fatal)(b8 _condition, const c8* _fmt, ...) {
     if(_condition) {
         return;

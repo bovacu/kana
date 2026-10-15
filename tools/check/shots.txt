@@ -1,0 +1,50 @@
+# The screens tools/check/shots.sh captures, one per line:   who | name | the app's look flags
+#
+#   who    study (each of the six study apps), canvas (each of the three canvas apps), or one app's name
+#   name   the picture's name (build/shots/<run>/<app>/<name>.png)
+#   flags  the look harness's (fude/drawing/app/look.h, fude/study/app/look.c, fude/zoom/look.c);
+#          {CP} is the app's sample character (hex), from shots.sh
+#
+# Every capture starts from the same saves (made by the app's first run, which captures "welcome"), so a picture
+# changes only when the app draws it differently.
+
+study  | page      |
+study  | side      | --side
+study  | settings  | --settings
+study  | faq       | --faq
+study  | licences  | --licences=0
+study  | browse    | --browse
+study  | album     | --album
+study  | stats     | --stats
+study  | exam      | --exam
+study  | vocab     | --vocab
+study  | viewer    | --viewer={CP}
+study  | practice  | --practice={CP}
+study  | side-es   | --language=1 --side
+study  | dark-page | --theme=1
+
+canvas | canvas    |
+canvas | side      | --side
+canvas | settings  | --settings
+canvas | home      | --home=5 --shot-at=30
+canvas | topic     | --tool-panel=0 --shot-at=20
+canvas | library   | --library=0@5 --shot-at=40
+canvas | torch     | --example=0@5 --shot-at=40
+canvas | counter   | --example=5@5 --shot-at=40
+canvas | ramp      | --example=37@5 --shot-at=40
+canvas | crank     | --example=30@5 --shot-at=40
+canvas | example60 | --example=60@5 --shot-at=40
+canvas | examples  | --examples=0@5 --shot-at=30
+
+kana   | chart     | --chart
+kana   | chart-2   | --chart --press=1
+hangul | chart     | --chart
+hangul | chart-2   | --chart --press=1
+thai   | chart     | --chart
+thai   | chart-2   | --chart --press=1
+hindi  | chart     | --chart
+hindi  | chart-2   | --chart --press=1
+arabic | chart     | --chart
+arabic | chart-2   | --chart --press=1
+study  | library   | --library
+study  | welcome-2 | --welcome=2

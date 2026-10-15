@@ -4,130 +4,65 @@
 #define FUDE_SAVE
 
 #include "rde.h"
-#include "drawing/ink/ink.h"
-#include "drawing/ink/canvas.h"
 
 // ===========================================================================
-// Saving and loading.
+// Save: where the app's files are saved, and how a saved file is read back.
 //
-// FORMAT: one small tagged binary layout for every Kana file.
-//
-//   header   "KANA"  u32 version  u32 kind                        (12 bytes)
-//   chunk*   u32 tag  u32 size  payload[size]
-//
-// Every number is little-endian, written byte by byte so the format does not
-// depend on the machine; floats as their IEEE-754 bits. Readers SKIP chunk tags
-// they do not know, and within a chunk read only the fields it has. Arrays carry
-// their record size, so a record can grow new fields at its end. New data goes in
-// new chunks or at the END of a record: older files keep loading, and older
-// builds keep reading newer files.
-//
-// WRITES ARE ATOMIC: the file is written to <name>.tmp, the previous version is
-// renamed to <name>.bak, then .tmp is renamed into place. A kill at any point
-// leaves the old file or the new one, never half of one. Loading falls back to
-// .bak when the main file is missing or damaged. A file that fails to parse is
-// renamed to <name>.bad and never overwritten: a reader bug must not be able to
-// destroy a page by autosaving an empty one over it.
-//
-// DOCUMENT ('DOC '): the page.
-//   'VIEW'  f32 offset.x, offset.y, zoom
-//   'PAGE'  u8 paper (FUDE_PAPER_: 0 dots, 1 squares, 2 lines, 3 none)
-//           (optional: a file from before it has none — dots)
-//   'TURN'  a document's pages turned (canvas.h): u32 count, then per page u16
-//           page, u8 quarter turns clockwise (optional: none turned)
-//   'STRK'  u32 count, u32 record size, then per stroke:
-//           u32 point_count, u8 r g b a, u8 flags (bit 0: from_pen; bit 1: the
-//           marker's, see-through under the other ink), 3 reserved
-//           (r g b a all 0: the theme's ink; 30 30 36 255, from before themes,
-//           is read as that too)
-//   'PNTS'  u32 count, u32 record size, then every point of those strokes in
-//           order: f32 x, y, pressure, radius, time   (canvas units, seconds)
-// Only ALIVE strokes are written, and not the undo history: a loaded page is
-// where the history starts, as in most drawing apps.
-//
-// SETTINGS ('SETT'): the tools and the toolbar, apart from any one page.
-//   'PREF'  u8 tool, vertical, show_hud, brush_scale, width_mode, u8 r g b a,
-//           f32 radius, f32 toolbar_center.x, toolbar_center.y, u8 theme,
-//           u8 mlkit (reading with Google ML Kit: 1 on, 0 off),
-//           u8 toolbar_minimized (the bar folded to its grip: 1, open: 0),
-//           u8 paper_size (lines' and squares' size: FUDE_PAPER_SIZE_),
-//           u8 language (RDE_LANGUAGE_: RDE's enum only grows; 0: never chosen),
-//           u8 finger_writes (1: one finger writes on a tablet — the toolbar's
-//           hand; 0: only the pen), u8 pen_ever (1: a pen has written here),
-//           u8 r g b a (the marker's colour), f32 the marker's half-width,
-//           u8 cards_read (the must-read cards closed, a bit each: readcard.h),
-//           u8 ui_size (the interface's: FUDE_UI_SIZE_, app.h; 0: the device's),
-//           u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0: never chosen),
-//           f32 eraser_radius, u8 units, f32 true_mm_per_point, f32 print_x,
-//           print_y, f32 kerf_mm, u8 show_fps (Sketching's: the frame rate drawn
-//           at the top right; 1 on), u8 keep_grain (Sketching's fitting: 1 parts'
-//           grain kept along the board's; 0 they may turn a quarter), u8
-//           smooth_chosen (1: the smoothing above was chosen; before it, or 0:
-//           never — the default, off, whatever is stored)
-//           (new fields go at the END: an older file just ends sooner; one from
-//           before the hand is a pen user's: the pen writes)
+// Where it sits: drawing/base. Each kind of file belongs to its owner (a page's to ink/pagefile.h, the settings to
+// app/settings.h, the study's marks, words and exams to the study), and all of them are in the KANA format (kfile.h).
+// fude_app_start names the app's folder, before anything is saved or read.
+// Threads: main thread. fude_save_dir is also read on zoom/listen.c's worker thread, which is safe because the folder
+// is found on the main thread at start and only changes if fude_save_set_folder is called again.
+// Files: every file is written atomically (kfile.h) and read back from the main file, else from its .bak (the
+// previous save) when the main one is missing or damaged. A file that fails to parse is renamed to <name>.bad (the
+// same file damaged again: <name>.2.bad, kfile.h) and never overwritten.
+// Design: a damaged file is set aside rather than replaced, so a bug in a reader cannot destroy a page by autosaving
+// an empty one over it.
 // ===========================================================================
 
-#define FUDE_SAVE_VERSION        1u
-#define FUDE_SAVE_DOCUMENT_FILE  "page.kana"
-#define FUDE_SAVE_SETTINGS_FILE  "settings.kana"
-
+// How a load went.
 typedef enum {
     FUDE_LOAD_OK = 0,
-    FUDE_LOAD_RECOVERED,  // the main file was missing or damaged; the .bak loaded
-    FUDE_LOAD_MISSING,    // nothing saved yet
-    FUDE_LOAD_CORRUPT     // there were files and none parsed; set aside as .bad
+    FUDE_LOAD_RECOVERED,  // the main file was missing or damaged, so the .bak was loaded instead
+    FUDE_LOAD_MISSING,    // nothing has been saved yet
+    FUDE_LOAD_CORRUPT     // there were files but none parsed; each was set aside as .bad
 } FUDE_LOAD_;
 
-RDE_STRUCT {
-    u8         tool;             // FUDE_TOOL_
-    b8         vertical;
-    b8         show_hud;
-    u8         brush_scale;      // FUDE_INK_BRUSH_SCALE_
-    u8         width_mode;       // FUDE_INK_WIDTH_MODE_
-    rde_color  color;
-    f32        radius;
-    rde_vec_2F toolbar_center;   // UI canvas units
-    u8         theme;            // FUDE_THEME_
-    b8         mlkit;            // read handwriting with Google ML Kit (mlkit.h)
-    b8         toolbar_minimized;   // the bar folded to its grip
-    u8         paper_size;        // FUDE_PAPER_SIZE_
-    u8         language;          // RDE_LANGUAGE_ (0: never chosen — the device's)
-    b8         finger_writes;     // one finger writes (a tablet; the toolbar's hand)
-    b8         pen_ever;          // a pen has been used here (then the hand is the learner's to turn on)
-    rde_color  marker_color;      // the marker's (ink.h), see-through
-    f32        marker_radius;
-    u8         cards_read;        // the must-read cards closed, a bit each (readcard.h)
-    u8         ui_size;           // FUDE_UI_SIZE_ (app.h; 0: the device's)
-    u8         smoothing;         // Sketching's smoothing (zoom/smooth.h): its level + 1 (0: never chosen)
-    f32        eraser_radius;     // the eraser's reach (ink.h; 0: never chosen)
-    u8         units;             // Sketching's lengths (zoom/page.h): 0 mm, 1 cm, 2 inches, 3 feet and inches
-    f32        true_mm_per_point; // Sketching's true size: millimetres a screen point really is (0: not calibrated)
-    f32        print_x, print_y;  // Sketching's printer: how long a printed millimetre comes out, across and down (0: never checked)
-    f32        kerf_mm;           // Sketching's saw: how wide its cut is, millimetres (0: never set — 3)
-    b8         show_fps;          // Sketching's: the frame rate drawn at the top right
-    b8         keep_grain;        // Sketching's fitting parts into a board: their grain kept along its (else they may turn a quarter)
-    b8         smooth_chosen;     // Sketching's smoothing chosen by hand (else its default: off — a file from before it saved one anyway)
-} fude_settings;
-
-// The folder saves live in, created if missing, ending in '/'. iOS: the app's
-// Application Support — private to the app and included in device backups —
-// in a folder of its own (the app's id, info.h: the session sets it as it loads,
-// before anything is saved or read). Desktop: ./saves/ under the working directory.
+// fude_save_dir returns the folder the app saves into, ending in '/'. The folder is created if it does not exist
+// yet. On iOS it is in the app's Application Support (private to the app, and included in device backups), on
+// Android in its internal storage, in a folder of its own that fude_save_set_folder names (the app's id, from
+// info.h; fude_app_start sets it, before anything is saved or read). On desktop it is ./saves/ under the
+// working directory. The returned string is this module's and stays valid; it changes only when
+// fude_save_set_folder names another folder (a NULL or empty name is ignored; one too long for
+// FUDE_SAVE_FOLDER_MAX is logged and cut).
 const c8*  fude_save_dir(void);
 void       fude_save_set_folder(const c8* _name);
+// The room for the folder's name, the app's id, in bytes with its NUL. A fixed size is safe: an id is a short word the
+// app's description gives (info.h), never anything the person typed, and it names a folder and a backup's file
+// extension, so 63 bytes is far more than any app needs and well within a file name's 255.
+#define FUDE_SAVE_FOLDER_MAX 64u
 
-// _out_bytes (may be NULL) receives the file size.
-b8         fude_save_document(const c8* _path, const fude_ink* _ink, fude_view _view, fude_page _page, u32* _out_bytes);
-// Loads into an EMPTY ink (fresh from fude_ink_init). On MISSING or CORRUPT,
-// _ink, _view and _page are untouched.
-FUDE_LOAD_ fude_load_document(const c8* _path, fude_ink* _ink, fude_view* _view, fude_page* _page);
+// Returns the folder for what was downloaded and can be downloaded again (InfiNote's speech model, tens of MB), ending
+// in '/', and creates it on first use: downloads/ in the platform's cache folder for the app (Android's cache, iOS's
+// Library/Caches; ./downloads/ on a computer). No backup takes it in, neither the device's (iCloud's, or
+// Google's, which keeps at most 25 MB of an app) nor Your data's, since it is nobody's work; and the system may empty
+// it when space runs short, so whatever is kept there is fetched again when it is missing. The string is this module's.
+const c8*  fude_save_downloads_dir(void);
 
-b8         fude_save_settings(const c8* _path, const fude_settings* _settings);
-// Fields the file does not have keep the value _settings came in with. Values
-// are range-checked; the caller still clamps anything tool-specific.
-FUDE_LOAD_ fude_load_settings(const c8* _path, fude_settings* _settings);
+// Writes into _dir the path of a kind's own folder under the save folder (_name, such as "notes"), ending in '/', and
+// creates the folder if missing. _dir is the caller's to keep (usually a static): the folder is made only when the
+// path there differs from the current one, so calling this every time is cheap, and it follows the save folder
+// should that change (the app's own is set before anything is saved or read, in fude_app_start).
+void       fude_save_subdir(const c8* _name, c8* _dir, usize _size);
 
-b8         fude_settings_equal(const fude_settings* _a, const fude_settings* _b);
+// Reads one file's bytes, its header included, into what _user says. It must start from nothing each time, because
+// it is called again for the backup when the main file fails. Returns true when the file was read; false means the
+// file is damaged and gets set aside.
+typedef b8 (*fude_save_reader_fn)(const u8* _data, u32 _size, any _user);
+// Reads a saved file back by the rule above: the main file at _path, else <_path>.bak when the main one is missing or
+// does not read (a damaged one is set aside as <name>.bad first). A backup that was read is copied back as the main
+// file, so the next save adds to what was recovered. Returns OK, RECOVERED (the backup was read), MISSING (neither
+// file is there) or CORRUPT.
+FUDE_LOAD_ fude_save_load(const c8* _path, fude_save_reader_fn _read, any _user);
 
 #endif

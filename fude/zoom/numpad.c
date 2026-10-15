@@ -3,18 +3,27 @@
 #include "zoom/numpad.h"
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
-#include "drawing/widgets/icons.h"
-#include <stdio.h>
-#include <string.h>
+#include "drawing/base/icons.h"
 
+// ===========================================================================
+// See numpad.h.
+//
+// The keys are one table (FUDE_ZOOM_NUMPAD_LAYOUT): each key's label, what it types or does, and its place in a grid
+// of FUDE_ZOOM_NUMPAD_COLS by FUDE_ZOOM_NUMPAD_ROWS. A key's button carries its index in the table as its user data,
+// and the code names a few keys by that index: 3 is Back, 20 Cancel, 21 the unit and 22 OK. Everything typed is read
+// again after every key (fude_zoom_numpad_show_text), so the working-out and OK's state are always current.
+// ===========================================================================
+
+// The card's measures, in the UI's points: a key's width and height, the gap between keys, and the card's margin.
 #define FUDE_ZOOM_NUMPAD_KEY_W  58.0f
 #define FUDE_ZOOM_NUMPAD_KEY_H  48.0f
 #define FUDE_ZOOM_NUMPAD_GAP    6.0f
 #define FUDE_ZOOM_NUMPAD_PAD    12.0f
+// The grid of keys: 5 across and 5 down.
 #define FUDE_ZOOM_NUMPAD_COLS   5u
 #define FUDE_ZOOM_NUMPAD_ROWS   5u      // of keys; the display and its working-out above them
 
-// The keys, row by row from the top: what each types (NULL: does something).
+// What a key does: types its text, or one of the other actions.
 typedef enum {
     FUDE_ZOOM_KEY_TYPE = 0,
     FUDE_ZOOM_KEY_BACK,
@@ -24,6 +33,9 @@ typedef enum {
     FUDE_ZOOM_KEY_OK
 } FUDE_ZOOM_KEY_;
 
+// The keys, row by row from the top: the label shown (empty for a key that shows an icon), what it types (NULL when it
+// does something else), what it does (a FUDE_ZOOM_KEY_), its column and row from the top left, and how many columns
+// it spans. "1 ½" types a space, which separates a whole number from its fraction.
 RDE_INTERNAL const struct { const c8* label; const c8* types; u8 does; u8 col, row, span; } FUDE_ZOOM_NUMPAD_LAYOUT[FUDE_ZOOM_NUMPAD_KEYS] = {
     { "7", "7", FUDE_ZOOM_KEY_TYPE, 0, 0, 1 }, { "8", "8", FUDE_ZOOM_KEY_TYPE, 1, 0, 1 }, { "9", "9", FUDE_ZOOM_KEY_TYPE, 2, 0, 1 },
     { "", NULL, FUDE_ZOOM_KEY_BACK, 3, 0, 1 },  { "C", NULL, FUDE_ZOOM_KEY_CLEAR, 4, 0, 1 },
@@ -41,6 +53,8 @@ RDE_INTERNAL fude_zoom_numpad* fude_zoom_numpad_the = NULL;
 
 #define FUDE_ZOOM_NUMPAD_ASK_H 26.0f   // the line of what is asked for
 
+// Returns the card's size: the grid of keys, then the display's row, the 18-point line of the working-out, the
+// margins, and the line of what is asked for when there is one.
 RDE_INTERNAL rde_vec_2F fude_zoom_numpad_size(const fude_zoom_numpad* _pad) {
     return (rde_vec_2F){ FUDE_ZOOM_NUMPAD_PAD * 2.0f + (f32)FUDE_ZOOM_NUMPAD_COLS * FUDE_ZOOM_NUMPAD_KEY_W + (f32)(FUDE_ZOOM_NUMPAD_COLS - 1u) * FUDE_ZOOM_NUMPAD_GAP,
                          FUDE_ZOOM_NUMPAD_PAD * 2.0f + (f32)(FUDE_ZOOM_NUMPAD_ROWS + 1u) * (FUDE_ZOOM_NUMPAD_KEY_H + FUDE_ZOOM_NUMPAD_GAP) + 18.0f +
@@ -58,24 +72,26 @@ RDE_INTERNAL void fude_zoom_numpad_show_text(fude_zoom_numpad* _pad) {
                               : fude_zoom_units_length(_pad->text, _pad->unit, _pad->vars, &_pad->value, &_e);
     c8 _said[FUDE_ZOOM_UNITS_TEXT + 8u];
     if(_pad->text[0] == 0) {
-        snprintf(_said, sizeof(_said), " ");
+        rde_snprintf(_said, sizeof(_said), " ");
     } else if(!_pad->valid) {
-        snprintf(_said, sizeof(_said), "?");
+        rde_snprintf(_said, sizeof(_said), "?");
     } else if(_pad->angle) {
         c8 _v[FUDE_ZOOM_UNITS_TEXT];
         fude_zoom_units_format_angle(_pad->value, 2u, _v, sizeof(_v));
-        snprintf(_said, sizeof(_said), "= %s", _v);
+        rde_snprintf(_said, sizeof(_said), "= %s", _v);
     } else {
         c8 _v[FUDE_ZOOM_UNITS_TEXT];
         const fude_zoom_units_style _style = { _pad->unit, 3u, 64u, _pad->unit == FUDE_ZOOM_UNIT_FT };
         fude_zoom_units_format(_pad->value, &_style, _v, sizeof(_v));
-        snprintf(_said, sizeof(_said), "= %s", _v);
+        rde_snprintf(_said, sizeof(_said), "= %s", _v);
     }
     rde_ui_button_set_text(_pad->preview, _said);
     rde_ui_button_set_text(_pad->keys[21], fude_zoom_unit_suffix(_pad->unit));
     fude_kit_set_enabled(_pad->keys[22], _pad->valid);
 }
 
+// A key's tap: types its text (when it fits), deletes the last byte, clears, moves to the next unit, cancels, or, for
+// OK, hands the text back when it reads, closing the card first. The text is read again after each.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_numpad_on_key(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_zoom_numpad* _pad = fude_zoom_numpad_the;
@@ -83,11 +99,11 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_numpad_on_key(rde_ui_node* _node, co
     if(_pad == NULL || _k >= FUDE_ZOOM_NUMPAD_KEYS) {
         return RDE_UI_EVENT_RESULT_DEFAULT;
     }
-    const usize _len = strlen(_pad->text);
+    const usize _len = rde_strlen(_pad->text);
     switch(FUDE_ZOOM_NUMPAD_LAYOUT[_k].does) {
         case FUDE_ZOOM_KEY_TYPE:
-            if(_len + strlen(FUDE_ZOOM_NUMPAD_LAYOUT[_k].types) < sizeof(_pad->text)) {
-                strcat(_pad->text, FUDE_ZOOM_NUMPAD_LAYOUT[_k].types);
+            if(_len + rde_strlen(FUDE_ZOOM_NUMPAD_LAYOUT[_k].types) < sizeof(_pad->text)) {
+                rde_strcat(_pad->text, sizeof(_pad->text), FUDE_ZOOM_NUMPAD_LAYOUT[_k].types);
             }
             break;
         case FUDE_ZOOM_KEY_BACK:
@@ -119,12 +135,15 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_numpad_on_key(rde_ui_node* _node, co
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
+// A tap off the card: it closes without handing anything back.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_numpad_on_dismiss(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_zoom_numpad_close((fude_zoom_numpad*)_user_data);
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
+// See numpad.h. Makes the modal card, the display, the working-out line and the prompt (hidden), then one button per
+// key, and makes this pad the one the keys' callbacks act on.
 void fude_zoom_numpad_build(fude_zoom_numpad* _pad, rde_ui_node* _root, rde_window* _window) {
     _pad->window = _window;
     fude_kit_modal_create(&_pad->modal, _root, fude_zoom_numpad_on_dismiss, _pad);
@@ -145,14 +164,16 @@ void fude_zoom_numpad_build(fude_zoom_numpad* _pad, rde_ui_node* _root, rde_wind
     fude_zoom_numpad_restyle(_pad);
 }
 
+// See numpad.h.
 void fude_zoom_numpad_forget(fude_zoom_numpad* _pad) {
-    memset(&_pad->modal, 0, sizeof(_pad->modal));
+    rde_memset(&_pad->modal, 0, sizeof(_pad->modal));
     _pad->display = NULL;
     _pad->preview = NULL;
     _pad->prompt  = NULL;
-    memset(_pad->keys, 0, sizeof(_pad->keys));
+    rde_memset(_pad->keys, 0, sizeof(_pad->keys));
 }
 
+// See numpad.h. OK is the accent colour; every other key is the theme's second surface.
 void fude_zoom_numpad_restyle(fude_zoom_numpad* _pad) {
     if(_pad->display == NULL) {
         return;
@@ -173,6 +194,9 @@ void fude_zoom_numpad_restyle(fude_zoom_numpad* _pad) {
     }
 }
 
+// See numpad.h. Does nothing while the card is hidden. The keys are placed in the card's own points, from its bottom
+// left, so row 0 of the table is the highest; the working-out line sits over the keys, the display over that, and the
+// prompt at the top.
 void fude_zoom_numpad_update(fude_zoom_numpad* _pad) {
     if(_pad->display == NULL || !_pad->modal.shown) {
         return;
@@ -201,12 +225,13 @@ void fude_zoom_numpad_update(fude_zoom_numpad* _pad) {
                    (rde_vec_2F){ _wide, FUDE_ZOOM_NUMPAD_ASK_H });
 }
 
+// See numpad.h. Any line asked for before is hidden; the card is placed for the screen and the text read at once.
 void fude_zoom_numpad_open(fude_zoom_numpad* _pad, const c8* _text, FUDE_ZOOM_UNIT_ _unit, b8 _angle, const fude_zoom_vars* _vars,
-                           fude_zoom_numpad_done _done, void* _self) {
+                           fude_zoom_numpad_done _done, any _self) {
     if(_pad->display == NULL) {
         return;
     }
-    snprintf(_pad->text, sizeof(_pad->text), "%s", _text != NULL ? _text : "");
+    rde_snprintf(_pad->text, sizeof(_pad->text), "%s", _text != NULL ? _text : "");
     _pad->unit  = _unit;
     _pad->angle = _angle;
     _pad->vars  = _vars;
@@ -220,23 +245,26 @@ void fude_zoom_numpad_open(fude_zoom_numpad* _pad, const c8* _text, FUDE_ZOOM_UN
     fude_zoom_numpad_show_text(_pad);
 }
 
+// See numpad.h.
 void fude_zoom_numpad_ask(fude_zoom_numpad* _pad, const c8* _asked) {
     if(_pad->prompt == NULL) {
         return;
     }
-    snprintf(_pad->asked, sizeof(_pad->asked), "%s", _asked != NULL ? _asked : "");
+    rde_snprintf(_pad->asked, sizeof(_pad->asked), "%s", _asked != NULL ? _asked : "");
     rde_ui_button_set_text(_pad->prompt, _pad->asked[0] != 0 ? _pad->asked : " ");
     rde_ui_node_set_active(rde_ui_button_as_node(_pad->prompt), _pad->asked[0] != 0 && _pad->modal.shown);
     _pad->laid_out = (rde_vec_2F){ 0.0f, 0.0f };   // (the card taller)
     fude_zoom_numpad_update(_pad);
 }
 
+// See numpad.h.
 void fude_zoom_numpad_close(fude_zoom_numpad* _pad) {
     if(_pad->display != NULL) {
         fude_kit_modal_show(&_pad->modal, false);
     }
 }
 
+// See numpad.h.
 b8 fude_zoom_numpad_shown(const fude_zoom_numpad* _pad) {
     return _pad->display != NULL && _pad->modal.shown;
 }

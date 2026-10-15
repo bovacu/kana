@@ -4,14 +4,15 @@
 #include "zoom/export.h"
 #include "zoom/fill.h"
 #include "zoom/shape.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "zoom/cut.h"
 
 // ===========================================================================
 // See stl.h.
+//
+// Two halves. The first builds solids from rings, knowing nothing of the scene: the rings' nesting, each outside's
+// top as triangles (its holes joined into it by cuts, then its ears clipped), its bottom, and its walls. The second is
+// the export walk's sink, which gathers the rings from the view, and fude_zoom_export_stl, which writes the file.
+// The file's own names start with fude_zoom_stl_.
 // ===========================================================================
 
 // A ring of the rings handed in: where its points start, how many, its area (signed: counter-clockwise +).
@@ -21,15 +22,6 @@ typedef struct {
     u32 depth;     // rings it is inside
     u32 parent;    // the smallest of them (FUDE_ZOOM_NONE: none)
 } fude_zoom_stl_ring;
-
-RDE_INTERNAL f64 fude_zoom_stl_area(const fude_zoom_v2* _p, u32 _n) {
-    f64 _a = 0.0;
-    for(u32 _i = 0; _i < _n; _i++) {
-        const fude_zoom_v2 _u = _p[_i], _v = _p[(_i + 1u) % _n];
-        _a += _u.x * _v.y - _v.x * _u.y;
-    }
-    return _a * 0.5;
-}
 
 // A triangle, its corners (x, y, z), into _out (nine f32s).
 RDE_INTERNAL void fude_zoom_stl_tri(rde_arr* _out, fude_zoom_v2 _a, f64 _za, fude_zoom_v2 _b, f64 _zb, fude_zoom_v2 _c, f64 _zc) {
@@ -41,20 +33,23 @@ RDE_INTERNAL void fude_zoom_stl_tri(rde_arr* _out, fude_zoom_v2 _a, f64 _za, fud
 
 // --- the top's triangles: ears clipped, the holes joined to the outside first ---------------------------
 
+// Returns the cross product of a->b and a->c: above 0 when a, b, c turn counter-clockwise.
 RDE_INTERNAL f64 fude_zoom_stl_cross(fude_zoom_v2 _a, fude_zoom_v2 _b, fude_zoom_v2 _c) {
     return (_b.x - _a.x) * (_c.y - _a.y) - (_b.y - _a.y) * (_c.x - _a.x);
 }
 
+// Returns whether _p is inside the counter-clockwise triangle a, b, c, or on its edge.
 RDE_INTERNAL b8 fude_zoom_stl_in_tri(fude_zoom_v2 _a, fude_zoom_v2 _b, fude_zoom_v2 _c, fude_zoom_v2 _p) {
     return fude_zoom_stl_cross(_a, _b, _p) >= 0.0 && fude_zoom_stl_cross(_b, _c, _p) >= 0.0 && fude_zoom_stl_cross(_c, _a, _p) >= 0.0;
 }
 
 // The outside (counter-clockwise, _n points) with each hole (clockwise) joined in by a cut there and back: one ring
-// round all of it, into _out (cleared first). Each hole by its rightmost point to a point of the ring it can see,
-// the holes rightmost first (as the ears' way of it goes: Eberly's).
+// round all of it, into _out (cleared first). Each hole is joined by its rightmost point M to a corner P of the ring
+// it can see, the holes rightmost first, so a later hole is never cut off by an earlier one's cut (Eberly's way of
+// readying a polygon with holes for ear clipping). A hole the ring is not found round is left out.
 RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const fude_zoom_v2* const* _holes, const u32* _counts, u32 _h, rde_arr* _out) {
     rde_arr_clear(_out);
-    memcpy(rde_arr_add_n(_out, _n), _outside, (usize)_n * sizeof(fude_zoom_v2));
+    rde_memcpy(rde_arr_add_n(_out, _n), _outside, (usize)_n * sizeof(fude_zoom_v2));
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _order_arr = rde_arr_new(sizeof(u32), _heap), _right_arr = rde_arr_new(sizeof(u32), _heap), _ins_arr = rde_arr_new(sizeof(fude_zoom_v2), _heap);
     rde_arr_resize(&_order_arr, _h);
@@ -119,7 +114,7 @@ RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const
             if(!_in || (_q.x == _m.x && _q.y == _m.y)) {
                 continue;
             }
-            const f64 _ang = fabs(atan2(_q.y - _m.y, _q.x - _m.x));
+            const f64 _ang = rde_math_abs_f64(rde_math_atan2_f64(_q.y - _m.y, _q.x - _m.x));
             if(_ang < _least) {
                 _least = _ang;
                 _p     = _i;
@@ -143,7 +138,9 @@ RDE_INTERNAL void fude_zoom_stl_join(const fude_zoom_v2* _outside, u32 _n, const
 }
 
 // A ring (counter-clockwise, simple but for its cuts there and back) as triangles, ears clipped one by one, into _out
-// (three points each; appended). How many.
+// (three points each; appended). Returns how many triangles were added. When a whole round finds no ear, the next
+// corner that does not turn the wrong way is clipped anyway, and after a second round any corner is (with no triangle
+// when it turns the wrong way), so the clipping always ends, even on a ring that is not quite simple.
 RDE_INTERNAL u32 fude_zoom_stl_ears(const fude_zoom_v2* _p, u32 _n, rde_arr* _out) {
     if(_n < 3u) {
         return 0u;
@@ -201,7 +198,8 @@ typedef struct {
     u32 tri, side;
 } fude_zoom_stl_edge;
 
-RDE_INTERNAL int fude_zoom_stl_edge_cmp(const void* _a, const void* _b) {
+// rde_sort's order for edges: by their kept corners (ax, ay, bx, by), so the same side of two triangles sorts together.
+RDE_INTERNAL int fude_zoom_stl_edge_cmp(const any _a, const any _b) {
     const fude_zoom_stl_edge* _x = (const fude_zoom_stl_edge*)_a;
     const fude_zoom_stl_edge* _y = (const fude_zoom_stl_edge*)_b;
     const i64 _d[4] = { _x->ax - _y->ax, _x->ay - _y->ay, _x->bx - _y->bx, _x->by - _y->by };
@@ -213,6 +211,9 @@ RDE_INTERNAL int fude_zoom_stl_edge_cmp(const void* _a, const void* _b) {
     return 0;
 }
 
+// Appends the walls of a solid _h tall whose top is the _t counter-clockwise triangles at _tp: a wall of two
+// triangles under each side only one triangle has (a side two triangles share is inside the top, a cut's two sides
+// among them). The sides are matched by sorting them, their corners rounded to a millionth of a millimetre.
 RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u32 _t, f64 _h) {
     if(_t == 0u) {
         return;
@@ -223,7 +224,7 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
     for(u32 _k = 0; _k < _t; _k++) {
         for(u32 _s = 0; _s < 3u; _s++) {
             const fude_zoom_v2 _a = _tp[3u * _k + _s], _b = _tp[3u * _k + (_s + 1u) % 3u];
-            i64 _q[4] = { (i64)llround(_a.x * 1e6), (i64)llround(_a.y * 1e6), (i64)llround(_b.x * 1e6), (i64)llround(_b.y * 1e6) };
+            i64 _q[4] = { (i64)rde_math_round_to_i64_f64(_a.x * 1e6), (i64)rde_math_round_to_i64_f64(_a.y * 1e6), (i64)rde_math_round_to_i64_f64(_b.x * 1e6), (i64)rde_math_round_to_i64_f64(_b.y * 1e6) };
             if(_q[2] < _q[0] || (_q[2] == _q[0] && _q[3] < _q[1])) {
                 const i64 _x = _q[0], _y = _q[1];
                 _q[0] = _q[2]; _q[1] = _q[3]; _q[2] = _x; _q[3] = _y;
@@ -231,7 +232,7 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
             _e[3u * _k + _s] = (fude_zoom_stl_edge){ _q[0], _q[1], _q[2], _q[3], _k, _s };
         }
     }
-    qsort(_e, (usize)_t * 3u, sizeof(fude_zoom_stl_edge), fude_zoom_stl_edge_cmp);
+    rde_sort(_e, (usize)_t * 3u, sizeof(fude_zoom_stl_edge), fude_zoom_stl_edge_cmp);
     for(u32 _i = 0; _i < _t * 3u;) {
         u32 _j = _i + 1u;
         while(_j < _t * 3u && fude_zoom_stl_edge_cmp(&_e[_i], &_e[_j]) == 0) {
@@ -240,7 +241,7 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
         if(_j - _i == 1u) {
             // A side only one triangle has: the wall below it, facing out (the top's way round it, turned back).
             const fude_zoom_v2 _a = _tp[3u * _e[_i].tri + _e[_i].side], _b = _tp[3u * _e[_i].tri + (_e[_i].side + 1u) % 3u];
-            if(fabs(_b.x - _a.x) + fabs(_b.y - _a.y) > 0.0) {
+            if(rde_math_abs_f64(_b.x - _a.x) + rde_math_abs_f64(_b.y - _a.y) > 0.0) {
                 fude_zoom_stl_tri(_out, _a, 0.0, _b, 0.0, _b, _h);
                 fude_zoom_stl_tri(_out, _a, 0.0, _b, _h, _a, _h);
             }
@@ -250,6 +251,9 @@ RDE_INTERNAL void fude_zoom_stl_walls(rde_arr* _out, const fude_zoom_v2* _tp, u3
     rde_arr_free(&_e_arr);
 }
 
+// See the header. Rings of fewer than three points, or of no area, are dropped. A ring's depth is how many larger
+// rings are round its first point (O(rings²)); each outside's top is its rings joined into one and clipped into
+// triangles, its bottom the same turned over, and its walls stand on the top's edges.
 u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const f64* _heights, rde_arr* _out, u32* _solids) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _list = rde_arr_new(sizeof(fude_zoom_stl_ring), _heap);
@@ -259,8 +263,8 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
             _to++;
         }
         if(_to - _from >= 3u) {
-            const fude_zoom_stl_ring _r = { _from, _to - _from, fude_zoom_stl_area(&_points[_from], _to - _from), 0u, FUDE_ZOOM_NONE };
-            if(fabs(_r.area) > 1e-9) {
+            const fude_zoom_stl_ring _r = { _from, _to - _from, fude_zoom_cut_area(&_points[_from], _to - _from), 0u, FUDE_ZOOM_NONE };
+            if(rde_math_abs_f64(_r.area) > 1e-9) {
                 rde_arr_add(&_list, (any)&_r);
             }
         }
@@ -272,12 +276,12 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
     for(u32 _i = 0; _i < _nr; _i++) {
         f64 _least = 1e300;
         for(u32 _j = 0; _j < _nr; _j++) {
-            if(_j == _i || fabs(_r[_j].area) <= fabs(_r[_i].area) || !fude_zoom_fill_inside(&_points[_r[_j].first], _r[_j].count, _points[_r[_i].first])) {
+            if(_j == _i || rde_math_abs_f64(_r[_j].area) <= rde_math_abs_f64(_r[_i].area) || !fude_zoom_fill_inside(&_points[_r[_j].first], _r[_j].count, _points[_r[_i].first])) {
                 continue;
             }
             _r[_i].depth++;
-            if(fabs(_r[_j].area) < _least) {
-                _least = fabs(_r[_j].area);
+            if(rde_math_abs_f64(_r[_j].area) < _least) {
+                _least = rde_math_abs_f64(_r[_j].area);
                 _r[_i].parent = _j;
             }
         }
@@ -369,6 +373,8 @@ u32 fude_zoom_stl_solids(const fude_zoom_v2* _points, const u32* _rings, u32 _n,
 
 // --- from the view (the export walk's sink) -----------------------------------------------------
 
+// The export walk's sink's state: the rings gathered (their points in millimetres, each point's ring number, each
+// ring's height), and what the walk is on now.
 typedef struct {
     rde_arr TYPE(fude_zoom_v2) pts;
     rde_arr TYPE(u32)          rings;
@@ -381,7 +387,10 @@ typedef struct {
     b8  filled;        // this thing's fill came (a cut board's): its outlines after it are the same rings
 } fude_zoom_stl_w;
 
-RDE_INTERNAL void fude_zoom_stl_on_object(void* _self, const fude_zoom_scene* _s, u32 _object) {
+// The sink's object callback, before each object's geometry: says whether it can make a solid (a fill, or a shape
+// that is not a symbol, a sheet, a guide, an attribute, a dimension of any kind, an arrow, a line or an arc) and how
+// tall: a board's own thickness, else the export's.
+RDE_INTERNAL void fude_zoom_stl_on_object(any _self, const fude_zoom_scene* _s, u32 _object) {
     fude_zoom_stl_w* _w = (fude_zoom_stl_w*)_self;
     const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
     _w->filled = false;
@@ -400,17 +409,18 @@ RDE_INTERNAL void fude_zoom_stl_on_object(void* _self, const fude_zoom_scene* _s
     }
 }
 
-// One ring of points (screen) as millimetres, its repeated points dropped.
+// Adds one ring of _n points (screen points) as millimetres, under the next ring number, with the object's height.
+// Repeated points are dropped, and a last point back on the first, since the ring closes on its own.
 RDE_INTERNAL void fude_zoom_stl_ring_add(fude_zoom_stl_w* _w, const fude_zoom_v2* _p, u32 _n) {
     const u32 _id = _w->next++;
     u32 _kept = 0;
     fude_zoom_v2 _last = { 1e300, 1e300 }, _first = { 0.0, 0.0 };
     for(u32 _i = 0; _i < _n; _i++) {
         const fude_zoom_v2 _q = { _p[_i].x * _w->mm, _p[_i].y * _w->mm };
-        if(fabs(_q.x - _last.x) < 1e-6 && fabs(_q.y - _last.y) < 1e-6) {
+        if(rde_math_abs_f64(_q.x - _last.x) < 1e-6 && rde_math_abs_f64(_q.y - _last.y) < 1e-6) {
             continue;
         }
-        if(_kept > 0u && _i + 1u == _n && fabs(_q.x - _first.x) < 1e-6 && fabs(_q.y - _first.y) < 1e-6) {
+        if(_kept > 0u && _i + 1u == _n && rde_math_abs_f64(_q.x - _first.x) < 1e-6 && rde_math_abs_f64(_q.y - _first.y) < 1e-6) {
             continue;   // (its first again: it closes on its own)
         }
         _first = _kept == 0u ? _q : _first;
@@ -422,7 +432,9 @@ RDE_INTERNAL void fude_zoom_stl_ring_add(fude_zoom_stl_w* _w, const fude_zoom_v2
     rde_arr_add(&_w->heights, (any)&_w->height);
 }
 
-RDE_INTERNAL void fude_zoom_stl_shape(void* _self, const fude_zoom_v2* _p, u32 _n, b8 _closed, f64 _radius, rde_color _line, rde_color _fill) {
+// The sink's shape callback: an object's first closed outline is a ring. A cut board's outlines after its fill are
+// the fill's rings again, and are left out.
+RDE_INTERNAL void fude_zoom_stl_shape(any _self, const fude_zoom_v2* _p, u32 _n, b8 _closed, f64 _radius, rde_color _line, rde_color _fill) {
     RDE_UNUSED(_radius); RDE_UNUSED(_line); RDE_UNUSED(_fill);
     fude_zoom_stl_w* _w = (fude_zoom_stl_w*)_self;
     if(_w->skip || _w->filled || !_closed || _n < 3u) {
@@ -432,7 +444,8 @@ RDE_INTERNAL void fude_zoom_stl_shape(void* _self, const fude_zoom_v2* _p, u32 _
     _w->skip = true;   // (one outline a thing: a connector's heads, a symbol's parts are not its)
 }
 
-RDE_INTERNAL void fude_zoom_stl_fill(void* _self, const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_color _c) {
+// The sink's fill callback: each of a fill's rings is a ring (its holes become holes by being inside its outline).
+RDE_INTERNAL void fude_zoom_stl_fill(any _self, const fude_zoom_v2* _p, const u32* _rings, u32 _n, rde_color _c) {
     RDE_UNUSED(_c);
     fude_zoom_stl_w* _w = (fude_zoom_stl_w*)_self;
     if(_w->skip) {
@@ -449,7 +462,10 @@ RDE_INTERNAL void fude_zoom_stl_fill(void* _self, const fude_zoom_v2* _p, const 
     _w->filled = true;
 }
 
-b8 fude_zoom_export_stl(const fude_zoom_scene* _s, fude_zoom_v2 _half, f64 _mm_per_point, f64 _thickness_mm, fude_bytes* _out, fude_zoom_stl_said* _said) {
+// See the header. Walks the view with export.h's walk (a cutting sink, so sheets and dimensions are left out),
+// builds the solids, then writes each triangle with its normal worked out from its corners.
+b8 fude_zoom_export_stl(const fude_zoom_scene* _s, fude_zoom_v2 _half, f64 _mm_per_point, f64 _thickness_mm, const c8* _creator, fude_bytes* _out,
+                        fude_zoom_stl_said* _said) {
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     fude_zoom_stl_w _w = {
         .pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), .rings = rde_arr_new(sizeof(u32), _heap), .heights = rde_arr_new(sizeof(f64), _heap),
@@ -468,8 +484,9 @@ b8 fude_zoom_export_stl(const fude_zoom_scene* _s, fude_zoom_v2 _half, f64 _mm_p
     if(_n > 0u) {
         // Binary STL: 80 bytes of header, how many, then each its facing and its corners (millimetres).
         c8 _head[80];
-        memset(_head, 0, sizeof(_head));
-        snprintf(_head, sizeof(_head), "Sketching: a 3D model, in millimetres");
+        rde_memset(_head, 0, sizeof(_head));
+        // (the app that made it, as other programs show it; never "solid", which would make it look like a text STL)
+        rde_snprintf(_head, sizeof(_head), "%s%sa 3D model, in millimetres", _creator != NULL ? _creator : "", _creator != NULL ? ": " : "");
         fude_put_data(_out, _head, 80u);
         fude_put_u32(_out, _n);
         const f32* _t = (const f32*)_tris.memory;
@@ -477,7 +494,7 @@ b8 fude_zoom_export_stl(const fude_zoom_scene* _s, fude_zoom_v2 _half, f64 _mm_p
             const f32 _ux = _t[3] - _t[0], _uy = _t[4] - _t[1], _uz = _t[5] - _t[2];
             const f32 _vx = _t[6] - _t[0], _vy = _t[7] - _t[1], _vz = _t[8] - _t[2];
             f32 _nx = _uy * _vz - _uz * _vy, _ny = _uz * _vx - _ux * _vz, _nz = _ux * _vy - _uy * _vx;
-            const f32 _l = sqrtf(_nx * _nx + _ny * _ny + _nz * _nz);
+            const f32 _l = rde_math_sqrt_f32(_nx * _nx + _ny * _ny + _nz * _nz);
             if(_l > 0.0f) {
                 _nx /= _l; _ny /= _l; _nz /= _l;
             }

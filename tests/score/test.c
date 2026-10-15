@@ -1,4 +1,6 @@
 #include "study/handwriting/score.h"
+#include "drawing/base/text.h"
+#include "drawing/base/theme.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +27,7 @@ static f32 noise = 1.5f; static void draw(fude_ink* ink, const fude_kanji_db* db
         for(u32 i = 0; i < m; i++) {
             u32 j = ((int)s == reverse) ? m - 1 - i : i;
             rde_vec_2F p = { 200.0f + dense[j].x * 3.0f + jitter(noise), 300.0f - dense[j].y * 3.0f + jitter(noise) };
-            if(i == 0) fude_ink_begin(ink, p, true, false); else { ink->sample_time += 0.004; fude_ink_extend(ink, p); }
+            if(i == 0) fude_ink_begin(ink, p, true); else { ink->sample_time += 0.004; fude_ink_extend(ink, p); }
         }
         fude_ink_end(ink);
     }
@@ -33,7 +35,7 @@ static f32 noise = 1.5f; static void draw(fude_ink* ink, const fude_kanji_db* db
 
 
 // Adds one stray stroke to an ink.
-static void extra_stroke(fude_ink* ink) { fude_ink_begin(ink, (rde_vec_2F){ 200, 290 }, true, false); for(int i = 1; i < 20; i++) fude_ink_extend(ink, (rde_vec_2F){ 200.0f + i * 3.0f, 290.0f }); fude_ink_end(ink); }
+static void extra_stroke(fude_ink* ink) { fude_ink_begin(ink, (rde_vec_2F){ 200, 290 }, true); for(int i = 1; i < 20; i++) fude_ink_extend(ink, (rde_vec_2F){ 200.0f + i * 3.0f, 290.0f }); fude_ink_end(ink); }
 
 static fude_score run(const fude_kanji_db* db, u32 target, u32 drawn_cp, int sa, int sb, int drop, int rev, int extra, const char* label) {
     fude_ink ink; fude_ink_init(&ink); draw(&ink, db, drawn_cp, sa, sb, drop, rev); if(extra) extra_stroke(&ink);
@@ -64,6 +66,14 @@ int main(int argc, char** argv) {
     noise = 6.0f;  s = run(&db, 0x6728, 0x6728, -1, -1, -1, -1, 0, "木 sloppy (jitter 6)");
     noise = 12.0f; fude_score t = run(&db, 0x6728, 0x6728, -1, -1, -1, -1, 0, "木 very sloppy (jitter 12)"); if(t.score >= s.score) fails++;
     { fude_ink ink; fude_ink_init(&ink); fude_kanji_info k; fude_kanji_find(&db, 0x6728, &k); fude_score e = fude_score_drawing(&db, &k, &ink); printf("  empty: %d '%s'\n", e.empty, e.feedback); if(!e.empty) fails++; fude_ink_destroy(&ink); }
+    // The feedback's words follow the grades a score is coloured by (theme.h): "Good" from FUDE_THEME_GRADE_GOOD and
+    // not below it, "Excellent" from FUDE_SCORE_EXCELLENT; and one order or direction mistake keeps a perfect shape
+    // out of good, as score.h says.
+    { fude_score d; memset(&d, 0, sizeof d); d.drawn = d.expected = 3; d.shape = 100.0f;
+      d.score = FUDE_THEME_GRADE_GOOD - 3.0f; fude_score_describe(&d); if(strcmp(d.feedback, fude_text(FUDE_TEXT_SCORE_OK)) != 0) { printf("  FAIL: %.0f is not good: '%s'\n", d.score, d.feedback); fails++; }
+      d.score = FUDE_THEME_GRADE_GOOD;        fude_score_describe(&d); if(strcmp(d.feedback, fude_text(FUDE_TEXT_SCORE_GOOD)) != 0) { printf("  FAIL: %.0f is good: '%s'\n", d.score, d.feedback); fails++; }
+      d.score = FUDE_SCORE_EXCELLENT;         fude_score_describe(&d); if(strcmp(d.feedback, fude_text(FUDE_TEXT_SCORE_EXCELLENT)) != 0) { printf("  FAIL: %.0f is excellent: '%s'\n", d.score, d.feedback); fails++; }
+      if(100.0f - FUDE_SCORE_MISPLACED >= FUDE_THEME_GRADE_GOOD || 100.0f - FUDE_SCORE_REVERSED >= FUDE_THEME_GRADE_GOOD) { printf("  FAIL: one mistake reaches good\n"); fails++; } }
     fude_kanji_unload(&db);
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;

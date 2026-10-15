@@ -2,3 +2,4 @@
 "NSCameraUsageDescription" = "InfiNote scans pages with the camera, so you can draw on them.";
 "CFBundleDisplayName" = "InfiNote";
 "NSMicrophoneUsageDescription" = "InfiNote records what is said while you write, so a tap on your writing plays it back.";
+"NSPhotoLibraryAddUsageDescription" = "InfiNote saves the pictures and videos you export to your photo library.";

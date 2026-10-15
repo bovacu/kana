@@ -12,7 +12,6 @@ void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_ve
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }
 rde_vec_4I rde_window_get_safe_area_insets(const rde_window* w) { (void)w; return (rde_vec_4I){ 0, 24, 0, 20 }; }
 f64 rde_engine_get_time_now(void) { return g_now; }
-void rde_memcpy(any d, const any s, usize n) { memcpy(d, s, n); }
 
 static const f32 TOP = 566.5f - 24.0f - 8.0f, BOTTOM = -566.5f + 20.0f + 76.0f + 24.0f;
 static void frame(fude_practice* p) { g_now += 0.016; fude_practice_render(p, NULL, NULL, 32.0f, TOP, BOTTOM); }

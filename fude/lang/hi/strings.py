@@ -1,9 +1,9 @@
 # Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 # Hindi's UI strings (lang.h): the study's ids that name the language, in
-# its words, and the ids fude/lang/hi/lang.c and chart.c use. A study app's
-# strings tool reads this after fude/study/strings.py (as fude/lang/ja/strings.py,
-# whose study ids these are).
+# its words, and the ids fude/lang/hi/lang.c and chart.c use. Read after
+# fude/study/strings.py for the app that teaches it (tools/strings/build.py), as
+# fude/lang/ja/strings.py is, whose study ids these are.
 #
 #   t('ID', English, Spanish, Portuguese (Brazil), Japanese, French)
 
@@ -47,10 +47,10 @@ o('SEARCH_HINT', 'A letter’s name: ka', 'El nombre de una letra: ka', 'O nome 
 t('VOCAB_SEARCH_HINT', 'Find: Hindi, romanization or meaning', 'Buscar: hindi, romanización o significado', 'Buscar: hindi, romanização ou significado', '検索：ヒンディー語、ローマ字、意味', 'Chercher : hindi, romanisation ou sens')
 
 # Google ML Kit's handwriting model (mlkit.h).
-t('MLKIT_READY', 'Ready: the Hindi model is on this device.', 'Listo: el modelo hindi está en este dispositivo.', 'Pronto: o modelo hindi está neste dispositivo.', '準備完了：ヒンディー語モデルはこの端末にあります。', 'Prêt : le modèle hindi est sur cet appareil.')
-t('MLKIT_DOWNLOADING', 'Downloading the Hindi model (about 20 MB)...', 'Descargando el modelo hindi (unos 20 MB)...', 'Baixando o modelo hindi (cerca de 20 MB)...', 'ヒンディー語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle hindi (environ 20 Mo)...')
-t('MLKIT_FAILED', 'The Hindi model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo hindi. ¿Hay conexión?', 'Não foi possível baixar o modelo hindi. O dispositivo está conectado?', 'ヒンディー語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle hindi. L’appareil est-il connecté ?')
-t('MLKIT_MISSING', 'The Hindi model (about 20 MB) is not downloaded yet.', 'El modelo hindi (unos 20 MB) aún no está descargado.', 'O modelo hindi (cerca de 20 MB) ainda não foi baixado.', 'ヒンディー語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle hindi (environ 20 Mo) n’est pas encore téléchargé.')
+o('MLKIT_READY', 'Ready: the Hindi model is on this device.', 'Listo: el modelo hindi está en este dispositivo.', 'Pronto: o modelo hindi está neste dispositivo.', '準備完了：ヒンディー語モデルはこの端末にあります。', 'Prêt : le modèle hindi est sur cet appareil.')
+o('MLKIT_DOWNLOADING', 'Downloading the Hindi model (about 20 MB)...', 'Descargando el modelo hindi (unos 20 MB)...', 'Baixando o modelo hindi (cerca de 20 MB)...', 'ヒンディー語モデルをダウンロード中（約20 MB）…', 'Téléchargement du modèle hindi (environ 20 Mo)...')
+o('MLKIT_FAILED', 'The Hindi model could not be downloaded. Is the device online?', 'No se pudo descargar el modelo hindi. ¿Hay conexión?', 'Não foi possível baixar o modelo hindi. O dispositivo está conectado?', 'ヒンディー語モデルをダウンロードできませんでした。インターネットに接続されていますか？', 'Impossible de télécharger le modèle hindi. L’appareil est-il connecté ?')
+o('MLKIT_MISSING', 'The Hindi model (about 20 MB) is not downloaded yet.', 'El modelo hindi (unos 20 MB) aún no está descargado.', 'O modelo hindi (cerca de 20 MB) ainda não foi baixado.', 'ヒンディー語モデル（約20 MB）はまだダウンロードされていません。', 'Le modèle hindi (environ 20 Mo) n’est pas encore téléchargé.')
 
 # No voice for the language yet (speech.h): how to add one, Android's and iOS's (study's VOICE_TITLE over it).
 t('VOICE_STEPS_ANDROID', '{APP} reads words and readings aloud with this device’s text-to-speech, which has no Hindi voice yet. To add one:\\n\\n1. Tap Open settings below: it opens Text-to-speech output.\\n2. As the preferred engine, choose Speech Services by Google.\\n3. Tap the gear next to it, then Install voice data › Hindi, and download it.\\n4. Come back to {APP}: the speaker buttons appear by themselves.', '{APP} lee en voz alta las palabras y sus lecturas con la síntesis de voz del dispositivo, que aún no tiene voz en hindi. Para añadirla:\\n\\n1. Toca Abrir ajustes, abajo: se abre la salida de texto a voz.\\n2. Como motor preferido, elige Servicios de voz de Google.\\n3. Toca el engranaje de al lado y luego Instalar datos de voz › Hindi, y descárgala.\\n4. Vuelve a {APP}: los botones de altavoz aparecen solos.', 'O {APP} lê em voz alta as palavras e as leituras com a conversão de texto em voz do aparelho, que ainda não tem voz em hindi. Para adicionar uma:\\n\\n1. Toque em Abrir configurações, abaixo: abre a saída de texto em voz.\\n2. Como mecanismo preferido, escolha Serviços de fala do Google.\\n3. Toque na engrenagem ao lado e depois em Instalar dados de voz › Hindi, e baixe.\\n4. Volte ao {APP}: os botões de alto-falante aparecem sozinhos.', '{APP}は端末のテキスト読み上げで単語や読みを声に出しますが、まだヒンディー語の音声がありません。追加するには：\\n\\n1. 下の「設定を開く」をタップすると、テキスト読み上げの設定が開きます。\\n2. 優先するエンジンに「Google 音声サービス」を選びます。\\n3. 横の歯車をタップし、「音声データをインストール」›「ヒンディー語」を選んでダウンロードします。\\n4. {APP}に戻ると、スピーカーのボタンが自動で表示されます。', '{APP} lit à voix haute les mots et leurs lectures avec la synthèse vocale de l’appareil, qui n’a pas encore de voix en hindi. Pour en ajouter une :\\n\\n1. Touchez Ouvrir les réglages, ci-dessous : la synthèse vocale s’ouvre.\\n2. Comme moteur préféré, choisissez Services vocaux de Google.\\n3. Touchez la roue dentée à côté, puis Installer les données vocales › Hindi, et téléchargez-la.\\n4. Revenez dans {APP} : les boutons de haut-parleur apparaissent d’eux-mêmes.')
@@ -61,3 +61,7 @@ t('SPEECH_BETTER_VOICE', 'For a clearer voice, download a Hindi one in Settings 
 t('EXAM_INTRO', 'Each letter once, from memory, from its name.', 'Cada letra una vez, de memoria, a partir de su nombre.', 'Cada letra uma vez, de memória, a partir do nome.', '各文字を1回ずつ、名前から何も見ずに書きます。', 'Chaque lettre une fois, de mémoire, à partir de son nom.')
 t('ALBUM_EMPTY', 'Nothing practised yet: open a letter in Alphabet, then Practice, then Score.', 'Aún no hay nada practicado: abre una letra en Alfabeto, luego Practicar y luego Puntuar.', 'Ainda não há nada praticado: abra uma letra em Alfabeto, depois Praticar e depois Avaliar.', 'まだ練習がありません。文字表で文字を開いて、練習、採点の順に進んでください。', 'Rien d’entraîné pour l’instant : ouvrez une lettre dans Alphabet, puis S’entraîner, puis Noter.')
 t('SHEET_CREDIT', 'Devanagari stroke order by {APP}. Made with {APP}.', 'Orden de trazos del devanagari de {APP}. Hecho con {APP}.', 'Ordem dos traços do devanágari do {APP}. Feito com o {APP}.', 'デーヴァナーガリーの書き順：{APP}。{APP}で作成。', 'Ordre des traits du devanagari par {APP}. Fait avec {APP}.')
+
+# The app's fourth language, once its strings have every row (tools/strings/build.py): this one, in its
+# strings_hi.py beside each layer's.
+language('HI-IN', 'Hindi', ['@plural = n > 1'])   # one for 0 and 1

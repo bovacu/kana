@@ -12,4 +12,4 @@ void fude_study_select_faces(const fude_selection* _selection, fude_row_face* _f
 void fude_row_face_count(fude_row_face* _face, u32 _text, u32 _n) { (void)_text; snprintf(_face->label, sizeof(_face->label), "%u", _n); }
 void fude_row_face_next(fude_row_face* _face, b8 _last) { (void)_face; (void)_last; }
 // A word asked for on the word card (wordcard.h): nobody to show it to.
-__attribute__((weak)) void fude_wordcard_ask_saved(u32 _word) { (void)_word; }
+__attribute__((weak, visibility("hidden"))) void fude_wordcard_ask_saved(u32 _word) { (void)_word; }

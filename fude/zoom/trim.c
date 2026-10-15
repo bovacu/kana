@@ -2,14 +2,22 @@
 
 #include "zoom/trim.h"
 #include "zoom/shape.h"
-#include <math.h>
-#include <stdlib.h>
 
-// Where segment p→q crosses the line a + t·d (t: along it), added to _out between _from and _to.
+// ===========================================================================
+// See trim.h.
+//
+// Every object is reduced to a polyline, a shape to its outline (fude_zoom_scene_shape_outline, its curves in 96
+// segments), a stroke or a fill to its points, and each of its segments is crossed with the line. Parameters within
+// 1e-9 of each other count as one crossing.
+// ===========================================================================
+
+// Adds to _out (as *_n, at most _max) where segment _p → _q crosses the line _a + t·_d, as its t, when that is
+// between _from and _to. A crossing up to 1e-12 of the segment's length past either of its ends still counts;
+// a segment parallel to the line adds nothing.
 RDE_INTERNAL void fude_zoom_trim_piece(fude_zoom_v2 _a, fude_zoom_v2 _d, fude_zoom_v2 _p, fude_zoom_v2 _q, f64 _from, f64 _to, f64* _out, u32* _n, u32 _max) {
     const fude_zoom_v2 _e = { _q.x - _p.x, _q.y - _p.y };
     const f64 _den = _d.x * _e.y - _d.y * _e.x;
-    if(fabs(_den) < 1e-18 || *_n >= _max) {
+    if(rde_math_abs_f64(_den) < 1e-18 || *_n >= _max) {
         return;   // (parallel: no one crossing)
     }
     const fude_zoom_v2 _w = { _p.x - _a.x, _p.y - _a.y };
@@ -20,18 +28,21 @@ RDE_INTERNAL void fude_zoom_trim_piece(fude_zoom_v2 _a, fude_zoom_v2 _d, fude_zo
     _out[(*_n)++] = _t;
 }
 
-RDE_INTERNAL int fude_zoom_trim_by_f64(const void* _a, const void* _b) {
+// rde_sort's order for f64s: ascending.
+RDE_INTERNAL int fude_zoom_trim_by_f64(const any _a, const any _b) {
     const f64 _x = *(const f64*)_a, _y = *(const f64*)_b;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
+// See trim.h. Only objects whose boxes meet the box of the line from _from to _to are looked at (the frame's index).
+// When _max crossings are found, the rest are not looked for, so which are kept depends on the index's order.
 u32 fude_zoom_trim_crossings(const fude_zoom_scene* _s, u32 _frame, u32 _skip, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _from, f64 _to, f64* _out, u32 _max) {
     const fude_zoom_v2 _d = { _b.x - _a.x, _b.y - _a.y };
-    if(!(hypot(_d.x, _d.y) > 0.0) || _max == 0u) {
+    if(!(rde_math_hypot_f64(_d.x, _d.y) > 0.0) || _max == 0u) {
         return 0;
     }
     const fude_zoom_v2 _p0 = { _a.x + _d.x * _from, _a.y + _d.y * _from }, _p1 = { _a.x + _d.x * _to, _a.y + _d.y * _to };
-    const fude_zoom_box _box = { fmin(_p0.x, _p1.x), fmin(_p0.y, _p1.y), fmax(_p0.x, _p1.x), fmax(_p0.y, _p1.y) };
+    const fude_zoom_box _box = { rde_math_min_f64(_p0.x, _p1.x), rde_math_min_f64(_p0.y, _p1.y), rde_math_max_f64(_p0.x, _p1.x), rde_math_max_f64(_p0.y, _p1.y) };
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     rde_arr _found = rde_arr_new(sizeof(u32), _heap), _pts = rde_arr_new(sizeof(fude_zoom_v2), _heap), _q = rde_arr_new(sizeof(fude_zoom_qpoint), _heap);
     fude_zoom_scene_query(_s, _frame, _box, &_found);
@@ -74,7 +85,7 @@ u32 fude_zoom_trim_crossings(const fude_zoom_scene* _s, u32 _frame, u32 _skip, f
     rde_arr_free(&_pts);
     rde_arr_free(&_q);
     // Sorted, each once (an outline's corner on the line crossed by both its sides).
-    qsort(_out, _n, sizeof(f64), fude_zoom_trim_by_f64);
+    rde_sort(_out, _n, sizeof(f64), fude_zoom_trim_by_f64);
     u32 _w = 0;
     for(u32 _i = 0; _i < _n; _i++) {
         if(_w == 0u || _out[_i] - _out[_w - 1u] > 1e-9) {
@@ -84,14 +95,15 @@ u32 fude_zoom_trim_crossings(const fude_zoom_scene* _s, u32 _frame, u32 _skip, f
     return _w;
 }
 
+// See trim.h. A crossing exactly at _at counts as the one before it.
 u32 fude_zoom_trim_keep(const f64* _t, u32 _n, f64 _at, f64* _keep) {
     f64 _lo = 0.0, _hi = 1.0;
     for(u32 _i = 0; _i < _n; _i++) {
         if(_t[_i] > 1e-9 && _t[_i] < 1.0 - 1e-9) {
             if(_t[_i] <= _at) {
-                _lo = fmax(_lo, _t[_i]);
+                _lo = rde_math_max_f64(_lo, _t[_i]);
             } else {
-                _hi = fmin(_hi, _t[_i]);
+                _hi = rde_math_min_f64(_hi, _t[_i]);
             }
         }
     }

@@ -3,16 +3,19 @@
 #include "zoom/mathread.h"
 #include "zoom/handmath.h"
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 // ===========================================================================
 // See mathread.h.
+//
+// Internal names start fzmr_ (FZMR_ for constants). The file goes bottom up: the clouds and $P's matching
+// (fzmr_cloud_of, fzmr_match, fzmr_classify); the boxes and nodes; the layout (fzmr_region, which reads what a
+// fraction, a root, a limit or a script holds as a region of its own, recursively); and fude_zoom_mathread, which
+// cuts the strokes into symbols, reads what their size and place say, and lays them out. A symbol, or a part made of
+// several, is a fzmr_node: once it becomes a part its cp is 0 and its LaTeX is in its tex, and a node taken into a
+// part is marked used. Every size and distance is measured against how tall a symbol is written (fzmr_layout's h),
+// so the reader works at any size of writing.
 // ===========================================================================
 
-#define FZMR_N       32u     // a cloud's points
+#define FZMR_N       32u     // points in a cloud: what $P matches
 #define FZMR_GROUP   3u      // strokes a symbol at most
 #define FZMR_MOST    160u    // strokes read at most
 #define FZMR_TEX     1024u   // a part's LaTeX at most
@@ -21,10 +24,12 @@
 // The symbols it knows: their characters and how LaTeX writes them. Letters whose capital is the same shape (c o s u v
 // w x z k p) known by their small one, a capital by its height.
 typedef struct {
-    u32       cp;
-    const c8* tex;
+    u32       cp;    // its character (U+E000 and U+E001: handmath.h's second shapes for ∫ and √)
+    const c8* tex;   // its LaTeX, with a space after a command
 } fzmr_sym;
 
+// Each one's template is drawn from handmath.h's shape for it (fzmr_make_templates). √ has no LaTeX of its own here:
+// fzmr_roots writes the \sqrt{…}.
 RDE_INTERNAL const fzmr_sym FZMR_SYMS[] = {
     { '0', "0" }, { '1', "1" }, { '2', "2" }, { '3', "3" }, { '4', "4" }, { '5', "5" }, { '6', "6" }, { '7', "7" }, { '8', "8" }, { '9', "9" },
     { 'a', "a" }, { 'b', "b" }, { 'c', "c" }, { 'd', "d" }, { 'e', "e" }, { 'f', "f" }, { 'g', "g" }, { 'h', "h" }, { 'i', "i" }, { 'j', "j" },
@@ -39,9 +44,9 @@ RDE_INTERNAL const fzmr_sym FZMR_SYMS[] = {
     { 0x00B1, "\\pm " }, { 0x00F7, "\\div " }, { '(', "(" }, { ')', ")" }, { '[', "[" }, { ']', "]" }, { '{', "\\{" }, { '}', "\\}" },
     { '/', "/" }, { '!', "!" }, { 0x221E, "\\infty " }, { 0x2211, "\\sum " }, { 0x222B, "\\int " }, { 0x221A, "" }, { 0x2202, "\\partial " },
     { 0x2207, "\\nabla " }, { 0x2192, "\\to " }, { 0x2208, "\\in " },
-    { 0xE000, "\\int " }, { 0xE001, "" },   // (an integral and a root written smaller: other shapes — handmath.h's)
+    { 0xE000, "\\int " }, { 0xE001, "" },   // (an integral written small, a root written with its bar: handmath.h's)
 };
-#define FZMR_SYMS_COUNT (sizeof(FZMR_SYMS) / sizeof(FZMR_SYMS[0]))
+#define FZMR_SYMS_COUNT (sizeof(FZMR_SYMS) / sizeof(FZMR_SYMS[0]))   // how many symbols it knows
 
 // Characters it reads by size, place or what is round them (not by shape alone).
 #define FZMR_DOT    0x2E      // .
@@ -52,19 +57,21 @@ RDE_INTERNAL const fzmr_sym FZMR_SYMS[] = {
 
 // --- clouds -----------------------------------------------------------------------------------------
 
+// A symbol's strokes as $P compares them: FZMR_N points, scaled and centred by fzmr_cloud_of.
 typedef struct {
-    fude_zoom_v2 p[FZMR_N];
-    f64          aspect;   // its width over its height, as written (log: 0 square)
+    fude_zoom_v2 p[FZMR_N];   // its points, scaled and centred
+    f64          aspect;      // its width over its height, as written (log: 0 square)
 } fzmr_cloud;
 
-// _n strokes' points resampled into FZMR_N spread evenly along them (each stroke's own length, not the pen's jumps
-// between), scaled to fit a unit square keeping their shape, their middle at the origin. False: no length to them.
+// Makes _n strokes' points into a cloud: FZMR_N points spread evenly along the strokes (along each stroke's own length,
+// not the pen's jumps between them), scaled to a unit square each way on its own (see below), with their mean at the
+// origin. Returns false when there are no points.
 RDE_INTERNAL b8 fzmr_cloud_of(const fude_zoom_v2* _p, const u32* _ends, u32 _n, fzmr_cloud* _out) {
     f64 _total = 0.0;
     u32 _from = 0;
     for(u32 _s = 0; _s < _n; _s++) {
         for(u32 _i = _from + 1u; _i < _ends[_s]; _i++) {
-            _total += hypot(_p[_i].x - _p[_i - 1u].x, _p[_i].y - _p[_i - 1u].y);
+            _total += rde_math_hypot_f64(_p[_i].x - _p[_i - 1u].x, _p[_i].y - _p[_i - 1u].y);
         }
         _from = _ends[_s];
     }
@@ -91,13 +98,13 @@ RDE_INTERNAL b8 fzmr_cloud_of(const fude_zoom_v2* _p, const u32* _ends, u32 _n, 
             }
             for(u32 _i = _from + 1u; _i < _ends[_s] && _made < FZMR_N; _i++) {
                 fude_zoom_v2 _cur = _p[_i];
-                f64 _d = hypot(_cur.x - _prev.x, _cur.y - _prev.y);
+                f64 _d = rde_math_hypot_f64(_cur.x - _prev.x, _cur.y - _prev.y);
                 while(_carry + _d >= _step && _made < FZMR_N && _d > 0.0) {
                     const f64 _t = (_step - _carry) / _d;
                     const fude_zoom_v2 _q = { _prev.x + (_cur.x - _prev.x) * _t, _prev.y + (_cur.y - _prev.y) * _t };
                     _out->p[_made++] = _q;
                     _prev  = _q;
-                    _d     = hypot(_cur.x - _prev.x, _cur.y - _prev.y);
+                    _d     = rde_math_hypot_f64(_cur.x - _prev.x, _cur.y - _prev.y);
                     _carry = 0.0;
                 }
                 _carry += _d;
@@ -115,14 +122,14 @@ RDE_INTERNAL b8 fzmr_cloud_of(const fude_zoom_v2* _p, const u32* _ends, u32 _n, 
     }
     f64 _x0 = 1e300, _y0 = 1e300, _x1 = -1e300, _y1 = -1e300, _cx = 0.0, _cy = 0.0;
     for(u32 _i = 0; _i < FZMR_N; _i++) {
-        _x0 = fmin(_x0, _out->p[_i].x); _x1 = fmax(_x1, _out->p[_i].x);
-        _y0 = fmin(_y0, _out->p[_i].y); _y1 = fmax(_y1, _out->p[_i].y);
+        _x0 = rde_math_min_f64(_x0, _out->p[_i].x); _x1 = rde_math_max_f64(_x1, _out->p[_i].x);
+        _y0 = rde_math_min_f64(_y0, _out->p[_i].y); _y1 = rde_math_max_f64(_y1, _out->p[_i].y);
     }
-    // (each way scaled to fit on its own — a hand's = or x as wide as it likes —, but nothing thinner than a third of its
-    // size made thicker: a minus stays a line, a 1 upright; how much wider than tall it was kept apart)
-    const f64 _size = fmax(fmax(_x1 - _x0, _y1 - _y0), 1e-12);
-    const f64 _sx = fmax(_x1 - _x0, 0.35 * _size), _sy = fmax(_y1 - _y0, 0.35 * _size);
-    _out->aspect = log(_sx / _sy);
+    // (each way scaled on its own, so a hand's = or x may be as wide as it likes; but a way under 0.35 of the size is
+    // not stretched, so a minus stays a line and a 1 upright; how much wider than tall it was is kept in aspect)
+    const f64 _size = rde_math_max_f64(rde_math_max_f64(_x1 - _x0, _y1 - _y0), 1e-12);
+    const f64 _sx = rde_math_max_f64(_x1 - _x0, 0.35 * _size), _sy = rde_math_max_f64(_y1 - _y0, 0.35 * _size);
+    _out->aspect = rde_math_log_f64(_sx / _sy);
     for(u32 _i = 0; _i < FZMR_N; _i++) {
         _out->p[_i].x = (_out->p[_i].x - _x0) / _sx;
         _out->p[_i].y = (_out->p[_i].y - _y0) / _sy;
@@ -159,26 +166,30 @@ RDE_INTERNAL f64 fzmr_cloud_distance(const fzmr_cloud* _a, const fzmr_cloud* _b,
         }
         _matched[_index] = true;
         const f64 _weight = 1.0 - (f64)((_i + FZMR_N - _start) % FZMR_N) / (f64)FZMR_N;
-        _sum += _weight * sqrt(_best);
+        _sum += _weight * rde_math_sqrt_f64(_best);
         _i = (_i + 1u) % FZMR_N;
     } while(_i != _start);
     return _sum;
 }
 
+// Returns how far apart two clouds are: $P's least distance, either way round, from a start every √FZMR_N points, plus
+// up to 1.2 for how much their aspects differ.
 RDE_INTERNAL f64 fzmr_match(const fzmr_cloud* _a, const fzmr_cloud* _b) {
-    const u32 _step = (u32)floor(pow((f64)FZMR_N, 0.5));
+    const u32 _step = (u32)rde_math_floor_f64(rde_math_pow_f64((f64)FZMR_N, 0.5));
     f64 _best = 1e300;
     for(u32 _i = 0; _i < FZMR_N; _i += _step) {
-        _best = fmin(_best, fmin(fzmr_cloud_distance(_a, _b, _i), fzmr_cloud_distance(_b, _a, _i)));
+        _best = rde_math_min_f64(_best, rde_math_min_f64(fzmr_cloud_distance(_a, _b, _i), fzmr_cloud_distance(_b, _a, _i)));
     }
-    return _best + 0.8 * fmin(fabs(_a->aspect - _b->aspect), 1.5);   // (an o not a 0, a = not a square)
+    return _best + 0.8 * rde_math_min_f64(rde_math_abs_f64(_a->aspect - _b->aspect), 1.5);   // (an o not a 0, a = not a square)
 }
 
 // The symbols' clouds (made once).
 RDE_INTERNAL fzmr_cloud fzmr_templates[FZMR_SYMS_COUNT];
-RDE_INTERNAL b8         fzmr_template_ok[FZMR_SYMS_COUNT];
-RDE_INTERNAL b8         fzmr_ready = false;
+RDE_INTERNAL b8         fzmr_template_ok[FZMR_SYMS_COUNT];   // whether handmath.h had a shape for it
+RDE_INTERNAL b8         fzmr_ready = false;                  // whether they are made
 
+// Makes the symbols' clouds from handmath.h's shapes, the first time only. A symbol with no shape is left out
+// (fzmr_template_ok false).
 RDE_INTERNAL void fzmr_make_templates(void) {
     if(fzmr_ready) {
         return;
@@ -196,7 +207,8 @@ RDE_INTERNAL void fzmr_make_templates(void) {
     fzmr_ready = true;
 }
 
-// The known symbol _p's strokes are most like: its index in FZMR_SYMS (or -1), its distance.
+// Returns the index in FZMR_SYMS of the symbol _p's _n strokes are most like, its distance in *_distance; -1 (the
+// distance 1e300) when they make no cloud.
 RDE_INTERNAL i32 fzmr_classify(const fude_zoom_v2* _p, const u32* _ends, u32 _n, f64* _distance) {
     fzmr_make_templates();
     *_distance = 1e300;
@@ -218,6 +230,7 @@ RDE_INTERNAL i32 fzmr_classify(const fude_zoom_v2* _p, const u32* _ends, u32 _n,
     return _best;
 }
 
+// See the header.
 u32 fude_zoom_mathread_symbol(const fude_zoom_v2* _points, const u32* _ends, u32 _strokes, f64* _distance) {
     f64 _d = 0.0;
     const i32 _k = fzmr_classify(_points, _ends, _strokes, &_d);
@@ -229,24 +242,27 @@ u32 fude_zoom_mathread_symbol(const fude_zoom_v2* _points, const u32* _ends, u32
 
 // --- symbols out of strokes -------------------------------------------------------------------------
 
+// A box, y up: (x0, y0) its lower left corner, (x1, y1) its upper right.
 typedef struct {
     f64 x0, y0, x1, y1;
 } fzmr_box;
 
+// Returns the box round points _from to _to (one past the last).
 RDE_INTERNAL fzmr_box fzmr_box_of(const fude_zoom_v2* _p, u32 _from, u32 _to) {
     fzmr_box _b = { 1e300, 1e300, -1e300, -1e300 };
     for(u32 _i = _from; _i < _to; _i++) {
-        _b.x0 = fmin(_b.x0, _p[_i].x); _b.x1 = fmax(_b.x1, _p[_i].x);
-        _b.y0 = fmin(_b.y0, _p[_i].y); _b.y1 = fmax(_b.y1, _p[_i].y);
+        _b.x0 = rde_math_min_f64(_b.x0, _p[_i].x); _b.x1 = rde_math_max_f64(_b.x1, _p[_i].x);
+        _b.y0 = rde_math_min_f64(_b.y0, _p[_i].y); _b.y1 = rde_math_max_f64(_b.y1, _p[_i].y);
     }
     return _b;
 }
 
+// Returns the box round both.
 RDE_INTERNAL fzmr_box fzmr_union(fzmr_box _a, fzmr_box _b) {
-    return (fzmr_box){ fmin(_a.x0, _b.x0), fmin(_a.y0, _b.y0), fmax(_a.x1, _b.x1), fmax(_a.y1, _b.y1) };
+    return (fzmr_box){ rde_math_min_f64(_a.x0, _b.x0), rde_math_min_f64(_a.y0, _b.y0), rde_math_max_f64(_a.x1, _b.x1), rde_math_max_f64(_a.y1, _b.y1) };
 }
 
-// Is _a a flat stroke (a bar's, a minus's)?
+// Returns whether a box is flat: under a quarter as tall as it is wide (a bar's, a minus's).
 RDE_INTERNAL b8 fzmr_flat(fzmr_box _a) {
     return (_a.y1 - _a.y0) < 0.25 * (_a.x1 - _a.x0);
 }
@@ -254,16 +270,19 @@ RDE_INTERNAL b8 fzmr_flat(fzmr_box _a) {
 // A symbol read, or a part made of them (a fraction, a root, a base with its scripts): its LaTeX, its box.
 typedef struct {
     u32      cp;            // its character (0: a part)
-    fzmr_box box;
-    c8       tex[FZMR_TEX];
-    b8       used;
+    fzmr_box box;           // round its strokes, or round all a part holds
+    c8       tex[FZMR_TEX];  // a part's LaTeX (a symbol's is fzmr_tex_of's)
+    b8       used;          // taken into a part, or written: left out from then on
 } fzmr_node;
 
-RDE_INTERNAL int fzmr_by_median(const void* _a, const void* _b) {
+// rde_sort's order for f64s, smallest first: for the strokes' heights' median.
+RDE_INTERNAL int fzmr_by_median(const any _a, const any _b) {
     const f64 _x = *(const f64*)_a, _y = *(const f64*)_b;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
+// Returns a character's LaTeX: FZMR_SYMS's, the characters read by size and place, or any other ASCII letter or digit
+// as itself (from a static buffer); "" for anything else.
 RDE_INTERNAL const c8* fzmr_tex_of(u32 _cp) {
     for(u32 _i = 0; _i < FZMR_SYMS_COUNT; _i++) {
         if(FZMR_SYMS[_i].cp == _cp) {
@@ -291,20 +310,24 @@ RDE_INTERNAL const c8* fzmr_tex_of(u32 _cp) {
 
 // --- the layout --------------------------------------------------------------------------------------
 
+// What the layout's steps share: the nodes, and how tall a symbol is written.
 typedef struct {
     fzmr_node* n;
     f64        h;   // a symbol's height, as these are written (their median)
 } fzmr_layout;
 
+// Appends _s to the string in _out (_size bytes), cut short when it does not fit.
 RDE_INTERNAL void fzmr_cat(c8* _out, usize _size, const c8* _s) {
-    const usize _l = strlen(_out);
-    snprintf(_out + _l, _l < _size ? _size - _l : 0u, "%s", _s);
+    const usize _l = rde_strlen(_out);
+    rde_snprintf(_out + _l, _l < _size ? _size - _l : 0u, "%s", _s);
 }
 
+// A node's box's middle, across.
 RDE_INTERNAL f64 fzmr_cx(const fzmr_node* _n) {
     return 0.5 * (_n->box.x0 + _n->box.x1);
 }
 
+// A node's box's middle, up.
 RDE_INTERNAL f64 fzmr_cy(const fzmr_node* _n) {
     return 0.5 * (_n->box.y0 + _n->box.y1);
 }
@@ -313,6 +336,7 @@ RDE_INTERNAL f64 fzmr_cy(const fzmr_node* _n) {
 // what it holds read as its own), then the line left to right with its scripts.
 RDE_INTERNAL void fzmr_region(fzmr_layout* _l, u32* _idx, u32 _n, c8* _out, usize _size, u32 _depth);
 
+// Reads nodes _take (_k of them) into _out as a region one level deeper; "" when there are none.
 RDE_INTERNAL void fzmr_sub_region(fzmr_layout* _l, u32* _take, u32 _k, c8* _out, usize _size, u32 _depth) {
     _out[0] = 0;
     if(_k > 0u) {
@@ -320,7 +344,11 @@ RDE_INTERNAL void fzmr_sub_region(fzmr_layout* _l, u32* _take, u32 _k, c8* _out,
     }
 }
 
-// A minus wide over things above it and under it: a fraction (the widest first, so one over another reads right).
+// Makes the fractions among nodes _idx: a minus wider than 0.6 of a symbol's height with something over it and
+// something under it, the widest first (so one over another reads right). Each side is read as a region of its own;
+// the bar's node becomes the fraction (cp 0, its \frac in tex, its box round them all) and what is over and under it
+// is used. A minus with nothing on one side is marked U+2213 so it is not tried again, and fzmr_region sets it back.
+// Returns whether it made any.
 RDE_INTERNAL b8 fzmr_fractions(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
     b8 _any = false;
     for(;;) {
@@ -365,14 +393,15 @@ RDE_INTERNAL b8 fzmr_fractions(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
         fzmr_box _box = _b->box;
         for(u32 _i = 0; _i < _na; _i++) { _box = fzmr_union(_box, _l->n[_above[_i]].box); _l->n[_above[_i]].used = true; }
         for(u32 _i = 0; _i < _nb; _i++) { _box = fzmr_union(_box, _l->n[_below[_i]].box); _l->n[_below[_i]].used = true; }
-        snprintf(_b->tex, sizeof(_b->tex), "\\frac{%s}{%s}", _num, _den);
+        rde_snprintf(_b->tex, sizeof(_b->tex), "\\frac{%s}{%s}", _num, _den);
         _b->cp  = 0u;
         _b->box = (fzmr_box){ _b->box.x0, _box.y0, _b->box.x1, _box.y1 };
         _any = true;
     }
 }
 
-// A root sign over things: \sqrt{what is under it}.
+// Makes each root sign among nodes _idx a \sqrt of what is under it: the nodes whose middle is in its box, right of
+// its first quarter.
 RDE_INTERNAL void fzmr_roots(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
     for(u32 _r = 0; _r < _n; _r++) {
         fzmr_node* _s = &_l->n[_idx[_r]];
@@ -394,12 +423,14 @@ RDE_INTERNAL void fzmr_roots(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
         c8 _body[FZMR_TEX];
         fzmr_sub_region(_l, _in, _k, _body, sizeof(_body), _depth);
         for(u32 _i = 0; _i < _k; _i++) _l->n[_in[_i]].used = true;
-        snprintf(_s->tex, sizeof(_s->tex), "\\sqrt{%s}", _body);
+        rde_snprintf(_s->tex, sizeof(_s->tex), "\\sqrt{%s}", _body);
         _s->cp = 0u;
     }
 }
 
-// A sum's, a product's, an integral's limits: what is right over it and right under it.
+// Gives each sum and integral among nodes _idx its limits: what is right over and right under a sum, or at an
+// integral's top and foot, a little to its right, smaller than three quarters of it. Only ∑ and ∫ take them (the
+// reader knows no ∏).
 RDE_INTERNAL void fzmr_limits(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
     for(u32 _r = 0; _r < _n; _r++) {
         fzmr_node* _s = &_l->n[_idx[_r]];
@@ -435,7 +466,7 @@ RDE_INTERNAL void fzmr_limits(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
         fzmr_sub_region(_l, _up, _nu, _b, sizeof(_b), _depth);
         for(u32 _i = 0; _i < _nu; _i++) _l->n[_up[_i]].used = true;
         for(u32 _i = 0; _i < _nd; _i++) _l->n[_down[_i]].used = true;
-        snprintf(_s->tex, sizeof(_s->tex), "%s", _int ? "\\int" : "\\sum");
+        rde_snprintf(_s->tex, sizeof(_s->tex), "%s", _int ? "\\int" : "\\sum");
         if(_nd > 0u) {
             fzmr_cat(_s->tex, sizeof(_s->tex), "_{");
             fzmr_cat(_s->tex, sizeof(_s->tex), _a);
@@ -451,9 +482,11 @@ RDE_INTERNAL void fzmr_limits(fzmr_layout* _l, u32* _idx, u32 _n, u32 _depth) {
     }
 }
 
-RDE_INTERNAL fzmr_layout* fzmr_sorting;   // (qsort's: the layout the indices are of)
+// The layout whose node indices fzmr_by_x_plain sorts: rde_sort's compare is given no pointer of its own.
+RDE_INTERNAL fzmr_layout* fzmr_sorting;
 
-RDE_INTERNAL int fzmr_by_x_plain(const void* _a, const void* _b) {
+// rde_sort's order for node indices: by their boxes' left edges.
+RDE_INTERNAL int fzmr_by_x_plain(const any _a, const any _b) {
     const f64 _x = fzmr_sorting->n[*(const u32*)_a].box.x0, _y = fzmr_sorting->n[*(const u32*)_b].box.x0;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
@@ -463,6 +496,8 @@ RDE_INTERNAL const c8* fzmr_own(const fzmr_node* _o) {
     return _o->cp != 0u ? fzmr_tex_of(_o->cp) : _o->tex;
 }
 
+// See its declaration above. Fractions are made first, then roots, then limits; the nodes left are one line, each
+// base followed by its subscripts and its superscripts. Past 12 levels deep it reads nothing.
 RDE_INTERNAL void fzmr_region(fzmr_layout* _l, u32* _idx, u32 _n, c8* _out, usize _size, u32 _depth) {
     _out[0] = 0;
     if(_n == 0u || _depth > 12u) {
@@ -485,11 +520,11 @@ RDE_INTERNAL void fzmr_region(fzmr_layout* _l, u32* _idx, u32 _n, c8* _out, usiz
         }
     }
     fzmr_sorting = _l;
-    qsort(_line, _k, sizeof(u32), fzmr_by_x_plain);
+    rde_sort(_line, _k, sizeof(u32), fzmr_by_x_plain);
     for(u32 _i = 0; _i < _k;) {
         fzmr_node* _base = &_l->n[_line[_i]];
         _base->used = true;
-        const f64 _bh = fmax(_base->box.y1 - _base->box.y0, 0.45 * _l->h), _mid = fzmr_cy(_base);
+        const f64 _bh = rde_math_max_f64(_base->box.y1 - _base->box.y0, 0.45 * _l->h), _mid = fzmr_cy(_base);
         u32 _sup[FZMR_MOST], _sub[FZMR_MOST], _ns = 0, _nb = 0;
         u32 _j = _i + 1u;
         const b8 _scriptable = _base->cp != '=' && _base->cp != '+' && _base->cp != 0x2212u && _base->cp != '<' && _base->cp != '>' &&
@@ -510,11 +545,11 @@ RDE_INTERNAL void fzmr_region(fzmr_layout* _l, u32* _idx, u32 _n, c8* _out, usiz
                                                 : _l->n[_line[_j + 1u]].box.y0 < _base->box.y0 + 0.4 * _bh))) {
                 break;
             }
-            // (raised: its foot well over the base's — as small as a script or not, a 2 after an x is as tall as the x);
-            // lowered: its top well under the base's)
+            // (raised: its foot well over the base's — as small as a script or not, a 2 after an x is as tall as
+            // the x; lowered: its top well under the base's)
             const b8 _fits = _oh < 1.2 * _bh || _small;
             // (raised by a small letter's measure, not a tall one's: a root's superscripts sit lower — cramped)
-            const f64 _lift = 0.4 * fmin(_bh, 1.05 * _l->h);
+            const f64 _lift = 0.4 * rde_math_min_f64(_bh, 1.05 * _l->h);
             if(_fits && _o->box.y0 > _base->box.y0 + _lift && fzmr_cy(_o) > _mid && _o->cp != FZMR_DOT && _o->cp != ',') {
                 _sup[_ns++] = _line[_j++];
             } else if(_fits && _o->box.y1 < _base->box.y1 - 0.4 * _bh && fzmr_cy(_o) < _mid && _o->cp != FZMR_DOT && _o->cp != ',' &&
@@ -543,7 +578,9 @@ RDE_INTERNAL void fzmr_region(fzmr_layout* _l, u32* _idx, u32 _n, c8* _out, usiz
     }
 }
 
-// sin, cos, log… written as letters: their commands.
+// Turns sin, cos, log and the rest, written as letters, into their commands (\sin), in place. A name is taken only
+// where no letter or backslash comes before it, and longer names are tried first (arcsin and sinh before sin). The
+// text is cut short when it grows past FZMR_TEX * 2.
 RDE_INTERNAL void fzmr_functions(c8* _s, usize _size) {
     static const c8* const _names[] = { "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "sin", "cos", "tan", "cot", "sec", "csc", "log",
                                         "ln", "exp", "lim", "max", "min", "det" };
@@ -553,9 +590,9 @@ RDE_INTERNAL void fzmr_functions(c8* _s, usize _size) {
         b8 _hit = false;
         if(_i == 0 || (_s[_i - 1u] != '\\' && !(_s[_i - 1u] >= 'a' && _s[_i - 1u] <= 'z') && !(_s[_i - 1u] >= 'A' && _s[_i - 1u] <= 'Z'))) {
             for(u32 _k = 0; _k < sizeof(_names) / sizeof(_names[0]) && !_hit; _k++) {
-                const usize _n = strlen(_names[_k]);
-                if(strncmp(_s + _i, _names[_k], _n) == 0) {
-                    _o += (usize)snprintf(_out + _o, sizeof(_out) - _o, "\\%s ", _names[_k]);
+                const usize _n = rde_strlen(_names[_k]);
+                if(rde_strncmp(_s + _i, _names[_k], _n) == 0) {
+                    _o += (usize)rde_snprintf(_out + _o, sizeof(_out) - _o, "\\%s ", _names[_k]);
                     _i += _n;
                     _hit = true;
                 }
@@ -566,7 +603,7 @@ RDE_INTERNAL void fzmr_functions(c8* _s, usize _size) {
         }
     }
     _out[_o] = 0;
-    snprintf(_s, _size, "%s", _out);
+    rde_snprintf(_s, _size, "%s", _out);
 }
 
 // --- read -------------------------------------------------------------------------------------------
@@ -598,38 +635,13 @@ RDE_INTERNAL b8 fzmr_meet(const fude_zoom_v2* _p, const u32* _ends, u32 _a, u32 
     return false;
 }
 
-b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _strokes, c8* _out, usize _size, u32* _symbols) {
-    if(_symbols != NULL) {
-        *_symbols = 0u;
-    }
-    if(_size == 0 || _strokes == 0u || _points == NULL || _ends == NULL) {
-        return false;
-    }
-    _out[0] = 0;
-    const u32 _n = _strokes < FZMR_MOST ? _strokes : FZMR_MOST;
-    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
-    // Each stroke's box; how tall a symbol is written (the strokes' heights' median, the flat ones — bars, minuses — not
-    // counted).
-    fzmr_box _sb[FZMR_MOST];
-    f64 _hs[FZMR_MOST];
-    u32 _nh = 0;
-    for(u32 _s = 0; _s < _n; _s++) {
-        _sb[_s] = fzmr_box_of(_points, _s == 0u ? 0u : _ends[_s - 1u], _ends[_s]);
-        const f64 _w = _sb[_s].x1 - _sb[_s].x0, _hh = _sb[_s].y1 - _sb[_s].y0;
-        if(_hh > 0.3 * _w) {
-            _hs[_nh++] = _hh;
-        }
-    }
-    f64 _h = 1.0;
-    if(_nh > 0u) {
-        qsort(_hs, _nh, sizeof(f64), fzmr_by_median);
-        _h = fmax(_hs[_nh / 2u], 1e-9);
-    }
-    // The cut into symbols: best[i] the best reading of the first i strokes; each symbol one to three strokes written
-    // one after another and close together.
+// The cut of the first _n strokes into symbols, for fude_zoom_mathread (_points and _ends the strokes, _sb their boxes,
+// _h how tall a symbol is written): for each i, the best reading of the first i strokes, its last symbol one to three
+// strokes (_take[i]) and what it is (_what[i]: its FZMR_SYMS index, -2 a dot), each symbol's cost its match's, a cut
+// between strokes that meet or lie over each other costing more. _heap: for its scratch.
+RDE_INTERNAL void fzmr_cut(const fude_zoom_v2* _points, const u32* _ends, u32 _n, const fzmr_box* _sb, f64 _h, rde_memory_allocator* _heap, u8* _take,
+                           i32* _what) {
     f64 _best[FZMR_MOST + 1u];
-    u8  _take[FZMR_MOST + 1u];
-    i32 _what[FZMR_MOST + 1u];
     _best[0] = 0.0;
     for(u32 _i = 1; _i <= _n; _i++) {
         _best[_i] = 1e300;
@@ -642,10 +654,10 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             f64 _apart = 0.0;   // (a symbol's strokes are over each other: two side by side are two symbols, more likely)
             for(u32 _s = _first + 1u; _s < _i; _s++) {
                 // (each next stroke touching what is before it in the symbol, or nearly)
-                const f64 _gx = fmax(_sb[_s].x0 - _u.x1, _u.x0 - _sb[_s].x1), _gy = fmax(_sb[_s].y0 - _u.y1, _u.y0 - _sb[_s].y1);
+                const f64 _gx = rde_math_max_f64(_sb[_s].x0 - _u.x1, _u.x0 - _sb[_s].x1), _gy = rde_math_max_f64(_sb[_s].y0 - _u.y1, _u.y0 - _sb[_s].y1);
                 _close = _close && _gx < 0.4 * _h && _gy < 0.75 * _h;
-                const f64 _over = fmin(_sb[_s].x1, _u.x1) - fmax(_sb[_s].x0, _u.x0);
-                const f64 _narrow = fmax(fmin(_sb[_s].x1 - _sb[_s].x0, _u.x1 - _u.x0), 0.05 * _h);
+                const f64 _over = rde_math_min_f64(_sb[_s].x1, _u.x1) - rde_math_max_f64(_sb[_s].x0, _u.x0);
+                const f64 _narrow = rde_math_max_f64(rde_math_min_f64(_sb[_s].x1 - _sb[_s].x0, _u.x1 - _u.x0), 0.05 * _h);
                 b8 _meets = false;
                 for(u32 _t = _first; _t < _s && !_meets; _t++) {
                     _meets = fzmr_meet(_points, _ends, _s, _t, 0.08 * _h);
@@ -662,10 +674,10 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             b8 _dotted = false;
             f64 _largest = 0.0;
             for(u32 _s = _first; _s < _i; _s++) {
-                _largest = fmax(_largest, fmax(_sb[_s].x1 - _sb[_s].x0, _sb[_s].y1 - _sb[_s].y0));
+                _largest = rde_math_max_f64(_largest, rde_math_max_f64(_sb[_s].x1 - _sb[_s].x0, _sb[_s].y1 - _sb[_s].y0));
             }
             for(u32 _s = _first; _s < _i && _k > 1u; _s++) {
-                const f64 _big = fmax(_sb[_s].x1 - _sb[_s].x0, _sb[_s].y1 - _sb[_s].y0);
+                const f64 _big = rde_math_max_f64(_sb[_s].x1 - _sb[_s].x0, _sb[_s].y1 - _sb[_s].y0);
                 _dotted = _dotted || _big < 0.18 * _h || (_big < 0.3 * _largest && _big < 0.35 * _h);   // (a small script's dot too)
             }
             if(_dotted) {
@@ -673,10 +685,10 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             }
             f64 _cost = 0.0;
             i32 _sym = -1;
-            const f64 _big = fmax(_u.x1 - _u.x0, _u.y1 - _u.y0);
+            const f64 _big = rde_math_max_f64(_u.x1 - _u.x0, _u.y1 - _u.y0);
             // (a dot: tiny, or small beside a stroke before or after it much taller — a small script's i's)
             const f64 _before = _first > 0u ? _sb[_first - 1u].y1 - _sb[_first - 1u].y0 : 0.0, _after = _i < _n ? _sb[_i].y1 - _sb[_i].y0 : 0.0;
-            if(_k == 1u && (_big < 0.18 * _h || (_big < 0.35 * _h && _big < 0.3 * fmax(_before, _after)))) {
+            if(_k == 1u && (_big < 0.18 * _h || (_big < 0.35 * _h && _big < 0.3 * rde_math_max_f64(_before, _after)))) {
                 _cost = 0.2;   // (a dot: its place says which, below)
                 _sym  = -2;
             } else {
@@ -697,18 +709,18 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             f64 _cut = 0.0;
             if(_first > 0u) {
                 const fzmr_box _p0 = _sb[_first - 1u], _p1 = _sb[_first];
-                const f64 _over = fmin(_p0.x1, _p1.x1) - fmax(_p0.x0, _p1.x0);
-                const f64 _wide = fmax(fmax(_p0.x1 - _p0.x0, _p1.x1 - _p1.x0), 0.05 * _h);
-                const f64 _gy = fmax(_p1.y0 - _p0.y1, _p0.y0 - _p1.y1);
+                const f64 _over = rde_math_min_f64(_p0.x1, _p1.x1) - rde_math_max_f64(_p0.x0, _p1.x0);
+                const f64 _wide = rde_math_max_f64(rde_math_max_f64(_p0.x1 - _p0.x0, _p1.x1 - _p1.x0), 0.05 * _h);
+                const f64 _gy = rde_math_max_f64(_p1.y0 - _p0.y1, _p0.y0 - _p1.y1);
                 if(fzmr_meet(_points, _ends, _first - 1u, _first, 0.08 * _h)) {
-                    _cut = 1.2 + 1.0 * fmin(fmax(_over, 0.0) / _wide, 1.0);
+                    _cut = 1.2 + 1.0 * rde_math_min_f64(rde_math_max_f64(_over, 0.0) / _wide, 1.0);
                 } else if(fzmr_flat(_p0) && fzmr_flat(_p1) && _over > 0.5 * _wide && _gy < 0.6 * _h) {
                     _cut = 2.5;
                 }
             }
             const f64 _total = _best[_first] + _cost + FZMR_SYMBOL + _cut + _apart;
 #ifdef FZMR_DEBUG
-            printf("    dp %u..%u sym %d cost %.2f cut %.2f total %.2f\n", _first, _i - 1u, _sym >= 0 ? (int)FZMR_SYMS[_sym].cp : _sym, _cost, _cut, _total);
+            rde_log_level(RDE_LOG_LEVEL_INFO, "    dp %u..%u sym %d cost %.2f cut %.2f total %.2f", _first, _i - 1u, _sym >= 0 ? (int)FZMR_SYMS[_sym].cp : _sym, _cost, _cut, _total);
 #endif
             if(_total < _best[_i]) {
                 _best[_i] = _total;
@@ -717,31 +729,11 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             }
         }
     }
-    // The symbols, back from the end.
-    fzmr_node* _nodes = (fzmr_node*)calloc(_n, sizeof(fzmr_node));
-    if(_nodes == NULL) {
-        return false;
-    }
-    u32 _count = 0;
-    for(u32 _i = _n; _i > 0u;) {
-        const u32 _k = _take[_i];
-        const u32 _first = _i - _k;
-        fzmr_box _u = _sb[_first];
-        for(u32 _s = _first + 1u; _s < _i; _s++) {
-            _u = fzmr_union(_u, _sb[_s]);
-        }
-        fzmr_node* _o = &_nodes[_count++];
-        _o->box = _u;
-        _o->cp  = _what[_i] >= 0 ? FZMR_SYMS[_what[_i]].cp : (_what[_i] == -2 ? FZMR_DOT : 0u);
-        _o->cp  = _o->cp == 0xE000u ? 0x222Bu : _o->cp == 0xE001u ? 0x221Au : _o->cp;   // (a second shape's: its symbol)
-        _i = _first;
-    }
-    // (written order: they came out last first)
-    for(u32 _a = 0, _b = _count - 1u; _a < _b; _a++, _b--) {
-        const fzmr_node _t = _nodes[_a];
-        _nodes[_a] = _nodes[_b];
-        _nodes[_b] = _t;
-    }
+}
+
+// Reads the _count nodes by their size and place, for fude_zoom_mathread (_h how tall a symbol is written), as said
+// below: a dot over a stroke or alone, a capital, ×, a prime, an l, a root's bar written apart.
+RDE_INTERNAL void fzmr_by_place(fzmr_node* _nodes, u32 _count, f64 _h) {
     // Read by size and place: a dot over a 1 or an l an i (over a j-like stroke a j), a dot at the middle a ⋅; a short
     // high tick a prime; a tall bar |; a capital by its height; ×, not x, between two numbers; an l a 1.
     for(u32 _i = 0; _i < _count; _i++) {
@@ -754,10 +746,9 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             _o->cp = '0';
         }
         static const c8 _same[] = "cosuvwxzkp";
-        if(_o->cp < 128u && strchr(_same, (c8)_o->cp) != NULL && _o->cp != 0u && _hh > 1.3 * _h && _w > 0.3 * _h) {
+        if(_o->cp < 128u && rde_strchr(_same, (c8)_o->cp) != NULL && _o->cp != 0u && _hh > 1.3 * _h && _w > 0.3 * _h) {
             _o->cp = (u32)(_o->cp - 'a' + 'A');
         }
-        (void)_w;
     }
     for(u32 _i = 0; _i < _count; _i++) {
         fzmr_node* _o = &_nodes[_i];
@@ -789,9 +780,9 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             // (a dot alone: low a full stop, at the middle of its neighbours a ⋅)
             f64 _y0 = 1e300, _y1 = -1e300;
             for(u32 _j = 0; _j < _count; _j++) {
-                if(_j != _i && !_nodes[_j].used && fabs(0.5 * (_nodes[_j].box.x0 + _nodes[_j].box.x1) - 0.5 * (_o->box.x0 + _o->box.x1)) < 2.0 * _h) {
-                    _y0 = fmin(_y0, _nodes[_j].box.y0);
-                    _y1 = fmax(_y1, _nodes[_j].box.y1);
+                if(_j != _i && !_nodes[_j].used && rde_math_abs_f64(0.5 * (_nodes[_j].box.x0 + _nodes[_j].box.x1) - 0.5 * (_o->box.x0 + _o->box.x1)) < 2.0 * _h) {
+                    _y0 = rde_math_min_f64(_y0, _nodes[_j].box.y0);
+                    _y1 = rde_math_max_f64(_y1, _nodes[_j].box.y1);
                 }
             }
             if(_y1 > _y0 && 0.5 * (_o->box.y0 + _o->box.y1) > _y0 + 0.3 * (_y1 - _y0)) {
@@ -810,14 +801,14 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             for(u32 _j = 0; _j < _count; _j++) {
                 const fzmr_node* _q = &_nodes[_j];
                 if(_j != _i && !_q->used && _q->cp >= 'a' && _q->cp <= 'z' && _q->box.x0 > _o->box.x0 && _q->box.x0 - _o->box.x1 < 0.6 * _h &&
-                   fabs(_q->box.y0 - _o->box.y0) < 0.3 * _h) {
+                   rde_math_abs_f64(_q->box.y0 - _o->box.y0) < 0.3 * _h) {
                     _o->cp = 'l';
                     break;
                 }
             }
         }
         if(_o->cp == 'x' && _i > 0u && _i + 1u < _count && _nodes[_i - 1u].cp >= '0' && _nodes[_i - 1u].cp <= '9' && _nodes[_i + 1u].cp >= '0' &&
-           _nodes[_i + 1u].cp <= '9' && fabs(_nodes[_i + 1u].box.y0 - _nodes[_i - 1u].box.y0) < 0.3 * _h) {
+           _nodes[_i + 1u].cp <= '9' && rde_math_abs_f64(_nodes[_i + 1u].box.y0 - _nodes[_i - 1u].box.y0) < 0.3 * _h) {
             _o->cp = FZMR_TIMES;
         }
         if((_o->cp == '/' || _o->cp == '1' || _o->cp == ',') && (_o->box.y1 - _o->box.y0) < 0.5 * _h && _i > 0u &&
@@ -836,16 +827,78 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
             if(_j == _i || _b->used || _b->cp != 0x2212u) {
                 continue;
             }
-            if(_b->box.x0 > _r->box.x1 - 0.5 * _h && _b->box.x0 < _r->box.x1 + 0.4 * _h && fabs(_b->box.y1 - _r->box.y1) < 0.4 * _h) {
+            if(_b->box.x0 > _r->box.x1 - 0.5 * _h && _b->box.x0 < _r->box.x1 + 0.4 * _h && rde_math_abs_f64(_b->box.y1 - _r->box.y1) < 0.4 * _h) {
                 _r->box = fzmr_union(_r->box, _b->box);
                 _b->used = true;
                 break;
             }
         }
     }
+}
+
+// See the header. Five steps: how tall a symbol is written (_h, the median of the strokes' heights, the flat ones left
+// out); the cut into symbols; the nodes, in writing order; what size and place say (dots, capitals, ×, primes, a
+// root's bar); then the layout, and function names made commands. Every distance is measured against _h.
+b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _strokes, c8* _out, usize _size, u32* _symbols) {
+    if(_symbols != NULL) {
+        *_symbols = 0u;
+    }
+    if(_size == 0 || _strokes == 0u || _points == NULL || _ends == NULL) {
+        return false;
+    }
+    _out[0] = 0;
+    const u32 _n = _strokes < FZMR_MOST ? _strokes : FZMR_MOST;
+    rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
+    // Each stroke's box; how tall a symbol is written (the strokes' heights' median, the flat ones — bars, minuses —
+    // not counted).
+    fzmr_box _sb[FZMR_MOST];
+    f64 _hs[FZMR_MOST];
+    u32 _nh = 0;
+    for(u32 _s = 0; _s < _n; _s++) {
+        _sb[_s] = fzmr_box_of(_points, _s == 0u ? 0u : _ends[_s - 1u], _ends[_s]);
+        const f64 _w = _sb[_s].x1 - _sb[_s].x0, _hh = _sb[_s].y1 - _sb[_s].y0;
+        if(_hh > 0.3 * _w) {
+            _hs[_nh++] = _hh;
+        }
+    }
+    f64 _h = 1.0;
+    if(_nh > 0u) {
+        rde_sort(_hs, _nh, sizeof(f64), fzmr_by_median);
+        _h = rde_math_max_f64(_hs[_nh / 2u], 1e-9);
+    }
+    // The cut into symbols: best[i] the best reading of the first i strokes; each symbol one to three strokes written
+    // one after another and close together.
+    u8  _take[FZMR_MOST + 1u];
+    i32 _what[FZMR_MOST + 1u];
+    fzmr_cut(_points, _ends, _n, _sb, _h, _heap, _take, _what);
+    // The symbols, back from the end.
+    rde_arr TYPE(fzmr_node) _node_list = rde_arr_new_with_capacity(sizeof(fzmr_node), _n > 0u ? _n : 1u, rde_memory_allocator_get_default_std());
+    rde_arr_resize(&_node_list, _n);   // (zeroed)
+    fzmr_node* _nodes = (fzmr_node*)_node_list.memory;
+    u32 _count = 0;
+    for(u32 _i = _n; _i > 0u;) {
+        const u32 _k = _take[_i];
+        const u32 _first = _i - _k;
+        fzmr_box _u = _sb[_first];
+        for(u32 _s = _first + 1u; _s < _i; _s++) {
+            _u = fzmr_union(_u, _sb[_s]);
+        }
+        fzmr_node* _o = &_nodes[_count++];
+        _o->box = _u;
+        _o->cp  = _what[_i] >= 0 ? FZMR_SYMS[_what[_i]].cp : (_what[_i] == -2 ? FZMR_DOT : 0u);
+        _o->cp  = _o->cp == 0xE000u ? 0x222Bu : _o->cp == 0xE001u ? 0x221Au : _o->cp;   // (a second shape's: its symbol)
+        _i = _first;
+    }
+    // (written order: they came out last first; none to turn round when there are none, so _b never wraps)
+    for(u32 _a = 0, _b = _count > 0u ? _count - 1u : 0u; _a < _b; _a++, _b--) {
+        const fzmr_node _t = _nodes[_a];
+        _nodes[_a] = _nodes[_b];
+        _nodes[_b] = _t;
+    }
+    fzmr_by_place(_nodes, _count, _h);
 #ifdef FZMR_DEBUG
     for(u32 _i = 0; _i < _count; _i++) {
-        printf("    node %u U+%04X %s box %.1f %.1f %.1f %.1f (h %.1f)\n", _i, _nodes[_i].cp, _nodes[_i].used ? "used" : "", _nodes[_i].box.x0, _nodes[_i].box.y0,
+        rde_log_level(RDE_LOG_LEVEL_INFO, "    node %u U+%04X %s box %.1f %.1f %.1f %.1f (h %.1f)", _i, _nodes[_i].cp, _nodes[_i].used ? "used" : "", _nodes[_i].box.x0, _nodes[_i].box.y0,
                _nodes[_i].box.x1, _nodes[_i].box.y1, _h);
     }
 #endif
@@ -862,15 +915,15 @@ b8 fude_zoom_mathread(const fude_zoom_v2* _points, const u32* _ends, u32 _stroke
     c8 _tex[FZMR_TEX * 2];
     fzmr_region(&_l, _idx, _live, _tex, sizeof(_tex), 0u);
     fzmr_functions(_tex, sizeof(_tex));
-    // (spaces a command left at the end, and doubled ones, trimmed)
-    usize _len = strlen(_tex);
+    // (the spaces a command left at the end trimmed)
+    usize _len = rde_strlen(_tex);
     while(_len > 0 && _tex[_len - 1u] == ' ') {
         _tex[--_len] = 0;
     }
-    snprintf(_out, _size, "%s", _tex);
+    rde_snprintf(_out, _size, "%s", _tex);
     if(_symbols != NULL) {
         *_symbols = _live;
     }
-    free(_nodes);
+    rde_arr_free(&_node_list);
     return _live > 0u && _out[0] != 0;
 }

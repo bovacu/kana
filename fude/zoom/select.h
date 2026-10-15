@@ -8,35 +8,39 @@
 #include "zoom/render.h"
 
 // ===========================================================================
-// The lasso's selection on the deep-zoom canvas.
+// Select: the lasso's selection on the deep-zoom canvas, with its handles, its menu's commands and its clipboard.
 //
-// A LOOP drawn round things selects them: a stroke when most of it is inside;
-// a frame (and everything drawn deeper inside it) when its whole anchor is
-// inside — so a drawing moves with the detail drawn inside it at any depth
-// (the tree and the ladybug on its leaf: design §2.6). A frame only partly
-// inside is gone into, and its strokes and frames taken by the same rule.
-// Only what is at the camera's depth or deeper can be taken (§2.5).
-//
-// THE SELECTION is drawn with its box and handles: inside the box drags it,
-// a corner scales it (uniformly, round the opposite corner), the knob above it
-// turns it (round its middle). While the pen is down it is LIFTED: drawn on
-// top by the selection as it would be, not by the canvas, so a drag costs
-// nothing however much is selected; the canvas takes it back where the pen
-// lifts, as one undo step (scene.h: a MOVED action, each object's place before
-// and after — a stroke's points never change).
-//
-// THE CLIPBOARD keeps copies of strokes (their points and how they looked on
-// screen), not references, so it outlives the canvas: copy on one, paste on
-// another. Paste puts them at the same size on screen where it is asked.
-// Frames are not copied (only the strokes in the selection itself).
+// Where it sits: fude/zoom, over scene.h and render.h. The page drives it from the lasso tool (page_input.c) and
+// the selection's menus (page_edit.c and the modules of their buttons); pieces (piece.c) use its clips.
+// Its main types and their lifecycle: the page owns one fude_zoom_selection, made with fude_zoom_select_init and freed
+// with fude_zoom_select_destroy. Clips (fude_zoom_clip) own their bytes: those in the selection's clipboard are freed
+// with it, and an array of them made by fude_zoom_select_clips_of is freed with fude_zoom_select_clips_free.
+// Threads: main thread only, like the scene.
+// Design:
+//   - A LOOP drawn round things selects them: a stroke when most of its points are inside, a shape when most of its
+//     outline is, a picture or a text when most of its corners and middle are, and a frame (with everything drawn
+//     deeper inside it) when its whole anchor box is inside. So a drawing moves with the detail drawn inside it at
+//     any depth (the tree and the ladybug on its leaf: docs/infinite_canvas_design.md §2.6). A frame only partly
+//     inside is gone into, and its own things and frames are taken by the same rule. Only what is at the camera's
+//     depth or deeper can be taken (§2.5), and never what a hidden or locked layer holds.
+//   - THE SELECTION is drawn with its box and handles: dragging inside the box moves it, a corner scales it
+//     (uniformly, round the opposite corner), and the knob above it turns it (round its middle). While the pen is
+//     down the selection is LIFTED: the selection draws it where it would be, not the canvas, so a drag costs nothing
+//     however much is selected. Where the pen lifts, the canvas takes it back as one undo step (scene.h: a MOVED
+//     action, with each object's place before and after; a stroke's points never change).
+//   - THE CLIPBOARD keeps copies of things (their bytes and how they looked on screen), not references, so it
+//     outlives the canvas: copy on one canvas, paste on another. Paste puts them where it is asked, the same size on
+//     screen as when they were copied. Frames are not copied, only the things selected themselves.
 // ===========================================================================
 
-#define FUDE_ZOOM_SELECT_HANDLE   9.0f    // a handle's radius on screen
+// Sizes on screen, in points.
+#define FUDE_ZOOM_SELECT_HANDLE   9.0f    // a handle's radius
 #define FUDE_ZOOM_SELECT_GRAB     22.0f   // how near a handle the pen must land to take it
-#define FUDE_ZOOM_SELECT_KNOB     30.0f   // the turning knob, above the box's top
-#define FUDE_ZOOM_SELECT_PAD      8.0f    // the box round what is selected
-#define FUDE_ZOOM_SELECT_DUPLICATE 24.0f  // a duplicate lands this far off (screen units)
+#define FUDE_ZOOM_SELECT_KNOB     30.0f   // how far above the box's top the turning knob is
+#define FUDE_ZOOM_SELECT_PAD      8.0f    // the box's margin round what is selected
+#define FUDE_ZOOM_SELECT_DUPLICATE 24.0f  // how far off a duplicate lands
 
+// What the pen is doing with the selection.
 typedef enum {
     FUDE_ZOOM_GRAB_NONE = 0,
     FUDE_ZOOM_GRAB_LOOP,     // a loop being drawn
@@ -45,118 +49,145 @@ typedef enum {
     FUDE_ZOOM_GRAB_ROTATE
 } FUDE_ZOOM_GRAB_;
 
+// One thing selected.
 typedef struct {
-    u32 object;   // a stroke, or a FRAME object (the frame whole)
+    u32 object;   // the object's index: a thing, or a FRAME object (the frame taken whole)
 } fude_zoom_pick;
 
-// A copy of a stroke on the clipboard: its record's look, its points' bytes,
-// and its place as it was on screen (stroke → screen at copy time, from the
-// selection's middle).
+// A copy of a thing on the clipboard: its record (how it looks), its bytes (a stroke's points, a shape's numbers, a
+// text's words, a picture's file), and how it sat on screen when it was copied (from its own units to the screen).
 typedef struct {
     fude_zoom_object look;
     rde_arr TYPE(u8) bytes;
     fude_zoom_sim    on_screen;
 } fude_zoom_clip;
 
-// A clip's bytes, how many; its bytes made a copy of _size from _data (its room just that).
+// fude_zoom_clip_data and fude_zoom_clip_size return a clip's bytes and how many there are.
 static inline const u8* fude_zoom_clip_data(const fude_zoom_clip* _c) { return _c->bytes.memory; }
 static inline u32       fude_zoom_clip_size(const fude_zoom_clip* _c) { return _c->bytes.count; }
+// Makes the clip's bytes a new copy of _size bytes from _data, with room for just that; the clip owns them.
 void                    fude_zoom_clip_put(fude_zoom_clip* _c, const u8* _data, u32 _size);
 
+// The selection, the loop being drawn, the drag under way and the clipboard.
 typedef struct {
     rde_arr TYPE(fude_zoom_pick)  picks;
-    rde_arr TYPE(rde_vec_2F)      loop;       // the loop being drawn, screen
+    rde_arr TYPE(rde_vec_2F)      loop;       // the loop being drawn, on screen
     u8                            grab;       // FUDE_ZOOM_GRAB_
-    rde_vec_2F                    grab_at;    // where the pen took hold (screen)
-    rde_vec_2F                    pivot;      // what a scale or a turn goes round (screen)
-    fude_zoom_sim                 drag;       // screen → screen, since the pen took hold
-    f64                           turn;       // a turn's angle so far (radians, counter-clockwise; resting a moment at each 15°)
+    rde_vec_2F                    grab_at;    // where the pen took hold, on screen
+    rde_vec_2F                    pivot;      // what a scale or a turn goes round, on screen
+    fude_zoom_sim                 drag;       // the drag since the pen took hold, from the screen to the screen
+    f64                           turn;       // a turn's angle so far (radians, anticlockwise; resting at each 15°)
     fude_zoom_box                 box;        // the selection's box on screen, as of the last update
-    fude_zoom_v2                  half;       // the screen's half size (a guide's box: the part of it on the screen; zero: all of it)
+    fude_zoom_v2                  half;       // half the screen's size: a guide counts only its part on screen (0: all)
     rde_arr TYPE(fude_zoom_place) before;     // each pick's place when the drag began
-    rde_arr TYPE(u8)              lifted;     // per object: drawn by the selection while dragged
+    rde_arr TYPE(u8)              lifted;     // one per object: whether the selection draws it while it is dragged
+    // The clipboard, and the middle of the selection's box on screen when it was copied (a paste centres on it).
     rde_arr TYPE(fude_zoom_clip)  clip;
     fude_zoom_v2                  clip_center;
-    // Scratch.
+    // Scratch arrays, kept so they are not allocated again each time.
     rde_arr TYPE(u32)              found;
     rde_arr TYPE(fude_zoom_qpoint) q;
 } fude_zoom_selection;
 
+// fude_zoom_select_init makes an empty selection with an empty clipboard; fude_zoom_select_destroy frees it all.
 void fude_zoom_select_init(fude_zoom_selection* _sel);
 void fude_zoom_select_destroy(fude_zoom_selection* _sel);
 
+// fude_zoom_select_clear lets go of everything selected (the clipboard is kept); fude_zoom_select_any returns whether
+// anything is selected.
 void fude_zoom_select_clear(fude_zoom_selection* _sel);
 b8   fude_zoom_select_any(const fude_zoom_selection* _sel);
-// The pen at the selection (a loop being drawn or a drag): the menu waits.
+// Returns whether the pen is at the selection (a loop being drawn, or a drag); the menu waits until it is not.
 b8   fude_zoom_select_busy(const fude_zoom_selection* _sel);
-// Once a frame: what died (an undo, an erase) leaves it; its box on screen anew.
+// Called once a frame: what has died since (by an undo or an erase) leaves the selection, and its box on screen is
+// worked out again.
 void fude_zoom_select_update(fude_zoom_selection* _sel, const fude_zoom_scene* _s);
-// Its box on screen (app space), padded. False: nothing selected.
+// Writes the selection's box on screen (app space), padded, into _out. Returns false when nothing is selected.
 b8   fude_zoom_select_box(const fude_zoom_selection* _sel, fude_zoom_box* _out);
 
-// The pen on the lasso tool: on a handle or inside the box, a drag; anywhere
-// else a new loop (what was selected let go). _r: the last draw's frames.
-void fude_zoom_select_down(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_renderer* _r, rde_vec_2F _screen);
-// What of the selection is under _screen: a corner (0..3), the turning knob (4), inside its box (5); -1: none (or
-// nothing held).
+// The pen went down with the lasso tool: on a handle or inside the box it starts a drag; anywhere else it starts a new
+// loop, letting go of what was selected (fude_zoom_select_up takes what the loop holds from its frames).
+void fude_zoom_select_down(fude_zoom_selection* _sel, fude_zoom_scene* _s, rde_vec_2F _screen);
+// Returns what of the selection is under _screen: a corner (0 to 3: min-min, max-min, min-max, max-max), the turning
+// knob (4) or inside its box (5). Returns -1 for none of them, or when nothing is selected.
 i32  fude_zoom_select_handle_at(const fude_zoom_selection* _sel, rde_vec_2F _screen);
+// The pen moved to _screen: the loop grows, or the drag follows it.
 void fude_zoom_select_moved(fude_zoom_selection* _sel, rde_vec_2F _screen);
-// Being turned: by how much so far (degrees, counter-clockwise), and where to
-// say so (screen: over the knob). False: not being turned.
+// While the selection is being turned, writes how far it has turned so far (in degrees, anticlockwise) and where to
+// say so (on screen, over the knob). Returns false when it is not being turned.
 b8   fude_zoom_select_turning(const fude_zoom_selection* _sel, f64* _degrees, rde_vec_2F* _at);
+// The pen lifted: a loop selects what it holds, in the frames _r drew at the camera's depth and below; a drag puts
+// what it moved down where it is, as one undo step, with the connectors and wires joined to it following.
 void fude_zoom_select_up(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_renderer* _r);
-// What the pen began, let go as if it never had (a second finger made it a pinch): a loop being drawn dropped
-// (nothing taken); a drag, the picks back where they were, nothing done.
+// Lets go of what the pen began as if it never had (a second finger made it a pinch): a loop being drawn is dropped
+// and takes nothing; a drag leaves the picks where they were, and nothing is done.
 void fude_zoom_select_abort(fude_zoom_selection* _sel, const fude_zoom_scene* _s);
-// Things carried along by the press just taken (a container's contents, page.c: an area's, a Kanban column's): with
-// the selection while the pen is down — lifted, moved with it, in its undo step — after its own picks; and the
-// selection back to its first _n picks once the pen has lifted (fude_zoom_select_keep).
-// Copies of things (_objects: strokes, fills, shapes, texts, pictures; frames left out), as Copy makes them — their
-// look, their bytes, how they are on the screen now — appended to _out (fude_zoom_clip; their bytes freed by
-// fude_zoom_select_clips_free).
+// Appends to _out (an rde_arr of fude_zoom_clip) copies of _objects as Copy makes them: their look, their bytes and how
+// they are on the screen now, in the order they are drawn whatever order _objects has them in (so copies put down in
+// it lie over each other as the things did). Strokes, fills, shapes, texts and pictures are copied; frames are left
+// out. The properties on them (props.h) are copied too, after them, to go on their copies. The clips own their bytes:
+// fude_zoom_select_clips_free frees them and empties the array (the array itself stays the caller's).
 void fude_zoom_select_clips_of(const fude_zoom_scene* _s, const u32* _objects, u32 _n, rde_arr* _out);
 void fude_zoom_select_clips_free(rde_arr* _clips);
-// Copies put down as Paste puts the clipboard's (each as its on_screen says, the point _center of theirs moved to
-// _screen), into the camera's frame, held by the lasso after; one undo step.
+// Puts copies of _clips down as Paste does with the clipboard's: each where its on_screen says, moved so that their
+// point _center lands on _screen, into the camera's frame. The lasso holds them afterwards; one undo step.
 void fude_zoom_select_paste_clips(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_clip* _clips, u32 _n, fude_zoom_v2 _center, rde_vec_2F _screen);
-// Copies put down (Repeat's: page.c), each of the _n clips _m times — copy k moved by _moves[k] (screen → screen) — or
-// once, mirrored across the line through _mirror->at at _mirror->angle (screen, radians): strokes, fills and shapes
-// turned over, text and pictures kept the right way round (their boxes where the reflection puts them). Into the
-// camera's frame; _dead (originals: a flip, not a copy) let go in the same undo step; the lasso on the copies, added
-// to what it holds. How many made.
+// A mirror line on screen: through at, at angle (radians).
 typedef struct {
     fude_zoom_v2 at;
     f64          angle;
 } fude_zoom_select_mirror;
+// Puts copies down (Repeat's, in page_measure.c), into the camera's frame. With no _mirror, each of the _n clips is put
+// down _m times, copy k moved by _moves[k] (from the screen to the screen). With _mirror, each is put down once,
+// mirrored across its line: strokes, fills and shapes are turned over, while texts and pictures keep the right way
+// round, their boxes where the reflection puts them. The _dead_n objects in _dead (originals, when it is a flip rather
+// than a copy) are let go in the same undo step. The copies are added to what the lasso holds. A dimension, a circle's
+// size or a connector is joined to the copies of what it was joined to, and an end whose thing was not copied to
+// nothing: a copy never follows the originals. Returns how many objects were made (properties copied with their
+// things included).
 u32  fude_zoom_select_put(fude_zoom_selection* _sel, fude_zoom_scene* _s, const fude_zoom_clip* _clips, u32 _n, const fude_zoom_sim* _moves, u32 _m,
                           const fude_zoom_select_mirror* _mirror, const u32* _dead, u32 _dead_n);
+// Adds things carried along by the press just taken (a container's contents in page_shapes.c: an area's, a Kanban
+// column's) to the selection while the pen is down, after its own picks: they are lifted, move with it and go into its
+// undo step. Does nothing unless a drag is under way. fude_zoom_select_keep then cuts the selection back to its own
+// picks.
 void fude_zoom_select_carry(fude_zoom_selection* _sel, fude_zoom_scene* _s, const u32* _objects, u32 _n);
-// What the lasso holds moved as a drag of it would move it, without the pen (a size typed: page.c's size card):
-// taken hold of (things may be carried then), then let go moved by _drag (screen → screen) — one undo step, the
-// connectors joined to it following.
+// Moves what the lasso holds as a drag would, without the pen (a size typed on page_measure.c's size card).
+// fude_zoom_select_begin takes hold of it (things may be carried then); fude_zoom_select_end lets go of it moved by
+// _drag (from the screen to the screen), as one undo step, with the connectors joined to it following.
 void fude_zoom_select_begin(fude_zoom_selection* _sel, fude_zoom_scene* _s);
 void fude_zoom_select_end(fude_zoom_selection* _sel, fude_zoom_scene* _s, fude_zoom_sim _drag);
+// Cuts the selection back to its first _n picks (after the pen lifts, dropping what was carried).
 void fude_zoom_select_keep(fude_zoom_selection* _sel, const fude_zoom_scene* _s, u32 _n);
 
-// What the selection draws over the canvas: what is lifted (dragged), a glow
-// on what is selected, its box and handles, the loop. After the canvas.
+// Draws the selection over the canvas: what is lifted (being dragged), a glow on what is selected, its box and
+// handles, and the loop. Call it after the canvas is drawn.
 void fude_zoom_select_render(fude_zoom_selection* _sel, fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zoom_v2 _half);
 
-// The page menus' commands (one undo step each that changes the canvas).
+// The page menus' commands follow. Each one that changes the canvas is one undo step.
+// Deletes what is selected (with the wires its parts kept) and lets go of the selection.
 void fude_zoom_select_delete(fude_zoom_selection* _sel, fude_zoom_scene* _s);
-// Arranged (FUDE_ZOOM_ARRANGE_): lined up by their boxes on the selection's
-// own edges or middles, or spread out with even gaps between them (three at
-// least), as the screen has them; their connectors following; one undo step.
+// How fude_zoom_select_arrange lines things up: on the selection's left, centre or right, its top, middle or bottom,
+// or spread across or down it.
 typedef enum {
     FUDE_ZOOM_ARRANGE_LEFT = 0, FUDE_ZOOM_ARRANGE_CENTRE, FUDE_ZOOM_ARRANGE_RIGHT,
     FUDE_ZOOM_ARRANGE_TOP, FUDE_ZOOM_ARRANGE_MIDDLE, FUDE_ZOOM_ARRANGE_BOTTOM,
     FUDE_ZOOM_ARRANGE_ACROSS, FUDE_ZOOM_ARRANGE_DOWN, FUDE_ZOOM_ARRANGE_COUNT
 } FUDE_ZOOM_ARRANGE_;
+// Arranges what is selected as the screen shows it: lines up their boxes on the selection's own edges or middles, or
+// spreads them out with even gaps between them (which needs three at least). Their connectors follow; one undo step.
+// Returns false when nothing moved (fewer than two selected, or a drag under way).
 b8   fude_zoom_select_arrange(fude_zoom_selection* _sel, fude_zoom_scene* _s, FUDE_ZOOM_ARRANGE_ _how);
-// What the lasso holds moved onto layer _layer (copies where they are, the
-// originals let go, connectors joined to them joined again): one undo step,
-// the selection kept (on the copies). How many things moved.
+// Moves what the lasso holds onto layer _layer: copies are made where they are, the originals are let go, and
+// connectors joined to them are joined to the copies. One undo step; the selection stays, on the copies. Returns how
+// many things moved.
 u32  fude_zoom_select_to_layer(fude_zoom_selection* _sel, fude_zoom_scene* _s, u16 _layer);
+// fude_zoom_select_copy puts copies of what is selected on the clipboard, in the order they are drawn, replacing what
+// it held. fude_zoom_select_paste puts the clipboard down centred on _screen. fude_zoom_select_duplicate puts copies
+// down FUDE_ZOOM_SELECT_DUPLICATE points off, as a copy and a paste would, but leaves the clipboard as it was (as
+// Duplicate does in other apps: what was copied can still be pasted after it). fude_zoom_select_all selects
+// everything in the frames _r drew at the camera's depth and below. fude_zoom_select_can_paste returns whether the
+// clipboard holds anything.
 void fude_zoom_select_copy(fude_zoom_selection* _sel, const fude_zoom_scene* _s);
 void fude_zoom_select_paste(fude_zoom_selection* _sel, fude_zoom_scene* _s, rde_vec_2F _screen);
 void fude_zoom_select_duplicate(fude_zoom_selection* _sel, fude_zoom_scene* _s);

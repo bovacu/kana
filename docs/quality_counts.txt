@@ -1,0 +1,9 @@
+# Totals of tools/check/rules.py (docs/coding_rules.md §9). They only ever go down.
+libc-header 0
+libc-call 0
+void-pointer 0
+layer 0
+app-identity 0
+file-size 0
+function-size 0
+undocumented 0

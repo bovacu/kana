@@ -2,18 +2,20 @@
 
 #include "drawing/widgets/row.h"
 #include "drawing/widgets/kit.h"
-#include "drawing/widgets/draw.h"
+#include "drawing/base/draw.h"
 #include "drawing/base/text.h"
-#include "drawing/widgets/icons.h"
-
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
+#include "drawing/base/icons.h"
 
 // ===========================================================================
 // See row.h.
+//
+// Each button's width is kept in widths[] (0 for a button left out or hidden by its face). The row is laid out again
+// only when the room it has changes, or a face changes a width; the More card's items are made once, at create time,
+// for every button, and shown only for those under More.
 // ===========================================================================
 
+// Sizes in UI units: a button's height and its width's bounds, its icon's size, the padding inside the row, the
+// spacing between buttons, and the corner radii of the row and of a button.
 #define FUDE_ROW_BUTTON_H     56.0f
 #define FUDE_ROW_BUTTON_MIN_W 68.0f
 #define FUDE_ROW_BUTTON_MAX_W 136.0f
@@ -22,14 +24,17 @@
 #define FUDE_ROW_SPACING      4.0f
 #define FUDE_ROW_RADIUS       18.0f
 #define FUDE_ROW_BUTTON_ROUND 12.0f
-#define FUDE_ROW_COMPACT_W    84.0f    // a button's width at most, where they do not all fit
-#define FUDE_ROW_ITEM_H       48.0f    // an item in the More card
+#define FUDE_ROW_COMPACT_W    84.0f    // A button's widest, where they do not all fit.
+#define FUDE_ROW_ITEM_H       48.0f    // An item's height in the More card.
+// The narrowest an item of the More card is.
 #define FUDE_ROW_ITEM_MIN_W   200.0f
 
+// Returns a row's height: a button and the padding above and below it.
 f32 fude_row_height(void) {
     return FUDE_ROW_BUTTON_H + 2.0f * FUDE_ROW_PADDING;
 }
 
+// Returns the index of the first button of _def whose press is _press, or FUDE_ROW_NONE.
 u32 fude_row_def_find(const fude_row_def* _def, fude_row_press _press) {
     for(u32 _i = 0; _def != NULL && _i < _def->count; _i++) {
         if(_def->buttons[_i].press == _press) {
@@ -39,18 +44,20 @@ u32 fude_row_def_find(const fude_row_def* _def, fude_row_press _press) {
     return FUDE_ROW_NONE;
 }
 
+// Fills a face's label from the template _text with the count _n.
 void fude_row_face_count(fude_row_face* _face, u32 _text, u32 _n) {
     fude_text_format(_face->label, sizeof(_face->label), (FUDE_TEXT_)_text, (const fude_text_arg[]){ FUDE_TN(_n) }, 1u);
 }
 
+// On the last step, makes the face say Finish with the Finish icon.
 void fude_row_face_next(fude_row_face* _face, b8 _last) {
     if(_last) {
-        snprintf(_face->label, sizeof(_face->label), "%s", fude_text(FUDE_TEXT_FINISH));
+        rde_snprintf(_face->label, sizeof(_face->label), "%s", fude_text(FUDE_TEXT_FINISH));
         _face->icon = FUDE_ICON_FINISH;
     }
 }
 
-// A press: the button's function, then the UI catches up.
+// A button's press: calls its function with the app, the owner and its value, then lets the UI catch up.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_press(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const fude_row_ref*    _ref    = (const fude_row_ref*)_user_data;
@@ -65,19 +72,20 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_press(rde_ui_node* _node, const rd
     return RDE_UI_EVENT_RESULT_DEFAULT;
 }
 
-// One button as its face says: label, icon, whether it can be pressed, its look
-// (chosen, or as declared) — in that order, as each paints the label over the last.
-// How wide a button _label needs; a label ending in a count ("Practice 0") with
-// room for three digits.
+// Returns how wide a button with _label needs to be: the caption's width plus 24, between FUDE_ROW_BUTTON_MIN_W and
+// FUDE_ROW_BUTTON_MAX_W. A label ending in a count ("Practice 0") is measured with room for three digits.
 RDE_INTERNAL f32 fude_row_label_width(const c8* _label) {
     c8          _measure[FUDE_ROW_LABEL + 4];
-    const usize _len          = strlen(_label);
+    const usize _len          = rde_strlen(_label);
     const b8    _count_at_end = _len >= 2 && _label[_len - 1] == '0' && _label[_len - 2] == ' ';
-    snprintf(_measure, sizeof(_measure), _count_at_end ? "%s00" : "%s", _label);
+    rde_snprintf(_measure, sizeof(_measure), _count_at_end ? "%s00" : "%s", _label);
     const f32 _w = fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _measure, FUDE_KIT_CAPTION_PX) + 24.0f;
     return rde_math_clamp_f32(_w, FUDE_ROW_BUTTON_MIN_W, FUDE_ROW_BUTTON_MAX_W);
 }
 
+// Shows button _i as its face says: its label, its icon, whether it can be pressed, then its look (chosen, or as
+// declared). The order matters, because each step paints the label over the one before. Its item in the More card, if
+// any, is set the same way.
 RDE_INTERNAL void fude_row_paint(fude_row* _row, u32 _i) {
     rde_ui_button*         _b    = _row->buttons[_i];
     const fude_row_face*   _face = &_row->shown[_i];
@@ -98,7 +106,7 @@ RDE_INTERNAL void fude_row_paint(fude_row* _row, u32 _i) {
     }
     fude_kit_button_round(_b, FUDE_ROW_BUTTON_ROUND);
 
-    // Its item in the More card: the same label, icon and state.
+    // Its item in the More card: the same label, icon and state, quiet unless chosen.
     rde_ui_button* _item = _row->items[_i];
     if(_item != NULL) {
         rde_ui_button_set_text(_item, _face->label[0] != 0 ? _face->label : _row->base[_i]);
@@ -115,11 +123,13 @@ RDE_INTERNAL void fude_row_paint(fude_row* _row, u32 _i) {
 
 // --- More: the buttons that do not fit ------------------------------------------------------
 
+// Shows or hides the More card.
 RDE_INTERNAL void fude_row_menu_show(fude_row* _row, b8 _open) {
     _row->menu_open = _open;
     fude_kit_modal_show(&_row->menu, _open);
 }
 
+// Closes the More card; false when it was not open.
 b8 fude_row_close_menu(fude_row* _row) {
     if(!_row->menu_open) {
         return false;
@@ -128,7 +138,9 @@ b8 fude_row_close_menu(fude_row* _row) {
     return true;
 }
 
-// The card, over the row's right end: an item a line, those under More only.
+// Opens the More card over the row's right end, kept on screen: one item a line, only for the buttons under More, as
+// wide as the widest label needs (at least FUDE_ROW_ITEM_MIN_W). Nothing before the row has been shown or when no
+// button is under More.
 RDE_INTERNAL void fude_row_menu_open(fude_row* _row) {
     if(_row->_window == NULL) {
         return;
@@ -138,7 +150,7 @@ RDE_INTERNAL void fude_row_menu_open(fude_row* _row) {
     for(u32 _i = 0; _i < FUDE_ROW_BUTTONS; _i++) {
         if(_row->items[_i] != NULL && _row->in_menu[_i]) {
             const c8* _label = _row->shown[_i].label[0] != 0 ? _row->shown[_i].label : _row->base[_i];
-            _w = fmaxf(_w, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _label, FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 72.0f);
+            _w = rde_math_max_f32(_w, fude_draw_text_width(fude_kit_font(), (f32)FUDE_KIT_FONT_SIZE, _label, FUDE_KIT_TEXT_SCALE * (f32)FUDE_KIT_FONT_SIZE) + 72.0f);
             _n++;
         }
     }
@@ -149,7 +161,7 @@ RDE_INTERNAL void fude_row_menu_open(fude_row* _row) {
     const rde_vec_2F _center = fude_kit_clamp(_row->_window, (rde_vec_2F){ _row->center.x + _row->size.x * 0.5f - _size.x * 0.5f,
                                                                             _row->center.y + _row->size.y * 0.5f + FUDE_ROW_SPACING * 2.0f + _size.y * 0.5f }, _size);
     fude_kit_modal_place(&_row->menu, _row->_window, _center, _size);
-    f32 _y = _size.y - FUDE_ROW_PADDING - FUDE_ROW_ITEM_H * 0.5f;   // card-local, from the top
+    f32 _y = _size.y - FUDE_ROW_PADDING - FUDE_ROW_ITEM_H * 0.5f;   // In the card's space, from the top down.
     for(u32 _i = 0; _i < FUDE_ROW_BUTTONS; _i++) {
         if(_row->items[_i] == NULL) {
             continue;
@@ -163,6 +175,7 @@ RDE_INTERNAL void fude_row_menu_open(fude_row* _row) {
     fude_row_menu_show(_row, true);
 }
 
+// More's press: opens the card, or closes it when it is open.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_more(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_row* _row = (fude_row*)_user_data;
@@ -174,23 +187,23 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_more(rde_ui_node* _node, const rde
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
+// A tap on the card's backdrop closes the card.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_menu_dismiss(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_row_menu_show((fude_row*)_user_data, false);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// An item: the card closes, then its button's press (fude_row_on_press).
-RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_press(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+// An item's press: the card closes, then its button's press runs (fude_row_on_press).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_row_on_item(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     const fude_row_ref* _ref = (const fude_row_ref*)_user_data;
     fude_row_menu_show(_ref->row, false);
     return fude_row_on_press(_node, _info, _user_data);
 }
 
-// Laid out in _avail (UI units): every button, or — where they do not all fit —
-// the primary, Back or Close, then what fits in order, at most FUDE_ROW_COMPACT_W
-// each, and More last for the rest.
+// Lays the row out in _avail UI units: every button, or, where they do not all fit (and there are more than two), the
+// primary button and Back or Close first, then what fits in order, each at most FUDE_ROW_COMPACT_W wide, and More last
+// for the rest. Closes the More card, since what it holds may have changed.
 RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
     const u32 _count = _row->def->count < FUDE_ROW_BUTTONS ? _row->def->count : FUDE_ROW_BUTTONS;
     f32       _natural = 2.0f * FUDE_ROW_PADDING;
@@ -203,14 +216,14 @@ RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
             _shown++;
         }
     }
-    memset(_row->in_menu, 0, sizeof(_row->in_menu));
+    rde_memset(_row->in_menu, 0, sizeof(_row->in_menu));
     const b8 _overflow = _natural > _avail && _shown > 2u && _row->more != NULL;
     if(_overflow) {
         b8  _keep[FUDE_ROW_BUTTONS];
-        f32 _left = _avail - 2.0f * FUDE_ROW_PADDING - FUDE_ROW_BUTTON_MIN_W;   // More's room
+        f32 _left = _avail - 2.0f * FUDE_ROW_PADDING - FUDE_ROW_BUTTON_MIN_W;   // Room left once More has its own.
         for(u32 _i = 0; _i < _count; _i++) {
             const fude_row_button* _b = &_row->def->buttons[_i];
-            _w[_i]    = fminf(_w[_i], FUDE_ROW_COMPACT_W);
+            _w[_i]    = rde_math_min_f32(_w[_i], FUDE_ROW_COMPACT_W);
             _keep[_i] = _w[_i] > 0.0f && (_b->look == FUDE_ROW_PRIMARY || _b->text == FUDE_TEXT_BACK || _b->text == FUDE_TEXT_CLOSE);
             if(_keep[_i]) {
                 _left -= _w[_i] + FUDE_ROW_SPACING;
@@ -232,7 +245,7 @@ RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
         if(_row->buttons[_i] == NULL) {
             continue;
         }
-        const b8 _on = _w[_i] > 0.0f && !_row->in_menu[_i];   // (no width: hidden by its face)
+        const b8 _on = _w[_i] > 0.0f && !_row->in_menu[_i];   // No width: hidden by its face.
         rde_ui_node_set_active(rde_ui_button_as_node(_row->buttons[_i]), _on);
         if(_on) {
             fude_kit_place(rde_ui_button_as_node(_row->buttons[_i]), (rde_vec_2F){ _x + _w[_i] * 0.5f, fude_row_height() * 0.5f },
@@ -256,8 +269,11 @@ RDE_INTERNAL void fude_row_layout(fude_row* _row, f32 _avail) {
     }
 }
 
-void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _def, struct fude_app* _app, void* _self, void (*_after)(struct fude_app*)) {
-    memset(_row, 0, sizeof(*_row));
+// Builds the panel and the buttons that are present now (present() is asked only here), each as wide as its label
+// needs; then, for more than two buttons, More and its card with an item for each. Styles everything and leaves the
+// row hidden.
+void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _def, struct fude_app* _app, any _self, void (*_after)(struct fude_app*)) {
+    rde_memset(_row, 0, sizeof(*_row));
     _row->def   = _def;
     _row->app   = _app;
     _row->self  = _self;
@@ -278,11 +294,11 @@ void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _de
         if(_b->counted) {
             fude_text_format(_row->base[_i], sizeof(_row->base[_i]), (FUDE_TEXT_)_b->text, (const fude_text_arg[]){ FUDE_TN(0) }, 1u);
         } else {
-            snprintf(_row->base[_i], sizeof(_row->base[_i]), "%s", fude_text((FUDE_TEXT_)_b->text));
+            rde_snprintf(_row->base[_i], sizeof(_row->base[_i]), "%s", fude_text((FUDE_TEXT_)_b->text));
         }
     }
 
-    // Each button as wide as its label needs.
+    // Make each button as wide as its label needs.
     f32 _total = 2.0f * FUDE_ROW_PADDING + FUDE_ROW_SPACING * (f32)(_shown > 0 ? _shown - 1u : 0u);
     for(u32 _i = 0; _i < _count; _i++) {
         _widths[_i] = 0.0f;
@@ -293,7 +309,7 @@ void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _de
         _total      += _widths[_i];
     }
     _row->size = (rde_vec_2F){ _total, fude_row_height() };
-    memcpy(_row->widths, _widths, sizeof(_row->widths));
+    rde_memcpy(_row->widths, _widths, sizeof(_row->widths));
 
     f32 _x = FUDE_ROW_PADDING;
     for(u32 _i = 0; _i < _count; _i++) {
@@ -306,8 +322,8 @@ void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _de
                        (rde_vec_2F){ _widths[_i], FUDE_ROW_BUTTON_H });
         _x += _widths[_i] + FUDE_ROW_SPACING;
     }
-    // More, for a screen too narrow for them all (a phone), and its card: an item
-    // for each button, shown for those under More. A row of one or two needs none.
+    // More, for a screen too narrow for them all (a phone), and its card: an item for each button, shown for those
+    // under More. A row of one or two buttons needs none.
     if(_shown > 2u) {
         _row->more = fude_kit_button(_node, fude_text(FUDE_TEXT_MORE_MENU), fude_row_on_more, _row);
         rde_ui_node_set_active(rde_ui_button_as_node(_row->more), false);
@@ -324,6 +340,7 @@ void fude_row_create(fude_row* _row, rde_ui_node* _root, const fude_row_def* _de
     rde_ui_node_set_active(_node, false);
 }
 
+// Styles the panel, More and its card, and every button with its face, from the theme.
 void fude_row_restyle(fude_row* _row) {
     fude_kit_style_panel(_row->panel, FUDE_ROW_RADIUS, 1.0f);
     if(_row->more != NULL) {
@@ -339,22 +356,25 @@ void fude_row_restyle(fude_row* _row) {
     }
 }
 
+// Returns whether two faces show the same thing. Icons are compared as pointers, since they are icons.h's constants.
 RDE_INTERNAL b8 fude_row_same_face(const fude_row_face* _a, const fude_row_face* _b) {
-    return _a->icon == _b->icon && _a->disabled == _b->disabled && _a->selected == _b->selected && _a->hidden == _b->hidden && strcmp(_a->label, _b->label) == 0;
+    return _a->icon == _b->icon && _a->disabled == _b->disabled && _a->selected == _b->selected && _a->hidden == _b->hidden && rde_strcmp(_a->label, _b->label) == 0;
 }
 
+// Applies the faces that changed. When a label or a hidden state changes a button's width, the row is laid out again
+// in the same room and kept on screen.
 void fude_row_apply(fude_row* _row, const fude_row_face* _faces) {
     b8 _wider = false;
     for(u32 _i = 0; _i < FUDE_ROW_BUTTONS && _i < _row->def->count; _i++) {
         if(_row->buttons[_i] == NULL || fude_row_same_face(&_faces[_i], &_row->shown[_i])) {
             continue;
         }
-        // A label of its own wider than the button: the button grown to hold it
-        // (never narrower than its own label's; back to that once it is gone).
-        // Hidden: no width at all (laid out as one left out).
-        if(strcmp(_faces[_i].label, _row->shown[_i].label) != 0 || _faces[_i].hidden != _row->shown[_i].hidden) {
+        // A face's label wider than the button grows the button to hold it (never narrower than the button's own
+        // label, and back to that once the face's label is gone). A hidden button has no width at all, so it is laid
+        // out as one left out.
+        if(rde_strcmp(_faces[_i].label, _row->shown[_i].label) != 0 || _faces[_i].hidden != _row->shown[_i].hidden) {
             const f32 _base = fude_row_label_width(_row->base[_i]);
-            const f32 _w    = _faces[_i].hidden ? 0.0f : _faces[_i].label[0] != 0 ? fmaxf(_base, fude_row_label_width(_faces[_i].label)) : _base;
+            const f32 _w    = _faces[_i].hidden ? 0.0f : _faces[_i].label[0] != 0 ? rde_math_max_f32(_base, fude_row_label_width(_faces[_i].label)) : _base;
             if(_w != _row->widths[_i]) {
                 _row->widths[_i] = _w;
                 _wider           = true;
@@ -372,12 +392,15 @@ void fude_row_apply(fude_row* _row, const fude_row_face* _faces) {
     }
 }
 
+// Returns the centre that puts the row across the middle of the bottom, FUDE_KIT_SCREEN_EDGE above the safe area.
 rde_vec_2F fude_row_bottom(const fude_row* _row, rde_window* _window) {
     const rde_vec_2F _screen = fude_kit_screen_size(_window);
-    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+    const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // Left, top, right, bottom.
     return (rde_vec_2F){ _screen.x * 0.5f, (f32)_insets.w + FUDE_KIT_SCREEN_EDGE + _row->size.y * 0.5f };
 }
 
+// Shows the row at _center, kept on screen, laying it out again when the room across the safe area changed; or hides
+// it, closing its card.
 void fude_row_show(fude_row* _row, rde_window* _window, b8 _show, rde_vec_2F _center) {
     if(_row->panel == NULL) {
         return;
@@ -385,14 +408,14 @@ void fude_row_show(fude_row* _row, rde_window* _window, b8 _show, rde_vec_2F _ce
     _row->_window = _window;
     if(_show) {
         const rde_vec_2F _screen = fude_kit_screen_size(_window);
-        const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // left, top, right, bottom
+        const rde_vec_4I _insets = rde_window_get_safe_area_insets(_window);   // Left, top, right, bottom.
         const f32        _avail  = _screen.x - (f32)(_insets.x + _insets.z) - 2.0f * FUDE_KIT_SCREEN_EDGE;
         if(_avail < _row->_laid_for - 0.5f || _avail > _row->_laid_for + 0.5f) {
             fude_row_layout(_row, _avail);
-            _row->open = false;   // placed again below
+            _row->open = false;   // So the panel is placed again below.
         }
         _center = fude_kit_clamp(_window, _center, _row->size);
-        if(!_row->open || memcmp(&_center, &_row->center, sizeof(rde_vec_2F)) != 0) {
+        if(!_row->open || rde_memcmp(&_center, &_row->center, sizeof(rde_vec_2F)) != 0) {
             _row->center = _center;
             fude_kit_place_at(rde_ui_image_as_node(_row->panel), _center, _row->size);
         }
@@ -406,9 +429,10 @@ void fude_row_show(fude_row* _row, rde_window* _window, b8 _show, rde_vec_2F _ce
     }
 }
 
+// Returns whether _ui is on the shown row, or anywhere while its card is open.
 b8 fude_row_hit(const fude_row* _row, rde_vec_2F _ui) {
     if(_row->menu_open) {
-        return true;   // its card's backdrop covers the screen
+        return true;   // The card's backdrop covers the screen.
     }
     return _row->open && _ui.x >= _row->center.x - _row->size.x * 0.5f && _ui.x <= _row->center.x + _row->size.x * 0.5f &&
            _ui.y >= _row->center.y - _row->size.y * 0.5f && _ui.y <= _row->center.y + _row->size.y * 0.5f;

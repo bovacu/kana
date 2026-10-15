@@ -231,7 +231,7 @@ static void test_extents(void) {
     fude_zoom_dxf* d = fude_zoom_dxf_new();
     fude_zoom_dxf_line(d, 0, -5, 2, 10, 3);
     fude_zoom_dxf_circle(d, 0, 20, 0, 5);
-    fude_zoom_dxf_text(d, 0, 3, 7, 2.5, 0, "A");          // its insertion point only
+    fude_zoom_dxf_text(d, 0, 3, 7, 2.5, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, "A");          // its insertion point only
     pairs ps = finish(d);
     int v = header_var(&ps, "$EXTMIN");
     CHECK(v >= 0 && field_is(&ps, v, 10, "-5") && field_is(&ps, v, 20, "-5") && field_is(&ps, v, 30, "0"));
@@ -345,21 +345,25 @@ static void test_arcs(void) {
 static void test_text(void) {
     fude_zoom_dxf* d = fude_zoom_dxf_new();
     const u32 eng = fude_zoom_dxf_layer(d, "engrave", 3);
-    fude_zoom_dxf_text(d, eng, 1, 2, 2.5, 90, "Ok 50% \xC3\xA9 \xE6\x97\xA5 a%%b");
-    fude_zoom_dxf_text(d, eng, 0, 0, 0, -90, "\\U+0041 \\x\tz\n\xF0\x9F\x98\x80");
-    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, "");                 // nothing to engrave
-    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, NULL);
+    fude_zoom_dxf_text(d, eng, 1, 2, 2.5, 90, FUDE_ZOOM_DXF_ALIGN_LEFT, "Ok 50% \xC3\xA9 \xE6\x97\xA5 a%%b");
+    fude_zoom_dxf_text(d, eng, 0, 0, 0, -90, FUDE_ZOOM_DXF_ALIGN_LEFT, "\\U+0041 \\x\tz\n\xF0\x9F\x98\x80");
+    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, "");                 // nothing to engrave
+    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, NULL);
     char longest[401];
     memset(longest, 'x', 400);
     longest[400] = 0;
-    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, longest);
+    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, longest);
     char accents[201];
     for(int i = 0; i < 100; i++) { accents[i * 2] = (char)0xC3; accents[i * 2 + 1] = (char)0xA9; }
     accents[200] = 0;
-    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, accents);
+    fude_zoom_dxf_text(d, eng, 0, 0, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, accents);
+    // Centred and set right: group 72, and the point again as the alignment point; an unknown alignment is left.
+    fude_zoom_dxf_text(d, eng, 4, 5, 3, 0, FUDE_ZOOM_DXF_ALIGN_CENTRE, "Mid");
+    fude_zoom_dxf_text(d, eng, 6, -7, 3, 0, FUDE_ZOOM_DXF_ALIGN_RIGHT, "End");
+    fude_zoom_dxf_text(d, eng, 8, 9, 3, 0, 7, "Odd");
     pairs ps = finish(d);
     int e[8];
-    CHECK(entities(&ps, e, 8) == 4);
+    CHECK(entities(&ps, e, 8) == 7);
     CHECK(strcmp(ps.p[e[0]].value, "TEXT") == 0);
     CHECK(field_is(&ps, e[0], 8, "engrave"));
     CHECK(field_is(&ps, e[0], 1, "Ok 50% \\U+00E9 \\U+65E5 a%%%%b"));
@@ -373,6 +377,11 @@ static void test_text(void) {
     CHECK(t != NULL && strlen(t) == 255 && t[0] == 'x');
     t = field(&ps, e[3], 1);
     CHECK(t != NULL && strlen(t) == 36 * 7 && strncmp(t + 35 * 7, "\\U+00E9", 7) == 0);
+    CHECK(field(&ps, e[0], 72) == NULL && field(&ps, e[0], 11) == NULL);
+    CHECK(field_is(&ps, e[4], 1, "Mid") && field_is(&ps, e[4], 72, "1"));
+    CHECK(field_is(&ps, e[4], 10, "4") && field_is(&ps, e[4], 20, "5") && field_is(&ps, e[4], 11, "4") && field_is(&ps, e[4], 21, "5"));
+    CHECK(field_is(&ps, e[5], 1, "End") && field_is(&ps, e[5], 72, "2") && field_is(&ps, e[5], 11, "6") && field_is(&ps, e[5], 21, "-7"));
+    CHECK(field_is(&ps, e[6], 1, "Odd") && field(&ps, e[6], 72) == NULL && field(&ps, e[6], 11) == NULL);
     pairs_free(&ps);
     fude_zoom_dxf_free(d);
 }
@@ -560,12 +569,13 @@ static void test_preflight(void) {
     fude_zoom_dxf_circle(d, drill, 0.01, 0, 3.02);
     fude_zoom_dxf_circle(d, drill, 0, 0, 3.2);
     fude_zoom_dxf_circle(d, eng, 0, 0, 3);
-    fude_zoom_dxf_text(d, eng, 5, 5, 3, 0, "A1");
-    fude_zoom_dxf_text(d, eng, 5, 5, 3, 360, "A1");
-    fude_zoom_dxf_text(d, eng, 5, 5, 3, 0, "A2");
-    fude_zoom_dxf_text(d, eng, 5, 5, 3, 90, "A1");
+    fude_zoom_dxf_text(d, eng, 5, 5, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, "A1");
+    fude_zoom_dxf_text(d, eng, 5, 5, 3, 360, FUDE_ZOOM_DXF_ALIGN_LEFT, "A1");
+    fude_zoom_dxf_text(d, eng, 5, 5, 3, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, "A2");
+    fude_zoom_dxf_text(d, eng, 5, 5, 3, 90, FUDE_ZOOM_DXF_ALIGN_LEFT, "A1");
+    fude_zoom_dxf_text(d, eng, 5, 5, 3, 0, FUDE_ZOOM_DXF_ALIGN_CENTRE, "A1");   // centred on the point: not the same
     c = fude_zoom_dxf_preflight(d, tiny);
-    CHECK(c.duplicates == 2 && c.open_paths == 0 && c.tiny_segments == 0 && c.entities == 8);
+    CHECK(c.duplicates == 2 && c.open_paths == 0 && c.tiny_segments == 0 && c.entities == 9);
     fude_zoom_dxf_free(d);
 
     // Nothing, and no drawing.
@@ -600,8 +610,10 @@ static void write_sample(void) {
     fude_zoom_dxf_line(d, cut, 60, 40, 20, 40);
     fude_zoom_dxf_arc(d, cut, 20, 30, 10, 90, 270);
     for(int i = 0; i < 4; i++) fude_zoom_dxf_circle(d, drill, 10 + (i % 2) * 180, 10 + (i / 2) * 100, 2.5);
-    fude_zoom_dxf_text(d, eng, 120, 60, 8, 0, "Shelf 50% \xC3\xA9");
-    fude_zoom_dxf_text(d, eng, 150, 20, 5, 90, "\xE6\x97\xA5\xE6\x9C\xAC");
+    fude_zoom_dxf_text(d, eng, 120, 60, 8, 0, FUDE_ZOOM_DXF_ALIGN_LEFT, "Shelf 50% \xC3\xA9");
+    fude_zoom_dxf_text(d, eng, 150, 20, 5, 90, FUDE_ZOOM_DXF_ALIGN_LEFT, "\xE6\x97\xA5\xE6\x9C\xAC");
+    fude_zoom_dxf_text(d, eng, 50, 100, 6, 0, FUDE_ZOOM_DXF_ALIGN_CENTRE, "Left side");
+    fude_zoom_dxf_text(d, eng, 195, 100, 6, 0, FUDE_ZOOM_DXF_ALIGN_RIGHT, "Right side");
     fude_bytes b = fude_bytes_new(4096);
     CHECK(fude_zoom_dxf_finish(d, &b));
     FILE* f = fopen("sample.dxf", "wb");

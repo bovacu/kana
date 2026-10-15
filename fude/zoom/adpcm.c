@@ -2,21 +2,31 @@
 
 #include "zoom/adpcm.h"
 
-#include <string.h>
+// ===========================================================================
+// See adpcm.h.
+//
+// The standard IMA ADPCM tables and arithmetic, so the blocks are what any WAV reader expects. Its helpers are fza_.
+// The encoder works out each sample's nibble and then steps its predictor with the decoder's own sum (fza_apply), so
+// the two never drift apart.
+// ===========================================================================
 
+// IMA ADPCM's 89 step sizes, indexed by the step index (0 to 88).
 static const i16 FZA_STEPS[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143,
     157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552,
     1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487,
     12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
 };
+// How each nibble moves the step index: down one for a small change, up 2 to 8 for a large one (the sign bit is
+// ignored).
 static const i8 FZA_MOVES[16] = { -1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8 };
 
+// Returns _v kept between _lo and _hi.
 RDE_INTERNAL i32 fza_clamp(i32 _v, i32 _lo, i32 _hi) {
     return _v < _lo ? _lo : _v > _hi ? _hi : _v;
 }
 
-// A nibble's step from the predictor (the decoder's sum, exactly as it does it).
+// Returns the predictor moved by a nibble at step index _index: the decoder's sum, which the encoder uses too.
 RDE_INTERNAL i32 fza_apply(i32 _predictor, i32 _index, u8 _nibble) {
     const i32 _step = FZA_STEPS[_index];
     i32 _diff = _step >> 3;
@@ -26,8 +36,10 @@ RDE_INTERNAL i32 fza_apply(i32 _predictor, i32 _index, u8 _nibble) {
     return fza_clamp((_nibble & 8u) ? _predictor - _diff : _predictor + _diff, -32768, 32767);
 }
 
+// See adpcm.h. Each nibble is the difference from the predictor in steps: the sign in bit 3, then a step, half a step
+// and a quarter step.
 void fude_zoom_adpcm_encode(fude_zoom_adpcm_state* _state, const i16* _in, u32 _frames, u8* _out) {
-    memset(_out, 0, FUDE_ZOOM_ADPCM_BLOCK);
+    rde_memset(_out, 0, FUDE_ZOOM_ADPCM_BLOCK);
     if(_frames == 0u) {
         return;
     }
@@ -59,6 +71,7 @@ void fude_zoom_adpcm_encode(fude_zoom_adpcm_state* _state, const i16* _in, u32 _
     _state->index = _index;
 }
 
+// See adpcm.h. A step index in the header past 88 is taken as 88.
 void fude_zoom_adpcm_decode(const u8* _in, i16* _out) {
     i32 _predictor = (i16)((u16)_in[0] | ((u16)_in[1] << 8));
     i32 _index     = fza_clamp((i32)_in[2], 0, 88);

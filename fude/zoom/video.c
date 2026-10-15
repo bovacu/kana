@@ -3,10 +3,12 @@
 #include "zoom/video.h"
 
 // ===========================================================================
-// See video.h. Here: the colour conversion every encoder side may use, and
-// (neither Apple's nor Android's) no video at all.
+// See video.h. Here: the colour conversion any platform's encoder may use (Android's does), and, on a platform that is
+// neither Apple's nor Android's, the functions that make no video at all.
 // ===========================================================================
 
+// See video.h. The full-size Y plane first, then each 2 × 2 block's U and V from the block's average colour. The
+// integer BT.601 sums round with + 128 before the shift. Alpha is ignored.
 void fude_zoom_video_i420(const u8* _rgba, u32 _width, u32 _height, u32 _stride, u8* _out) {
     u8* _y = _out;
     u8* _u = _out + (usize)_width * _height;
@@ -36,20 +38,26 @@ void fude_zoom_video_i420(const u8* _rgba, u32 _width, u32 _height, u32 _stride,
 
 #if !defined(__APPLE__) && !defined(RDE_PLATFORM_ANDROID)
 
+// --- no encoder: every call fails ------------------------------------------------------------------------------
+
+// False: there is no encoder here.
 b8 fude_zoom_video_available(void) {
     return false;
 }
 
+// Returns NULL: no video can be begun.
 fude_zoom_video* fude_zoom_video_open(const c8* _path, u32 _width, u32 _height, u32 _fps) {
     RDE_UNUSED(_path); RDE_UNUSED(_width); RDE_UNUSED(_height); RDE_UNUSED(_fps);
     return NULL;
 }
 
+// Returns false; no video is ever open here.
 b8 fude_zoom_video_add(fude_zoom_video* _v, const u8* _rgba, u32 _stride) {
     RDE_UNUSED(_v); RDE_UNUSED(_rgba); RDE_UNUSED(_stride);
     return false;
 }
 
+// Returns false; no video is ever open here.
 b8 fude_zoom_video_close(fude_zoom_video* _v, b8 _keep) {
     RDE_UNUSED(_v); RDE_UNUSED(_keep);
     return false;

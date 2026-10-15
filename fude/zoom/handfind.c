@@ -2,21 +2,24 @@
 
 #include "zoom/handfind.h"
 
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-
 // ===========================================================================
 // See handfind.h.
+//
+// fude_zoom_hand_lines works one frame at a time: the pen strokes shown are sorted by frame and then by z (the order
+// drawn), so each frame's strokes are one run. In a run, each stroke is joined to the strokes beside it (found through
+// the frame's R-tree) in a disjoint set; then each set becomes a line, its strokes gathered by sorting (set, place)
+// pairs. The file's own names start with fude_zoom_hand_.
 // ===========================================================================
 
+// A pen stroke being sorted: its object index in the scene, its frame and its z (the order drawn).
 typedef struct {
     u32 object;
     u32 frame;
     u64 z;
 } fude_zoom_hand_stroke;
 
-RDE_INTERNAL int fude_zoom_hand_by_frame(const void* _a, const void* _b) {
+// rde_sort's order for fude_zoom_hand_stroke: by frame, then by z.
+RDE_INTERNAL int fude_zoom_hand_by_frame(const any _a, const any _b) {
     const fude_zoom_hand_stroke* _x = (const fude_zoom_hand_stroke*)_a;
     const fude_zoom_hand_stroke* _y = (const fude_zoom_hand_stroke*)_b;
     if(_x->frame != _y->frame) {
@@ -25,40 +28,37 @@ RDE_INTERNAL int fude_zoom_hand_by_frame(const void* _a, const void* _b) {
     return _x->z < _y->z ? -1 : (_x->z > _y->z ? 1 : 0);
 }
 
-RDE_INTERNAL int fude_zoom_hand_f64(const void* _a, const void* _b) {
+// rde_sort's order for f64, ascending.
+RDE_INTERNAL int fude_zoom_hand_f64(const any _a, const any _b) {
     const f64 _x = *(const f64*)_a, _y = *(const f64*)_b;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
-RDE_INTERNAL int fude_zoom_hand_u64(const void* _a, const void* _b) {
+// rde_sort's order for u64, ascending.
+RDE_INTERNAL int fude_zoom_hand_u64(const any _a, const any _b) {
     const u64 _x = *(const u64*)_a, _y = *(const u64*)_b;
     return _x < _y ? -1 : (_x > _y ? 1 : 0);
 }
 
-RDE_INTERNAL int fude_zoom_hand_pair(const void* _a, const void* _b) {
+// rde_sort's order for a (group, place) pair of u32: by group, then by place.
+RDE_INTERNAL int fude_zoom_hand_pair(const any _a, const any _b) {
     const u32* _x = (const u32*)_a;
     const u32* _y = (const u32*)_b;
     return _x[0] != _y[0] ? (_x[0] < _y[0] ? -1 : 1) : (_x[1] < _y[1] ? -1 : (_x[1] > _y[1] ? 1 : 0));
 }
 
-RDE_INTERNAL u32 fude_zoom_hand_root(u32* _up, u32 _i) {
-    while(_up[_i] != _i) {
-        _up[_i] = _up[_up[_i]];
-        _i      = _up[_i];
-    }
-    return _i;
-}
-
-// Two strokes' boxes along one line of writing?
+// Returns whether two strokes' boxes sit along one line of writing, _h being the frame's usual stroke height: level
+// (overlapping up and down by a quarter of the smaller, or middles within 0.6 _h) and no more than _h apart across.
 RDE_INTERNAL b8 fude_zoom_hand_beside(fude_zoom_box _a, fude_zoom_box _b, f64 _h) {
     const f64 _ha = _a.max_y - _a.min_y, _hb = _b.max_y - _b.min_y;
-    const f64 _over = fmin(_a.max_y, _b.max_y) - fmax(_a.min_y, _b.min_y);
-    const f64 _mid  = fabs((_a.min_y + _a.max_y) - (_b.min_y + _b.max_y)) * 0.5;
-    const b8  _level = _over >= 0.25 * fmin(_ha, _hb) || _mid <= 0.6 * _h;
-    const f64 _gap  = fmax(_a.min_x, _b.min_x) - fmin(_a.max_x, _b.max_x);   // (< 0: they overlap across)
+    const f64 _over = rde_math_min_f64(_a.max_y, _b.max_y) - rde_math_max_f64(_a.min_y, _b.min_y);
+    const f64 _mid  = rde_math_abs_f64((_a.min_y + _a.max_y) - (_b.min_y + _b.max_y)) * 0.5;
+    const b8  _level = _over >= 0.25 * rde_math_min_f64(_ha, _hb) || _mid <= 0.6 * _h;
+    const f64 _gap  = rde_math_max_f64(_a.min_x, _b.min_x) - rde_math_min_f64(_a.max_x, _b.max_x);   // (< 0: they overlap across)
     return _level && _gap <= _h;
 }
 
+// See the header. Every scratch array is on the std allocator and freed before returning.
 u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _strokes) {
     rde_arr_clear(_lines);
     rde_arr_clear(_strokes);
@@ -78,18 +78,16 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
     const u32 _n = (u32)rde_arr_length(&_all);
     fude_zoom_hand_stroke* _st = (fude_zoom_hand_stroke*)_all.memory;
     if(_n > 1u) {
-        qsort(_st, _n, sizeof(fude_zoom_hand_stroke), fude_zoom_hand_by_frame);
+        rde_sort(_st, _n, sizeof(fude_zoom_hand_stroke), fude_zoom_hand_by_frame);
     }
     rde_arr TYPE(u32) _at_arr    = rde_arr_new(sizeof(u32), _heap);   // an object's place in _st (or none)
-    rde_arr TYPE(u32) _up_arr    = rde_arr_new(sizeof(u32), _heap);
+    rde_disjoint_set  _lines_of  = rde_disjoint_set_new(_n, _heap);    // strokes joined into lines of writing
     rde_arr TYPE(f64) _hs_arr    = rde_arr_new(sizeof(f64), _heap);
     rde_arr TYPE(b8)  _write_arr = rde_arr_new(sizeof(b8), _heap);
     rde_arr_resize(&_at_arr, _n > 0u ? _total : 0u);
-    rde_arr_resize(&_up_arr, _n);
     rde_arr_resize(&_hs_arr, _n);
     rde_arr_resize(&_write_arr, _n);
     u32* _at    = (u32*)_at_arr.memory;   // (sized once: they stay put)
-    u32* _up    = (u32*)_up_arr.memory;
     f64* _hs    = (f64*)_hs_arr.memory;
     b8*  _write = (b8*)_write_arr.memory;
     rde_arr _found = rde_arr_new(sizeof(u32), _heap);
@@ -100,7 +98,6 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
         }
         for(u32 _i = 0; _i < _n; _i++) {
             _at[_st[_i].object] = _i;
-            _up[_i] = _i;
         }
     }
     for(u32 _from = 0; _from < _n;) {
@@ -118,12 +115,12 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
         }
         f64 _h = 0.0;
         if(_k > 0u) {
-            qsort(_hs, _k, sizeof(f64), fude_zoom_hand_f64);
+            rde_sort(_hs, _k, sizeof(f64), fude_zoom_hand_f64);
             _h = _hs[_k / 2u];
         }
         for(u32 _i = _from; _i < _to; _i++) {
             const fude_zoom_box _b = fude_zoom_scene_object(_s, _st[_i].object)->box;
-            _write[_i] = _h > 0.0 && fmax(_b.max_x - _b.min_x, _b.max_y - _b.min_y) <= FUDE_ZOOM_HAND_TALL * _h;
+            _write[_i] = _h > 0.0 && rde_math_max_f64(_b.max_x - _b.min_x, _b.max_y - _b.min_y) <= FUDE_ZOOM_HAND_TALL * _h;
         }
         // Joined to those beside it along a line.
         for(u32 _i = _from; _i < _to && _h > 0.0; _i++) {
@@ -139,26 +136,25 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
                 if(_j == FUDE_ZOOM_NONE || _j == _i || !_write[_j] || !fude_zoom_hand_beside(_b, fude_zoom_scene_object(_s, _o)->box, _h)) {
                     continue;
                 }
-                const u32 _ri = fude_zoom_hand_root(_up, _i), _rj = fude_zoom_hand_root(_up, _j);
-                if(_ri != _rj) {
-                    _up[_ri > _rj ? _ri : _rj] = _ri > _rj ? _rj : _ri;
-                }
+                rde_disjoint_set_union(&_lines_of, _i, _j);   // (a line is named by its smallest place)
             }
         }
-        // Each group a line: its strokes in the order drawn (the pairs sorted by group, then by place: _st's order), its box and key.
+        // Each group a line: its strokes in the order drawn (the pairs sorted by group, then by place: _st's
+        // order), its box and key.
         u32 _m = 0;
         rde_arr_resize(&_pairs_arr, _h > 0.0 ? (_to - _from) * 2u : 0u);
         u32* _pairs = (u32*)_pairs_arr.memory;
         for(u32 _i = _from; _i < _to && _h > 0.0; _i++) {
             if(_write[_i]) {
-                _pairs[2u * _m]      = fude_zoom_hand_root(_up, _i);
+                _pairs[2u * _m]      = rde_disjoint_set_find(&_lines_of, _i);
                 _pairs[2u * _m + 1u] = _i;
                 _m++;
             }
         }
         if(_m > 1u) {
-            qsort(_pairs, _m, 2u * sizeof(u32), fude_zoom_hand_pair);
+            rde_sort(_pairs, _m, 2u * sizeof(u32), fude_zoom_hand_pair);
         }
+        // A line's strokes' ids, sorted for its key.
         rde_arr _ids = rde_arr_new(sizeof(u64), _heap);
         for(u32 _g = 0; _g < _m;) {
             u32 _e = _g;
@@ -174,16 +170,8 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
                 rde_arr_add(&_ids, (any)&_o->id);
                 _line.box = fude_zoom_box_union(_line.box, _o->box);
             }
-            qsort(_ids.memory, _line.count, sizeof(u64), fude_zoom_hand_u64);
-            u64 _key = 14695981039346656037ull;
-            for(u32 _j = 0; _j < _line.count; _j++) {
-                const u64 _id = ((const u64*)_ids.memory)[_j];
-                for(u32 _b = 0; _b < 8u; _b++) {
-                    _key ^= (_id >> (8u * _b)) & 0xFFu;
-                    _key *= 1099511628211ull;
-                }
-            }
-            _line.key = _key;
+            rde_sort(_ids.memory, _line.count, sizeof(u64), fude_zoom_hand_u64);
+            _line.key = rde_hash_64(_ids.memory, (usize)_line.count * sizeof(u64));   // (its strokes, sorted: handfind.h)
             rde_arr_add(_lines, (any)&_line);
             _g = _e;
         }
@@ -194,7 +182,7 @@ u32 fude_zoom_hand_lines(const fude_zoom_scene* _s, rde_arr* _lines, rde_arr* _s
     rde_arr_free(&_found);
     rde_arr_free(&_all);
     rde_arr_free(&_at_arr);
-    rde_arr_free(&_up_arr);
+    rde_disjoint_set_free(&_lines_of);
     rde_arr_free(&_hs_arr);
     rde_arr_free(&_write_arr);
     return (u32)rde_arr_length(_lines);

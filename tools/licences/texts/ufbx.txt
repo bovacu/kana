@@ -1,0 +1,5 @@
+TODO (owner): RDE's copy of ufbx 0.21.3 (inside ~/RDE/external/include/
+external.h) has no licence text and no copyright line, so neither is given
+here. Copy the licence from the end of ufbx.h of that release
+(https://github.com/ufbx/ufbx), verbatim, into tools/licences/texts/ufbx.txt,
+in place of this paragraph, and run python3 tools/licences/build.py again.

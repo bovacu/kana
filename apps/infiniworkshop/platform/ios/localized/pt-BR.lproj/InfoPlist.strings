@@ -1,3 +1,4 @@
 /* The camera prompt (scanning pages to draw on), in pt-BR. UTF-8. */
 "NSCameraUsageDescription" = "O InfiniWorkshop digitaliza páginas com a câmera para você desenhar sobre elas.";
 "CFBundleDisplayName" = "InfiniWorkshop";
+"NSPhotoLibraryAddUsageDescription" = "O InfiniWorkshop salva na sua biblioteca de fotos as imagens e os vídeos que você exporta.";

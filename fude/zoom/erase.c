@@ -6,20 +6,30 @@
 #include "zoom/fill.h"
 #include "zoom/circuit.h"
 
-#include <math.h>
-#include <string.h>
-
 // ===========================================================================
-// See erase.h. A stroke's centreline is walked by one parameter u, from 0 at
-// its first point to count−1 at its last: point i at u = i, and between points
-// i and i+1 the straight segment, at u = i + t.
+// See erase.h.
+//
+// A stroke's centreline is walked by one parameter u, from 0 at its first point to count − 1 at its last: point i is
+// at u = i, and between points i and i + 1 lies the straight segment, at u = i + t (fude_zoom_walk). A cut keeps
+// stretches of u, and each kept stretch becomes a stroke of its own (fude_zoom_erase_piece).
+//
+// The file goes: the eraser's life; segment geometry; the walk along a stroke; making pieces and taking objects (the
+// sweep's died and born lists, which become its one undo step); the three modes on a stroke; shapes and fills; then
+// fude_zoom_erase_step, which sends each object the eraser reaches to its case, and fude_zoom_erase_end. Its names are
+// fude_zoom_erase_, the walk's fude_zoom_walk_, and the plain geometry's fude_zoom_dist2_ and fude_zoom_segments_.
+//
+// Anything made during a sweep and cut again in it is discarded rather than taken (fude_zoom_erase_take), so only
+// what was there before the sweep and what is left at its end reach the history. A stroke's pieces and a cut fill are
+// made in the object's own quanta, or finer by a power of two where the eraser works finer, so the points kept stay
+// whole numbers on their grid, and never so fine that a coordinate outgrows 32 bits.
 // ===========================================================================
 
 #define FUDE_ZOOM_ERASE_SAMPLES 1024u   // samples a segment, at most
 #define FUDE_ZOOM_ERASE_BISECT  12u     // halvings to find where a cut is
 
+// See erase.h.
 void fude_zoom_eraser_init(fude_zoom_eraser* _e) {
-    memset(_e, 0, sizeof(*_e));
+    rde_memset(_e, 0, sizeof(*_e));
     rde_memory_allocator* _heap = rde_memory_allocator_get_default_std();
     _e->died   = rde_arr_new(sizeof(u32), _heap);
     _e->born   = rde_arr_new(sizeof(u32), _heap);
@@ -41,6 +51,7 @@ RDE_INTERNAL void fude_zoom_erase_fills_clear(fude_zoom_eraser* _e) {
     rde_arr_clear(&_e->fills);
 }
 
+// See erase.h. Safe on an eraser that was never set up.
 void fude_zoom_eraser_destroy(fude_zoom_eraser* _e) {
     fude_zoom_erase_fills_clear(_e);
     rde_arr* _arrays[] = { &_e->died, &_e->born, &_e->found, &_e->points, &_e->fills };
@@ -49,9 +60,10 @@ void fude_zoom_eraser_destroy(fude_zoom_eraser* _e) {
             rde_arr_free(_arrays[_i]);
         }
     }
-    memset(_e, 0, sizeof(*_e));
+    rde_memset(_e, 0, sizeof(*_e));
 }
 
+// See erase.h. Forgets what the last sweep did.
 void fude_zoom_erase_begin(fude_zoom_eraser* _e, FUDE_ZOOM_ERASE_ _mode) {
     _e->mode = (u8)_mode;
     _e->open = true;
@@ -61,26 +73,15 @@ void fude_zoom_erase_begin(fude_zoom_eraser* _e, FUDE_ZOOM_ERASE_ _mode) {
 }
 
 // --- geometry ----------------------------------------------------------------------------
-
-RDE_INTERNAL f64 fude_zoom_dist2_point_segment(fude_zoom_v2 _p, fude_zoom_v2 _a, fude_zoom_v2 _b) {
-    const f64 _dx = _b.x - _a.x, _dy = _b.y - _a.y;
-    const f64 _len2 = _dx * _dx + _dy * _dy;
-    f64 _t = _len2 > 0.0 ? ((_p.x - _a.x) * _dx + (_p.y - _a.y) * _dy) / _len2 : 0.0;
-    _t = _t < 0.0 ? 0.0 : (_t > 1.0 ? 1.0 : _t);
-    const f64 _ex = _a.x + _dx * _t - _p.x, _ey = _a.y + _dy * _t - _p.y;
-    return _ex * _ex + _ey * _ey;
-}
-
-RDE_INTERNAL f64 fude_zoom_cross(fude_zoom_v2 _o, fude_zoom_v2 _a, fude_zoom_v2 _b) {
-    return (_a.x - _o.x) * (_b.y - _o.y) - (_a.y - _o.y) * (_b.x - _o.x);
-}
+// The squared distance from a point to a segment is rde_math's (rde_math_point_segment_distance_sq_2d_f64: to the
+// segment's start when it has no length).
 
 // Where segment p0-p1 crosses q0-q1, as the share along p (false: they don't).
 RDE_INTERNAL b8 fude_zoom_segments_cross(fude_zoom_v2 _p0, fude_zoom_v2 _p1, fude_zoom_v2 _q0, fude_zoom_v2 _q1, f64* _t) {
     const f64 _rx = _p1.x - _p0.x, _ry = _p1.y - _p0.y;
     const f64 _sx = _q1.x - _q0.x, _sy = _q1.y - _q0.y;
     const f64 _den = _rx * _sy - _ry * _sx;
-    if(fabs(_den) <= 1e-300) {
+    if(rde_math_abs_f64(_den) <= 1e-300) {
         return false;
     }
     const f64 _qx = _q0.x - _p0.x, _qy = _q0.y - _p0.y;
@@ -93,28 +94,34 @@ RDE_INTERNAL b8 fude_zoom_segments_cross(fude_zoom_v2 _p0, fude_zoom_v2 _p1, fud
     return true;
 }
 
+// Returns the squared distance between segments _p0-_p1 and _q0-_q1: 0 when they cross, else the least of each end's
+// distance to the other segment.
 RDE_INTERNAL f64 fude_zoom_dist2_segments(fude_zoom_v2 _p0, fude_zoom_v2 _p1, fude_zoom_v2 _q0, fude_zoom_v2 _q1) {
     f64 _t;
     if(fude_zoom_segments_cross(_p0, _p1, _q0, _q1, &_t)) {
         return 0.0;
     }
-    f64 _d = fude_zoom_dist2_point_segment(_p0, _q0, _q1);
-    f64 _e = fude_zoom_dist2_point_segment(_p1, _q0, _q1);
+    f64 _d = rde_math_point_segment_distance_sq_2d_f64(_p0, _q0, _q1);
+    f64 _e = rde_math_point_segment_distance_sq_2d_f64(_p1, _q0, _q1);
     _d = _e < _d ? _e : _d;
-    _e = fude_zoom_dist2_point_segment(_q0, _p0, _p1);
+    _e = rde_math_point_segment_distance_sq_2d_f64(_q0, _p0, _p1);
     _d = _e < _d ? _e : _d;
-    _e = fude_zoom_dist2_point_segment(_q1, _p0, _p1);
+    _e = rde_math_point_segment_distance_sq_2d_f64(_q1, _p0, _p1);
     return _e < _d ? _e : _d;
 }
 
 // --- a stroke, walked -----------------------------------------------------------------------
 
+// A stroke being walked (see the top of this file): the object (a copy, as the scene's table may move), its points,
+// and how many.
 typedef struct {
     const fude_zoom_object* o;
     const fude_zoom_qpoint* q;
     u32                     n;
 } fude_zoom_walk;
 
+// Returns the centreline's point at u, in the frame's units; the radius, pressure and time there go into those that
+// are not NULL, each interpolated along the segment. A u past the last segment is taken along it.
 RDE_INTERNAL fude_zoom_v2 fude_zoom_walk_at(const fude_zoom_walk* _w, f64 _u, f32* _radius, f32* _pressure, f32* _time) {
     if(_w->n == 1u) {
         if(_radius != NULL) { *_radius = fude_zoom_scene_radius_at(_w->o, &_w->q[0]); }
@@ -122,7 +129,7 @@ RDE_INTERNAL fude_zoom_v2 fude_zoom_walk_at(const fude_zoom_walk* _w, f64 _u, f3
         if(_time != NULL) { *_time = (f32)_w->q[0].time; }
         return fude_zoom_scene_point_at(_w->o, &_w->q[0]);
     }
-    u32 _i = (u32)floor(_u);
+    u32 _i = (u32)rde_math_floor_f64(_u);
     if(_i > _w->n - 2u) {
         _i = _w->n - 2u;
     }
@@ -143,11 +150,13 @@ RDE_INTERNAL fude_zoom_v2 fude_zoom_walk_at(const fude_zoom_walk* _w, f64 _u, f3
     return (fude_zoom_v2){ _a.x + (_b.x - _a.x) * _t, _a.y + (_b.y - _a.y) * _t };
 }
 
+// True when the stroke at u is under the eraser: the centreline's point there within the eraser's radius plus the
+// stroke's own radius of segment _a-_b.
 RDE_INTERNAL b8 fude_zoom_walk_erased(const fude_zoom_walk* _w, f64 _u, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _r) {
     f32 _radius;
     const fude_zoom_v2 _p     = fude_zoom_walk_at(_w, _u, &_radius, NULL, NULL);
     const f64          _reach = _r + (f64)_radius;
-    return fude_zoom_dist2_point_segment(_p, _a, _b) < _reach * _reach;
+    return rde_math_point_segment_distance_sq_2d_f64(_p, _a, _b) < _reach * _reach;
 }
 
 // Does the eraser (a-b, radius _r) touch the stroke anywhere?
@@ -167,23 +176,24 @@ RDE_INTERNAL b8 fude_zoom_walk_touched(const fude_zoom_walk* _w, fude_zoom_v2 _a
     return false;
 }
 
+// Returns the centreline's length from u = _u0 to u = _u1.
 RDE_INTERNAL f64 fude_zoom_walk_length(const fude_zoom_walk* _w, f64 _u0, f64 _u1) {
     f64          _len  = 0.0;
     fude_zoom_v2 _prev = fude_zoom_walk_at(_w, _u0, NULL, NULL, NULL);
-    for(u32 _i = (u32)floor(_u0) + 1u; (f64)_i < _u1; _i++) {
+    for(u32 _i = (u32)rde_math_floor_f64(_u0) + 1u; (f64)_i < _u1; _i++) {
         const fude_zoom_v2 _p = fude_zoom_scene_point_at(_w->o, &_w->q[_i]);
-        _len += hypot(_p.x - _prev.x, _p.y - _prev.y);
+        _len += rde_math_hypot_f64(_p.x - _prev.x, _p.y - _prev.y);
         _prev = _p;
     }
     const fude_zoom_v2 _end = fude_zoom_walk_at(_w, _u1, NULL, NULL, NULL);
-    return _len + hypot(_end.x - _prev.x, _end.y - _prev.y);
+    return _len + rde_math_hypot_f64(_end.x - _prev.x, _end.y - _prev.y);
 }
 
 // --- pieces ----------------------------------------------------------------------------------
 
 // A point of the stroke as drawn (before its rotation and scale), at u.
 RDE_INTERNAL fude_zoom_v2 fude_zoom_walk_local_at(const fude_zoom_walk* _w, f64 _u, f32* _pressure, f32* _time) {
-    u32 _i = (u32)floor(_u);
+    u32 _i = (u32)rde_math_floor_f64(_u);
     if(_w->n == 1u || _i > _w->n - 2u) {
         _i = _w->n == 1u ? 0u : _w->n - 2u;
     }
@@ -210,21 +220,21 @@ RDE_INTERNAL u32 fude_zoom_erase_piece(fude_zoom_scene* _s, fude_zoom_eraser* _e
     // are (a stroke drawn far out, erased deep in: its cut ends where the eraser
     // was, an eighth of a pixel). A power of two finer, so its own points stay
     // whole; never so fine its numbers outgrow 32 bits.
-    const f64 _extent = fmax(_o.box.max_x - _o.box.min_x, _o.box.max_y - _o.box.min_y) / (_o.scale > 0.0 ? _o.scale : 1.0);
-    i32       _qp     = (i32)floor(log2(fmax(_min_len / (_o.scale > 0.0 ? _o.scale : 1.0), 1e-300) / 8.0));
+    const f64 _extent = rde_math_max_f64(_o.box.max_x - _o.box.min_x, _o.box.max_y - _o.box.min_y) / (_o.scale > 0.0 ? _o.scale : 1.0);
+    i32       _qp     = (i32)rde_math_floor_f64(rde_math_log2_f64(rde_math_max_f64(_min_len / (_o.scale > 0.0 ? _o.scale : 1.0), 1e-300) / 8.0));
     _qp = _qp > _o.q ? _o.q : _qp;
-    const i32 _qmin = (i32)ceil(log2(fmax(_extent, 1e-300) / 1073741824.0));
+    const i32 _qmin = (i32)rde_math_ceil_f64(rde_math_log2_f64(rde_math_max_f64(_extent, 1e-300) / 1073741824.0));
     _qp = _qp < _qmin ? _qmin : _qp;
     _qp = _qp > _o.q ? _o.q : _qp;
-    const f64 _grid = ldexp(1.0, _qp);
+    const f64 _grid = rde_math_ldexp_f64(1.0, _qp);
 
     f32 _p0p, _p0t;
     const fude_zoom_v2 _l0   = fude_zoom_walk_local_at(_w, _u0, &_p0p, &_p0t);
-    const fude_zoom_v2 _from = { round(_l0.x / _grid) * _grid, round(_l0.y / _grid) * _grid };
+    const fude_zoom_v2 _from = { rde_math_round_f64(_l0.x / _grid) * _grid, rde_math_round_f64(_l0.y / _grid) * _grid };
 
     rde_arr* _pts = &_e->points;
     rde_arr_clear(_pts);
-    const u32 _first = (u32)floor(_u0) + 1u;
+    const u32 _first = (u32)rde_math_floor_f64(_u0) + 1u;
     for(i32 _k = -1; ; _k++) {
         fude_zoom_v2 _p;
         f32          _pr, _tm;
@@ -245,7 +255,7 @@ RDE_INTERNAL u32 fude_zoom_erase_piece(fude_zoom_scene* _s, fude_zoom_eraser* _e
             }
         }
         const fude_zoom_qpoint _q = {
-            (i32)llround((_p.x - _from.x) / _grid), (i32)llround((_p.y - _from.y) / _grid),
+            (i32)rde_math_round_to_i64_f64((_p.x - _from.x) / _grid), (i32)rde_math_round_to_i64_f64((_p.y - _from.y) / _grid),
             (u16)(_pr < 0.0f ? 0.0f : (_pr > 1023.0f ? 1023.0f : _pr + 0.5f)),
             (u32)(_tm - _p0t < 0.0f ? 0.0f : _tm - _p0t + 0.5f),
         };
@@ -270,7 +280,7 @@ RDE_INTERNAL void fude_zoom_erase_take(fude_zoom_scene* _s, fude_zoom_eraser* _e
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_e->born); _i++) {
         if(_born[_i] == _object) {
             _born[_i] = _born[rde_arr_length(&_e->born) - 1u];
-            _e->born.count--;
+            rde_arr_remove(&_e->born, rde_arr_length(&_e->born) - 1u);
             fude_zoom_scene_discard(_s, _object);
             return;
         }
@@ -313,8 +323,8 @@ RDE_INTERNAL void fude_zoom_erase_partial(fude_zoom_scene* _s, fude_zoom_eraser*
     for(u32 _i = 0; _i + 1u < _w->n; _i++) {
         const fude_zoom_v2 _p0 = fude_zoom_scene_point_at(_w->o, &_w->q[_i]);
         const fude_zoom_v2 _p1 = fude_zoom_scene_point_at(_w->o, &_w->q[_i + 1u]);
-        const f64 _len   = hypot(_p1.x - _p0.x, _p1.y - _p0.y);
-        f64       _steps = ceil(_len / (_r * 0.25));
+        const f64 _len   = rde_math_hypot_f64(_p1.x - _p0.x, _p1.y - _p0.y);
+        f64       _steps = rde_math_ceil_f64(_len / (_r * 0.25));
         _steps = _steps < 1.0 ? 1.0 : (_steps > (f64)FUDE_ZOOM_ERASE_SAMPLES ? (f64)FUDE_ZOOM_ERASE_SAMPLES : _steps);
         for(u32 _k = 1; _k <= (u32)_steps; _k++) {
             const f64 _u      = (f64)_i + (f64)_k / _steps;
@@ -379,10 +389,6 @@ RDE_INTERNAL void fude_zoom_erase_gesture(fude_zoom_scene* _s, fude_zoom_eraser*
     }
 }
 
-typedef struct {
-    f64 u;
-} fude_zoom_cut;
-
 // TRIM: the stretch between the crossings nearest the touch.
 RDE_INTERNAL void fude_zoom_erase_trim(fude_zoom_scene* _s, fude_zoom_eraser* _e, const fude_zoom_walk* _w, u32 _object, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _r, f64 _min_len) {
     // Where the eraser touches it: the first sample that is rubbed.
@@ -401,7 +407,8 @@ RDE_INTERNAL void fude_zoom_erase_trim(fude_zoom_scene* _s, fude_zoom_eraser* _e
         return;
     }
 
-    // Every crossing with another alive stroke of the frame, as u along this one.
+    // Every crossing with another alive stroke of the frame, as u along this one. A hidden layer's are not crossings:
+    // they are not drawn, so a trim stopping at one would stop at nothing seen (trim.c's Trim leaves them out too).
     const fude_zoom_object _self   = *_w->o;
     f64                    _before = -1.0;
     f64                    _after  = (f64)_w->n;   // past the end: none
@@ -411,7 +418,7 @@ RDE_INTERNAL void fude_zoom_erase_trim(fude_zoom_scene* _s, fude_zoom_eraser* _e
     for(u32 _k = 0; _k < (u32)rde_arr_length(&_others); _k++) {
         const u32 _other = ((const u32*)_others.memory)[_k];
         const fude_zoom_object* _oo = fude_zoom_scene_object(_s, _other);
-        if(_other == _object || _oo->kind != FUDE_ZOOM_KIND_STROKE || _oo->count < 2u) {
+        if(_other == _object || _oo->kind != FUDE_ZOOM_KIND_STROKE || _oo->count < 2u || fude_zoom_scene_hides(_s, _oo)) {
             continue;
         }
         rde_arr_clear(&_theirs);
@@ -423,7 +430,7 @@ RDE_INTERNAL void fude_zoom_erase_trim(fude_zoom_scene* _s, fude_zoom_eraser* _e
         for(u32 _i = 0; _i + 1u < _w->n; _i++) {
             const fude_zoom_v2 _p0 = fude_zoom_scene_point_at(&_self, &_w->q[_i]);
             const fude_zoom_v2 _p1 = fude_zoom_scene_point_at(&_self, &_w->q[_i + 1u]);
-            const fude_zoom_box _seg = { fmin(_p0.x, _p1.x), fmin(_p0.y, _p1.y), fmax(_p0.x, _p1.x), fmax(_p0.y, _p1.y) };
+            const fude_zoom_box _seg = { rde_math_min_f64(_p0.x, _p1.x), rde_math_min_f64(_p0.y, _p1.y), rde_math_max_f64(_p0.x, _p1.x), rde_math_max_f64(_p0.y, _p1.y) };
             if(!fude_zoom_box_overlaps(_seg, _oo->box)) {
                 continue;
             }
@@ -477,19 +484,16 @@ RDE_INTERNAL b8 fude_zoom_erase_shape_touched(const fude_zoom_scene* _s, u32 _ob
         _hit = fude_zoom_dist2_segments(_p[_i], _p[(_i + 1u) % _k], _a, _b) < _reach * _reach;
     }
     if(!_hit && _closed && (_o->flags & FUDE_ZOOM_FLAG_FILLED)) {
-        b8 _in = false;
-        for(u32 _i = 0, _j = _k - 1u; _i < _k; _j = _i++) {
-            if((_p[_i].y > _a.y) != (_p[_j].y > _a.y) && _a.x < (_p[_j].x - _p[_i].x) * (_a.y - _p[_i].y) / (_p[_j].y - _p[_i].y) + _p[_i].x) {
-                _in = !_in;
-            }
-        }
-        _hit = _in;
+        // The eraser's start inside it (even-odd). Its start is enough: a step that ends inside but starts outside
+        // crosses one of the edges above (inside and outside change only across an edge), so it is a hit already.
+        _hit = rde_math_point_in_polygon_2d_f64(_a, _p, _k);
     }
     rde_arr_free(&_pts);
     return _hit;
 }
 
-// A FILL's points (each point's ring in _rings) in its frame's units, into _e->points' memory and _pts.
+// Reads a FILL's points into _e->points, and writes them in its frame's units into _pts, with each point's ring into
+// _rings. Returns how many, or 0 when it has fewer than 3 or they cannot be read.
 RDE_INTERNAL u32 fude_zoom_erase_fill_points(const fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _object, rde_arr* _pts, rde_arr* _rings) {
     const fude_zoom_object* _o = fude_zoom_scene_object(_s, _object);
     rde_arr_clear(&_e->points);
@@ -568,9 +572,9 @@ RDE_INTERNAL u32 fude_zoom_erase_cut_fill(fude_zoom_scene* _s, fude_zoom_eraser*
         // Finer quanta where the eraser works finer than the fill's own (a fill
         // drawn far out, rubbed deep in): its points kept whole, a power of two
         // finer; never past 32-bit numbers.
-        const f64 _extent = fmax(_o->box.max_x - _o->box.min_x, _o->box.max_y - _o->box.min_y) / (_o->scale > 0.0 ? _o->scale : 1.0);
-        i32 _qn = (i32)floor(log2(fmax(_n.reach, 1e-300) / 24.0));
-        const i32 _qmin = (i32)ceil(log2(fmax(_extent, 1e-300) / 1073741824.0));
+        const f64 _extent = rde_math_max_f64(_o->box.max_x - _o->box.min_x, _o->box.max_y - _o->box.min_y) / (_o->scale > 0.0 ? _o->scale : 1.0);
+        i32 _qn = (i32)rde_math_floor_f64(rde_math_log2_f64(rde_math_max_f64(_n.reach, 1e-300) / 24.0));
+        const i32 _qmin = (i32)rde_math_ceil_f64(rde_math_log2_f64(rde_math_max_f64(_extent, 1e-300) / 1073741824.0));
         _qn = _qn < _qmin ? _qmin : _qn;
         if(_qn < _n.q && _n.q - _qn < 31) {
             const i64 _k = (i64)1 << (_n.q - _qn);
@@ -589,7 +593,7 @@ RDE_INTERNAL u32 fude_zoom_erase_cut_fill(fude_zoom_scene* _s, fude_zoom_eraser*
     const fude_zoom_sim    _back = fude_zoom_sim_inverse(fude_zoom_object_sim(&_now));
     const fude_zoom_v2     _la   = fude_zoom_sim_apply(_back, _a), _lb = fude_zoom_sim_apply(_back, _b);
     const u32 _np = (u32)rde_arr_length(&_f->path);
-    if(_np == 0 || hypot(((const fude_zoom_v2*)_f->path.memory)[_np - 1u].x - _la.x, ((const fude_zoom_v2*)_f->path.memory)[_np - 1u].y - _la.y) > 1e-9) {
+    if(_np == 0 || rde_math_hypot_f64(((const fude_zoom_v2*)_f->path.memory)[_np - 1u].x - _la.x, ((const fude_zoom_v2*)_f->path.memory)[_np - 1u].y - _la.y) > 1e-9) {
         rde_arr_add(&_f->path, (any)&_la);
     }
     rde_arr_add(&_f->path, (any)&_lb);
@@ -602,18 +606,20 @@ RDE_INTERNAL u32 fude_zoom_erase_cut_fill(fude_zoom_scene* _s, fude_zoom_eraser*
     }
     const u32 _base = (u32)rde_arr_length(&_f->points);
     rde_arr_clear(&_e->points);
-    memcpy(rde_arr_add_n(&_e->points, _base + _k), _f->points.memory, (usize)_base * sizeof(fude_zoom_qpoint));
+    rde_memcpy(rde_arr_add_n(&_e->points, _base + _k), _f->points.memory, (usize)_base * sizeof(fude_zoom_qpoint));
     fude_zoom_qpoint* _q    = &((fude_zoom_qpoint*)_e->points.memory)[_base];
-    const f64         _grid = ldexp(1.0, _f->q);
+    const f64         _grid = rde_math_ldexp_f64(1.0, _f->q);
     for(u32 _i = 0; _i < _k; _i++) {
         const fude_zoom_v2 _c = ((const fude_zoom_v2*)_ring.memory)[_i];
-        _q[_i] = (fude_zoom_qpoint){ (i32)llround(_c.x / _grid), (i32)llround(_c.y / _grid), 0u, _f->ring };
+        _q[_i] = (fude_zoom_qpoint){ (i32)rde_math_round_to_i64_f64(_c.x / _grid), (i32)rde_math_round_to_i64_f64(_c.y / _grid), 0u, _f->ring };
     }
     rde_arr_free(&_ring);
     const u32 _made = fude_zoom_scene_add_fill_flags(_s, _f->frame, _f->place, _f->q, (const fude_zoom_qpoint*)_e->points.memory, _base + _k, _f->color, _f->flags, _f->z);
     _f->now = _made;
     return _made;
 }
+
+#define FUDE_ZOOM_ERASE_TRACE_CELLS 1500000.0   // a stretch's grid at most, in cells (fill.c traces up to 4M)
 
 // PARTIAL reaching a stroke: it becomes its own outline (fill.h's sweep of its
 // points at their widths, the loops it closes round left open), FILLs in its
@@ -622,7 +628,6 @@ RDE_INTERNAL u32 fude_zoom_erase_cut_fill(fude_zoom_scene* _s, fude_zoom_eraser*
 // whatever the stroke's width on screen. A long stroke is traced a stretch at
 // a time (each a fill, overlapping the next where they meet). False: it could
 // not be traced (cut as a stroke).
-#define FUDE_ZOOM_ERASE_TRACE_CELLS 1500000.0   // a stretch's grid at most (fill.c traces up to 4M)
 RDE_INTERNAL b8 fude_zoom_erase_outline(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _object, rde_arr* _list) {
     const fude_zoom_object _o = *fude_zoom_scene_object(_s, _object);
     rde_arr_clear(&_e->points);
@@ -637,11 +642,11 @@ RDE_INTERNAL b8 fude_zoom_erase_outline(fude_zoom_scene* _s, fude_zoom_eraser* _
     for(u32 _i = 0; _i < _o.count; _i++) {
         const fude_zoom_qpoint* _q = &((const fude_zoom_qpoint*)_e->points.memory)[_i];
         const f64 _w = (f64)fude_zoom_scene_local_radius_at(&_o, _q);
-        _thin = fmin(_thin, _w);
-        _wide = fmax(_wide, _w);
+        _thin = rde_math_min_f64(_thin, _w);
+        _wide = rde_math_max_f64(_wide, _w);
     }
     // Long segments split (so a stretch can always end within its grid).
-    const f64 _cell = fmax(_thin, _wide / 4.0) / 3.0;
+    const f64 _cell = rde_math_max_f64(_thin, _wide / 4.0) / 3.0;
     if(!(_cell > 0.0)) {
         rde_arr_free(&_pa);
         rde_arr_free(&_wa);
@@ -654,7 +659,7 @@ RDE_INTERNAL b8 fude_zoom_erase_outline(fude_zoom_scene* _s, fude_zoom_eraser* _
         if(_i > 0) {
             const fude_zoom_v2 _l = ((const fude_zoom_v2*)_pa.memory)[rde_arr_length(&_pa) - 1u];
             const f64          _lw = ((const f64*)_wa.memory)[rde_arr_length(&_wa) - 1u];
-            const u32 _parts = (u32)fmin(4096.0, ceil(hypot(_p.x - _l.x, _p.y - _l.y) / (_cell * 300.0)));
+            const u32 _parts = (u32)rde_math_min_f64(4096.0, rde_math_ceil_f64(rde_math_hypot_f64(_p.x - _l.x, _p.y - _l.y) / (_cell * 300.0)));
             for(u32 _k = 1; _k < _parts; _k++) {
                 const f64 _t = (f64)_k / (f64)_parts;
                 const fude_zoom_v2 _m = { _l.x + (_p.x - _l.x) * _t, _l.y + (_p.y - _l.y) * _t };
@@ -670,12 +675,12 @@ RDE_INTERNAL b8 fude_zoom_erase_outline(fude_zoom_scene* _s, fude_zoom_eraser* _
     const fude_zoom_v2* _p = (const fude_zoom_v2*)_pa.memory;
     const f64*          _w = (const f64*)_wa.memory;
     // Its quanta: a 24th of its thinnest width (whole numbers from its first corner).
-    const f64 _extent = fmax(_o.box.max_x - _o.box.min_x, _o.box.max_y - _o.box.min_y) / (_o.scale > 0.0 ? _o.scale : 1.0);
-    i32 _qe = (i32)floor(log2(fmax(_thin, 1e-300) / 24.0));
+    const f64 _extent = rde_math_max_f64(_o.box.max_x - _o.box.min_x, _o.box.max_y - _o.box.min_y) / (_o.scale > 0.0 ? _o.scale : 1.0);
+    i32 _qe = (i32)rde_math_floor_f64(rde_math_log2_f64(rde_math_max_f64(_thin, 1e-300) / 24.0));
     _qe = _qe > _o.q ? _o.q : _qe;
-    const i32 _qmin = (i32)ceil(log2(fmax(_extent + 2.0 * _wide, 1e-300) / 1073741824.0));
+    const i32 _qmin = (i32)rde_math_ceil_f64(rde_math_log2_f64(rde_math_max_f64(_extent + 2.0 * _wide, 1e-300) / 1073741824.0));
     _qe = _qe < _qmin ? _qmin : _qe;
-    const f64             _grid  = ldexp(1.0, _qe);
+    const f64             _grid  = rde_math_ldexp_f64(1.0, _qe);
     const fude_zoom_place _place = fude_zoom_scene_place_of(_s, _object);
     const u8              _keep  = (u8)(_o.flags & FUDE_ZOOM_FLAG_MARKER);
     rde_arr _ring  = rde_arr_new(sizeof(fude_zoom_v2), _heap);
@@ -704,7 +709,7 @@ RDE_INTERNAL b8 fude_zoom_erase_outline(fude_zoom_scene* _s, fude_zoom_eraser* _
         fude_zoom_qpoint* _q = rde_arr_add_n(&_e->points, _k);
         for(u32 _i = 0; _i < _k; _i++) {
             const fude_zoom_v2 _c = ((const fude_zoom_v2*)_ring.memory)[_i];
-            _q[_i] = (fude_zoom_qpoint){ (i32)llround(_c.x / _grid), (i32)llround(_c.y / _grid), 0u, ((const u32*)_rings.memory)[_i] };
+            _q[_i] = (fude_zoom_qpoint){ (i32)rde_math_round_to_i64_f64(_c.x / _grid), (i32)rde_math_round_to_i64_f64(_c.y / _grid), 0u, ((const u32*)_rings.memory)[_i] };
         }
         const u32 _fill = fude_zoom_scene_add_fill_flags(_s, _o.frame, _place, (i8)_qe, _q, _k, _o.color, _keep, _o.z);
         rde_arr_add(&_made, (any)&_fill);
@@ -751,14 +756,14 @@ RDE_INTERNAL void fude_zoom_erase_unshape(fude_zoom_scene* _s, fude_zoom_eraser*
     const fude_zoom_v2* _p     = (const fude_zoom_v2*)_pts.memory;
     const f64           _width = (f64)_o.radius * _o.scale;
     // Its quanta: an eighth of its line's half-width (whole numbers from its first corner).
-    const i8  _qe   = (i8)fmax(-60.0, fmin(60.0, floor(log2(fmax(_width, 1e-300) / 8.0))));
-    const f64 _grid = ldexp(1.0, _qe);
+    const i8  _qe   = (i8)rde_math_max_f64(-60.0, rde_math_min_f64(60.0, rde_math_floor_f64(rde_math_log2_f64(rde_math_max_f64(_width, 1e-300) / 8.0))));
+    const f64 _grid = rde_math_ldexp_f64(1.0, _qe);
     rde_arr   _q    = rde_arr_new(sizeof(fude_zoom_qpoint), rde_memory_allocator_get_default_std());
     const u32 _m    = _closed ? _n + 1u : _n;
     fude_zoom_qpoint* _qp = rde_arr_add_n(&_q, _m);
     for(u32 _i = 0; _i < _m; _i++) {
         const fude_zoom_v2 _at = _p[_i % _n];
-        _qp[_i] = (fude_zoom_qpoint){ (i32)llround((_at.x - _p[0].x) / _grid), (i32)llround((_at.y - _p[0].y) / _grid), 0u, 0u };
+        _qp[_i] = (fude_zoom_qpoint){ (i32)rde_math_round_to_i64_f64((_at.x - _p[0].x) / _grid), (i32)rde_math_round_to_i64_f64((_at.y - _p[0].y) / _grid), 0u, 0u };
     }
     const fude_zoom_place _place = { _p[0], 0.0, 1.0 };
     const u32 _line = fude_zoom_scene_add_stroke_at(_s, _o.frame, _place, _qe, _qp, _m, 0u, _o.color, (f32)_width, 0u, 0, _o.z);
@@ -774,18 +779,23 @@ RDE_INTERNAL void fude_zoom_erase_unshape(fude_zoom_scene* _s, fude_zoom_eraser*
     fude_zoom_erase_take(_s, _e, _object);
 }
 
+// See erase.h. Each object the eraser's reach finds goes to its case: a fill, a shape (a board's wood cut, a shape
+// unmade into a line and a fill, or one that always goes whole), or a stroke (in PARTIAL first rubbed out as its
+// outline, else cut by its mode). The objects found are copied into a list first, and what PARTIAL makes of a shape
+// or a stroke is added to the end of that list, so the same step cuts it too. What is made is put on the layer of
+// what it came from; the scene's layer is set back at the end.
 u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, fude_zoom_v2 _a, fude_zoom_v2 _b, f64 _r, f64 _min_len) {
     if(!_e->open || !(_r > 0.0)) {
         return 0;
     }
-    const fude_zoom_box _reach = { fmin(_a.x, _b.x) - _r, fmin(_a.y, _b.y) - _r, fmax(_a.x, _b.x) + _r, fmax(_a.y, _b.y) + _r };
+    const fude_zoom_box _reach = { rde_math_min_f64(_a.x, _b.x) - _r, rde_math_min_f64(_a.y, _b.y) - _r, rde_math_max_f64(_a.x, _b.x) + _r, rde_math_max_f64(_a.y, _b.y) + _r };
     rde_arr_clear(&_e->found);
     fude_zoom_scene_query(_s, _frame, _reach, &_e->found);
     const u32 _found = (u32)rde_arr_length(&_e->found);
     // The candidates are copied out first: cutting adds objects to the frame.
     rde_arr _list = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     if(_found > 0) {
-        memcpy(rde_arr_add_n(&_list, _found), _e->found.memory, (usize)_found * sizeof(u32));
+        rde_memcpy(rde_arr_add_n(&_list, _found), _e->found.memory, (usize)_found * sizeof(u32));
     }
     rde_arr _qs = rde_arr_new(sizeof(fude_zoom_qpoint), rde_memory_allocator_get_default_std());
     u32 _taken = 0;
@@ -798,14 +808,21 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
         }
         _s->layer = _o->layer;   // what is cut from it stays on its layer
         if(_o->kind == FUDE_ZOOM_KIND_FILL && (_o->flags & FUDE_ZOOM_FLAG_ALIVE)) {
-            // A fill: rubbed out where the eraser passes (PARTIAL), or taken whole.
+            // A fill: rubbed out where the eraser passes (PARTIAL), or taken whole. A PARTIAL cut that could not be
+            // made (its points unread, or a sweep too long for its width to be traced: fill.h) leaves the fill as it
+            // is: taking it would rub out all of it where the eraser only passed over a part.
             if(fude_zoom_erase_fill_touched(_s, _e, _object, _a, _b, _r)) {
-                const u32 _cut = _e->mode == FUDE_ZOOM_ERASE_PARTIAL ? fude_zoom_erase_cut_fill(_s, _e, _object, _a, _b, _r) : FUDE_ZOOM_NONE;
-                fude_zoom_erase_take(_s, _e, _object);
-                if(_cut != FUDE_ZOOM_NONE) {
-                    rde_arr_add(&_e->born, (any)&_cut);
+                if(_e->mode != FUDE_ZOOM_ERASE_PARTIAL) {
+                    fude_zoom_erase_take(_s, _e, _object);
+                    _taken++;
+                    continue;
                 }
-                _taken++;
+                const u32 _cut = fude_zoom_erase_cut_fill(_s, _e, _object, _a, _b, _r);
+                if(_cut != FUDE_ZOOM_NONE) {
+                    fude_zoom_erase_take(_s, _e, _object);
+                    rde_arr_add(&_e->born, (any)&_cut);
+                    _taken++;
+                }
             }
             continue;
         }
@@ -865,6 +882,9 @@ u32 fude_zoom_erase_step(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
     return _taken;
 }
 
+// See erase.h. A fill made this sweep is dropped when what is left of it (its rings triangulated) is no more than a
+// ten-thousandth of its outline's area. Then the wires left without their parts go, and the sweep's died and born
+// become one history step.
 void fude_zoom_erase_end(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, fude_zoom_box _box) {
     if(!_e->open) {
         return;
@@ -896,7 +916,7 @@ void fude_zoom_erase_end(fude_zoom_scene* _s, fude_zoom_eraser* _e, u32 _frame, 
             const fude_zoom_v2* _t = (const fude_zoom_v2*)_tris.memory;
             f64 _area = 0.0;
             for(u32 _k = 0; _k + 2u < (u32)rde_arr_length(&_tris); _k += 3u) {
-                _area += fabs((_t[_k + 1u].x - _t[_k].x) * (_t[_k + 2u].y - _t[_k].y) - (_t[_k + 2u].x - _t[_k].x) * (_t[_k + 1u].y - _t[_k].y)) * 0.5;
+                _area += rde_math_abs_f64((_t[_k + 1u].x - _t[_k].x) * (_t[_k + 2u].y - _t[_k].y) - (_t[_k + 2u].x - _t[_k].x) * (_t[_k + 1u].y - _t[_k].y)) * 0.5;
             }
             *(_pass == 0u ? &_area_whole : &_area_left) = _area;
         }

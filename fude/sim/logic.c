@@ -1,28 +1,29 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "sim/sim.h"
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
 
 // ===========================================================================
-// The logic family's models: what custom parts are built from (a multiplexer
-// of gates, an adder of adders). Values 0, 1, Z, X; an input released (Z)
-// reads as unknown; each output changes its delay after what makes it
-// (inertial: a change undone before then never happens). Flip-flops take
-// their input on the clock's rising edge; R (when 1) clears them at once (S,
-// where there is one, sets them). A memory keeps 2^address words of `data`
-// bits, unknown until written: written on its clock's rising edge while WE
-// is 1 (clocked), or all the while WE is 1 (not: a static RAM chip's way),
-// its addressed word always out.
+// See sim.h.
+//
+// The logic family's models: what custom parts are built from (a multiplexer of gates, an adder of adders). Values 0,
+// 1, Z, X; an input released (Z) reads as unknown; each output changes its delay after what makes it (inertial: a
+// change undone before then never happens). Flip-flops take their input on the clock's rising edge; R (when 1) clears
+// them at once (S, where there is one, sets them). A memory keeps 2^address words of `data` bits, unknown until
+// written: written on its clock's rising edge while WE is 1 (clocked), or all the while WE is 1 (not: a static RAM
+// chip's way), its addressed word always out.
+//
+// Each model is a few small functions (its ports, and start, logic or wake), in groups: inputs and the clock, gates,
+// flip-flops and the latch, the memory; FSL_MODELS at the end registers them all. File-local names start with fsl_.
+// A primitive's state is numbers in the run (fude_sim_state), so a logic value kept there is stored as its f64.
 // ===========================================================================
 
-#define FSL_DELAY 1e-9   // a gate's delay as it comes (seconds)
+#define FSL_DELAY 1e-9   // A gate's delay as it comes, in seconds: the default of every model's "delay" parameter.
 
+// Returns a one-bit logic port called _name: inputs on the left, outputs on the right.
 RDE_INTERNAL fude_sim_port fsl_port(const c8* _name, u8 _dir) {
     fude_sim_port _p;
-    memset(&_p, 0, sizeof(_p));
-    snprintf(_p.name, sizeof(_p.name), "%s", _name);
+    rde_memset(&_p, 0, sizeof(_p));
+    rde_snprintf(_p.name, sizeof(_p.name), "%s", _name);
     _p.domain = FUDE_SIM_LOGIC;
     _p.dir    = _dir;
     _p.width  = 1u;
@@ -30,14 +31,16 @@ RDE_INTERNAL fude_sim_port fsl_port(const c8* _name, u8 _dir) {
     return _p;
 }
 
-// Ports as named in _names ("A B > Y": those after ">" outputs), into _out.
+// Writes the ports named in _names into _out (at most _max) and returns how many: the names are separated by spaces,
+// and those after a ">" are outputs ("A B > Y").
 RDE_INTERNAL u32 fsl_ports(const c8* _names, fude_sim_port* _out, u32 _max) {
     c8 _buf[96];
-    snprintf(_buf, sizeof(_buf), "%s", _names);
+    rde_snprintf(_buf, sizeof(_buf), "%s", _names);
     u32 _n = 0;
     u8 _dir = FUDE_SIM_IN;
-    for(c8* _t = strtok(_buf, " "); _t != NULL && _n < _max; _t = strtok(NULL, " ")) {
-        if(strcmp(_t, ">") == 0) {
+    c8* _t_rest = NULL;   // Where rde_strtok goes on from.
+    for(c8* _t = rde_strtok(_buf, " ", &_t_rest); _t != NULL && _n < _max; _t = rde_strtok(NULL, " ", &_t_rest)) {
+        if(rde_strcmp(_t, ">") == 0) {
             _dir = FUDE_SIM_OUT;
             continue;
         }
@@ -46,10 +49,12 @@ RDE_INTERNAL u32 fsl_ports(const c8* _names, fude_sim_port* _out, u32 _max) {
     return _n;
 }
 
+// Returns 0 or 1 as it is, and anything else (Z or X) as X: a released input reads as unknown.
 RDE_INTERNAL u8 fsl_known(u8 _v) {
-    return _v == FUDE_SIM_0 || _v == FUDE_SIM_1 ? _v : FUDE_SIM_X;   // (Z read as unknown)
+    return _v == FUDE_SIM_0 || _v == FUDE_SIM_1 ? _v : FUDE_SIM_X;
 }
 
+// Returns the logic NOT of _v; Z and X give X.
 RDE_INTERNAL u8 fsl_not(u8 _v) {
     _v = fsl_known(_v);
     return _v == FUDE_SIM_X ? FUDE_SIM_X : (u8)(1u - _v);
@@ -57,24 +62,33 @@ RDE_INTERNAL u8 fsl_not(u8 _v) {
 
 // --- input, constant, probe, clock ------------------------------------------------------------------
 
+// The input's and the constant's one parameter: its value, 0 or 1 (0.5 and over is 1).
 RDE_INTERNAL const fude_sim_param FSL_VALUE[] = { { "value", "", 0.0, 0.0, 1.0 } };
+// Ports for models with one output Y (input, constant, clock), and with one input A (probe).
 RDE_INTERNAL u32 fsl_ports_y(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("> Y", _o, _m); }
 RDE_INTERNAL u32 fsl_ports_a(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("A", _o, _m); }
 
+// The input's and the constant's start: keeps the value in state[0] and drives Y to it at once. fude_sim_run_set
+// changes an input's value later.
 RDE_INTERNAL void fsl_input_start(fude_sim_run* _run, u32 _prim) {
     const u8 _v = fude_sim_arg(_run, _prim, 0) >= 0.5 ? FUDE_SIM_1 : FUDE_SIM_0;
     fude_sim_state(_run, _prim)[0] = (f64)_v;
     fude_sim_out(_run, _prim, 0u, _v, 0.0);
 }
 
+// The clock's parameters: its period in seconds, and its duty, the share of the period it is 1.
 RDE_INTERNAL const fude_sim_param FSL_CLOCK[] = { { "period", "s", 1.0, 1e-9, 1e6 }, { "duty", "", 0.5, 0.01, 0.99 } };
 
+// Starts the clock at 0 (state[0] its value) and asks to be woken at its first rising edge, after the low part of a
+// period.
 RDE_INTERNAL void fsl_clock_start(fude_sim_run* _run, u32 _prim) {
     fude_sim_state(_run, _prim)[0] = 0.0;
     fude_sim_out(_run, _prim, 0u, FUDE_SIM_0, 0.0);
     fude_sim_wake(_run, _prim, fude_sim_arg(_run, _prim, 0) * (1.0 - fude_sim_arg(_run, _prim, 1)));
 }
 
+// At each edge: turns the clock over, drives Y to it at once, and asks to be woken at the next edge, after the high
+// part of a period (duty) or the low part (1 - duty).
 RDE_INTERNAL void fsl_clock_wake(fude_sim_run* _run, u32 _prim) {
     f64* _s = fude_sim_state(_run, _prim);
     _s[0] = _s[0] >= 0.5 ? 0.0 : 1.0;
@@ -85,15 +99,18 @@ RDE_INTERNAL void fsl_clock_wake(fude_sim_run* _run, u32 _prim) {
 
 // --- gates -------------------------------------------------------------------------------------------
 
+// Parameters: a buffer's, an inverter's, a tri-state buffer's, a flip-flop's and the latch's delay alone; a gate's
+// number of inputs (1 to 16) and its delay.
 RDE_INTERNAL const fude_sim_param FSL_DELAY_ONLY[] = { { "delay", "s", FSL_DELAY, 0.0, 1.0 } };
 RDE_INTERNAL const fude_sim_param FSL_GATE[] = { { "inputs", "", 2.0, 1.0, 16.0 }, { "delay", "s", FSL_DELAY, 0.0, 1.0 } };
 
+// A gate's ports for its parameters: A1 to An (n its inputs, 1 to 16), then Y.
 RDE_INTERNAL u32 fsl_gate_ports(const f64* _p, fude_sim_port* _out, u32 _max) {
-    const u32 _n = (u32)fmin(fmax(_p[0], 1.0), 16.0);
+    const u32 _n = (u32)rde_math_min_f64(rde_math_max_f64(_p[0], 1.0), 16.0);
     u32 _k = 0;
     for(u32 _i = 0; _i < _n && _k < _max; _i++) {
         c8 _name[8];
-        snprintf(_name, sizeof(_name), "A%u", _i + 1u);
+        rde_snprintf(_name, sizeof(_name), "A%u", _i + 1u);
         _out[_k++] = fsl_port(_name, FUDE_SIM_IN);
     }
     if(_k < _max) {
@@ -102,9 +119,12 @@ RDE_INTERNAL u32 fsl_gate_ports(const f64* _p, fude_sim_port* _out, u32 _max) {
     return _k;
 }
 
+// What a gate puts its inputs together with; NAND, NOR and XNOR are these turned over.
 typedef enum { FSL_AND = 0, FSL_OR, FSL_XOR } FSL_GATE_;
 
-// A gate's output: its inputs (all but its last port) put together, turned over when it is a NAND, NOR, XNOR.
+// Drives a gate's output, its last port, from its inputs (all the ports before it), turned over for a NAND, NOR or
+// XNOR, after its delay. An XOR is X when any input is unknown; an AND is 0 when any input is 0 and an OR 1 when any
+// is 1, whatever the others are; otherwise X when any input is unknown.
 RDE_INTERNAL void fsl_gate(fude_sim_run* _run, u32 _prim, u8 _kind, b8 _invert) {
     const u32 _n = fude_sim_port_count(_run, _prim) - 1u;
     u8 _v;
@@ -121,7 +141,7 @@ RDE_INTERNAL void fsl_gate(fude_sim_run* _run, u32 _prim, u8 _kind, b8 _invert) 
         }
         _v = _v == FUDE_SIM_X ? FUDE_SIM_X : (u8)(_ones & 1u);
     } else {
-        // (AND: a 0 decides it; OR: a 1)
+        // AND: a 0 decides it; OR: a 1.
         const u8 _decides = _kind == FSL_AND ? FUDE_SIM_0 : FUDE_SIM_1;
         b8 _unknown = false, _decided = false;
         for(u32 _i = 0; _i < _n; _i++) {
@@ -134,6 +154,7 @@ RDE_INTERNAL void fsl_gate(fude_sim_run* _run, u32 _prim, u8 _kind, b8 _invert) 
     fude_sim_out(_run, _prim, _n, _invert ? fsl_not(_v) : _v, fude_sim_arg(_run, _prim, 1));
 }
 
+// Each gate's logic: fsl_gate with its kind, turned over or not.
 RDE_INTERNAL void fsl_and(fude_sim_run* _r, u32 _p)  { fsl_gate(_r, _p, FSL_AND, false); }
 RDE_INTERNAL void fsl_nand(fude_sim_run* _r, u32 _p) { fsl_gate(_r, _p, FSL_AND, true); }
 RDE_INTERNAL void fsl_or(fude_sim_run* _r, u32 _p)   { fsl_gate(_r, _p, FSL_OR, false); }
@@ -141,12 +162,14 @@ RDE_INTERNAL void fsl_nor(fude_sim_run* _r, u32 _p)  { fsl_gate(_r, _p, FSL_OR, 
 RDE_INTERNAL void fsl_xor(fude_sim_run* _r, u32 _p)  { fsl_gate(_r, _p, FSL_XOR, false); }
 RDE_INTERNAL void fsl_xnor(fude_sim_run* _r, u32 _p) { fsl_gate(_r, _p, FSL_XOR, true); }
 
+// The buffer's and the inverter's ports (A > Y) and logic: Y follows A, or its NOT, after the delay.
 RDE_INTERNAL u32 fsl_ports_ay(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("A > Y", _o, _m); }
 RDE_INTERNAL void fsl_buf(fude_sim_run* _r, u32 _p) { fude_sim_out(_r, _p, 1u, fsl_known(fude_sim_in(_r, _p, 0u)), fude_sim_arg(_r, _p, 0)); }
 RDE_INTERNAL void fsl_inv(fude_sim_run* _r, u32 _p) { fude_sim_out(_r, _p, 1u, fsl_not(fude_sim_in(_r, _p, 0u)), fude_sim_arg(_r, _p, 0)); }
 
-// A tri-state buffer: A through while EN is 1; released (Z) while it is 0.
+// A tri-state buffer: A through while EN is 1; released (Z) while it is 0; X while EN is unknown.
 RDE_INTERNAL u32 fsl_ports_tri(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("A EN > Y", _o, _m); }
+// Drives Y from A and EN after the delay.
 RDE_INTERNAL void fsl_tri(fude_sim_run* _r, u32 _p) {
     const u8 _en = fsl_known(fude_sim_in(_r, _p, 1u));
     fude_sim_out(_r, _p, 2u, _en == FUDE_SIM_1 ? fsl_known(fude_sim_in(_r, _p, 0u)) : (_en == FUDE_SIM_0 ? FUDE_SIM_Z : FUDE_SIM_X), fude_sim_arg(_r, _p, 0));
@@ -154,21 +177,24 @@ RDE_INTERNAL void fsl_tri(fude_sim_run* _r, u32 _p) {
 
 // --- flip-flops and a latch ---------------------------------------------------------------------------
 
-// Q and QN out (their ports _q, _q + 1) as state[0] says.
+// Drives Q and QN (ports _q and _q + 1) from state[0], after the delay.
 RDE_INTERNAL void fsl_q(fude_sim_run* _r, u32 _p, u32 _q) {
     const u8 _v = (u8)fude_sim_state(_r, _p)[0];
     fude_sim_out(_r, _p, _q, _v, fude_sim_arg(_r, _p, 0));
     fude_sim_out(_r, _p, _q + 1u, fsl_not(_v), fude_sim_arg(_r, _p, 0));
 }
 
+// A flip-flop's start: Q 0, its clock as last seen unknown (so the first edge it sees is not taken as rising), and
+// Q and QN driven. Q and QN are its last two ports.
 RDE_INTERNAL void fsl_ff_start(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     _s[0] = FUDE_SIM_0;
-    _s[1] = FUDE_SIM_X;   // (its clock as last seen)
+    _s[1] = FUDE_SIM_X;   // Its clock as last seen.
     fsl_q(_r, _p, fude_sim_port_count(_r, _p) - 2u);
 }
 
-// A clock's rising edge now? (its port _clk; its last value kept in state[1])
+// Returns whether the clock on port _clk has risen from 0 to 1 since it was last seen, and keeps its value now in
+// state[1]. A clock coming from unknown is not a rising edge.
 RDE_INTERNAL b8 fsl_rose(fude_sim_run* _r, u32 _p, u32 _clk) {
     f64* _s = fude_sim_state(_r, _p);
     const u8 _now = fsl_known(fude_sim_in(_r, _p, _clk));
@@ -177,7 +203,10 @@ RDE_INTERNAL b8 fsl_rose(fude_sim_run* _r, u32 _p, u32 _clk) {
     return _rose;
 }
 
+// The D flip-flop: D CLK R, then Q QN. R at 1 clears it whatever the clock does; otherwise D is taken on the rising
+// edge.
 RDE_INTERNAL u32 fsl_ports_dff(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("D CLK R > Q QN", _o, _m); }
+// The D flip-flop's logic.
 RDE_INTERNAL void fsl_dff(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     const b8 _rose = fsl_rose(_r, _p, 1u);
@@ -189,7 +218,10 @@ RDE_INTERNAL void fsl_dff(fude_sim_run* _r, u32 _p) {
     fsl_q(_r, _p, 3u);
 }
 
+// The JK flip-flop: J K CLK R, then Q QN. On the rising edge, J and K both 1 turn it over, J alone sets it, K alone
+// clears it, and neither leaves it; either unknown makes it unknown.
 RDE_INTERNAL u32 fsl_ports_jk(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("J K CLK R > Q QN", _o, _m); }
+// The JK flip-flop's logic.
 RDE_INTERNAL void fsl_jk(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     const b8 _rose = fsl_rose(_r, _p, 2u);
@@ -210,7 +242,9 @@ RDE_INTERNAL void fsl_jk(fude_sim_run* _r, u32 _p) {
     fsl_q(_r, _p, 4u);
 }
 
+// The T flip-flop: T CLK R, then Q QN. On the rising edge, T at 1 turns it over and T at 0 leaves it.
 RDE_INTERNAL u32 fsl_ports_t(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("T CLK R > Q QN", _o, _m); }
+// The T flip-flop's logic.
 RDE_INTERNAL void fsl_t(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     const b8 _rose = fsl_rose(_r, _p, 1u);
@@ -226,6 +260,7 @@ RDE_INTERNAL void fsl_t(fude_sim_run* _r, u32 _p) {
 // A D flip-flop with set and reset (a 74HC74's half, its pins' sense turned): S or R at 1 now, whatever its clock
 // does; both: Q and QN both 1, as the chip does.
 RDE_INTERNAL u32 fsl_ports_dffsr(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("D CLK S R > Q QN", _o, _m); }
+// The D flip-flop with set and reset's logic. Its clock is followed even while S and R are both 1.
 RDE_INTERNAL void fsl_dffsr(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     const b8 _rose = fsl_rose(_r, _p, 1u);
@@ -248,11 +283,15 @@ RDE_INTERNAL void fsl_dffsr(fude_sim_run* _r, u32 _p) {
     fsl_q(_r, _p, 4u);
 }
 
+// The SR latch: S R, then Q QN, with no clock. S sets it, R clears it, both make it unknown, neither leaves it. It
+// starts at 0.
 RDE_INTERNAL u32 fsl_ports_sr(const f64* _p, fude_sim_port* _o, u32 _m) { RDE_UNUSED(_p); return fsl_ports("S R > Q QN", _o, _m); }
+// The SR latch's start: Q 0, driven.
 RDE_INTERNAL void fsl_sr_start(fude_sim_run* _r, u32 _p) {
     fude_sim_state(_r, _p)[0] = FUDE_SIM_0;
     fsl_q(_r, _p, 2u);
 }
+// The SR latch's logic.
 RDE_INTERNAL void fsl_sr(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     const u8 _set = fsl_known(fude_sim_in(_r, _p, 0u)), _reset = fsl_known(fude_sim_in(_r, _p, 1u));
@@ -268,11 +307,14 @@ RDE_INTERNAL void fsl_sr(fude_sim_run* _r, u32 _p) {
 
 // --- memory ------------------------------------------------------------------------------------------
 
+// The memory's parameters: its address bits (1 to 12), its data bits (1 to 16), whether it writes on the clock (1) or
+// all the while WE is 1 (0), and its delay.
 RDE_INTERNAL const fude_sim_param FSL_RAM[] = { { "address", "", 4.0, 1.0, 12.0 }, { "data", "", 4.0, 1.0, 16.0 }, { "clocked", "", 1.0, 0.0, 1.0 },
                                                 { "delay", "s", FSL_DELAY, 0.0, 1.0 } };
 
+// Returns parameter _k rounded and kept between 1 and _hi: the memory's address or data bits.
 RDE_INTERNAL u32 fsl_ram_bits(const f64* _p, u32 _k, u32 _hi) {
-    return (u32)fmin(fmax(round(_p[_k]), 1.0), (f64)_hi);
+    return (u32)rde_math_min_f64(rde_math_max_f64(rde_math_round_f64(_p[_k]), 1.0), (f64)_hi);
 }
 
 // Its ports: A0… (its address), D0… (what is written), WE, CLK, then Q0… (the word addressed).
@@ -280,24 +322,27 @@ RDE_INTERNAL u32 fsl_ports_ram(const f64* _p, fude_sim_port* _out, u32 _max) {
     const u32 _a = fsl_ram_bits(_p, 0u, 12u), _d = fsl_ram_bits(_p, 1u, 16u);
     u32 _k = 0;
     c8 _name[8];
-    for(u32 _i = 0; _i < _a && _k < _max; _i++) { snprintf(_name, sizeof(_name), "A%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_IN); }
-    for(u32 _i = 0; _i < _d && _k < _max; _i++) { snprintf(_name, sizeof(_name), "D%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_IN); }
+    for(u32 _i = 0; _i < _a && _k < _max; _i++) { rde_snprintf(_name, sizeof(_name), "A%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_IN); }
+    for(u32 _i = 0; _i < _d && _k < _max; _i++) { rde_snprintf(_name, sizeof(_name), "D%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_IN); }
     if(_k < _max) { _out[_k++] = fsl_port("WE", FUDE_SIM_IN); }
     if(_k < _max) { _out[_k++] = fsl_port("CLK", FUDE_SIM_IN); }
-    for(u32 _i = 0; _i < _d && _k < _max; _i++) { snprintf(_name, sizeof(_name), "Q%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_OUT); }
+    for(u32 _i = 0; _i < _d && _k < _max; _i++) { rde_snprintf(_name, sizeof(_name), "Q%u", _i); _out[_k++] = fsl_port(_name, FUDE_SIM_OUT); }
     return _k;
 }
 
-// Kept: [0] unused, [1] its clock as last seen, then each word's bits and which of them are known (all unknown: 0s).
+// The numbers the memory keeps: [0] unused, [1] its clock as last seen, then for each word its bits and which of them
+// are known (all 0 at first: every bit unknown).
 RDE_INTERNAL u32 fsl_ram_states(const f64* _p) {
     return 2u + 2u * (1u << fsl_ram_bits(_p, 0u, 12u));
 }
 
+// The memory's start: its clock as last seen unknown, so the first edge seen is not taken as rising.
 RDE_INTERNAL void fsl_ram_start(fude_sim_run* _r, u32 _p) {
     fude_sim_state(_r, _p)[1] = FUDE_SIM_X;
 }
 
-// _n bits from port _first on, as a number (false: one of them unknown); unknown ones' bits into _unknown.
+// Reads _n bits from port _first on into *_value (the first port the lowest bit), and marks the unknown ones in
+// *_unknown. Returns false when any of them is unknown.
 RDE_INTERNAL b8 fsl_bits(const fude_sim_run* _r, u32 _p, u32 _first, u32 _n, u32* _value, u32* _unknown) {
     *_value = 0u;
     *_unknown = 0u;
@@ -312,6 +357,8 @@ RDE_INTERNAL b8 fsl_bits(const fude_sim_run* _r, u32 _p, u32 _first, u32 _n, u32
     return *_unknown == 0u;
 }
 
+// The memory's logic: writes when it may (on the clock's rising edge, or now when not clocked) and WE is not 0, then
+// drives Q0 on with the addressed word's bits after the delay; an unknown address or bit drives X.
 RDE_INTERNAL void fsl_ram(fude_sim_run* _r, u32 _p) {
     f64* _s = fude_sim_state(_r, _p);
     f64 _par[4];
@@ -327,9 +374,10 @@ RDE_INTERNAL void fsl_ram(fude_sim_run* _r, u32 _p) {
     const u8 _write = fsl_known(fude_sim_in(_r, _p, _we));
     const b8 _clocked = _par[2] >= 0.5;
     const b8 _rose = _clocked && fsl_rose(_r, _p, _clk);
-    const b8 _now = _clocked ? _rose : true;   // (a moment it may write)
+    const b8 _now = _clocked ? _rose : true;   // Whether this is a moment it may write.
     if(_now && _write != FUDE_SIM_0) {
-        // (written: what is known of it — or, not knowing whether or where, whatever it may have touched unknown)
+        // Written: what is known of it. Not knowing whether it writes (WE unknown) or where (the address unknown),
+        // every word it may have touched becomes unknown.
         const b8 _sure = _write == FUDE_SIM_1;
         for(u32 _w = 0; _w < _words; _w++) {
             if(_addr_known && _w != _addr) {
@@ -358,7 +406,10 @@ RDE_INTERNAL void fsl_ram(fude_sim_run* _r, u32 _p) {
 
 // --- the registry -----------------------------------------------------------------------------------
 
+// The number of entries in a static array.
 #define FSL_N(_a) ((u32)(sizeof(_a) / sizeof((_a)[0])))
+// Every model, in the order fude_sim_model_at and fude_sim_lib_init give them: id, English name, parameters and
+// their count, the numbers kept, then ports, start, logic, wake and states.
 RDE_INTERNAL const fude_sim_model FSL_MODELS[] = {
     { "input",  "Logic input",  FSL_VALUE, 1u, 1u, fsl_ports_y, fsl_input_start, NULL, NULL, NULL },
     { "const",  "Constant",     FSL_VALUE, 1u, 1u, fsl_ports_y, fsl_input_start, NULL, NULL, NULL },
@@ -381,14 +432,17 @@ RDE_INTERNAL const fude_sim_model FSL_MODELS[] = {
     { "ram",    "Memory",       FSL_RAM, FSL_N(FSL_RAM), 0u, fsl_ports_ram, fsl_ram_start, fsl_ram, NULL, fsl_ram_states },
 };
 
+// See sim.h.
 u32 fude_sim_model_count(void) {
     return FSL_N(FSL_MODELS);
 }
 
+// See sim.h.
 const fude_sim_model* fude_sim_model_at(u32 _i) {
     return _i < fude_sim_model_count() ? &FSL_MODELS[_i] : NULL;
 }
 
+// See sim.h.
 u32 fude_sim_model_states(const fude_sim_model* _model, const f64* _params) {
     if(_model == NULL) {
         return 0u;
@@ -396,9 +450,10 @@ u32 fude_sim_model_states(const fude_sim_model* _model, const f64* _params) {
     return _model->states != NULL ? _model->states(_params) : _model->state;
 }
 
+// See sim.h. A search in full by id.
 const fude_sim_model* fude_sim_model_find(const c8* _id) {
     for(u32 _i = 0; _id != NULL && _i < fude_sim_model_count(); _i++) {
-        if(strcmp(FSL_MODELS[_i].id, _id) == 0) {
+        if(rde_strcmp(FSL_MODELS[_i].id, _id) == 0) {
             return &FSL_MODELS[_i];
         }
     }

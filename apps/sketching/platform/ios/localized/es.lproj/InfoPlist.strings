@@ -2,3 +2,4 @@
 "NSCameraUsageDescription" = "Sketching escanea páginas con la cámara para que puedas dibujar sobre ellas.";
 "CFBundleDisplayName" = "Sketching";
 "NSMicrophoneUsageDescription" = "Sketching graba lo que se dice mientras escribes, para que un toque en lo escrito lo vuelva a reproducir.";
+"NSPhotoLibraryAddUsageDescription" = "Sketching guarda en tu fototeca las imágenes y los vídeos que exportas.";

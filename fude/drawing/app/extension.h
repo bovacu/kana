@@ -5,146 +5,155 @@
 
 #include "rde.h"
 #include "drawing/widgets/row.h"
-#include "drawing/base/save.h"
+#include "drawing/app/settings.h"
 
 // ===========================================================================
-// What an app adds to the drawing core (fude_app.ext): the page, the toolbar,
-// the side panel and Settings are the core's, and each has a place the app
-// fills — its own tools on the bar, its rows of the page's menus, its entries
-// in the side panel and its sections in Settings — and hooks where its own
-// widgets, drawing, files and settings join the core's.
+// Extension: what an app adds to the drawing core (fude_app.ext). The page, the toolbar, the side panel and Settings
+// are the core's, and each has a place the app fills: its own tools on the bar, its rows of the page's menus, its
+// entries in the side panel and its sections in Settings. Hooks join its own widgets, drawing, files and settings to
+// the core's.
 //
-// Every field may be left out (zero): a plain drawing app is the core alone.
-// The study layer fills most of them for a study app (study/app/study.h:
-// FUDE_STUDY_EXTENSION), and the app adds its own (Kana: its side panel).
+// Every field may be left out (zero): a plain drawing app is the core alone. The study layer fills most of them for a
+// study app (study/app/study.h: FUDE_STUDY_EXTENSION), and the app adds its own (Kana: its side panel).
+//
+// Where it sits: drawing/app. The app gives a constant fude_extension in fude_app.ext; the core reads it through
+// fude_app_ext (app.h), which never returns NULL.
+//
+// Threads: every hook is called on the main thread.
 // ===========================================================================
 
 struct fude_app;
 struct fude_ui;
 
-struct fude_doc_line;   // doc.h
-
-// A tool of the app's on the toolbar, after Paper (Kana's camera).
-#define FUDE_EXTENSION_TOOLS   12u   // (an app with fewer: its bar as it was)
+// The tools of the app's own on the toolbar, after Paper (Kana's camera): at most FUDE_EXTENSION_TOOLS (an app with
+// fewer keeps the bar as it was), each with at most FUDE_EXTENSION_CHOICES choices.
+#define FUDE_EXTENSION_TOOLS   12u
 #define FUDE_EXTENSION_CHOICES 24u
 
-// One of a tool's choices, in its panel: its name, its icon, and what choosing
-// it does — true: the panel stays open (a toggle among its choices).
+// One of a tool's choices, in its panel: its name, its icon, and what choosing it does. press returns true to keep
+// the panel open (a toggle among its choices).
 typedef struct {
-    u32       text;                       // FUDE_TEXT_
-    const c8* icon;                       // icons.h
+    u32       text;                       // A FUDE_TEXT_ id.
+    const c8* icon;                       // From icons.h.
     b8      (*press)(struct fude_app* _app, u32 _index);
 } fude_extension_choice;
 
+// A tool of the app's own on the toolbar.
 typedef struct {
-    u32       text;                       // its name (FUDE_TEXT_): the button's label, kept hidden
-    const c8* icon;                       // icons.h
-    void    (*press)(struct fude_app* _app);   // the bar's panels are closed first, the UI catches up after
-    b8      (*available)(void);           // NULL: always; false: left out of the bar, not shown dead
-    // Choices in a panel beside the bar, which the tool opens and closes like
-    // Paper's (press is not called then; NULL: none) — Sketching's shapes —,
-    // which of them show chosen, and whether the tool itself does: a tool of
-    // the app's own that the pen uses, the bar's (pen, eraser...) not chosen
-    // while it is. Choosing one of the bar's tools counts (fude_toolbar.tool_taps).
+    u32       text;                       // Its name (a FUDE_TEXT_ id): the button's label, kept hidden.
+    const c8* icon;                       // From icons.h.
+    // Called on a press, after the bar's panels are closed; the UI catches up after it. NULL for a tool whose press
+    // only opens its panel (choices).
+    void    (*press)(struct fude_app* _app);
+    // NULL means always; false leaves it out of the bar (asked at each layout), rather than showing it greyed out.
+    b8      (*available)(void);
+    // Choices in a panel beside the bar, which the tool opens and closes like Paper's (press is not called then;
+    // NULL: no panel), as Sketching's shapes do. chosen says which of them show chosen, and selected whether the tool
+    // itself does: a tool of the app's own that the pen uses, while the bar's own tools (pen, eraser...) show not
+    // chosen. Choosing one of the bar's tools counts in fude_toolbar.tool_taps, so the app can let go of its own.
     const fude_extension_choice* choices;
-    u32       choice_count;               // at most FUDE_EXTENSION_CHOICES
+    u32       choice_count;               // At most FUDE_EXTENSION_CHOICES.
     b8      (*chosen)(const struct fude_app* _app, u32 _index);
     b8      (*selected)(const struct fude_app* _app);
-    b8        by_paper;                   // on the bar just above Paper, not with the app's others (a page's size)
+    // It sits on the bar just above Paper, not with the app's other tools (a page's size).
+    b8        by_paper;
 } fude_extension_tool;
 
-// An entry of the side panel's navigation: a button that opens what is the app's.
+// An entry of the side panel's navigation: a button that opens something of the app's. At most FUDE_EXTENSION_NAV.
 #define FUDE_EXTENSION_NAV 8u
 typedef struct {
-    u32       text;                       // FUDE_TEXT_
-    const c8* icon;                       // icons.h, or a character
+    u32       text;                       // A FUDE_TEXT_ id.
+    const c8* icon;                       // From icons.h, or a character.
     f32       icon_px;
-    // Pressed (_arg: the entry's own). False: the panel stays open (Kana's Reviews with none due).
+    // Called on a press, with the entry's own arg. Returning false keeps the panel open (Kana's Reviews with none due).
     b8      (*press)(struct fude_app* _app, u32 _arg);
     u32       arg;
-    b8      (*enabled)(const struct fude_app* _app);   // NULL: always (asked as the panel is built)
-    // A count after its name (counted_text, "Reviews · {0}"), asked each frame the
-    // panel is open — the hook keeps it cheap. NULL, or 0: just its name.
+    b8      (*enabled)(const struct fude_app* _app);   // NULL means always; asked as the panel is built.
+    // A count shown after its name (counted_text, "Reviews · {0}"). It is asked each frame the panel is open, so the
+    // hook must be cheap. NULL, or a count of 0, shows just its name.
     u32     (*count)(struct fude_app* _app);
     u32       counted_text;
 } fude_extension_nav_entry;
 
+// The side panel's navigation: a header and its entries.
 typedef struct {
-    u32                             title;     // its header (FUDE_TEXT_)
+    u32                             title;     // Its header (a FUDE_TEXT_ id).
     const fude_extension_nav_entry* entries;
-    u32                             count;     // at most FUDE_EXTENSION_NAV
+    u32                             count;     // At most FUDE_EXTENSION_NAV.
 } fude_extension_nav;
 
-// A section of the app's own in Settings, between Paper and About (Kana's
-// Handwriting: Google ML Kit). Its widgets are its own, kept where it likes.
+// A section of the app's own in Settings, between Paper and About (the core's Handwriting, handwriting.h; the canvas's
+// Measurements). Its widgets are its own, kept where it likes.
 typedef struct {
-    // Built on Settings' card (and again when the language changes).
+    // Builds the section on Settings' card (and again when the language changes).
     void (*build)(struct fude_ui* _ui, rde_ui_node* _card);
-    // Placed from _y down, in the card's units (_margin each side of a card _card_w
-    // wide): where the next goes.
+    // Places the section from _y down, in the card's units (_margin on each side of a card _card_w wide), and returns
+    // where the next one goes.
     f32  (*layout)(struct fude_ui* _ui, f32 _y, f32 _margin, f32 _card_w);
-    // What it shows, as things are now: once a frame while Settings is open (only
-    // a change is shown), and _force as Settings opens or restyles.
+    // Shows things as they are now: called once a frame while Settings is open (it should change only what changed),
+    // and with _force as Settings opens or restyles.
     void (*refresh)(struct fude_ui* _ui, b8 _force);
     void (*restyle)(struct fude_ui* _ui);
 } fude_extension_section;
 
-#define FUDE_EXTENSION_SECTIONS 2u
+#define FUDE_EXTENSION_SECTIONS 3u   // The most sections an app adds to Settings.
 
-// A button of the app's in the side panel, over the tutorial's: its words and
-// icon, shown while shown() says so (asked each frame), and what a press does
-// (the panel closes first). Study apps: Set up the voice, while there is none.
-// A paper of the app's own (canvas.h' FUDE_PAPER_ past the core's four), offered in the Paper panel after them.
+// A paper of the app's own (canvas.h's FUDE_PAPER_ values past the core's four), offered in the Paper panel after the
+// core's.
 typedef struct {
     u8        paper;   // FUDE_PAPER_
-    u32       text;    // its name: FUDE_TEXT_ id
-    const c8* icon;    // icons.h
+    u32       text;    // Its name: a FUDE_TEXT_ id.
+    const c8* icon;    // From icons.h.
 } fude_extension_paper;
 
+// A button of the app's in the side panel, above the tutorial's: its words and icon, shown while shown() says so
+// (asked each frame), and what a press does (the panel closes first). The study apps' is Set up the voice, while
+// there is no voice.
 typedef struct fude_extension_side_button {
-    u32       text;   // FUDE_TEXT_ id
-    const c8* icon;   // icons.h
+    u32       text;   // A FUDE_TEXT_ id.
+    const c8* icon;   // From icons.h.
     b8      (*shown)(struct fude_app* _app);
     void    (*press)(struct fude_app* _app);
 } fude_extension_side_button;
 
-// A page of the app's own in place of the ink page (Sketching's deep-zoom
-// canvas, zoom/page.h). The core keeps its ink as the brush's settings — the
-// toolbar's colours and sizes, Settings' width — but what is drawn, undone,
-// cleared and saved is the app's: the toolbar's buttons and the session ask it.
-// The shell hands it the pen, the fingers and the frame itself.
+// A page of the app's own in place of the ink page (Sketching's deep-zoom canvas, zoom/page.h). The core keeps its
+// ink as the brush's settings (the toolbar's colours and sizes, Settings' width), but what is drawn, undone, cleared
+// and saved is the app's: the toolbar's buttons and the session ask it. The shell hands it the pen, the fingers and
+// the frame itself. Every hook is required but back: the core calls them without asking whether they are set, since a
+// page of its own that could not undo, open or save would lose work silently, and the one page kind there is
+// (zoom/page.h's FUDE_ZOOM_PAGE_KIND) fills them all.
 typedef struct fude_page_kind {
     b8   (*undo)(struct fude_app* _app);
     b8   (*redo)(struct fude_app* _app);
     b8   (*can_undo)(const struct fude_app* _app);
     b8   (*can_redo)(const struct fude_app* _app);
-    void (*clear)(struct fude_app* _app);        // undoable
+    void (*clear)(struct fude_app* _app);        // Undoable.
     void (*reset_view)(struct fude_app* _app);
-    // The session: the canvas _canvas opened (its notes.h id: on launch, when
-    // another is chosen, after an import); a number that moves with every change
-    // worth saving; busy (a stroke open: not now); saved — _leaving: the canvas
-    // is being left or the app is going, so everything goes to disk now.
+    // For the session: open is called when canvas _canvas (its notes.h id) opens, at launch, when another is chosen,
+    // or after an import. revision returns a number that moves with every change worth saving. busy says not to save
+    // now (a stroke is open). save writes it and returns false on failure; _leaving means the canvas is being left or
+    // the app is going, so everything goes to disk now.
     void (*open)(struct fude_app* _app, u32 _canvas);
     u32  (*revision)(const struct fude_app* _app);
     b8   (*busy)(const struct fude_app* _app);
     b8   (*save)(struct fude_app* _app, b8 _leaving);
-    // Its lasso's selection, for the page's menus (pagemenu.h): its box on the
-    // app's screen (centre origin, Y up) and whether the pen is still at it (the
-    // menu hides) — false: nothing selected. The menus' buttons on it
-    // (FUDE_PAGE_CMD_; _at: where Paste lands, on the app's screen), and whether
-    // there is anything to paste.
+    // Its lasso's selection, for the page's menus (pagemenu.h). selection returns false when nothing is selected;
+    // otherwise it gives the box on the app's screen (centre origin, Y up) and whether the pen is still at it (then
+    // the menu hides). command does a menu button's work on it (a FUDE_PAGE_CMD_; _at is where Paste lands, on the
+    // app's screen), and can_paste says whether there is anything to paste.
     b8   (*selection)(const struct fude_app* _app, rde_vec_2F* _min, rde_vec_2F* _max, b8* _busy);
     void (*command)(struct fude_app* _app, u32 _cmd, rde_vec_2F _at);
     b8   (*can_paste)(const struct fude_app* _app);
-    // What the pickers brought (import.h: Files, Photos, the camera's scan) onto
-    // the page — Sketching's pictures — instead of a canvas of its own. _paths:
-    // the files, in order (the pickers' copies are deleted after).
+    // Takes what the pickers brought (import.h: Files, Photos, the camera's scan) onto the page (Sketching's
+    // pictures), instead of making a canvas of its own. _kind is a FUDE_IMPORT_, and _paths the files, in order; the
+    // pickers' copies are deleted after it returns.
     void (*imported)(struct fude_app* _app, u8 _kind, const c8* const* _paths, u32 _count);
-    // Back (Android's, the desktop's Escape) for a mode of the page's own — Sketching's presenting, its map —
-    // before a selection is let go: true, it closed one (optional).
+    // Back (Android's, or the desktop's Escape) for a mode of the page's own (Sketching's presenting, its map), asked
+    // before a selection is let go. It returns true when it closed one. Optional (NULL).
     b8   (*back)(struct fude_app* _app);
 } fude_page_kind;
 
+// The page menus' commands, for a page of the app's own (fude_page_kind.command).
 typedef enum {
     FUDE_PAGE_CMD_CUT = 0,
     FUDE_PAGE_CMD_COPY,
@@ -155,82 +164,81 @@ typedef enum {
     FUDE_PAGE_CMD_DESELECT
 } FUDE_PAGE_CMD_;
 
+// What an app adds to the core. Every field may be zero.
 typedef struct fude_extension {
     // The page, when it is the app's own (NULL: the ink page).
     const fude_page_kind* page_kind;
 
     // The toolbar: the app's tools.
     const fude_extension_tool* tools;
-    u32                        tool_count;   // at most FUDE_EXTENSION_TOOLS
-    // The brush always sized on the screen (fude_ink.brush_scale SCREEN), and
-    // the toolbar's Page/Screen left out — Sketching's, whose pen is the same
-    // size on screen at any zoom.
+    u32                        tool_count;   // At most FUDE_EXTENSION_TOOLS.
+    // The brush is always sized on the screen (fude_ink.brush_scale SCREEN), and the toolbar's Page/Screen is left
+    // out: for an app whose pen should be the same size on screen at any zoom. No app sets it today (the canvas apps
+    // size the pen on the canvas, as their instruments want: zoom/shell.c).
     b8                         brush_on_screen;
 
-    // The page's menus (pagemenu.h): the row over a lasso selection and the one at
-    // a long press (NULL: the core's own — Cut, Copy, Duplicate, Delete; Paste,
-    // Select all). An app's rows use the core's buttons where it wants them
-    // (FUDE_PAGEMENU_BUTTON_CUT...). Once a frame, before the selection's row
-    // shows: its own work (menu_update) and its buttons' faces; at a long press,
-    // the context row's faces (the core's own are set first).
+    // The page's menus (pagemenu.h): the row over a lasso selection and the one at a long press (NULL: the core's
+    // own, Cut, Copy, Duplicate, Delete; and Paste, Select all). An app's rows use the core's buttons where it wants
+    // them (FUDE_PAGEMENU_BUTTON_CUT...). Once a frame, before the selection's row shows, the core calls menu_update
+    // for the app's own work and selection_faces for its buttons' faces (for the text row too); at a long press it
+    // calls context_faces for the context row's faces, after setting the core's own.
     const fude_row_def* selection_row;
     const fude_row_def* context_row;
-    // Over an area of a PDF's text the lasso took (no ink: lasso.h) — the app's
-    // text buttons (Kana: Copy as text, Translate, Save word). None: the lasso
-    // takes ink only.
+    // The app's text buttons over an area of a PDF's text the lasso took when it took no ink (lasso.h) (Kana: Copy as
+    // text, Translate, Save word). NULL: the lasso takes ink only.
     const fude_row_def* text_row;
     void (*menu_update)(struct fude_app* _app);
     void (*selection_faces)(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
     void (*context_faces)(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
 
-    // The side panel: its navigation (NULL: none), its sections in Settings, and
-    // the tutorial (NULL: no such button).
+    // The side panel: its navigation (NULL: none), its sections in Settings, and the tutorial (NULL: no such button).
     const fude_extension_nav*     nav;
     const fude_extension_section* sections;
-    u32                           section_count;   // at most FUDE_EXTENSION_SECTIONS
+    u32                           section_count;   // At most FUDE_EXTENSION_SECTIONS.
     void (*tutorial)(struct fude_app* _app);
-    const fude_extension_side_button* side_button;   // NULL: none
+    const fude_extension_side_button* side_button;   // NULL when none.
 
-    // Its own widgets on the UI canvas (ui.h), over the core's: built (and again
-    // when the language changes), let go before the canvas goes, once a frame
-    // (_full: a screen is up), restyled, and whether a point is on them (_screen:
-    // the app's screen space; _canvas: the UI canvas's).
+    // Its own widgets on the UI canvas (ui.h), over the core's. ui_build builds them (and again when the language
+    // changes); ui_forget lets go of them before the canvas goes; ui_update runs once a frame (_full: a screen is up);
+    // ui_restyle restyles them; ui_hit says whether a point is on them (_screen in the app's screen space, _canvas in
+    // the UI canvas's).
     void (*ui_build)(struct fude_ui* _ui, rde_ui_node* _root);
     void (*ui_forget)(struct fude_ui* _ui);
     void (*ui_update)(struct fude_ui* _ui, b8 _full);
     void (*ui_restyle)(struct fude_ui* _ui);
     b8   (*ui_hit)(const struct fude_ui* _ui, rde_vec_2F _screen, rde_vec_2F _canvas);
 
-    // Over the page: what it draws above the ink, and a press there (true: it
-    // was on what it drew — the page still gets it).
+    // Over the page: page_render draws above the ink, and page_press is told of every press there, to act on what it
+    // drew. Whether the press then also reaches the page is ui_hit's to say: what the app drew over the page counts as
+    // its UI there.
     void (*page_render)(struct fude_app* _app, rde_window* _window);
-    b8   (*page_press)(struct fude_app* _app, rde_vec_2F _screen);
+    void (*page_press)(struct fude_app* _app, rde_vec_2F _screen);
 
-    // The session (session.h): its files opened (_dir: the save folder), before
-    // the settings are read; its settings into and out of the settings file; and
+    // The session (session.h): session_open opens its files (_dir: the save folder) before the settings are read;
+    // settings_gather and settings_apply move its settings into and out of the settings file; and first_launch runs at
     // the very first launch (no settings yet).
     void (*session_open)(struct fude_app* _app, const c8* _dir);
     void (*settings_gather)(const struct fude_app* _app, fude_settings* _settings);
     void (*settings_apply)(struct fude_app* _app, const fude_settings* _settings);
     void (*first_launch)(struct fude_app* _app);
 
-    // Its library (doc.h): books in its assets, to read and write on — the
-    // Library screen lists them (Kana: its lectures). None: no books there.
+    // Its library (doc.h): books in its assets to read and write on, which the Library screen lists (Kana: its
+    // lectures). None: there are no books there.
     const struct fude_doc_book* library;
     u32                         library_count;
 
-    // Reading pictures: a document's pages with no text of their own (scans,
-    // photos), read once each so the lasso and Search find their words (doc.h).
-    // _rgba (_w x _h, 4 bytes a pixel, the top row first) read — false when it
-    // cannot (now: then it is not asked again until the document opens again).
-    // Then once a frame: true once read, its lines into _out (at most _max: their
-    // boxes in the picture's pixels, from its top-left) and how many into *_count.
-    // None: pictures are not read (Kana: ML Kit's Japanese text recognition).
+    // Reading pictures: a document's pages with no text of their own (scans, photos) are read once each, so the lasso
+    // and Search find their words (doc.h). picture_read starts reading _rgba (_w x _h, 4 bytes a pixel, the top row
+    // first), and returns false when it cannot now (it is then not asked again until the document opens again).
+    // picture_lines is then asked once a frame: it returns true once the picture is read, with every line it read
+    // added to _out (an rde_arr of fude_doc_line, which the document owns and empties before asking), their boxes in
+    // the picture's pixels from its top-left. NULL: pictures are not read (Kana: ML Kit's Japanese text recognition).
     b8 (*picture_read)(const u8* _rgba, u32 _w, u32 _h);
-    b8 (*picture_lines)(struct fude_doc_line* _out, u32 _max, u32* _count);
+    b8 (*picture_lines)(rde_arr* _out);
 
-    // Its own papers (the page's: Sketching's isometric, hexagons…), offered after the core's four. None: those four.
-    // Which of them the page open now takes (NULL: all): a page's layout only on a notebook's pages.
+    // Its own papers for the page (Sketching's isometric, hexagons…), offered after the core's four; none means just
+    // those four. paper_offered says which of them the page open now takes (NULL: all): a page's layout is offered
+    // only on a notebook's pages.
     const fude_extension_paper* papers;
     u32                         paper_count;
     b8 (*paper_offered)(const struct fude_app* _app, u8 _paper);

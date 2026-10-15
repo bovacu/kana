@@ -4,13 +4,17 @@
 #include "drawing/base/text.h"
 
 // ===========================================================================
-// See theme.h. Each theme is one table; add a theme by adding a row here and a
-// name to FUDE_THEME_.
+// See theme.h.
+//
+// Each theme is one entry of FUDE_THEMES. To add a theme, add an entry here, a name to FUDE_THEME_, and a text id for
+// its name right after the others (fude_theme_text counts on them being in order).
 // ===========================================================================
 
+// Short-hands for the table below: an opaque colour, and a colour with its alpha (0 to 255). Undefined after it.
 #define C(_r, _g, _b)       (rde_color){ _r, _g, _b, 255 }
 #define CA(_r, _g, _b, _a)  (rde_color){ _r, _g, _b, _a }
 
+// The core's themes, in FUDE_THEME_ order.
 static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
     [FUDE_THEME_PAPER] = {
         .name = "Paper",
@@ -20,7 +24,7 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
         .sheet = C(255, 255, 255), .sheet_outline = C(180, 176, 166), .sheet_guide = C(214, 210, 200), .reference = CA(220, 90, 90, 70),
         .score_good = C(46, 138, 78), .score_fair = C(183, 128, 28), .score_poor = C(192, 68, 60),
         .select = C(40, 120, 230), .select_glow = CA(80, 150, 255, 80), .select_fill = CA(80, 150, 255, 20),
-        .eraser = C(200, 90, 90), .samples = C(40, 160, 220),
+        .samples = C(40, 160, 220),
         .surface = C(255, 255, 255), .surface_2 = C(240, 238, 232), .outline = C(226, 222, 212),
         .accent = C(58, 108, 200), .on_accent = C(255, 255, 255), .tint = CA(58, 108, 200, 31),
         .panel = C(255, 255, 255), .panel_border = C(226, 222, 212), .grip = C(160, 157, 150),
@@ -36,7 +40,7 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
         .sheet = C(251, 246, 236), .sheet_outline = C(176, 160, 134), .sheet_guide = C(214, 200, 176), .reference = CA(190, 90, 60, 70),
         .score_good = C(79, 138, 60), .score_fair = C(173, 116, 36), .score_poor = C(180, 60, 50),
         .select = C(150, 90, 40), .select_glow = CA(200, 140, 80, 80), .select_fill = CA(200, 140, 80, 20),
-        .eraser = C(180, 80, 60), .samples = C(60, 130, 170),
+        .samples = C(60, 130, 170),
         .surface = C(251, 246, 236), .surface_2 = C(237, 226, 204), .outline = C(217, 201, 172),
         .accent = C(160, 83, 42), .on_accent = C(255, 255, 255), .tint = CA(160, 83, 42, 33),
         .panel = C(251, 246, 236), .panel_border = C(217, 201, 172), .grip = C(170, 152, 128),
@@ -52,7 +56,7 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
         .sheet = C(36, 38, 45), .sheet_outline = C(90, 92, 104), .sheet_guide = C(56, 58, 68), .reference = CA(255, 120, 120, 60),
         .score_good = C(90, 200, 120), .score_fair = C(230, 180, 70), .score_poor = C(240, 100, 100),
         .select = C(90, 160, 255), .select_glow = CA(90, 160, 255, 90), .select_fill = CA(90, 160, 255, 24),
-        .eraser = C(230, 110, 110), .samples = C(80, 190, 240),
+        .samples = C(80, 190, 240),
         .surface = C(36, 38, 45), .surface_2 = C(48, 50, 59), .outline = C(58, 60, 70),
         .accent = C(90, 140, 240), .on_accent = C(255, 255, 255), .tint = CA(90, 140, 240, 51),
         .panel = C(36, 38, 45), .panel_border = C(58, 60, 70), .grip = C(110, 112, 124),
@@ -68,7 +72,7 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
         .sheet = C(249, 251, 246), .sheet_outline = C(160, 178, 154), .sheet_guide = C(204, 218, 198), .reference = CA(120, 170, 110, 80),
         .score_good = C(47, 118, 68), .score_fair = C(169, 122, 34), .score_poor = C(180, 70, 60),
         .select = C(60, 140, 90), .select_glow = CA(90, 170, 110, 80), .select_fill = CA(90, 170, 110, 20),
-        .eraser = C(190, 90, 70), .samples = C(50, 140, 170),
+        .samples = C(50, 140, 170),
         .surface = C(249, 251, 246), .surface_2 = C(226, 234, 219), .outline = C(206, 218, 198),
         .accent = C(51, 120, 74), .on_accent = C(255, 255, 255), .tint = CA(51, 120, 74, 33),
         .panel = C(249, 251, 246), .panel_border = C(206, 218, 198), .grip = C(146, 162, 142),
@@ -84,7 +88,7 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
         .sheet = C(255, 250, 251), .sheet_outline = C(206, 176, 188), .sheet_guide = C(234, 214, 222), .reference = CA(220, 90, 130, 70),
         .score_good = C(60, 138, 88), .score_fair = C(173, 122, 36), .score_poor = C(196, 60, 80),
         .select = C(200, 80, 130), .select_glow = CA(230, 120, 160, 80), .select_fill = CA(230, 120, 160, 20),
-        .eraser = C(200, 80, 90), .samples = C(70, 150, 200),
+        .samples = C(70, 150, 200),
         .surface = C(255, 250, 251), .surface_2 = C(244, 228, 234), .outline = C(232, 204, 214),
         .accent = C(174, 63, 106), .on_accent = C(255, 255, 255), .tint = CA(174, 63, 106, 31),
         .panel = C(255, 250, 251), .panel_border = C(232, 204, 214), .grip = C(186, 150, 162),
@@ -97,52 +101,80 @@ static const fude_theme FUDE_THEMES[FUDE_THEME_COUNT] = {
 #undef C
 #undef CA
 
+// The current theme's place in the table.
 RDE_INTERNAL FUDE_THEME_ fude_theme_current = FUDE_THEME_PAPER;
-RDE_INTERNAL const fude_theme* fude_theme_table = FUDE_THEMES;   // an app's own set (fude_theme_use), or these
+RDE_INTERNAL const fude_theme* fude_theme_table = FUDE_THEMES;   // An app's own set (fude_theme_use), or the core's.
+// The text ids of an app's own themes' names; NULL for the core's, whose ids follow FUDE_TEXT_THEME_PAPER in order.
 RDE_INTERNAL const u32*         fude_theme_texts = NULL;
 
+// Uses an app's own set of themes and their names' text ids, or the core's again with NULL. Both are kept, not copied.
 void fude_theme_use(const fude_theme* _themes, const u32* _texts) {
     fude_theme_table = _themes != NULL ? _themes : FUDE_THEMES;
     fude_theme_texts = _themes != NULL ? _texts : NULL;
 }
 
+// Returns the core's theme at _theme's place (Paper for an unknown place), whatever set is in use.
 const fude_theme* fude_theme_core(FUDE_THEME_ _theme) {
     return &FUDE_THEMES[(_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER];
 }
 
+// Returns the text id of a theme's name: the app's when it gave its own, else FUDE_TEXT_THEME_PAPER plus the place.
 u32 fude_theme_text(FUDE_THEME_ _theme) {
     const u32 _i = (_theme >= 0 && _theme < FUDE_THEME_COUNT) ? (u32)_theme : 0u;
     return fude_theme_texts != NULL ? fude_theme_texts[_i] : (u32)FUDE_TEXT_THEME_PAPER + _i;
 }
 
+// Returns the current theme from the set in use.
 const fude_theme* fude_theme_active(void) {
     return &fude_theme_table[fude_theme_current];
 }
 
+// Returns the current theme's place.
 FUDE_THEME_ fude_theme_index(void) {
     return fude_theme_current;
 }
 
+// Makes _theme current; an unknown place means Paper.
 void fude_theme_set(FUDE_THEME_ _theme) {
     fude_theme_current = (_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER;
 }
 
+// Returns the theme at _theme's place in the set in use; an unknown place means Paper.
 const fude_theme* fude_theme_get(FUDE_THEME_ _theme) {
     return &fude_theme_table[(_theme >= 0 && _theme < FUDE_THEME_COUNT) ? _theme : FUDE_THEME_PAPER];
 }
 
+// Returns whether a colour means the theme's ink: any colour with an alpha of 0.
 b8 fude_theme_is_ink(rde_color _color) {
     return _color.a == 0;
 }
 
+// Returns the colour to draw: the theme's page for FUDE_THEME_PAGE_FILL, the theme's ink for FUDE_THEME_INK, and any
+// other colour as it is.
 rde_color fude_theme_resolve(rde_color _color) {
     if(_color.a == 1u && _color.r == 255u && _color.g == 254u && _color.b == 253u) {
-        return fude_theme_active()->page;   // (FUDE_THEME_PAGE_FILL)
+        return fude_theme_active()->page;   // This is FUDE_THEME_PAGE_FILL.
     }
     return fude_theme_is_ink(_color) ? fude_theme_active()->ink : _color;
 }
 
+// Returns the theme's good colour from FUDE_THEME_GRADE_GOOD up, its fair colour from FUDE_THEME_GRADE_FAIR, else poor.
 rde_color fude_theme_grade(f32 _score) {
     const fude_theme* _t = fude_theme_active();
     return _score >= FUDE_THEME_GRADE_GOOD ? _t->score_good : _score >= FUDE_THEME_GRADE_FAIR ? _t->score_fair : _t->score_poor;
+}
+
+// Returns FUDE_THEME_INK for the old default ink saved before themes (30, 30, 36, 255), and any other colour as it is.
+rde_color fude_theme_saved_color(rde_color _c) {
+    return (_c.r == 30u && _c.g == 30u && _c.b == 36u && _c.a == 255u) ? FUDE_THEME_INK : _c;
+}
+
+// Returns _c with _delta added to its red, green and blue, each clamped to 0..255; the alpha is kept.
+rde_color fude_theme_shade(rde_color _c, i32 _delta) {
+    const i32 _r = (i32)_c.r + _delta;
+    const i32 _g = (i32)_c.g + _delta;
+    const i32 _b = (i32)_c.b + _delta;
+    return (rde_color){ (u8)(_r < 0 ? 0 : (_r > 255 ? 255 : _r)),
+                        (u8)(_g < 0 ? 0 : (_g > 255 ? 255 : _g)),
+                        (u8)(_b < 0 ? 0 : (_b > 255 ? 255 : _b)), _c.a };
 }
