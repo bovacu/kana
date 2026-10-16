@@ -75,6 +75,8 @@ void fude_zoom_render_init(fude_zoom_renderer* _r) {
     _r->pictures     = rde_arr_new(sizeof(fude_zoom_picture), _heap);
     _r->picture_of   = rde_hash_map_new(sizeof(u64), sizeof(u32), rde_hash_map_fn_u64_hash, rde_hash_map_fn_u64_cmp, NULL, _heap);
     _r->cache_budget = FUDE_ZOOM_RENDER_CACHE;
+    _r->mesh_budget  = FUDE_ZOOM_RENDER_MESHES;
+    _r->mesh_scratch = rde_stroke_mesh_new(_heap);
     _r->geos         = rde_arr_new(sizeof(fude_zoom_geo), _heap);
     rde_arr_resize(&_r->geos, FUDE_ZOOM_RENDER_GEOS + 1u);
     _r->geo_lru      = rde_lru_new(FUDE_ZOOM_RENDER_GEOS, _heap);
@@ -259,7 +261,7 @@ u32 fude_zoom_render_geo_tris(fude_zoom_renderer* _r, fude_zoom_geo* _g) {
     return (u32)(rde_arr_length(&_g->tris) / 3u);
 }
 
-// A decoded stroke's arrays let go.
+// A decoded stroke's arrays let go, its mesh's too (the caller takes its bytes off the budgets).
 RDE_INTERNAL void fude_zoom_render_let_go(fude_zoom_decoded* _d) {
     rde_arr* _arrays[] = { &_d->xy, &_d->radius, &_d->tris, &_d->rings, &_d->edges, &_d->edge_lines };
     for(u32 _i = 0; _i < sizeof(_arrays) / sizeof(_arrays[0]); _i++) {
@@ -267,6 +269,7 @@ RDE_INTERNAL void fude_zoom_render_let_go(fude_zoom_decoded* _d) {
             rde_arr_free(_arrays[_i]);
         }
     }
+    rde_stroke_mesh_free(&_d->mesh);
 }
 
 // See the header.
@@ -290,6 +293,8 @@ void fude_zoom_render_trim(fude_zoom_renderer* _r) {
     rde_arr_clear(&_r->cache);
     rde_arr_clear(&_r->slot_of);
     _r->cache_bytes = 0;
+    _r->mesh_bytes  = 0;
+    _r->mesh_full   = 0;
     fude_zoom_render_geo_forget(_r);
     fude_zoom_render_plots_forget(_r);
     fude_zoom_render_rich_forget(_r);
@@ -316,6 +321,7 @@ void fude_zoom_render_destroy(fude_zoom_renderer* _r) {
     if(_r->picture_of.capacity > 0u) {
         rde_hash_map_free(&_r->picture_of);
     }
+    rde_stroke_mesh_free(&_r->mesh_scratch);
     rde_memset(_r, 0, sizeof(*_r));
 }
 
@@ -326,11 +332,13 @@ RDE_INTERNAL f64 fude_zoom_render_error(fude_zoom_sim _s) {
 
 // --- decoded strokes ------------------------------------------------------------------------
 
-// Lets decoded entry _entry go, its bytes taken off the budget; the last entry is moved into its place.
+// Lets decoded entry _entry go, its bytes taken off the budget (its mesh's off theirs); the last entry is
+// moved into its place.
 RDE_INTERNAL void fude_zoom_render_evict(fude_zoom_renderer* _r, u32 _entry) {
     fude_zoom_decoded* _d    = (fude_zoom_decoded*)_r->cache.memory;
     u32*               _slot = (u32*)_r->slot_of.memory;
     _r->cache_bytes -= (u64)_d[_entry].count * 12u + (u64)_d[_entry].tri_count * 24u + (u64)_d[_entry].edge_count * 12u;
+    _r->mesh_bytes  -= _d[_entry].mesh_bytes;
     fude_zoom_render_let_go(&_d[_entry]);
     _slot[_d[_entry].object] = 0;
     const u32 _last = (u32)rde_arr_length(&_r->cache) - 1u;
@@ -757,7 +765,7 @@ RDE_INTERNAL void fude_zoom_render_cover(fude_zoom_renderer* _r, const fude_zoom
 // that covers the camera's point goes over everything.
 void fude_zoom_render(fude_zoom_renderer* _r, const fude_zoom_scene* _s, fude_zoom_v2 _half, rde_color _paper) {
     _r->draws++;
-    _r->strokes_drawn = _r->points_drawn = _r->frames_drawn = 0;
+    _r->strokes_drawn = _r->points_drawn = _r->frames_drawn = _r->meshes_made = 0;
     rde_arr_clear(&_r->visible);
     const fude_zoom_camera* _cam     = &_s->camera;
     const fude_zoom_sim     _cam_sim = fude_zoom_camera_sim(_cam);

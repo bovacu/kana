@@ -82,7 +82,8 @@ fude/zoom/               the deep-zoom canvas: zoom (shared types, f64 transform
                          page and its modules (the page driver), the tools (select, erase, shape, fill, smooth,
                          instrument, snap...), the topics (circuit, logic, mech, plan, graph, formula...), the
                          exports (export, pdf, dxf, stl, video), media (audio, voice, listen, transcript), the shell,
-                         product, look, home · strings.py (the canvas apps' strings). "The canvas layer" has the map
+                         product, look, inktest, home · strings.py (the canvas apps' strings). "The canvas layer"
+                         has the map
 fude/android/java/       the Java every app needs on Android (com.rde.fude: FudeAndroid (the context, the pickers'
                          fragment, the speech model's download), FudeInk, FudeImport, FudePdf, FudePdfBox,
                          FudeSpeech, FudeVideo)
@@ -770,6 +771,7 @@ last column are that work's, measured in the suites.
 | Cache | Holds (and its bound) | Made again when | Saves |
 |---|---|---|---|
 | Decoded strokes (`render.c`: `fude_zoom_render_decoded`) | each visible stroke's and fill's points as f32 x, y and radius in its own units, a fill's triangles and cut edge with them; found by object (`slot_of`); 64 MB (`FUDE_ZOOM_RENDER_CACHE`), counted in bytes | past the budget, the least recently drawn go (never one this draw used); all of them as the canvas closes or memory runs short (`fude_zoom_render_trim`). An object's points never change (an edit makes a new object: `scene.h`), so nothing else makes one stale | decoding every visible stroke (`codec.h`) every frame |
+| Strokes' meshes (`render_stroke.c`, kept in each decoded entry) | each stroke's tessellated triangles (RDE's `rde_stroke_mesh`) in screen units round where its translation lands, keyed by the turn and scale to the screen, the half-widths' scale and a pixel's size; 64 MB (`FUDE_ZOOM_RENDER_MESHES`), counted as the arrays' capacity | a zoom, a turned or scaled stroke or another pixel size makes one again; past the budget the one drawn longest ago goes (never one this draw used); with its decoded entry and with a trim. A pan, a still view, a theme or a faint stroke keeps it (the colour is given as it is drawn) | tessellating every visible stroke every frame (about 55% of a stroke-heavy canvas's render) |
 | Pictures on the GPU (`render.c`: `fude_zoom_render_picture`) | a texture for each picture's bytes, shared by its copies; found through `picture_of`, a map keyed by the payload's handle and serial (a freed payload slot is given out again with a new serial); 256 MB of texture (`FUDE_ZOOM_RENDER_TEXTURES`, 4 bytes a pixel). A picture that does not decode is kept as none, not tried again | past the budget, the least recently drawn; all at a trim | decoding a JPEG or PNG and uploading it every frame |
 | Kept geometry (`render.c`: `geo_lru`, `geos`; made by `render_symbol.c` and `render_shape.c`) | a symbol's parts at its kind, size and detail, and their triangles; a shape's outline at its detail; a cut board's rings; a shape's or board's triangles once a fill needs them. Keyed by `fude_zoom_render_geo_key`, compared whole: a symbol's kind, detail, half sizes and custom part; a shape's or board's type, payload (handle and serial: an edit makes a new payload), detail and how many of its numbers. 2,048 entries (`FUDE_ZOOM_RENDER_GEOS`) holding at most 2^21 points and triangle corners (`FUDE_ZOOM_RENDER_GEO_POINTS`), and one spare | past either bound, the one used longest ago, never one this draw used: what does not fit then is made into the spare, drawn from there and made again next time, while the rest stay kept; all at a trim | cutting curves and triangulating every symbol, shape and board every frame (every Library tile's symbol: 11.94 → 0.095 ms a frame; 500 filled shapes: 3.67 → 0.28 ms) |
 | Notes' layouts (`render_text.c`: `rich_lru`, `fude_zoom_render_rich_aligned`) | a text's lines and marks laid out (only a text with marks is), keyed by its four fonts, the size they are loaded at, its letters' size, its width, its alignment and then its words; a plain text's wrapped lines kept in its slot too, with the size and width on the screen they were found at (`fude_zoom_render_plain_lines`); 256 (`FUDE_ZOOM_RENDER_RICH`) and a spare | past 256, the one drawn longest ago, never one this draw used (more notes on screen than that: the rest laid out into the spare each draw); a plain text's lines also at each step of a zoom; all at a trim | measuring every word of every note every frame (300 notes over 50 frames: 69.7 → 21.6 ms); wrapping every plain text every frame once more than draw.c's 64 layouts were on screen (300 plain texts: 44 laid out a still draw, not 300) |
@@ -935,7 +937,12 @@ state, shot and compared: the core's in `look.h`, a study app's (`--chart`,
 - On the canvas: `--example=E@F` draws example E (its number in `examples.h`)
   at frame F, `--library=N` opens the diagram library, and `--gate=POINTS`
   makes a canvas of that many points over four depths, the canvas the
-  performance work is measured on (with `--perf`).
+  performance work is measured on (with `--perf`). It is the test ink
+  (`zoom/inktest.h`): in a developer's or a measuring build (the Mac's
+  `measure`, the tablet's `android-measure`), never a release that ships,
+  Settings' Display makes a canvas of it with a million points, the same
+  strokes as `--gate=1000000`, to see on the device what was measured
+  (`--inktest=N` presses its Make at frame N).
 
 ## How to add things
 
@@ -1389,7 +1396,8 @@ PDFs and the threads (`pdf_and_threads.md`).
 **How it joins the core.** The canvas is a page kind (`extension.h`'s `page_kind`, `FUDE_ZOOM_PAGE_KIND`): the core's
 toolbar, menus, side panel, Settings and session drive it as they drive the ink page, and the session opens and saves
 a canvas through it. Its tools for the bar, its rows of the page's menus, its Settings sections (Measurements, the
-core's Handwriting, and Display: the frame rate, in every build) and its own widgets come through the same extension
+core's Handwriting, and Display: the frame rate in every build, and in a developer's or a measuring build a test
+canvas of a million points to watch it on: `docs/design/page_driver.md`, "Settings") and its own widgets come through the same extension
 (`zoom/shell.c`'s `FUDE_ZOOM_SHELL_EXTENSION`, the same in every canvas app). The core's ink, canvas and ink page are
 still made: the ink holds the brush the toolbar and Settings set, while the ink page sits idle.
 
@@ -1421,7 +1429,7 @@ one page exists at a time: the hooks, which are handed the app and not the page,
 | The cards | `bodyform`, `choiceform`, `kanbanform`, `limitsform`, `partsform`, `pointform`, `repeatform`, `sheetform`, `sizeform`, `valueform`, `numpad` | small cards that ask for a value; the forms are the kit's form (`kit.h`: `fude_kit_form`: the card, its title, Cancel, a tap off it, laying it out again, fields, chips, a keypad), each keeping only what it asks |
 | Out of the app | `export` (the walk) and `export_formats` (SVG, PDF, DXF, tiles, the print check, the cut list), `pdf` (a PDF writer in plain C), `dxf`, `stl`, `video` (H.264 through the system's encoder: `video_apple.m`, `video_android.c`) | |
 | Sound | `audio` and `adpcm` (a canvas's recordings), `voice` (recording and playing), `listen` (speech to text, whisper.cpp), `transcript`, `fetch` (the speech model's download: `fetch_apple.m`, `fetch_android.c`) | InfiNote's and Sketching's; InfiniWorkshop records nothing (`product.h`'s `audio`) |
-| The app around it | `shell` (the canvas apps' shell), `product` (what each app offers), `look` (the developer's flags; the page's own harness is `page_look.c`), `home` (the home screen of canvases, notebooks or projects), `pdfview` (a canvas over a PDF) | |
+| The app around it | `shell` (the canvas apps' shell), `product` (what each app offers), `look` (the developer's flags; the page's own harness is `page_look.c`), `inktest` (the test ink: `--gate`'s canvas, and Settings' test canvas), `home` (the home screen of canvases, notebooks or projects), `pdfview` (a canvas over a PDF) | |
 
 **The simulation** (`fude/sim`) is pure C with no canvas and no UI; `tests/sim` tests it on its own.
 

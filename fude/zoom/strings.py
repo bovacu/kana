@@ -1142,6 +1142,11 @@ t('ZOOM_TEMPLATE_NOT_UPDATED', '“{0}” not updated: it needs logic inputs and
 # Settings' Display (0.1.58): the frame rate on the screen.
 t('ZOOM_DISPLAY', 'DISPLAY', 'PANTALLA', 'TELA', '表示', 'AFFICHAGE')
 t('ZOOM_SHOW_FPS', 'Frames per second, top right', 'Fotogramas por segundo, arriba a la derecha', 'Quadros por segundo, no canto superior direito', 'フレームレート（右上）', 'Images par seconde, en haut à droite')
+# ...and a test canvas (0.1.98, inktest.h): its row, its button, the canvas's name, and the notice while it is drawn.
+t('ZOOM_INKTEST', 'A test canvas: a million points of ink, to see how smoothly this device draws', 'Un lienzo de prueba: un millón de puntos de tinta, para ver con qué fluidez dibuja este dispositivo', 'Uma tela de teste: um milhão de pontos de tinta, para ver com que fluidez este aparelho desenha', 'テスト用キャンバス：100万点のインクで、この端末の描画の滑らかさを確かめます', 'Une toile d’essai : un million de points d’encre, pour voir avec quelle fluidité cet appareil dessine')
+t('ZOOM_INKTEST_MAKE', 'Make', 'Crear', 'Criar', '作成', 'Créer')
+t('ZOOM_INKTEST_NAME', 'Drawing test', 'Prueba de dibujo', 'Teste de desenho', '描画テスト', 'Test de dessin')
+t('ZOOM_INKTEST_MAKING', 'Drawing a million points of ink: it takes a moment', 'Dibujando un millón de puntos de tinta: tarda un momento', 'Desenhando um milhão de pontos de tinta: leva um instante', '100万点のインクを描いています。少しお待ちください', 'Dessin d’un million de points d’encre : cela prend un instant')
 
 # The library's Shapes and Brackets (0.1.85).
 t('ZOOM_LIB_SHAPES', 'Shapes', 'Formas', 'Formas', '図形', 'Formes')

@@ -117,7 +117,8 @@ fude_zoom_shell_update                         fude_zoom_shell_render_frame
 ```
 
 **The update** (`fude_zoom_page_update`, page_frame.c) runs in a fixed order, each step a block or a
-`fude_zoom_page_update_*` function: a flick coasting; the examples, a template and the library's held tile carried on;
+`fude_zoom_page_update_*` function: a flick coasting; the examples, a template, Settings' test canvas and the
+library's held tile carried on;
 the instruments kept on the drawing as it is now (before the pen meets them); the layers' bits read again when the
 revision moved, and the lasso's length chip; what is under way (the pickers' files, handwriting being read, a PNG or a
 video frame, a flight, the pen resting long enough to snap a shape); the bar's taps; the keys; another tool chosen
@@ -153,6 +154,34 @@ pointers set for one draw are put back after it.
 renderer and scene, the camera swapped for the draw and put back. They run in `fude_zoom_page_render_offscreen`,
 before the page's own draw, so that the renderer's `visible` list (the frames the last draw went into, which the pen
 is mapped through and the tools edit: `fude_zoom_render_editable`) is always the screen's when input comes.
+
+## Settings
+
+The canvas's Settings sections are `page_settings.c`'s, handed to the core in `FUDE_ZOOM_PAGE_SECTIONS` (each one
+four functions: build, layout, refresh, restyle): Measurements (the units, the true size's calibration, the printer's
+check, the kerf, how parts are fitted to a board), the core's Handwriting, and Display. What they change is saved with
+the settings (`page_export.c` gathers it). The rows are laid out as the core's are: a row's words at the left, its
+buttons at the right; words too long for their room wrap, and the row is as tall as their lines.
+
+**Display**, in every build, is for seeing how smoothly the device draws. Its first row shows the frame rate at the
+top right (`fude_zoom_page_render_fps`; while it shows, where each frame's time goes is logged every 2 s). Its second,
+"A test canvas", is only in a developer's or a measuring build (`FUDE_ZOOM_INKTEST_OFFERED`, `inktest.h`: `RDE_DEBUG`
+or `FUDE_ALLOW_ARGS`, so the Mac's `measure` and the tablet's `android-measure`; never a release that ships). It has Make: a new canvas, named "Drawing test" in the app's language, filled with a million points of
+the test ink (`inktest.h`), the very canvas the developer's `--gate=1000000` measures: rose curves of 400 points with
+pressure and time, over four depths each 1024× inside the last, then the camera back at the top. The person turns the
+frame rate on, pans and zooms.
+
+- **It never touches the person's canvases.** Make adds a canvas of its own at the top level and opens it
+  (`fude_zoom_inktest_canvas`: a new one every time, even beside one of the same name), closes Settings and shows a
+  notice. The session opens the canvas at the end of that frame; the next frame's update fills it
+  (`fude_zoom_page_inktest_follow`, beside the examples' and the templates' follows), and only if it holds nothing,
+  so a file left behind under its id is never drawn over.
+- **It is filled in one go, not over frames.** The ink is placed round the camera as the camera goes down through the
+  depths and back, so the camera must be the fill's until it is done; spread over frames, a pan, a zoom or a stroke
+  would land in the middle of it, and the canvas would not be the one `--gate` measures. The notice is drawn the frame
+  before, so the person sees something happen; the fill takes 66 ms on an M2 Mac in a release build (half a second
+  in a debug one); a tablet's time is not measured yet.
+- `--inktest=N` (zoom/look.c) presses Make at frame N, and `--settings-end` (the core's) shows the row.
 
 ## Tools and topics
 
@@ -288,7 +317,8 @@ cross-module functions in `page_parts.h`; a `fude_zoom_page_look_*` in page_look
 - `tests/zoom` (`bash tests/run.sh zoom`): the models the page drives, and the page's own parts that can run headless:
   `test_history_tags` (a step's tag kept, through the file), `test_pages` (a notebook's pages), `test_navigation`
   (flights, the empty screen's marks), `test_products` (each app's topics and choices), `test_clear` (what Clear
-  takes and leaves), `test_select_abort`, `test_select_frames`.
+  takes and leaves), `test_select_abort`, `test_select_frames`, `test_inktest` (Display's test canvas: the gate's
+  ink byte for byte, and no other canvas touched).
 - The look harness: `fude_zoom_page_look_*` (page_look.c) and the launch flags in `zoom/look.h` and `COMMANDS.txt`
   put the page into a state for a screenshot; `zsh tools/check/shots.sh` compares them with a baseline.
 - `--stress` with the kill test (COMMANDS.txt) draws without pause and kills the app at random moments, checking the

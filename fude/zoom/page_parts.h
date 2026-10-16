@@ -42,6 +42,7 @@
 #include "zoom/symbolart.h"
 #include "zoom/props.h"
 #include "zoom/examples.h"
+#include "zoom/inktest.h"
 #include "zoom/placer.h"
 #include "zoom/logic.h"
 #include "sim/body.h"
@@ -86,8 +87,8 @@
 //   page_nav.c          getting around: flying the camera, Back, the marks, the navigation buttons
 //   page_frame.c        each frame (fude_zoom_page_update)
 //   page_render.c       drawing: the paper, the page (fude_zoom_page_render), the marks' previews, the instruments
-//   page_settings.c     Settings' sections: Measurements, the core's Handwriting listed, Display (a developer's build
-//                       only); the true size, the offset pad
+//   page_settings.c     Settings' sections: Measurements, the core's Handwriting listed, Display (the frame rate, and
+//                       the test canvas); the true size, the offset pad
 //   page_present.c      the map, Insert's Named area, Present
 //   page_strip.c        a notebook's pages strip, the canvases Find found the words in
 //   page_audio.c        audio synced to ink, and its panel
@@ -893,6 +894,12 @@ b8 fude_zoom_page_grip_up(fude_zoom_page* _page, u64 _hand);
 void fude_zoom_page_kerf_said(const fude_zoom_page* _page, c8* _out, usize _size);
 // The frame rate, at the top right in the theme's text (just its number): frames counted over half a second at a time.
 void fude_zoom_page_render_fps(fude_zoom_page* _page);
+#if FUDE_ZOOM_INKTEST_OFFERED   // (a developer's or a measuring build's only: inktest.h)
+// Display's Make: the test canvas made and opened, Settings closed and the notice shown; it is filled the frame after.
+void fude_zoom_page_inktest_make(fude_zoom_page* _page);
+// Once a frame: the test canvas Display's Make made, filled with the test ink once it is the canvas open.
+void fude_zoom_page_inktest_follow(fude_zoom_page* _page);
+#endif
 
 // --- page_present.c: the map, areas, Present -------------------------------------------------------------------------
 

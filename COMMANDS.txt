@@ -469,7 +469,11 @@ left at the deepest; --zoom=F the camera's zoom times F once loaded (0.001 out,
 1000 in); --paper-is=dots|lines|squares|none the canvas's paper; --pan=X,Y the page dragged X, Y screen units first (to park the camera
 on a stroke's edge and look from inside it); --demo-erase three lines crossed and
 erased with each eraser; --gate=POINTS a canvas of that many points over four
-depths (with --perf=SECONDS: the gate's frame times, docs/infinite_canvas_design.md §10);
+depths (with --perf=SECONDS: the gate's frame times, docs/infinite_canvas_design.md §10):
+the test ink (fude/zoom/inktest.h); in a developer's or a measuring build (measure,
+android-measure; never a shipping release) Settings' Display makes a canvas of it
+("A test canvas", Make: --gate=1000000's strokes, in a new canvas "Drawing test"); --inktest=N presses that Make at frame N, and the core's
+--settings-end shows Settings scrolled to its end, where the row is;
 --demo-lasso[=2] the left half looped, dragged (and with 2, turned); --demo-snap a
 rough circle, rectangle and line drawn with the "pen", each held till it snaps (with
 --shot-at=560: the shot after); --demo-shapes the Shapes tool's four dragged out;

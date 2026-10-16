@@ -13,7 +13,7 @@
 #define INFINOTE_NAME "InfiNote"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define INFINOTE_VERSION "0.1.97"
+#define INFINOTE_VERSION "0.2.0"
 
 // The app's Apple ID on the App Store (digits only). Empty until the app is there.
 #define INFINOTE_APP_STORE_ID ""

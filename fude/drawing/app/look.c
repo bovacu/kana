@@ -34,6 +34,7 @@ RDE_INTERNAL struct {
     const c8* shot;
     u32       frames;
     b8        paper, deselect, trim_fonts, data, data_replace;
+    b8        settings_end;   // --settings-end: Settings open, scrolled to its end at frame 20 (the app's sections).
     u32       shot_at;    // --shot-at=N: take the shot at frame N (0: when the sequence says).
     b8        stay;       // --stay: run the sequence without the shot and do not quit, for a screenshot taken outside.
     b8        rtl;        // --rtl: lay the UI out right to left whatever the language, before its strings exist.
@@ -161,6 +162,7 @@ void fude_look_start(fude_app* _app) {
         const c8* _a = fude_look.argv[_i];
         const c8* _v;
         if(fude_look_is(_a, "--settings"))   { fude_side_open_settings(_app->ui, -1); }
+        if(fude_look_is(_a, "--settings-end")) { fude_side_open_settings(_app->ui, -1); fude_look.settings_end = true; }
         if(fude_look_is(_a, "--side"))       { _app->ui->side.open = true; }
         if(fude_look_is(_a, "--faq"))        { _app->ui->side.open = true; _app->ui->side.faq_open = true; }   // FAQ & Contact.
         if(fude_look_is(_a, "--text-check")) { fude_draw_text_check(_app->window); }
@@ -235,6 +237,11 @@ void fude_look_frame(fude_app* _app) {
         return;
     }
     const u32 _frame = ++fude_look.frames;
+    // --settings-end: scrolled as far down as it goes (the scroll is held to the content's end), once laid out and
+    // after --language's switch, which builds Settings again from its top.
+    if(_frame == 20u && fude_look.settings_end) {
+        rde_ui_scroll_area_set_scroll(_app->ui->side.settings_body, (rde_vec_2F){ 0.0f, 1.0e9f });
+    }
     if(_frame == 12u && fude_look.language >= 0 && (u32)fude_look.language < FUDE_TEXT_LANGUAGES) {
         fude_text_set_language(FUDE_TEXT_LANGUAGE_LIST[fude_look.language].language);
     }

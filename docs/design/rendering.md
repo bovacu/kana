@@ -8,7 +8,8 @@ the renderer, its caches, pictures, frames, the backdrop, the draw) and four mod
 `render_parts.h` is what the modules share.
 
 Most of this note is the caches: what each keeps, by what key, up to what bound, and what makes it stale. They were
-reworked on 2026-10-15 (`docs/quality_plan.md` Phase 4, items 4.1 to 4.6, with the numbers); this is the result.
+reworked on 2026-10-15 (`docs/quality_plan.md` Phase 4, items 4.1 to 4.6, and 4.9 for strokes' meshes, with the
+numbers); this is the result.
 
 ---
 
@@ -100,7 +101,7 @@ is cut to a guard box on the CPU first, the screen twice its size each way:
 | What | When it counts as far | What is done |
 |---|---|---|
 | a stroke | its half-width, or its translation plus its size, past `FUDE_ZOOM_RENDER_FAR` | each segment's band and each round join made into polygons and clipped to the guard box (`fude_zoom_draw_huge_stroke`) |
-| a stroke bigger than the screen | wider than the screen's width and height together | only the runs of it that come near the screen are drawn, each a stroke of its own |
+| a stroke bigger than the screen | wider than the screen's width and height together | only the runs of it that come near the screen are drawn, each a stroke of its own, tessellated each draw (not kept: which runs are drawn changes as the view moves) |
 | a fill | a tenth of `FUDE_ZOOM_RENDER_FAR` across | each ring mapped to the screen, clipped, triangulated for this draw |
 | a shape or a cut board | its line's half-width or any outline point past `FUDE_ZOOM_RENDER_FAR` | its outline on the screen cut to the guard box: the line through `fude_zoom_draw_huge_stroke`, the fill clipped and triangulated as seen once, not from its kept triangles |
 | a picture | half of it a tenth of `FUDE_ZOOM_RENDER_FAR` across | only the part of its pixels on the screen (the screen, half as big again) drawn, as a sub-rectangle |
@@ -121,11 +122,13 @@ Three rules shape the renderer's caches since 4.2 to 4.6; where one breaks a rul
   thing came. Past a bound, what does not fit is made each time while the rest stay kept.
 - **Kept in the thing's own units, drawn through its place.** Moving or turning a thing, or panning, makes nothing
   again; a change of size on the screen does only where the detail it asks for changes (a symbol's detail is rounded
-  up to a step of 8 for this).
+  up to a step of 8 for this). Strokes' meshes are the exception: a stroke's fringe is a pixel wide on the screen, so
+  its mesh is kept in screen units, without the move; turning it or a zoom makes it again (below).
 
 | Cache | Where | Key | Bound | Made again when |
 |---|---|---|---|---|
 | decoded strokes and fills | render.c `cache`, `slot_of` | the object's index | 64 MB (`FUDE_ZOOM_RENDER_CACHE`) | let go past the budget, or trimmed |
+| strokes' meshes | render_stroke.c, in each decoded entry (`fude_zoom_decoded`'s `mesh`) | the stroke's entry, then its turn and scale to the screen, its half-widths' scale and a pixel's size, compared exactly | 64 MB (`FUDE_ZOOM_RENDER_MESHES`) | a zoom, the stroke turned or scaled, another pixel size; let go with its entry, past the budget, or trimmed |
 | kept geometry: symbols, shapes, cut boards | render.c `geos`, `geo_lru` | `fude_zoom_render_geo_key` | 2,048 entries (`FUDE_ZOOM_RENDER_GEOS`), 2²¹ points and corners (`FUDE_ZOOM_RENDER_GEO_POINTS`) | a new payload (an edit), another detail or size |
 | notes' layouts, and plain texts' lines | render_text.c `rich`, `rich_lru` | fonts, sizes, width, alignment, then the words | 256 (`FUDE_ZOOM_RENDER_RICH`) and a spare | a word, size, width or font changed; a plain text's lines also when its size or width on the screen changes (a zoom) |
 | graphs' lines | render.c `plots`, `plot_lru` | the graph's kind, its text, its half sizes | 24 (`FUDE_ZOOM_RENDER_PLOTS`) and a spare | its text or size changed; every frame while it plays |
@@ -149,6 +152,59 @@ budget is the cache scanned for the oldest not used in this draw, which is let g
 place. A pointer it returns is good until the next decode.
 
 The backdrop's cover test reads the same entries (4.4), so a stroke the camera is inside is decoded once.
+
+### Strokes' meshes
+
+The engine tessellates a stroke into a mesh (rde.h's `rde_rendering_2d_tessellate_stroke`: round caps and joins, and a
+fringe one target pixel wide whose alpha fades to nothing; a stroke thinner than a pixel has a fainter core instead),
+and appends a mesh to its 2D colour batch, moved and coloured (`rde_rendering_2d_draw_stroke_mesh`): no draw call or
+GPU buffer of its own, so a screen of hundreds of strokes is still one draw. `rde_rendering_2d_draw_stroke` is the two
+in one, so the two ways never differ. Tessellating was most of a stroke-heavy canvas's render (4.9), so the renderer
+keeps each stroke's mesh with its decoded points (`render_stroke.c`'s `fude_zoom_render_stroke_mesh`), and a still or
+panning view only copies the kept meshes into the batch.
+
+**In which units.** A mesh cannot be kept in the stroke's own units as the other geometry is: its fringe is a pixel
+wide on the screen, so its shape depends on the stroke's size there. It is made in screen units round where the
+stroke's translation lands on the screen: its points are turned and scaled to the screen (the transform's `a` and `b`)
+but not moved, thinned there (`fude_zoom_render_stroke_points`: the same distances as on the screen), tessellated, and
+the translation is added as the mesh is drawn. A pan changes only the translation, so it draws the kept mesh as it is.
+A kept mesh and one made in the same draw are made from the same numbers the same way, so keeping one changes no pixel.
+Against tessellating where the stroke is on the screen, as it was before, a corner moves only by the rounding of the
+translation added afterwards in f32: 3.1·10⁻⁵ of a pixel at most in `test_render_kept_strokes`.
+
+**Key.** The stroke's decoded entry (an object's points never change: an edit makes new objects), then, compared
+exactly, every other number its mesh is made from: `a` and `b`, its half-widths' scale (the view's times its own) and
+a pixel's size (`rde_rendering_2d_get_pixel_size`: a picture drawn off the screen, or a window resized, has another).
+The marker flag, which decides how it is thinned, is the stroke's own and never changes. The colour is not in a mesh:
+each vertex holds its share of the colour's alpha (1 inside, 0 at the fringe's edge, between for a hairline), and the
+colour is given as the mesh is drawn, so a theme's ink, a faint stroke while a recording plays, or any other colour
+draws the kept mesh.
+
+**What makes one again.** A zoom (`a` and `b` change), the stroke turned or scaled (moved alone, it keeps its mesh),
+another pixel size, and a trim. A still view, a pan, a moved stroke, a hidden layer shown again and an undone erase
+draw the kept ones. A zoom makes every mesh each frame, as every frame did before; one is made again over its own
+arrays, so a zoom copies and allocates no more than it did (the arrays are made again at its size when it uses under
+half of them).
+
+**Not kept.** A glow (the selection's, wider by `_extra`) is made into the renderer's `mesh_scratch` each time: kept,
+it would push out the stroke's own mesh, drawn in the same draw. So are a stroke far bigger than the screen (its runs
+near it, above) and a far one (cut on the CPU). Fills' soft edges and shapes' lines still go through
+`rde_rendering_2d_draw_stroke` each draw.
+
+**Bound.** `FUDE_ZOOM_RENDER_MESHES` (64 MB, the renderer's `mesh_budget`), counted as the meshes' arrays' room: 12
+bytes a vertex and 4 an index, a point on the screen being about 4 vertices and 18 indices (some 120 bytes, ten times
+its decoded point). Bounded by bytes for the decoded strokes' reason. A mesh goes with its decoded entry; past the
+budget, the one drawn longest ago, never one drawn in this draw, is let go (its decoded points stay), found by a scan
+of the draw stamps as the decoded entries are. A mesh that finds no room is drawn from the scratch and made again the
+next draw; a draw that finds nothing to let go stops looking until the next draw. So past the bound the meshes kept
+stay kept and only the rest are made each draw. The gate's screen of 625 flowers of 400 points holds 26.7 MB.
+
+**What a frame costs now.** With the meshes kept, a still or panning frame of a stroke-heavy canvas is mostly copying:
+the kept meshes into the engine's 2D batch (`rde_rendering_2d_draw_stroke_mesh`), then, at the end of the 2D frame, the
+batch into the GPU's upload buffers (RDE's flush). The flush also copied the indices twice more, to lay them out in the
+order the draw commands are drawn in; a canvas is one command, already in that order, and RDE now leaves such indices
+where they are (2026-10-16: the gate canvas renders about a tenth faster on the Mac, `quality_plan.md` 4.9). Those two
+copies are what is left; the next step would be the batch written straight into the upload buffers, in RDE.
 
 ### Kept geometry: symbols, shapes and cut boards
 
@@ -254,8 +310,8 @@ page's (`page_driver.md`).
 
 ## Trim and destroy
 
-`fude_zoom_render_trim` empties every cache: the pictures off the GPU and out of their map, the decoded strokes and
-`slot_of`, the kept geometry and its spare, the graphs' lines and the notes' layouts. All of them come back as they are
+`fude_zoom_render_trim` empties every cache: the pictures off the GPU and out of their map, the decoded strokes with
+their meshes and `slot_of`, the kept geometry and its spare, the graphs' lines and the notes' layouts. All of them come back as they are
 drawn. It is called:
 
 - **when a canvas closes** (`fude_zoom_page_close`). This one is a must, not a saving: the decoded strokes are found
@@ -276,7 +332,9 @@ drawn. It is called:
   kind of thing.
 - No vertex far off the screen reaches the GPU: anything at `FUDE_ZOOM_RENDER_FAR` is cut on the CPU.
 - A draw allocates nothing in the steady state (scratch arrays are the renderer's); the exceptions are far strokes and
-  playing graphs.
+  playing graphs. A stroke's mesh is allocated when it is first kept, and again only when it outgrows its arrays or
+  uses under half of them.
+- A stroke's mesh holds no translation and no colour: whatever else it is made from is in its key.
 - Off-screen draws come before the page's own, so `visible` is the screen's.
 
 ## How to change common things
@@ -315,8 +373,14 @@ bound), `test_render_tiles` (the Library's tiles from kept symbols), `test_rende
 `test_render_plain_texts` (plain texts' lines kept: a still view lays nothing out, and draws what laying out each draw
 drew; past the bound, what one draw uses is kept), `test_render_kept_graphs` (graphs' lines kept, 24 and the spare,
 timed against making all of them each draw), `test_cover_layers` (the backdrop with layers: a hidden layer's stroke
-covers nothing, under and over by draw key), `test_far_views` and `test_far_lasso` (views far from 0). `tests/draw`
+covers nothing, under and over by draw key), `test_render_kept_strokes` (strokes' meshes: kept and made alike bit for
+bit, against the old way within a hundredth of a pixel, kept through a pan, a move, a theme, a faint stroke, a glow, a
+hidden layer, an erase and its undo, made again on a zoom, a turn and another pixel size, and the bound),
+`test_render_kept_strokes_timed` (the gate's screen, each frame tessellating every stroke against drawn from kept
+meshes, still, panning and zooming), `test_far_views` and `test_far_lasso` (views far from 0). `tests/draw`
 checks draw.c's layouts and balanced widths. Each change in Phase 4 was timed in its test against the old code kept
 there (`docs/quality_plan.md` Phase 4 has the numbers); whole-app
-frame times come from `--perf` and `--gate` (`COMMANDS.txt`). A stroke-heavy canvas spends about 55% of its render in
-the engine tessellating strokes; keeping meshes is 4.9, not yet built.
+frame times come from `--perf` and `--gate` (`COMMANDS.txt`). RDE's own test of the tessellation is
+`~/RDE/tests/unit_tests/test_stroke_mesh.c` (the mesh against `rde_rendering_2d_draw_stroke` as it was, on thousands
+of random strokes, bit for bit), and of the flush's draw order `test_2d_order.c` (the indices laid out as the old
+rewrite laid them, byte for byte, and not copied when they are in order already).

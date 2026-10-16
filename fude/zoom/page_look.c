@@ -852,6 +852,15 @@ void fude_zoom_page_look_fps(fude_zoom_page* _page, b8 _on) {
     _page->show_fps = _on;
 }
 
+// See page.h.
+void fude_zoom_page_look_inktest(fude_zoom_page* _page) {
+#if FUDE_ZOOM_INKTEST_OFFERED
+    fude_zoom_page_inktest_make(_page);
+#else
+    RDE_UNUSED(_page);   // (never called: the look harness is a developer's or a measuring build's, which offer it)
+#endif
+}
+
 // See page.h. An example past the last does nothing.
 void fude_zoom_page_look_draw_example(fude_zoom_page* _page, u32 _example) {
     if(_example < FUDE_ZOOM_EXAMPLE_COUNT) {

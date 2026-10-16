@@ -10,6 +10,7 @@
 #include "drawing/base/kfile.h"
 #include "drawing/base/text.h"
 #include "zoom/smooth.h"
+#include "zoom/inktest.h"
 
 // ===========================================================================
 // See look.h. The flags, each with what it does. Flags not listed here are described beside their variables below.
@@ -24,7 +25,8 @@
 //   --pan=X,Y       the page dragged X, Y screen units; before a --zoom, to park the camera on a stroke's edge and
 //                   look from inside it
 //   --demo-erase    lines crossed and erased with each of the three erasers
-//   --gate=POINTS   a canvas of that many points over four depths, for --perf
+//   --gate=POINTS   a canvas of that many points over four depths, for --perf: the test ink (inktest.h), which
+//                   Settings' Display makes a canvas of with a million points
 //   --demo-lasso[=2|3] the left half looped and dragged; with 2 also turned, with 3 turned 37° and held (the
 //                   selection's looks)
 //   --demo-snap     a rough circle, rectangle and line, each held till it snaps
@@ -73,6 +75,8 @@
 //                             leaves them lassoed)
 //   --example=E@N             at frame N, example E (examples.h) drawn on the canvas open
 //   --fps                     the frame rate shown at the top right, as Settings' Display can show it
+//   --inktest=N               at frame N, Settings' Display's Make pressed: a canvas "Drawing test" made and opened,
+//                             and the frame after filled with a million points of the test ink (inktest.h)
 //   --library=F@N             at frame N, the diagram library's panel open on family F (0 flowchart ... 6 planning)
 //   --strip=N                 at frame N, a notebook's pages strip open
 //   --strip-do=W,I,J@N        at frame N, on the strip's page I: held with its buttons up (W 0), carried over place J
@@ -143,33 +147,6 @@ RDE_INTERNAL fude_zoom_page* look_page  = NULL;
 RDE_INTERNAL fude_zoom_home* look_home  = NULL;
 RDE_INTERNAL b8              look_given = false;
 
-// The demos' six colours: red, yellow, green, blue, purple, orange.
-RDE_INTERNAL const rde_color LOOK_DEMO_COLORS[] = {
-    { 231, 76, 60, 255 }, { 241, 196, 15, 255 }, { 46, 204, 113, 255 }, { 52, 152, 219, 255 }, { 155, 89, 182, 255 }, { 230, 126, 34, 255 },
-};
-
-// Draws a rose curve of _petals petals in the camera's frame, round _c and _r across, _width points wide on screen,
-// as one stroke of 400 points with pressure and time, and puts it in the undo history.
-RDE_INTERNAL void look_demo_curve(fude_zoom_scene* _s, fude_zoom_v2 _c, f64 _r, f64 _phase, u32 _petals, rde_color _color, f64 _width) {
-    const u32 _n = 400u;
-    const i8  _q = fude_zoom_quantum_for(_s->camera.z);
-    const f64 _g = rde_math_ldexp_f64(1.0, _q);
-    fude_zoom_qpoint _pts[400];
-    fude_zoom_v2     _first = { 0.0, 0.0 };
-    for(u32 _i = 0; _i < _n; _i++) {
-        const f64 _a = 2.0 * RDE_PI * (f64)_i / (f64)(_n - 1u);
-        const f64 _k = _r * (0.55 + 0.45 * rde_math_cos_f64((f64)_petals * _a + _phase));
-        const fude_zoom_v2 _p = { _c.x + rde_math_cos_f64(_a) * _k, _c.y + rde_math_sin_f64(_a) * _k };
-        if(_i == 0) {
-            _first = _p;
-        }
-        _pts[_i] = (fude_zoom_qpoint){ (i32)rde_math_round_to_i64_f64((_p.x - _first.x) / _g), (i32)rde_math_round_to_i64_f64((_p.y - _first.y) / _g), (u16)(700 + 300 * rde_math_sin_f64(_a * 3.0)), _i * 4u };
-    }
-    const u32 _o = fude_zoom_scene_add_stroke(_s, _s->camera.frame, _first, _q, _pts, _n, FUDE_ZOOM_CHANNEL_PRESSURE | FUDE_ZOOM_CHANNEL_TIME, _color,
-                                              (f32)(_width / _s->camera.z), FUDE_ZOOM_FLAG_PRESSURE, 0, 0);
-    fude_zoom_history_push(_s, _s->camera.frame, fude_zoom_scene_object(_s, _o)->box, NULL, 0, &_o, 1);
-}
-
 // Draws a straight line from _a to _b in the camera's frame, _width points wide on screen, as one stroke of 200
 // points, and puts it in the undo history.
 RDE_INTERNAL void look_demo_line(fude_zoom_scene* _s, fude_zoom_v2 _a, fude_zoom_v2 _b, rde_color _color, f64 _width) {
@@ -182,17 +159,6 @@ RDE_INTERNAL void look_demo_line(fude_zoom_scene* _s, fude_zoom_v2 _a, fude_zoom
     }
     const u32 _o = fude_zoom_scene_add_stroke(_s, _s->camera.frame, _a, _q, _pts, 200u, FUDE_ZOOM_CHANNEL_TIME, _color, (f32)(_width / _s->camera.z), 0, 0, 0);
     fude_zoom_history_push(_s, _s->camera.frame, fude_zoom_scene_object(_s, _o)->box, NULL, 0, &_o, 1);
-}
-
-// Zooms the camera by _factor about the middle of the screen (_half: half the window's size).
-RDE_INTERNAL void look_zoom_by(fude_zoom_scene* _s, f64 _factor, fude_zoom_v2 _half) {
-    // In steps, as a pinch would, so each settle sees the zoom pass one threshold at most.
-    const u32 _steps = (u32)rde_math_ceil_f64(rde_math_abs_f64(rde_math_log2_f64(_factor))) + 1u;
-    const f64 _step  = rde_math_pow_f64(_factor, 1.0 / (f64)_steps);
-    for(u32 _i = 0; _i < _steps; _i++) {
-        fude_zoom_camera_zoom_at(_s, (fude_zoom_v2){ 0.0, 0.0 }, _step);
-        fude_zoom_camera_settle(_s, _half);
-    }
 }
 
 // What the flags asked for, filled by the readers (look_read_*) and acted on, frame by frame, by look_frame_*. A
@@ -331,6 +297,7 @@ RDE_INTERNAL u32 look_context_delete = 0;    // --context-delete@N: its Delete p
 RDE_INTERNAL u32 look_examples[2] = { 0 };   // --examples=W@N: Insert → Examples, which W (0 all … 3 both), at frame N
 RDE_INTERNAL u32 look_example[2] = { 0 };    // --example=E@N: example E drawn on the canvas open, at frame N
 RDE_INTERNAL b8  look_fps = false;           // --fps: the frame rate shown
+RDE_INTERNAL u32 look_inktest_at = 0;        // --inktest=N: Settings' Display's Make pressed at frame N
 RDE_INTERNAL u32 look_circuit2[2];                // --circuit2=DEMO@N: a second demo circuit (after a part is made)
 RDE_INTERNAL u32 look_plan[2][2];                 // --plan=STEP@N (twice at most): a floor plan's demo (fude_zoom_page_look_plan)
 RDE_INTERNAL u32 look_plan_count = 0;               // How many --plan flags were given.
@@ -641,8 +608,8 @@ RDE_INTERNAL void look_stress_frame(void) {
     const f64          _r    = look_stress_rnd();
     const fude_zoom_v2 _at   = { _s->camera.at.x + (look_stress_rnd() - 0.5) * _half.x * 1.6 * _u, _s->camera.at.y + (look_stress_rnd() - 0.5) * _half.y * 1.6 * _u };
     if(_r < 0.82 || (look_stress_add && _r < 0.96)) {
-        look_demo_curve(_s, _at, (20.0 + look_stress_rnd() * 60.0) * _u, look_stress_rnd() * 6.0, 3u + (u32)(look_stress_rnd() * 5.0),
-                             LOOK_DEMO_COLORS[(u32)(look_stress_rnd() * 6.0) % 6u], 1.0 + look_stress_rnd() * 4.0);
+        fude_zoom_inktest_rose(_s, _at, (20.0 + look_stress_rnd() * 60.0) * _u, look_stress_rnd() * 6.0, 3u + (u32)(look_stress_rnd() * 5.0),
+                               FUDE_ZOOM_INKTEST_COLORS[(u32)(look_stress_rnd() * (f64)FUDE_ZOOM_INKTEST_COLOR_COUNT) % FUDE_ZOOM_INKTEST_COLOR_COUNT], 1.0 + look_stress_rnd() * 4.0);
     } else if(_r < 0.92 && !look_stress_add) {
         fude_zoom_eraser _e;
         fude_zoom_eraser_init(&_e);
@@ -654,7 +621,7 @@ RDE_INTERNAL void look_stress_frame(void) {
     } else if(_r < 0.96 && !look_stress_add) {
         fude_zoom_history_undo(_s);
     } else {
-        look_zoom_by(_s, look_stress_rnd() < 0.5 ? 8.0 : 0.125, _half);
+        fude_zoom_camera_zoom_by(_s, look_stress_rnd() < 0.5 ? 8.0 : 0.125, _half);
     }
 }
 
@@ -674,12 +641,12 @@ RDE_INTERNAL b8 look_read_demos(const c8* _a) {
             const fude_zoom_v2 _c = _s->camera.at;
             const f64 _r = 260.0 / _s->camera.z;
             for(u32 _k = 0; _k < 3u; _k++) {
-                look_demo_curve(_s, _c, _r * (1.0 - 0.25 * (f64)_k), (f64)_k * 0.7, 5u + _k, LOOK_DEMO_COLORS[(_l + _k) % 6u], 7.0 - 2.0 * (f64)_k);
+                fude_zoom_inktest_rose(_s, _c, _r * (1.0 - 0.25 * (f64)_k), (f64)_k * 0.7, 5u + _k, FUDE_ZOOM_INKTEST_COLORS[(_l + _k) % FUDE_ZOOM_INKTEST_COLOR_COUNT], 7.0 - 2.0 * (f64)_k);
             }
             if(_l + 1u < _levels) {
                 // Off to a petal's tip, then 1024× in, where the next level's flowers are drawn.
                 fude_zoom_camera_pan(_s, (fude_zoom_v2){ -_r * 0.9 * _s->camera.z, 0.0 });
-                look_zoom_by(_s, 1024.0, _half);
+                fude_zoom_camera_zoom_by(_s, 1024.0, _half);
             }
         }
     } else if(fude_look_is(_a, "--demo-erase")) {
@@ -689,37 +656,18 @@ RDE_INTERNAL b8 look_read_demos(const c8* _a) {
         fude_zoom_eraser_init(&_e);
         for(u32 _m = 0; _m < 3u; _m++) {
             const f64 _y = _c.y + (200.0 - 200.0 * (f64)_m) * _u;
-            look_demo_line(_s, (fude_zoom_v2){ _c.x - 300.0 * _u, _y }, (fude_zoom_v2){ _c.x + 300.0 * _u, _y }, LOOK_DEMO_COLORS[_m], 6.0);
-            look_demo_line(_s, (fude_zoom_v2){ _c.x - 100.0 * _u, _y - 60.0 * _u }, (fude_zoom_v2){ _c.x - 100.0 * _u, _y + 60.0 * _u }, LOOK_DEMO_COLORS[3], 4.0);
-            look_demo_line(_s, (fude_zoom_v2){ _c.x + 100.0 * _u, _y - 60.0 * _u }, (fude_zoom_v2){ _c.x + 100.0 * _u, _y + 60.0 * _u }, LOOK_DEMO_COLORS[3], 4.0);
+            look_demo_line(_s, (fude_zoom_v2){ _c.x - 300.0 * _u, _y }, (fude_zoom_v2){ _c.x + 300.0 * _u, _y }, FUDE_ZOOM_INKTEST_COLORS[_m], 6.0);
+            look_demo_line(_s, (fude_zoom_v2){ _c.x - 100.0 * _u, _y - 60.0 * _u }, (fude_zoom_v2){ _c.x - 100.0 * _u, _y + 60.0 * _u }, FUDE_ZOOM_INKTEST_COLORS[3], 4.0);
+            look_demo_line(_s, (fude_zoom_v2){ _c.x + 100.0 * _u, _y - 60.0 * _u }, (fude_zoom_v2){ _c.x + 100.0 * _u, _y + 60.0 * _u }, FUDE_ZOOM_INKTEST_COLORS[3], 4.0);
             fude_zoom_erase_begin(&_e, (FUDE_ZOOM_ERASE_)_m);
             fude_zoom_erase_step(_s, &_e, _s->camera.frame, (fude_zoom_v2){ _c.x, _y - 30.0 * _u }, (fude_zoom_v2){ _c.x, _y + 30.0 * _u }, 10.0 * _u, _u);
             fude_zoom_erase_end(_s, &_e, _s->camera.frame, fude_zoom_box_empty());
         }
         fude_zoom_eraser_destroy(&_e);
     } else if((_v = fude_look_value(_a, "--gate")) != NULL) {
-        // Four depths, the points shared out between them, in pen-like strokes of 400 points; then the camera
-        // goes back out to the top.
-        const u64 _want = (u64)rde_strtol(_v, NULL, 10);
-        u64 _made = 0;
-        u32 _seed = 7u;
-        for(u32 _l = 0; _l < 4u && _made < _want; _l++) {
-            const fude_zoom_v2 _c = _s->camera.at;
-            const f64 _u = 1.0 / _s->camera.z;
-            const u64 _share = (_want - _made) / (4u - _l);
-            for(u64 _p = 0; _p < _share; _p += 400u) {
-                _seed = _seed * 1664525u + 1013904223u;
-                const f64 _x = _c.x + ((f64)(_seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 2000.0 * _u;
-                _seed = _seed * 1664525u + 1013904223u;
-                const f64 _y = _c.y + ((f64)(_seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 1500.0 * _u;
-                look_demo_curve(_s, (fude_zoom_v2){ _x, _y }, 40.0 * _u, (f64)(_seed & 255u), 3u + (_seed % 5u), LOOK_DEMO_COLORS[_seed % 6u], 2.0);
-            }
-            _made += _share;
-            if(_l < 3u) {
-                look_zoom_by(_s, 1024.0, _half);
-            }
-        }
-        look_zoom_by(_s, 1.0 / 1024.0 / 1024.0 / 1024.0, _half);
+        // The test ink (inktest.h): four depths, the points shared out between them, in pen-like strokes of 400
+        // points; then the camera back out to the top. Settings' Display makes a canvas of the same.
+        fude_zoom_inktest_fill(_s, (u64)rde_strtol(_v, NULL, 10), _half);
     } else if(fude_look_is(_a, "--demo-lasso") || fude_look_value(_a, "--demo-lasso") != NULL) {
         _v = fude_look_value(_a, "--demo-lasso");
         look_demo_lasso = _v != NULL ? (u32)(i32)rde_strtol(_v, NULL, 10) : 1u;
@@ -879,8 +827,8 @@ RDE_INTERNAL b8 look_read_panels(const c8* _a) {
 
 // Reads one argument, _a, when it is one of these flags, and returns whether it was: the line style, the measure in
 // hand, the Shapes panel's choices, plans, mechanisms, circuits, the cards (Limits, Value, Repeat, Size, Sheet,
-// Kanban), the page's menu, examples, the frame rate, Align, Make part, bodies, Play's slider, Combine, lines, points,
-// the Shapes tool, the census, boards and Sculpt.
+// Kanban), the page's menu, examples, the frame rate and the test canvas, Align, Make part, bodies, Play's slider,
+// Combine, lines, points, the Shapes tool, the census, boards and Sculpt.
 RDE_INTERNAL b8 look_read_cards(const c8* _a) {
     const c8* _v;
     if((_v = fude_look_value(_a, "--line-style")) != NULL) {
@@ -918,6 +866,8 @@ RDE_INTERNAL b8 look_read_cards(const c8* _a) {
         rde_sscanf(_v, "%u@%u", &look_examples[0], &look_examples[1]);
     } else if(fude_look_is(_a, "--fps")) {
         look_fps = true;
+    } else if((_v = fude_look_value(_a, "--inktest")) != NULL) {
+        look_inktest_at = (u32)(i32)rde_strtol(_v, NULL, 10);
     } else if((_v = fude_look_value(_a, "--example")) != NULL) {
         rde_sscanf(_v, "%u@%u", &look_example[0], &look_example[1]);
     } else if(rde_strncmp(_a, "--context-delete@", 17) == 0) {
@@ -1176,7 +1126,7 @@ RDE_INTERNAL b8 look_read_view(const c8* _a) {
         const c8* _at = rde_strchr(_v, '@');
         look_zoom_frame = _at != NULL ? (u32)(i32)rde_strtol(_at + 1, NULL, 10) : 6u;
     } else if((_v = fude_look_value(_a, "--zoom")) != NULL) {
-        look_zoom_by(_s, rde_strtod(_v, NULL), _half);
+        fude_zoom_camera_zoom_by(_s, rde_strtod(_v, NULL), _half);
     } else {
         return false;
     }
@@ -1614,9 +1564,9 @@ RDE_INTERNAL void look_frame_panels(void) {
     }
 }
 
-// The cards and topics at their frames: Limits, Value, Align, the page's menu, the frame rate, examples, Make
-// part, bodies, Play's slider, Combine, lines, points, topics, the line style, the measures, Size, Sheet, tidying
-// and symbols.
+// The cards and topics at their frames: Limits, Value, Align, the page's menu, the frame rate, the test canvas,
+// examples, Make part, bodies, Play's slider, Combine, lines, points, topics, the line style, the measures, Size,
+// Sheet, tidying and symbols.
 RDE_INTERNAL void look_frame_cards(void) {
     if(look_limits_frame > 0u && look_frames == look_limits_frame) {
         c8 _id[48] = { 0 }, _typed[24] = { 0 };
@@ -1654,6 +1604,9 @@ RDE_INTERNAL void look_frame_cards(void) {
     }
     if(look_fps && look_frames == 2u) {
         fude_zoom_page_look_fps(look_page, true);
+    }
+    if(look_inktest_at > 0u && look_frames == look_inktest_at) {
+        fude_zoom_page_look_inktest(look_page);
     }
     if(look_example[1] > 0u && look_frames == look_example[1]) {
         fude_zoom_page_look_draw_example(look_page, look_example[0]);
@@ -1879,7 +1832,7 @@ RDE_INTERNAL void look_frame_last(void) {
     }
     if(look_frames == look_zoom_frame && look_zoom_later > 0.0) {
         const rde_vec_2I _size = rde_window_get_size(look_app->window);
-        look_zoom_by(&look_page->scene, look_zoom_later, (fude_zoom_v2){ (f64)_size.x * 0.5, (f64)_size.y * 0.5 });
+        fude_zoom_camera_zoom_by(&look_page->scene, look_zoom_later, (fude_zoom_v2){ (f64)_size.x * 0.5, (f64)_size.y * 0.5 });
     }
 }
 

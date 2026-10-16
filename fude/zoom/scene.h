@@ -510,6 +510,10 @@ void fude_zoom_camera_pan(fude_zoom_scene* _s, fude_zoom_v2 _delta);
 // and is handed to the frame under the view at its depth when panned out of its own. _half is half the screen's size.
 // A frame made for the camera and left with nothing drawn in it is dropped.
 void fude_zoom_camera_settle(fude_zoom_scene* _s, fude_zoom_v2 _half);
+// Zooms by _factor round the middle of the screen as a pinch would: in steps of at most 2× each way, each settled, so
+// each settle sees the zoom pass one frame's threshold at most, and a zoom of any size goes down (or up) through every
+// frame between. _half is half the screen's size. For the test ink (inktest.h) and the developer's looks (look.c).
+void fude_zoom_camera_zoom_by(fude_zoom_scene* _s, f64 _factor, fude_zoom_v2 _half);
 // Returns the frame new strokes go in, for a stroke starting with box _box (in camera frame units): the camera's frame,
 // unless something drawn LATER in a parent covers it (after it in the draw order, and not on a layer ranked above,
 // which a new frame would still be under). Then a new frame is made on top (docs/infinite_canvas_design.md §2.4,

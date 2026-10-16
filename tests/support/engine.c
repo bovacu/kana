@@ -11,6 +11,9 @@
 static f64 fake_now = 1.0;   // the clock stands still
 FUDE_STUB f64  rde_engine_get_time_now(void) { return fake_now; }
 FUDE_STUB void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)n; (void)c; }
+// (a stroke's mesh is made by the engine's real tessellation, rde_rendering_2d_tessellate_stroke;
+// only drawing it is not)
+FUDE_STUB void rde_rendering_2d_draw_stroke_mesh(const rde_stroke_mesh* m, rde_vec_2F t, rde_color c) { (void)m; (void)t; (void)c; }
 FUDE_STUB void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
 FUDE_STUB void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)t; (void)p; (void)s; (void)r; (void)c; }
 FUDE_STUB u8* rde_image_decode(const u8* b, usize n, u32* w, u32* h, rde_memory_allocator* a) { (void)b; (void)n; (void)a; if(w) *w = 0; if(h) *h = 0; return NULL; }

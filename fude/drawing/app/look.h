@@ -16,6 +16,7 @@
 //   --stay             the same sequence (presses, pastes...) without the shot, and the app carries on: for a
 //                      screenshot taken from outside (the Simulator's)
 //   --side --faq --settings --licences=N --data --paper
+//   --settings-end     Settings scrolled to its end, where the app's own sections are
 //   --data-export=FILE --data-import=FILE [--data-replace] --deselect --trim-fonts
 //   --press=I,J,...  presses the top screen's row's buttons in turn   --language=N
 //   --rtl            the UI right to left, whatever the language

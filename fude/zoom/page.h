@@ -588,6 +588,11 @@ typedef struct fude_zoom_page {
     u32                fps_frames;      // frames drawn since fps_since
     f64                fps_since;
     f64                fps;             // as last counted (0: not yet)
+    // ...and its test canvas (inktest.h): the row, and the canvas its Make made, filled with the test ink once it is
+    // the canvas open (fude_zoom_page_inktest_follow); 0 when none is waiting.
+    rde_ui_label*      inktest_label;
+    rde_ui_button*     inktest_button;
+    u32                inktest_canvas;
     // ...and where the frames' time goes, written to the log every 2 s while the frame rate shows
     // (fude_zoom_page_perf_frame): the app's update and render, Play's step within the update, and the page's drawing
     // within the render, in seconds.
@@ -1184,6 +1189,8 @@ void fude_zoom_page_look_draw_example(fude_zoom_page* _page, u32 _example);
 void fude_zoom_page_perf_frame(fude_zoom_page* _page, f64 _update, f64 _render);
 // The frame rate shown at the top right (Settings' Display), or not.
 void fude_zoom_page_look_fps(fude_zoom_page* _page, b8 _on);
+// Settings' Display's Make pressed: the test canvas made and opened, and filled with the test ink the frame after.
+void fude_zoom_page_look_inktest(fude_zoom_page* _page);
 // The library's Custom tile _i (in the panel as it is open; else the circuits'): _action 0 put down, 1 its card, 2 Edit
 // or Inside (its template), 3 renamed _name, 4 deleted. fude_zoom_page_look_inside presses the lasso's Inside (a custom
 // part alone); fude_zoom_page_look_back presses the page's Back.

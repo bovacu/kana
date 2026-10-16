@@ -6,12 +6,12 @@
 // ===========================================================================
 // Page, Settings' sections: Measurements (units, the true size's calibration, the printer's check, the kerf),
 // the offset pad (an instrument moved exact lengths from where it snapped), the core's Handwriting (Google ML Kit's
-// switch: drawing/app/handwriting.h), and Display (the frame rate on the screen, in every build).
+// switch: drawing/app/handwriting.h), and Display (the frame rate on the screen, and a test canvas to watch it on, in
+// every build).
 //
 // Each section is four functions (build, layout, refresh, restyle) handed to the core in FUDE_ZOOM_PAGE_SECTIONS at
 // the end of the file; they find the page through fude_zoom_page_the. What Settings changes here is saved with the
 // settings (page_export.c gathers them, and the session sees them change).
-// for measuring the canvas, not a setting anyone using the app needs).
 //
 // Part of the page driver: page.h says what the page is and holds its public functions; page_parts.h holds what the
 // modules share (the functions one calls in another, the shared state, constants and types) and says which module
@@ -468,12 +468,25 @@ RDE_INTERNAL void fude_zoom_page_measure_restyle(fude_ui* _ui) {
     fude_zoom_page_measure_refresh(_ui, true);
 }
 
-// --- Settings' Display: the frame rate on the screen -----------------------------------------------------------------
+// --- Settings' Display: the frame rate on the screen, and a test canvas ----------------------------------------------
+//
+// The frame rate is in every build. The test canvas only where FUDE_ZOOM_INKTEST_OFFERED (inktest.h: a developer's or
+// a measuring build, never a release that ships). It is for seeing how smoothly this device draws a heavy canvas: Make
+// makes a canvas of its own (never one of the person's), opens it, and fills it with a million points of the test ink
+// (inktest.h), the canvas the developer's --gate measures; then the frame rate above shows how it pans and zooms.
+// Making it takes two frames, as the examples' canvases do (page_custom.c): the session opens the new canvas at the end
+// of the frame Make was pressed in, and fude_zoom_page_inktest_follow fills it in the next, so the empty canvas and the
+// notice are drawn once before the main thread is busy.
 
-// Off or On pressed (below).
+// Off or On pressed, and Make (below).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_fps(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+#if FUDE_ZOOM_INKTEST_OFFERED
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_inktest(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data);
+#endif
 
-// Display's build: its header, and the frame rate's row with Off and On.
+// Display's build: its header, the frame rate's row with Off and On, and the test canvas's row with Make. The test
+// canvas's words are long, so they wrap onto more lines rather than shrink: the layout makes the row as tall as they
+// are.
 RDE_INTERNAL void fude_zoom_page_display_build(fude_ui* _ui, rde_ui_node* _card) {
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_page == NULL) {
@@ -483,11 +496,16 @@ RDE_INTERNAL void fude_zoom_page_display_build(fude_ui* _ui, rde_ui_node* _card)
     _page->fps_label      = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_ZOOM_SHOW_FPS), FUDE_SIDE_ROW_PX);
     _page->fps_buttons[0] = fude_kit_button(_card, fude_text(FUDE_TEXT_OFF), fude_zoom_page_on_fps, (any)(uintptr_t)0u);
     _page->fps_buttons[1] = fude_kit_button(_card, fude_text(FUDE_TEXT_ON), fude_zoom_page_on_fps, (any)(uintptr_t)1u);
+#if FUDE_ZOOM_INKTEST_OFFERED
+    _page->inktest_label  = fude_side_label(_ui, _card, fude_text(FUDE_TEXT_ZOOM_INKTEST), FUDE_SIDE_ROW_PX);
+    rde_ui_label_set_wrap(_page->inktest_label, true);
+    _page->inktest_button = fude_kit_button(_card, fude_text(FUDE_TEXT_ZOOM_INKTEST_MAKE), fude_zoom_page_on_inktest, NULL);
+#endif
 }
 
-// Display's layout from _y down: the row's name, then Off and On at the right. Returns the _y below it.
+// Display's layout from _y down: each row's name, with Off and On at the right of the frame rate's, and Make across
+// the same room below them. Returns the _y below it.
 RDE_INTERNAL f32 fude_zoom_page_display_layout(fude_ui* _ui, f32 _y, f32 _m, f32 _kw) {
-    RDE_UNUSED(_ui);
     fude_zoom_page* _page = fude_zoom_page_the;
     if(_page == NULL || _page->display_header == NULL) {
         return _y;
@@ -502,7 +520,20 @@ RDE_INTERNAL f32 fude_zoom_page_display_layout(fude_ui* _ui, f32 _y, f32 _m, f32
         fude_kit_place(rde_ui_button_as_node(_page->fps_buttons[_i]), (rde_vec_2F){ _kw - _m - _bw * 0.5f - (f32)(1u - _i) * (_bw + 8.0f), _y },
                        (rde_vec_2F){ _bw, 40.0f });
     }
-    return _y - 52.0f;
+    _y -= 52.0f;
+#if !FUDE_ZOOM_INKTEST_OFFERED
+    RDE_UNUSED(_ui);   // (its font measures the test canvas's words, which this build has not)
+    return _y;   // (no test canvas in this build: the section ends below the frame rate)
+#else
+    // The test canvas: its words over as many lines as they take (measured as About's text is, with room to spare,
+    // the row never less tall than one of a line), its top where a row of one line has it; Make beside their middle.
+    const u32 _lines = fude_draw_text_wrap_lines(_ui->font, (f32)FUDE_KIT_FONT_SIZE, fude_text(FUDE_TEXT_ZOOM_INKTEST), FUDE_SIDE_ROW_PX, _names - 12.0f);
+    const f32 _h     = rde_math_max_f32(44.0f, (f32)_lines * FUDE_SIDE_ROW_PX * 1.4f + 8.0f);
+    const f32 _mid   = _y + 22.0f - _h * 0.5f;
+    fude_kit_place(rde_ui_label_as_node(_page->inktest_label), (rde_vec_2F){ _m + _names * 0.5f, _mid }, (rde_vec_2F){ _names, _h });
+    fude_kit_place(rde_ui_button_as_node(_page->inktest_button), (rde_vec_2F){ _kw - _m - _bw - 4.0f, _mid }, (rde_vec_2F){ 2.0f * _bw + 8.0f, 40.0f });
+    return _mid - _h * 0.5f - 30.0f;
+#endif
 }
 
 // Display's refresh: Off or On lit.
@@ -527,6 +558,10 @@ RDE_INTERNAL void fude_zoom_page_display_restyle(fude_ui* _ui) {
     const fude_theme* _t = fude_theme_active();
     rde_ui_label_set_color(_page->display_header, _t->text_soft);
     rde_ui_label_set_color(_page->fps_label, _t->text);
+#if FUDE_ZOOM_INKTEST_OFFERED
+    rde_ui_label_set_color(_page->inktest_label, _t->text);
+    fude_kit_restyle_button(_page->inktest_button);
+#endif
     fude_zoom_page_display_refresh(_ui, true);
 }
 
@@ -544,6 +579,57 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_fps(rde_ui_node* _node, cons
     fude_zoom_page_display_refresh(NULL, true);
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
+
+#if FUDE_ZOOM_INKTEST_OFFERED
+// See page_parts.h: a new canvas named "Drawing test" in the app's language, at the top of the canvases, opened
+// (fude_zoom_inktest_canvas: never one of the person's own); Settings and the panel closed so it shows, and the notice
+// saying what comes. It is filled the next frame (fude_zoom_page_inktest_follow). Nothing while one is waiting to be
+// filled.
+void fude_zoom_page_inktest_make(fude_zoom_page* _page) {
+    if(_page->inktest_canvas != 0u) {
+        return;
+    }
+    _page->inktest_canvas = fude_zoom_inktest_canvas(_page->app->notes, fude_text(FUDE_TEXT_ZOOM_INKTEST_NAME));
+    _page->app->ui->side.settings_open = false;
+    _page->app->ui->side.open          = false;
+    fude_notice_show(fude_text(FUDE_TEXT_ZOOM_INKTEST_MAKING));
+}
+
+// Make, on the test canvas's row.
+RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_inktest(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
+    RDE_UNUSED(_node); RDE_UNUSED(_info); RDE_UNUSED(_user_data);
+    if(fude_zoom_page_the != NULL) {
+        fude_zoom_page_inktest_make(fude_zoom_page_the);
+    }
+    return RDE_UI_EVENT_RESULT_CONSUME;
+}
+
+// See page_parts.h. Once the canvas Make made is the one open, a million points of the test ink, round the view it
+// opened with, and the time it took logged. Only into a canvas with nothing in it: the canvas is new, and should
+// anything be there after all (a file left behind under its id), no one's drawing is ever drawn over.
+//
+// It is drawn at once, in this frame, rather than a little each frame: the ink is placed round the camera as it goes
+// down through the four depths and back (fude_zoom_inktest_fill), so the camera is the fill's until it is done.
+// Spread over frames, the person's pans, zooms and strokes would land in the middle of it, and the canvas would not be
+// the one --gate measures. The cost is one long frame: 66 ms on an M2 Mac (a release build; half a second in a debug
+// one), longer on a tablet (not measured yet), which the notice, drawn the frame before, says is coming.
+void fude_zoom_page_inktest_follow(fude_zoom_page* _page) {
+    if(_page->inktest_canvas == 0u || !_page->open || _page->canvas != _page->inktest_canvas) {
+        return;
+    }
+    _page->inktest_canvas = 0u;
+    if(fude_zoom_scene_object_count(&_page->scene) > 0u) {
+        rde_log_level(RDE_LOG_LEVEL_WARNING, "inktest: canvas %u is not empty: no test ink drawn on it", _page->canvas);
+        return;
+    }
+    const f64 _began = rde_engine_get_time_now();
+    fude_zoom_inktest_fill(&_page->scene, FUDE_ZOOM_INKTEST_POINTS, fude_zoom_page_half(_page));
+    u64 _points = 0;
+    const u32 _strokes = fude_zoom_scene_alive_strokes(&_page->scene, &_points);
+    rde_log_level(RDE_LOG_LEVEL_INFO, "inktest: canvas %u: %u strokes, %llu points drawn in %.0f ms", _page->canvas, _strokes, (unsigned long long)_points,
+                  1000.0 * (rde_engine_get_time_now() - _began));
+}
+#endif
 
 // The frame rate, at the top right in the theme's text (just its number), clear of the toolbar where it is there.
 // The frames are counted every frame, shown or not, and the rate is worked out each half second.

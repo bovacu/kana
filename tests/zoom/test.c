@@ -32,6 +32,7 @@
 #include "zoom/pages.h"
 #include "zoom/words.h"
 #include "zoom/homelist.h"
+#include "zoom/inktest.h"
 #include "zoom/adpcm.h"
 #include "zoom/audio.h"
 #include "zoom/voice.h"
@@ -9919,6 +9920,227 @@ static void test_home_list(void) {
     CHECK(fude_zoom_home_columns(100.0f, 210.0f, 16.0f) == 1u && fude_zoom_home_columns(0.0f, 210.0f, 16.0f) == 1u && fude_zoom_home_columns(436.0f, 210.0f, 16.0f) == 2u);
 }
 
+// --- the test ink (inktest.h) ---------------------------------------------------------------------------------------
+
+// The developer's --gate as look.c had it before the test ink moved to inktest.c (2026-10-15), kept here as the
+// reference the moved code must match, line for line: its colours, its rose curve, its stepwise zoom and its fill.
+static const rde_color ink_ref_colors[] = {
+    { 231, 76, 60, 255 }, { 241, 196, 15, 255 }, { 46, 204, 113, 255 }, { 52, 152, 219, 255 }, { 155, 89, 182, 255 }, { 230, 126, 34, 255 },
+};
+static void ink_ref_curve(fude_zoom_scene* _s, fude_zoom_v2 _c, f64 _r, f64 _phase, u32 _petals, rde_color _color, f64 _width) {
+    const u32 _n = 400u;
+    const i8  _q = fude_zoom_quantum_for(_s->camera.z);
+    const f64 _g = rde_math_ldexp_f64(1.0, _q);
+    fude_zoom_qpoint _pts[400];
+    fude_zoom_v2     _first = { 0.0, 0.0 };
+    for(u32 _i = 0; _i < _n; _i++) {
+        const f64 _a = 2.0 * RDE_PI * (f64)_i / (f64)(_n - 1u);
+        const f64 _k = _r * (0.55 + 0.45 * rde_math_cos_f64((f64)_petals * _a + _phase));
+        const fude_zoom_v2 _p = { _c.x + rde_math_cos_f64(_a) * _k, _c.y + rde_math_sin_f64(_a) * _k };
+        if(_i == 0) {
+            _first = _p;
+        }
+        _pts[_i] = (fude_zoom_qpoint){ (i32)rde_math_round_to_i64_f64((_p.x - _first.x) / _g), (i32)rde_math_round_to_i64_f64((_p.y - _first.y) / _g), (u16)(700 + 300 * rde_math_sin_f64(_a * 3.0)), _i * 4u };
+    }
+    const u32 _o = fude_zoom_scene_add_stroke(_s, _s->camera.frame, _first, _q, _pts, _n, FUDE_ZOOM_CHANNEL_PRESSURE | FUDE_ZOOM_CHANNEL_TIME, _color,
+                                              (f32)(_width / _s->camera.z), FUDE_ZOOM_FLAG_PRESSURE, 0, 0);
+    fude_zoom_history_push(_s, _s->camera.frame, fude_zoom_scene_object(_s, _o)->box, NULL, 0, &_o, 1);
+}
+static void ink_ref_zoom_by(fude_zoom_scene* _s, f64 _factor, fude_zoom_v2 _half) {
+    const u32 _steps = (u32)rde_math_ceil_f64(rde_math_abs_f64(rde_math_log2_f64(_factor))) + 1u;
+    const f64 _step  = rde_math_pow_f64(_factor, 1.0 / (f64)_steps);
+    for(u32 _i = 0; _i < _steps; _i++) {
+        fude_zoom_camera_zoom_at(_s, (fude_zoom_v2){ 0.0, 0.0 }, _step);
+        fude_zoom_camera_settle(_s, _half);
+    }
+}
+static void ink_ref_gate(fude_zoom_scene* _s, u64 _want, fude_zoom_v2 _half) {
+    u64 _made = 0;
+    u32 _seed = 7u;
+    for(u32 _l = 0; _l < 4u && _made < _want; _l++) {
+        const fude_zoom_v2 _c = _s->camera.at;
+        const f64 _u = 1.0 / _s->camera.z;
+        const u64 _share = (_want - _made) / (4u - _l);
+        for(u64 _p = 0; _p < _share; _p += 400u) {
+            _seed = _seed * 1664525u + 1013904223u;
+            const f64 _x = _c.x + ((f64)(_seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 2000.0 * _u;
+            _seed = _seed * 1664525u + 1013904223u;
+            const f64 _y = _c.y + ((f64)(_seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 1500.0 * _u;
+            ink_ref_curve(_s, (fude_zoom_v2){ _x, _y }, 40.0 * _u, (f64)(_seed & 255u), 3u + (_seed % 5u), ink_ref_colors[_seed % 6u], 2.0);
+        }
+        _made += _share;
+        if(_l < 3u) {
+            ink_ref_zoom_by(_s, 1024.0, _half);
+        }
+    }
+    ink_ref_zoom_by(_s, 1.0 / 1024.0 / 1024.0 / 1024.0, _half);
+}
+
+// Whether two scenes are the same to the bit: their frames (ids, parents, places, anchors, orders), their objects
+// (every field, and each payload's bytes: a stroke's encoded points), the camera, the history and the journal.
+static b8 ink_same(const fude_zoom_scene* a, const fude_zoom_scene* b) {
+    b8 same = fude_zoom_scene_frame_count(a) == fude_zoom_scene_frame_count(b) && fude_zoom_scene_object_count(a) == fude_zoom_scene_object_count(b);
+    for(u32 f = 0; same && f < fude_zoom_scene_frame_count(a); f++) {
+        const fude_zoom_frame* fa = fude_zoom_scene_frame(a, f);
+        const fude_zoom_frame* fb = fude_zoom_scene_frame(b, f);
+        same = fa->id == fb->id && fa->parent == fb->parent && fa->object == fb->object && memcmp(&fa->xf, &fb->xf, sizeof fa->xf) == 0 &&
+               memcmp(&fa->anchor, &fb->anchor, sizeof fa->anchor) == 0 && fa->removed == fb->removed && rde_arr_length(&fa->order) == rde_arr_length(&fb->order) &&
+               memcmp(fa->order.memory, fb->order.memory, rde_arr_length(&fa->order) * sizeof(u32)) == 0;
+    }
+    for(u32 i = 0; same && i < fude_zoom_scene_object_count(a); i++) {
+        const fude_zoom_object* oa = fude_zoom_scene_object(a, i);
+        const fude_zoom_object* ob = fude_zoom_scene_object(b, i);
+        same = oa->id == ob->id && oa->gesture == ob->gesture && oa->frame == ob->frame && oa->child == ob->child && oa->count == ob->count && oa->z == ob->z &&
+               memcmp(&oa->t, &ob->t, sizeof oa->t) == 0 && memcmp(&oa->box, &ob->box, sizeof oa->box) == 0 && memcmp(&oa->color, &ob->color, sizeof oa->color) == 0 &&
+               oa->radius == ob->radius && oa->layer == ob->layer && oa->kind == ob->kind && oa->flags == ob->flags && oa->channels == ob->channels && oa->q == ob->q &&
+               oa->rotation == ob->rotation && oa->scale == ob->scale && oa->history == ob->history && (oa->blob == 0u) == (ob->blob == 0u);
+        if(same && oa->blob != 0u) {
+            const fude_zoom_blob* ba = &((const fude_zoom_blob*)a->blobs.memory)[oa->blob - 1u];
+            const fude_zoom_blob* bb = &((const fude_zoom_blob*)b->blobs.memory)[ob->blob - 1u];
+            same = fude_zoom_blob_size(ba) == fude_zoom_blob_size(bb) && memcmp(fude_zoom_blob_bytes(ba), fude_zoom_blob_bytes(bb), fude_zoom_blob_size(ba)) == 0;
+        }
+    }
+    same = same && a->camera.frame == b->camera.frame && memcmp(&a->camera.at, &b->camera.at, sizeof a->camera.at) == 0 && a->camera.z == b->camera.z;
+    same = same && a->root == b->root && a->home == b->home && a->action_count == b->action_count && a->history_pushes == b->history_pushes &&
+           a->history_bytes == b->history_bytes && rde_arr_length(&a->targets) == rde_arr_length(&b->targets) &&
+           memcmp(a->targets.memory, b->targets.memory, rde_arr_length(&a->targets) * sizeof(u32)) == 0;
+    return same && fude_bytes_size(&a->journal) == fude_bytes_size(&b->journal) && memcmp(a->journal.memory, b->journal.memory, fude_bytes_size(&a->journal)) == 0;
+}
+
+// A file's bytes, whole (none: empty).
+static rde_arr ink_file_bytes(const c8* path) {
+    rde_arr out = rde_arr_new(sizeof(u8), NULL);
+    FILE* f = fopen(path, "rb");
+    if(f != NULL) {
+        u8 chunk[4096];
+        size_t got;
+        while((got = fread(chunk, 1, sizeof chunk, f)) > 0) {
+            memcpy(rde_arr_add_n(&out, got), chunk, got);
+        }
+        fclose(f);
+    }
+    return out;
+}
+
+// The test ink (inktest.h: Settings' test canvas, the developer's --gate) is the gate's as look.c drew it, stroke for
+// stroke: from one point to tens of thousands, the same frames, objects, boxes, encoded points, camera, history and
+// journal as the reference above; a stroke for every 400 points of each depth's share, at four depths, and the camera
+// back where it began; a million points timed. Settings' Make adds a canvas of its own and opens it, and never touches
+// another: the other notes as they were, in their order, even one of the same name, their files byte for byte after
+// the new one is filled and saved; a second Make makes another.
+static void test_inktest(void) {
+    printf("test ink\n");
+    const fude_zoom_v2 half = { 512, 384 };
+    const u64 counts[] = { 1u, 399u, 400u, 401u, 1600u, 4001u, 25000u };
+    for(u32 c = 0; c < sizeof(counts) / sizeof(counts[0]); c++) {
+        fude_zoom_scene a; fude_zoom_scene_init(&a, 7);
+        fude_zoom_scene b; fude_zoom_scene_init(&b, 7);
+        const fude_zoom_camera began = b.camera;
+        ink_ref_gate(&a, counts[c], half);
+        fude_zoom_inktest_fill(&b, counts[c], half);
+        CHECK(ink_same(&a, &b));
+        u64 made = 0, strokes = 0;
+        for(u32 l = 0; l < 4u; l++) {
+            const u64 share = (counts[c] - made) / (4u - l);
+            strokes += (share + 399u) / 400u;
+            made    += share;
+        }
+        u64 points = 0;
+        CHECK(fude_zoom_scene_alive_strokes(&b, &points) == strokes && points == strokes * 400u && b.history_pushes == strokes);
+        u32 depths = 0;
+        for(u32 i = 0; i < fude_zoom_scene_object_count(&b); i++) {
+            const fude_zoom_object* o = fude_zoom_scene_object(&b, i);
+            if(o->kind == FUDE_ZOOM_KIND_STROKE) {
+                depths |= 1u << fude_zoom_scene_depth(&b, o->frame);
+            }
+        }
+        CHECK(counts[c] < 1600u || depths == 0xFu);   // (from four strokes, one at each depth)
+        CHECK(b.camera.frame == began.frame && fabs(b.camera.z - began.z) < 1e-9 && fabs(b.camera.at.x - began.at.x) < 1e-6 && fabs(b.camera.at.y - began.at.y) < 1e-6);
+        fude_zoom_scene_destroy(&a);
+        fude_zoom_scene_destroy(&b);
+    }
+    {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        const clock_t c0 = clock();
+        fude_zoom_inktest_fill(&s, FUDE_ZOOM_INKTEST_POINTS, half);
+        const f64 ms = (f64)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
+        u64 points = 0;
+        CHECK(fude_zoom_scene_alive_strokes(&s, &points) == 2500u && points == 1000000u);
+        printf("  a million points of test ink: %.0f ms, %u frames, a journal of %.1f MB\n", ms, fude_zoom_scene_frame_count(&s), fude_bytes_size(&s.journal) / 1048576.0);
+        fude_zoom_scene_destroy(&s);
+    }
+
+    // Make, among the person's canvases: one named as the test canvas is, a folder with one in it, each drawn on and
+    // saved, the one in the folder open.
+    mkdir("./saves", 0755);
+    mkdir("./saves/notes", 0755);
+    fude_notes n; fude_notes_init(&n); fude_notes_load(&n);
+    const u32 named  = fude_notes_add(&n, FUDE_NOTE_CANVAS, 0, "Drawing test");
+    const u32 folder = fude_notes_add(&n, FUDE_NOTE_FOLDER, 0, "Work");
+    const u32 inside = fude_notes_add(&n, FUDE_NOTE_CANVAS, folder, "Plans");
+    const u32 theirs[2] = { named, inside };
+    rde_arr before[2];
+    for(u32 k = 0; k < 2u; k++) {
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        line(&s, -50, 10.0 * k, 50, 10.0 * k, 2.0, 2.0f);
+        c8 path[RDE_MAX_PATH];
+        fude_zoom_home_side_path(theirs[k], "zoom", path, sizeof(path));
+        fude_zoom_file f; memset(&f, 0, sizeof f); snprintf(f.path, sizeof f.path, "%s", path);
+        CHECK(fude_zoom_file_flush(&f, &s) && fude_zoom_file_checkpoint(&f, &s));
+        fude_zoom_scene_destroy(&s);
+        before[k] = ink_file_bytes(path);
+        CHECK(rde_arr_length(&before[k]) > 0u);
+    }
+    fude_notes_open(&n, inside);
+    const u32 count = (u32)rde_arr_length(&n.notes);
+    rde_arr was = rde_arr_new(sizeof(fude_note), NULL);
+    memcpy(rde_arr_add_n(&was, count), n.notes.memory, count * sizeof(fude_note));
+    const u32 made = fude_zoom_inktest_canvas(&n, "Drawing test");
+    const fude_note* m = fude_notes_find(&n, made);
+    CHECK(made != 0u && n.open == made && m != NULL && m->kind == FUDE_NOTE_CANVAS && m->parent == 0u && strcmp(m->name, "Drawing test") == 0);
+    CHECK(rde_arr_length(&n.notes) == count + 1u && memcmp(n.notes.memory, was.memory, count * sizeof(fude_note)) == 0);
+    for(u32 i = 0; i < count; i++) {
+        CHECK(((const fude_note*)was.memory)[i].id != made);
+    }
+    // ...filled as the page fills it (it opens empty: nothing of anyone's is drawn over), and saved.
+    {
+        c8 path[RDE_MAX_PATH];
+        fude_zoom_home_side_path(made, "zoom", path, sizeof(path));
+        fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+        fude_zoom_file f;
+        CHECK(fude_zoom_file_open(&f, path, &s) == FUDE_LOAD_MISSING && fude_zoom_scene_object_count(&s) == 0u);
+        fude_zoom_inktest_fill(&s, 4000u, half);
+        u64 drawn = 0;
+        const u32 strokes = fude_zoom_scene_alive_strokes(&s, &drawn);
+        CHECK(fude_zoom_file_flush(&f, &s) && fude_zoom_file_checkpoint(&f, &s));
+        fude_zoom_scene_destroy(&s);
+        fude_zoom_scene t; fude_zoom_scene_init(&t, 7);
+        u64 points = 0;
+        CHECK(strokes == 12u && drawn == 4800u);   // (1000 a depth: three strokes each)
+        CHECK(fude_zoom_file_open(&f, path, &t) == FUDE_LOAD_OK && fude_zoom_scene_alive_strokes(&t, &points) == strokes && points == drawn);
+        fude_zoom_scene_destroy(&t);
+    }
+    for(u32 k = 0; k < 2u; k++) {
+        c8 path[RDE_MAX_PATH];
+        fude_zoom_home_side_path(theirs[k], "zoom", path, sizeof(path));
+        rde_arr after = ink_file_bytes(path);
+        CHECK(rde_arr_length(&after) == rde_arr_length(&before[k]) && memcmp(after.memory, before[k].memory, rde_arr_length(&after)) == 0);
+        rde_arr_free(&after);
+        rde_arr_free(&before[k]);
+    }
+    // A second Make: another new canvas, not the one made before.
+    const u32 again = fude_zoom_inktest_canvas(&n, "Drawing test");
+    CHECK(again != made && again != named && again != inside && n.open == again && rde_arr_length(&n.notes) == count + 2u);
+    CHECK(memcmp(n.notes.memory, was.memory, count * sizeof(fude_note)) == 0);
+    // (the list left as it was found: what this test added, with its files, taken out)
+    fude_notes_remove(&n, again);
+    fude_notes_remove(&n, made);
+    fude_notes_remove(&n, folder);
+    fude_notes_remove(&n, named);
+    rde_arr_free(&was);
+    fude_notes_destroy(&n);
+}
+
 // Recordings (0.1.93): IMA ADPCM back as it went in, near enough (a tone's error a few per cent of it, silence
 // silent, a block's first sample exact, its tail held when short, full scale never wrapping); a canvas's recordings
 // and links kept, read back, numbered past those there; a recording's length by its file's whole blocks.
@@ -14080,6 +14302,372 @@ static void test_cover_layers(void) {
     fude_zoom_scene_destroy(&t);
 }
 
+// --- strokes' meshes kept (render_stroke.c) ----------------------------------------------------------------------
+
+// Strokes' meshes as the renderer draws them (rde_rendering_2d_draw_stroke_mesh; engine.c's double draws nothing).
+// rs_mode 1: each triangle's corners recorded where the engine puts them (the mesh's vertex moved by the translation)
+// with the colour it gives them (its alpha the colour's times the vertex's share), into rs_corners; rs_mode 2: the
+// vertices and indices copied into a batch as the engine's append does (for the timings), nothing kept. rs_meshes
+// counts the meshes drawn. rs_pixel is the pixel's size the renderer is told (the engine's, in a drawing).
+typedef struct { f32 x, y; rde_color c; } rs_corner;
+static rde_arr rs_corners, rs_batch_v, rs_batch_i;
+static u32     rs_mode = 0, rs_meshes = 0;
+static f32     rs_pixel = 1.0f;
+void rde_rendering_2d_draw_stroke_mesh(const rde_stroke_mesh* m, rde_vec_2F t, rde_color c) {
+    if(rs_mode == 0u || m == NULL || rde_arr_length(&m->vertices) == 0 || c.a == 0) return;
+    rs_meshes++;
+    const rde_stroke_vertex* v = (const rde_stroke_vertex*)m->vertices.memory;
+    const u32* idx = (const u32*)m->indices.memory;
+    const u32 nv = (u32)rde_arr_length(&m->vertices), ni = (u32)rde_arr_length(&m->indices);
+    if(rs_mode == 1u) {
+        rs_corner* o = (rs_corner*)rde_arr_add_n(&rs_corners, ni);
+        for(u32 i = 0; i < ni; i++) {
+            const rde_stroke_vertex* p = &v[idx[i]];
+            o[i] = (rs_corner){ p->position.x + t.x, p->position.y + t.y, { c.r, c.g, c.b, (u8)((f32)c.a * p->alpha) } };
+        }
+        return;
+    }
+    const u32 first = (u32)rde_arr_length(&rs_batch_v) / 4u;
+    f32* bv = (f32*)rde_arr_add_n(&rs_batch_v, (usize)nv * 4u);
+    for(u32 i = 0; i < nv; i++) {
+        bv[i * 4u] = v[i].position.x + t.x + 600.0f; bv[i * 4u + 1u] = 400.0f - (v[i].position.y + t.y); bv[i * 4u + 2u] = 0.0f;
+        bv[i * 4u + 3u] = (f32)(u32)((f32)c.a * v[i].alpha);
+    }
+    u32* bi = (u32*)rde_arr_add_n(&rs_batch_i, ni);
+    for(u32 i = 0; i < ni; i++) bi[i] = first + idx[i];
+}
+f32 rde_rendering_2d_get_pixel_size(void) { return rs_pixel; }
+
+// The renderer drawn with rs_mode 1: the corners it drew, in a new array (rde_arr_free after).
+static rde_arr rs_draw(fude_zoom_renderer* r, const fude_zoom_scene* s, fude_zoom_v2 half) {
+    if(!rde_arr_is_inited(&rs_corners)) rs_corners = rde_arr_new(sizeof(rs_corner), NULL);
+    rde_arr_clear(&rs_corners);
+    rs_mode = 1u;
+    fude_zoom_render(r, s, half, (rde_color){ 250, 250, 245, 255 });
+    rs_mode = 0u;
+    rde_arr a = rde_arr_new(sizeof(rs_corner), NULL);
+    if(rde_arr_length(&rs_corners) > 0) memcpy(rde_arr_add_n(&a, rde_arr_length(&rs_corners)), rs_corners.memory, rde_arr_length(&rs_corners) * sizeof(rs_corner));
+    return a;
+}
+static b8 rs_same(const rde_arr* a, const rde_arr* b) {
+    return rde_arr_length(a) == rde_arr_length(b) && (rde_arr_length(a) == 0 || memcmp(a->memory, b->memory, rde_arr_length(a) * sizeof(rs_corner)) == 0);
+}
+// Whether b is a moved by (dx, dy), each corner to within the rounding of its f32 sum, in the same colour.
+static b8 rs_moved(const rde_arr* a, const rde_arr* b, f32 dx, f32 dy) {
+    if(rde_arr_length(a) != rde_arr_length(b)) return false;
+    const rs_corner* p = (const rs_corner*)a->memory; const rs_corner* q = (const rs_corner*)b->memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(a); i++) {
+        if(fabs((f64)p[i].x + dx - q[i].x) > 1e-3 || fabs((f64)p[i].y + dy - q[i].y) > 1e-3 || memcmp(&p[i].c, &q[i].c, sizeof(rde_color)) != 0) return false;
+    }
+    return true;
+}
+// The sum of the decoded entries' meshes' bytes: what the renderer's count must be.
+static u64 rs_mesh_bytes(const fude_zoom_renderer* r) {
+    u64 n = 0;
+    const fude_zoom_decoded* d = (const fude_zoom_decoded*)r->cache.memory;
+    for(u32 i = 0; i < (u32)rde_arr_length(&r->cache); i++) n += d[i].mesh_bytes;
+    return n;
+}
+
+// The old way, kept here as the reference: stroke o tessellated where it is on the screen (its points moved there in
+// f64 and thinned there, as render_stroke.c did before its meshes were kept), its corners appended to out.
+static void rs_old_stroke(const fude_zoom_scene* s, u32 o, fude_zoom_sim to, rde_stroke_mesh* m, rde_arr* out) {
+    const fude_zoom_object* ob = fude_zoom_scene_object(s, o);
+    rde_arr qa; fude_zoom_qpoint* q = table(&qa, sizeof(*q), ob->count);
+    fude_zoom_scene_points(s, o, q);
+    const fude_zoom_sim all = fude_zoom_sim_compose(to, fude_zoom_object_sim(ob));
+    const f64 ws = fude_zoom_sim_scale(to) * ob->scale;
+    rde_arr pa = rde_arr_new(sizeof(rde_vec_2F), NULL), ra = rde_arr_new(sizeof(f32), NULL);
+    u32 n = 0;
+    for(u32 i = 0; i < ob->count; i++) {
+        const f64 x = (f32)ldexp((f64)q[i].x, ob->q), y = (f32)ldexp((f64)q[i].y, ob->q);
+        const f32 sx = (f32)(all.tx + all.a * x - all.b * y), sy = (f32)(all.ty + all.b * x + all.a * y);
+        f32 sr = (f32)((f64)fude_zoom_scene_local_radius_at(ob, &q[i]) * ws);
+        sr = sr < FUDE_ZOOM_RENDER_MIN_RADIUS ? FUDE_ZOOM_RENDER_MIN_RADIUS : sr;
+        if(n > 0 && i + 1u < ob->count) {
+            const rde_vec_2F l = ((const rde_vec_2F*)pa.memory)[n - 1u];
+            const f32 st = (ob->flags & FUDE_ZOOM_FLAG_MARKER) ? sr * 0.75f : 0.6f;
+            if((sx - l.x) * (sx - l.x) + (sy - l.y) * (sy - l.y) < st * st) continue;
+        }
+        const rde_vec_2F p = { sx, sy };
+        rde_arr_add(&pa, (any)&p); rde_arr_add(&ra, (any)&sr); n++;
+    }
+    rde_rendering_2d_tessellate_stroke((const rde_vec_2F*)pa.memory, (const f32*)ra.memory, n, rs_pixel, m);
+    const rde_stroke_vertex* v = (const rde_stroke_vertex*)m->vertices.memory;
+    const u32* idx = (const u32*)m->indices.memory;
+    const rde_color c = fude_theme_resolve(ob->color);
+    for(u32 i = 0; i < (u32)rde_arr_length(&m->indices); i++) {
+        const rs_corner k = { v[idx[i]].position.x, v[idx[i]].position.y, { c.r, c.g, c.b, (u8)((f32)c.a * v[idx[i]].alpha) } };
+        rde_arr_add(out, (any)&k);
+    }
+    rde_arr_free(&pa); rde_arr_free(&ra); rde_arr_free(&qa);
+}
+
+// A flower of 400 points round c, as the gate draws them (look.c's look_demo_curve), half-width w,
+// in the camera's frame.
+static u32 rs_flower(fude_zoom_scene* s, fude_zoom_v2 c, f64 rad, f64 phase, u32 petals, rde_color k, f64 w) {
+    const i8 q = fude_zoom_quantum_for(s->camera.z);
+    const f64 g = ldexp(1.0, q);
+    fude_zoom_qpoint pts[400];
+    fude_zoom_v2 first = { 0, 0 };
+    for(u32 i = 0; i < 400u; i++) {
+        const f64 a = 2.0 * 3.14159265358979 * (f64)i / 399.0, kk = rad * (0.55 + 0.45 * cos((f64)petals * a + phase));
+        const fude_zoom_v2 p = { c.x + cos(a) * kk, c.y + sin(a) * kk };
+        if(i == 0) first = p;
+        pts[i] = (fude_zoom_qpoint){ (i32)llround((p.x - first.x) / g), (i32)llround((p.y - first.y) / g), (u16)(700 + 300 * sin(a * 3.0)), i * 4u };
+    }
+    return fude_zoom_scene_add_stroke(s, s->camera.frame, first, q, pts, 400u, FUDE_ZOOM_CHANNEL_PRESSURE | FUDE_ZOOM_CHANNEL_TIME, k, (f32)(w / s->camera.z), FUDE_ZOOM_FLAG_PRESSURE, 0, 0);
+}
+
+// Strokes are drawn from meshes kept with their decoded points (render_stroke.c). A kept mesh draws exactly what one
+// made in the same draw does, and what a renderer that keeps none draws; against the old way (each stroke tessellated
+// where it is on the screen) the same triangles in the same colours, each corner within a hundredth of a pixel. Kept
+// while the view pans (nothing made; every corner moved by the pan), while a stroke is moved without being turned or
+// scaled, through a change of theme, a faint stroke and a glow (the colour is the draw's, not the mesh's), and through
+// a hidden layer, and through an erase and its undo; made again on a zoom, for a stroke turned or scaled, at another
+// pixel size, and once for a new stroke. The bound: never more held than the budget, the renderer's count the entries'
+// sum, also when the decoded strokes' own budget lets entries go; past it, what one draw keeps stays kept, the rest are
+// made each draw and drawn the same; a trim keeps nothing.
+static void test_render_kept_strokes(void) {
+    printf("strokes' meshes kept by the renderer\n");
+    const fude_zoom_v2 half = { 400, 300 };
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    fude_zoom_camera_look_at(&s, s.root, (fude_zoom_v2){ 0, 0 }, 1.0);
+    u32 strokes[12];
+    for(u32 i = 0; i < 8u; i++) {
+        strokes[i] = rs_flower(&s, (fude_zoom_v2){ -300.0 + 85.0 * i, (i % 2u) ? 120.0 : -90.0 }, 30.0 + 4.0 * i, 0.3 * i, 3u + i % 4u, (rde_color){ (u8)(30 * i), 60, 200, 255 }, 0.3 + 0.9 * i);
+    }
+    strokes[8] = line(&s, -350, -250, 350, 240, 3.0, 6.0f);
+    const fude_zoom_v2 zig[5] = { { -200, 200 }, { -150, 260 }, { -100, 200 }, { -50, 262 }, { 0, 200 } };
+    strokes[9] = poly_stroke(&s, zig, 5u, false);
+    const fude_zoom_qpoint dot = { 0, 0, 900, 0 };
+    strokes[10] = fude_zoom_scene_add_stroke(&s, s.root, (fude_zoom_v2){ 250, -200 }, 0, &dot, 1u, FUDE_ZOOM_CHANNEL_PRESSURE, FUDE_THEME_INK, 9.0f, FUDE_ZOOM_FLAG_PRESSURE, 0, 0);
+    strokes[11] = rs_flower(&s, (fude_zoom_v2){ 150, -40 }, 60.0, 1.0, 5u, (rde_color){ 250, 220, 0, 110 }, 12.0);   // a see-through marker
+    ((fude_zoom_object*)fude_zoom_scene_object(&s, strokes[11]))->flags |= FUDE_ZOOM_FLAG_MARKER;
+    fude_zoom_renderer r; fude_zoom_render_init(&r);
+
+    // Made, then kept: the same corners, bit for bit, and those of a renderer that keeps none.
+    rde_arr first = rs_draw(&r, &s, half);
+    const u32 made_first = r.meshes_made, drawn = r.strokes_drawn;
+    rde_arr kept = rs_draw(&r, &s, half);
+    CHECK(made_first == 12u && drawn == 12u && r.meshes_made == 0u && rde_arr_length(&first) > 0 && rs_same(&first, &kept));
+    CHECK(r.mesh_bytes > 0u && r.mesh_bytes == rs_mesh_bytes(&r));
+    fude_zoom_renderer fresh; fude_zoom_render_init(&fresh);
+    fresh.mesh_budget = 0u;   // (it keeps none: every stroke is made in each draw)
+    rde_arr none = rs_draw(&fresh, &s, half);
+    CHECK(rs_same(&first, &none) && fresh.meshes_made == 12u && fresh.mesh_bytes == 0u);
+    rde_arr_free(&none);
+
+    // Against the old way: the same triangles in the same colours, each corner within a hundredth of a pixel.
+    {
+        rde_stroke_mesh m = rde_stroke_mesh_new(NULL);
+        rde_arr old = rde_arr_new(sizeof(rs_corner), NULL);
+        const fude_zoom_sim to = fude_zoom_camera_sim(&s.camera);
+        for(u32 i = 0; i < 12u; i++) rs_old_stroke(&s, strokes[i], to, &m, &old);   // (made in order: drawn in order)
+        f64 most = 0.0;
+        b8 colours = rde_arr_length(&old) == rde_arr_length(&first);
+        const rs_corner* a = (const rs_corner*)old.memory; const rs_corner* b = (const rs_corner*)first.memory;
+        for(u32 i = 0; colours && i < (u32)rde_arr_length(&old); i++) {
+            most = fmax(most, fmax(fabs((f64)a[i].x - b[i].x), fabs((f64)a[i].y - b[i].y)));
+            colours = memcmp(&a[i].c, &b[i].c, sizeof(rde_color)) == 0;
+        }
+        printf("  against tessellating where they are on the screen: %u corners, each within %.2g of a pixel\n", (u32)rde_arr_length(&old), most);
+        CHECK(colours && most < 0.01);
+        rde_arr_free(&old); rde_stroke_mesh_free(&m);
+    }
+
+    // A pan: nothing made, every corner moved by it; and what a renderer that keeps none draws there.
+    s.camera.at.x += 37.25; s.camera.at.y -= 11.5;
+    rde_arr panned = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && rs_moved(&first, &panned, -37.25f, 11.5f));
+    rde_arr there = rs_draw(&fresh, &s, half);
+    CHECK(rs_same(&panned, &there));
+    rde_arr_free(&there);
+    // A zoom: every one made again, as one that keeps none makes it; zoomed back, made again, as at first.
+    s.camera.z *= 1.25;
+    rde_arr zoomed = rs_draw(&r, &s, half);
+    there = rs_draw(&fresh, &s, half);
+    CHECK(r.meshes_made == r.strokes_drawn && r.strokes_drawn > 0u && rs_same(&zoomed, &there));
+    rde_arr_free(&there); rde_arr_free(&zoomed);
+    s.camera.z /= 1.25; s.camera.at.x -= 37.25; s.camera.at.y += 11.5;
+    rde_arr back = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 12u && rs_same(&first, &back));
+    rde_arr_free(&back);
+    // Another pixel size (a picture drawn off the screen, a window resized): made again; back, made again as at first.
+    rs_pixel = 0.5f;
+    rde_arr finer = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 12u && !rs_same(&first, &finer));
+    rde_arr_free(&finer);
+    rs_pixel = 1.0f;
+    back = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 12u && rs_same(&first, &back));
+    rde_arr_free(&back);
+
+    // The colour is the draw's: a theme's ink, a faint stroke, a glow; none of them makes the stroke's mesh again.
+    fude_theme_set(FUDE_THEME_NIGHT);
+    rde_arr night = rs_draw(&r, &s, half);
+    fude_theme_set(FUDE_THEME_PAPER);
+    CHECK(r.meshes_made == 0u && rde_arr_length(&night) == rde_arr_length(&first) && !rs_same(&night, &first));
+    rde_arr_free(&night);
+    rde_arr faint = rde_arr_new(sizeof(u8), NULL);
+    rde_arr_resize(&faint, fude_zoom_scene_object_count(&s));
+    ((u8*)faint.memory)[strokes[3]] = 1u;
+    r.faint = &faint;
+    rde_arr faded = rs_draw(&r, &s, half);
+    r.faint = NULL;
+    CHECK(r.meshes_made == 0u && rde_arr_length(&faded) == rde_arr_length(&first) && !rs_same(&faded, &first));
+    rde_arr_free(&faded); rde_arr_free(&faint);
+    r.meshes_made = 0u;
+    fude_zoom_render_glow(&r, &s, strokes[3], fude_zoom_camera_sim(&s.camera), half, 3.0f, (rde_color){ 0, 120, 255, 90 });
+    const u32 glow_made = r.meshes_made;
+    rde_arr after_glow = rs_draw(&r, &s, half);
+    CHECK(glow_made == 1u && r.meshes_made == 0u && rs_same(&first, &after_glow));
+    rde_arr_free(&after_glow);
+
+    // Moved alone, a stroke keeps its mesh; turned and scaled, it is made again; put back, made again as it was.
+    const fude_zoom_place was = fude_zoom_scene_place_of(&s, strokes[2]);
+    fude_zoom_scene_set_place(&s, strokes[2], (fude_zoom_place){ { was.t.x + 5.0, was.t.y }, was.rotation, was.scale });
+    rde_arr moved = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && rde_arr_length(&moved) == rde_arr_length(&first) && !rs_same(&moved, &first));
+    rde_arr_free(&moved);
+    fude_zoom_scene_set_place(&s, strokes[2], (fude_zoom_place){ was.t, was.rotation + 0.3, was.scale * 1.5 });
+    rde_arr turned = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 1u);
+    rde_arr_free(&turned);
+    fude_zoom_scene_set_place(&s, strokes[2], was);
+    back = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 1u && rs_same(&first, &back));
+    rde_arr_free(&back);
+    // A hidden layer's stroke is not drawn, and keeps its mesh for when it shows again.
+    s.layer = 1;
+    const u32 on_layer = line(&s, -100, 0, 100, 10, 2.0, 3.0f);
+    s.layer = 0;
+    rde_arr with_layer = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 1u);
+    fude_zoom_scene_add_layer(&s, s.root, 1, FUDE_ZOOM_LAYER_HIDDEN, "");
+    fude_zoom_scene_layers_refresh(&s);
+    rde_arr hidden = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && r.strokes_drawn == 12u && rs_same(&first, &hidden));
+    fude_zoom_scene_add_layer(&s, s.root, 1, 0u, "");
+    fude_zoom_scene_layers_refresh(&s);
+    rde_arr shown = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && rs_same(&with_layer, &shown));
+    rde_arr_free(&hidden); rde_arr_free(&with_layer);
+
+    // Edits. The stroke eraser takes the long line and the layer's line whole: not drawn, nothing made. Undone, they
+    // come back drawn from the meshes kept with them (an object's points never change). A new stroke is made once,
+    // then kept, and drawn as a renderer that keeps none draws it.
+    fude_zoom_eraser e; fude_zoom_eraser_init(&e);
+    fude_zoom_erase_begin(&e, FUDE_ZOOM_ERASE_STROKE);
+    fude_zoom_erase_step(&s, &e, s.root, (fude_zoom_v2){ -10, -40 }, (fude_zoom_v2){ 10, 40 }, 6.0, 0.5);
+    fude_zoom_erase_end(&s, &e, s.root, fude_zoom_box_empty());
+    fude_zoom_eraser_destroy(&e);
+    CHECK(!alive(&s, strokes[8]) && !alive(&s, on_layer));
+    rde_arr erased = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && r.strokes_drawn == 11u && rde_arr_length(&erased) < rde_arr_length(&first));
+    CHECK(fude_zoom_history_undo(&s) && alive(&s, strokes[8]) && alive(&s, on_layer));
+    rde_arr undone = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == 0u && rs_same(&undone, &shown));
+    const u32 added = line(&s, -380, 280, 380, 280, 2.0, 2.5f);
+    rde_arr edited = rs_draw(&r, &s, half);
+    const u32 made_new = r.meshes_made;
+    rde_arr again = rs_draw(&r, &s, half);
+    there = rs_draw(&fresh, &s, half);
+    CHECK(alive(&s, added) && made_new == 1u && r.meshes_made == 0u && r.strokes_drawn == 14u && rs_same(&edited, &again) && rs_same(&edited, &there));
+    rde_arr_free(&erased); rde_arr_free(&undone); rde_arr_free(&shown);
+    rde_arr_free(&edited); rde_arr_free(&again); rde_arr_free(&there);
+
+    // The bound: room for about half of them. Never over it, the entries' sum the count; what one draw keeps stays
+    // kept (each draw makes the same few again, not all of them), and it draws what a renderer with room draws.
+    fude_zoom_renderer small; fude_zoom_render_init(&small);
+    small.mesh_budget = r.mesh_bytes / 2u;
+    rde_arr roomy = rs_draw(&r, &s, half);
+    u32 made[4];
+    b8 same = true, under = true;
+    for(u32 d = 0; d < 4u; d++) {
+        rde_arr a = rs_draw(&small, &s, half);
+        made[d] = small.meshes_made;
+        same = same && rs_same(&a, &roomy);
+        under = under && small.mesh_bytes <= small.mesh_budget && small.mesh_bytes == rs_mesh_bytes(&small);
+        rde_arr_free(&a);
+    }
+    CHECK(same && under && made[0] == small.strokes_drawn && made[1] > 0u && made[1] < made[0] && made[2] == made[1] && made[3] == made[1]);
+    // The decoded strokes' budget lets their entries go, meshes and all: the count follows.
+    small.cache_budget = 1u;
+    small.mesh_budget  = FUDE_ZOOM_RENDER_MESHES;
+    for(u32 d = 0; d < 2u; d++) {
+        rde_arr tight = rs_draw(&small, &s, half);
+        CHECK(rs_same(&tight, &roomy) && small.mesh_bytes == rs_mesh_bytes(&small));
+        rde_arr_free(&tight);
+    }
+    // Trimmed: nothing kept, all made again at the next draw.
+    fude_zoom_render_trim(&r);
+    CHECK(r.mesh_bytes == 0u);
+    rde_arr trimmed = rs_draw(&r, &s, half);
+    CHECK(r.meshes_made == r.strokes_drawn && rs_same(&trimmed, &roomy));
+    rde_arr_free(&trimmed); rde_arr_free(&roomy);
+
+    rde_arr_free(&first); rde_arr_free(&kept); rde_arr_free(&panned);
+    rde_arr_free(&rs_corners);
+    fude_zoom_render_destroy(&small);
+    fude_zoom_render_destroy(&fresh);
+    fude_zoom_render_destroy(&r);
+    fude_zoom_scene_destroy(&s);
+}
+
+// Timed: a screen of the gate's flowers (--gate: 625 strokes of 400 points on the screen at once, each its own colour),
+// handed over as the engine takes them (rs_mode 2: every vertex and index copied into a batch). A frame tessellating
+// every stroke (a renderer that keeps no mesh, as before) against one drawn from the kept meshes, still and panning;
+// and a zoom, which makes every mesh each frame (no worse than before).
+static void test_render_kept_strokes_timed(void) {
+    printf("strokes' meshes kept: timed\n");
+    const fude_zoom_v2 half = { 640, 400 };
+    fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
+    fude_zoom_camera_look_at(&s, s.root, (fude_zoom_v2){ 0, 0 }, 1.0);
+    u32 seed = 7u;
+    for(u32 i = 0; i < 625u; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        const f64 x = ((f64)(seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 1200.0;
+        seed = seed * 1664525u + 1013904223u;
+        const f64 y = ((f64)(seed >> 8 & 0xFFFF) / 65535.0 - 0.5) * 760.0;
+        rs_flower(&s, (fude_zoom_v2){ x, y }, 40.0, (f64)(seed & 255u), 3u + seed % 5u, (rde_color){ (u8)(seed >> 3), (u8)(seed >> 11), (u8)(seed >> 19), 255 }, 2.0);
+    }
+    rs_batch_v = rde_arr_new(sizeof(f32), NULL);
+    rs_batch_i = rde_arr_new(sizeof(u32), NULL);
+    fude_zoom_renderer old; fude_zoom_render_init(&old);
+    old.mesh_budget = 0u;
+    fude_zoom_renderer r; fude_zoom_render_init(&r);
+    const u32 frames = 30u;
+    f64 ms[4];
+    for(u32 way = 0; way < 4u; way++) {   // tessellating every frame; kept, still; kept, panning; zooming
+        fude_zoom_renderer* rr = way == 0u ? &old : &r;
+        fude_zoom_camera_look_at(&s, s.root, (fude_zoom_v2){ 0, 0 }, 1.0);
+        rs_mode = 2u;
+        fude_zoom_render(rr, &s, half, (rde_color){ 250, 250, 245, 255 });   // (decoded, and kept where it keeps)
+        const clock_t c0 = clock();
+        for(u32 f = 0; f < frames; f++) {
+            if(way == 2u) s.camera.at.x += 3.0;
+            if(way == 3u) s.camera.z *= 1.01;
+            rde_arr_clear(&rs_batch_v); rde_arr_clear(&rs_batch_i);
+            fude_zoom_render(rr, &s, half, (rde_color){ 250, 250, 245, 255 });
+        }
+        ms[way] = (f64)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC / frames;
+        rs_mode = 0u;
+        if(way == 1u) {
+            printf("  %u strokes, %u points drawn: %u vertices and %u indices a frame; their meshes hold %.1f MB\n", r.strokes_drawn, r.points_drawn,
+                   (u32)rde_arr_length(&rs_batch_v) / 4u, (u32)rde_arr_length(&rs_batch_i), (f64)r.mesh_bytes / 1048576.0);
+            CHECK(r.meshes_made == 0u && r.strokes_drawn == 625u);
+        }
+        if(way == 3u) CHECK(r.meshes_made == r.strokes_drawn);
+    }
+    printf("  a frame: tessellating every stroke %.2f ms; from kept meshes %.2f ms still, %.2f ms panning; zooming %.2f ms\n", ms[0], ms[1], ms[2], ms[3]);
+    CHECK(ms[1] < ms[0] && ms[2] < ms[0]);
+    rde_arr_free(&rs_batch_v); rde_arr_free(&rs_batch_i);
+    fude_zoom_render_destroy(&old);
+    fude_zoom_render_destroy(&r);
+    fude_zoom_scene_destroy(&s);
+}
+
 int main(void) {
     mirror_kinds();
     test_part_words();
@@ -14160,6 +14748,7 @@ int main(void) {
     test_transcript();
     test_words();
     test_home_list();
+    test_inktest();
     test_audio();
     test_voice_lost();
     test_pdf_pictures_once();
@@ -14221,6 +14810,8 @@ int main(void) {
     test_render_pictures();
     test_render_frames();
     test_cover_layers();
+    test_render_kept_strokes();
+    test_render_kept_strokes_timed();
     if(fails == 0) printf("ALL PASSED\n"); else printf("%d FAILED\n", fails);
     return fails == 0 ? 0 : 1;
 }

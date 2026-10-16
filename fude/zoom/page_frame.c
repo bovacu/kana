@@ -216,10 +216,10 @@ RDE_INTERNAL void fude_zoom_page_update_flush(fude_zoom_page* _page, fude_zoom_s
 }
 
 // See page.h. Nothing while the page is closed. Its steps run in a fixed order, each a block of its own here or a
-// step above (fude_zoom_page_update_*): first what follows the drawing as it is (a flick, the examples, the
-// instruments, the layers, the lasso's chip), then what is under way, the bar, the keys, the fingers and the mouse,
-// the camera and the selection, Play, the PDF's and the notebook's pages, the recordings, and last the journal
-// flushed to disk.
+// step above (fude_zoom_page_update_*): first what follows the drawing as it is (a flick, the examples, a template,
+// the test canvas, the instruments, the layers, the lasso's chip), then what is under way, the bar, the keys, the
+// fingers and the mouse, the camera and the selection, Play, the PDF's and the notebook's pages, the recordings, and
+// last the journal flushed to disk.
 void fude_zoom_page_update(fude_zoom_page* _page) {
     fude_app*   _app    = _page->app;
     rde_window* _window = _app->window;
@@ -230,6 +230,9 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
     fude_zoom_page_coast(_page);                // (a flick carrying on)
     fude_zoom_page_examples_follow(_page);      // (Insert → Examples: the one waiting drawn on its canvas, open now)
     fude_zoom_page_template_follow(_page);      // (a template being made: filled on its canvas, open now)
+#if FUDE_ZOOM_INKTEST_OFFERED
+    fude_zoom_page_inktest_follow(_page);       // (Settings' test canvas: filled with the test ink, open now)
+#endif
     fude_zoom_page_library_hold(_page);         // (a hand held on a Custom tile: its card)
     fude_zoom_page_instruments_follow(_page);   // (on the drawing as it is now, before the pen meets them)
 #if !defined(RDE_PLATFORM_MOBILE)

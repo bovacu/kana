@@ -1520,6 +1520,16 @@ void fude_zoom_camera_settle(fude_zoom_scene* _s, fude_zoom_v2 _half) {
     }
 }
 
+// See the header. The steps are one more than the factor's doublings, all the same size.
+void fude_zoom_camera_zoom_by(fude_zoom_scene* _s, f64 _factor, fude_zoom_v2 _half) {
+    const u32 _steps = (u32)rde_math_ceil_f64(rde_math_abs_f64(rde_math_log2_f64(_factor))) + 1u;
+    const f64 _step  = rde_math_pow_f64(_factor, 1.0 / (f64)_steps);
+    for(u32 _i = 0; _i < _steps; _i++) {
+        fude_zoom_camera_zoom_at(_s, (fude_zoom_v2){ 0.0, 0.0 }, _step);
+        fude_zoom_camera_settle(_s, _half);
+    }
+}
+
 // See the header.
 fude_zoom_sim fude_zoom_camera_sim(const fude_zoom_camera* _c) {
     return (fude_zoom_sim){ _c->z, 0.0, -_c->at.x * _c->z, -_c->at.y * _c->z };

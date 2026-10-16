@@ -37,7 +37,8 @@
 //   render.c         the coordinator: the renderer and its caches (the kept geometry, decoded strokes), pictures,
 //                    frames, the backdrop, the draw (fude_zoom_render), one object alone, the glow, the frames tools
 //                    may edit
-//   render_stroke.c  strokes and fills: polygons clipped to the screen, a stroke, a fill and its soft edge
+//   render_stroke.c  strokes and fills: polygons clipped to the screen, a stroke (its mesh kept), a fill and its soft
+//                    edge
 //   render_shape.c   shapes: measures, arrows, boards, sheets, guides, a shape's and a cut board's geometry kept, and a
 //                    shape's outline drawn (fude_zoom_render_shape)
 //   render_text.c    texts: formulas, notes (their layouts kept), a text, text in a box
@@ -125,7 +126,8 @@ void fude_zoom_draw_huge_stroke(const fude_zoom_v2* _p, const f64* _rad, u32 _n,
 void fude_zoom_render_stroke(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half);
 // Draws stroke _object through _to_screen; _as: drawn all in that colour (a glow), _extra pt wider each side. Under a
 // third of a pixel it is not drawn. One whose points or width reach FUDE_ZOOM_RENDER_FAR is cut to the screen on the
-// CPU (fude_zoom_draw_huge_stroke); one far bigger than the screen is drawn only in the runs that come near it.
+// CPU (fude_zoom_draw_huge_stroke); one far bigger than the screen is drawn only in the runs that come near it; any
+// other is drawn whole, from its mesh (kept with its decoded points while the view pans).
 void fude_zoom_render_stroke_as(fude_zoom_renderer* _r, const fude_zoom_scene* _s, u32 _object, fude_zoom_sim _to_screen, fude_zoom_v2 _half, const rde_color* _as, f32 _extra);
 // Triangles (three points each, screen units) drawn in _color.
 void fude_zoom_render_triangles(const fude_zoom_v2* _t, u32 _count, rde_color _color);

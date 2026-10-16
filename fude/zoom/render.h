@@ -15,8 +15,8 @@
 // (page_render.c); the selection (select.c) draws lifted things and glows through it; the page's tools ask it which
 // frames they may edit (fude_zoom_render_editable).
 // Its main types and their lifecycle: the page owns one fude_zoom_renderer, made with fude_zoom_render_init and freed
-// with fude_zoom_render_destroy. It keeps caches (decoded strokes, pictures on the GPU, symbols', shapes' and boards'
-// geometry, graphs' lines, texts' layouts) that fude_zoom_render_trim empties.
+// with fude_zoom_render_destroy. It keeps caches (decoded strokes and their meshes, pictures on the GPU, symbols',
+// shapes' and boards' geometry, graphs' lines, texts' layouts) that fude_zoom_render_trim empties.
 // Threads: main thread only, inside the app's 2D drawing block (it draws through the engine and loads textures).
 // Design (docs/infinite_canvas_design.md §2.3):
 //   - It draws from the highest frame above the camera that can still be drawn EXACTLY (where the f64 error of the
@@ -33,6 +33,10 @@
 //     round joins become polygons clipped to a box round the screen, so no vertex is ever far out.
 //   - Decoded strokes are kept (only visible ones are decoded) up to a budget in bytes, the least recently drawn let
 //     go first; on a phone's low-memory warning they all go (fude_zoom_render_trim).
+//   - A stroke's mesh (its triangles, as the engine tessellates it: render_stroke.c) is kept with its decoded points,
+//     made in screen units round its translation on the screen: a still or panning view draws it again moved, and
+//     only a change of its size or turn on the screen (a zoom) or of a pixel's size makes it again. Its own budget in
+//     bytes, the one drawn longest ago let go first, never one drawn in the current draw.
 //   - What is costly to make again is kept in its own units and drawn through its place each frame: a fill's, a
 //     shape's, a cut board's and a symbol's triangles, a symbol's parts and a shape's outline, a graph's lines, a
 //     note's layout (a plain text's lines are kept too, but at its size on the screen, as draw.c wraps them: while the
@@ -47,6 +51,8 @@
 #define FUDE_ZOOM_RENDER_EDIT_UP    4096.0  // tools reach a frame above the camera while its unit is at most this (pt)
 // The budget for decoded strokes, in bytes.
 #define FUDE_ZOOM_RENDER_CACHE      (64u * 1024u * 1024u)
+// The budget for strokes' meshes kept (render_stroke.c), in bytes.
+#define FUDE_ZOOM_RENDER_MESHES     (64u * 1024u * 1024u)
 #define FUDE_ZOOM_RENDER_MIN_RADIUS 0.5f    // ink is never drawn thinner than this (pt), as on the ink page
 #define FUDE_ZOOM_RENDER_TEXTURES   (256u * 1024u * 1024u)   // the most bytes of pictures on the GPU (4 a pixel)
 
@@ -74,6 +80,17 @@ typedef struct {
     rde_arr TYPE(f32) edges;      // x, y for each point (see above)
     rde_arr TYPE(u32) edge_lines; // the line each of those points belongs to
     u32               edge_count;
+    // A stroke's mesh as last drawn whole (render_stroke.c's fude_zoom_render_stroke_mesh): tessellated in screen
+    // units round its translation on the screen, so a pan draws it again as it is. What it was made from is kept with
+    // it: the turn and scale of its way to the screen (mesh_a, mesh_b), its half-widths' scale (mesh_wscale), a
+    // pixel's size (mesh_px); and how many points it was made from (mesh_points), the draw it was last drawn in
+    // (mesh_used) and what it holds against the renderer's mesh budget (mesh_bytes). Not initialised until made.
+    rde_stroke_mesh   mesh;
+    f64               mesh_a, mesh_b, mesh_wscale;
+    f32               mesh_px;
+    u32               mesh_points;
+    u32               mesh_used;
+    u64               mesh_bytes;
 } fude_zoom_decoded;
 
 // Geometry the renderer keeps, in the thing's own units (before its place), made once and shared by everything it is
@@ -130,6 +147,13 @@ typedef struct {
     rde_arr TYPE(u32)               slot_of;    // for each object, its cache entry + 1 (0: none)
     u64                             cache_bytes;
     u64                             cache_budget;
+    // The strokes' meshes kept in their decoded entries: what they hold against their budget (FUDE_ZOOM_RENDER_MESHES),
+    // and the draw in which one found no room (no room is looked for again until the next draw). mesh_scratch is a
+    // mesh drawn and not kept: a glow, a run of a stroke far bigger than the screen, one past the budget.
+    u64                             mesh_bytes;
+    u64                             mesh_budget;
+    u32                             mesh_full;
+    rde_stroke_mesh                 mesh_scratch;
     // Geometry kept (fude_zoom_geo): geos holds one for each slot of geo_lru, which knows whose each is (its key:
     // render_parts.h's fude_zoom_render_geo_key) and which was used longest ago, and one more after them, the spare,
     // which new geometry is made into (kept by moving it into a slot, or drawn from there when every slot was used in
@@ -206,10 +230,12 @@ typedef struct {
     fude_zoom_units_style units;
     // Boards' materials' names, in shape.h's FUDE_ZOOM_MATERIAL_ order (NULL: they are not written).
     const c8* const*      material_words;
-    // What the last draw cost (shown on the HUD).
+    // What the last draw cost (shown on the HUD); meshes_made: the strokes it tessellated (the rest of those it drew
+    // came from their kept meshes).
     u32 strokes_drawn;
     u32 points_drawn;
     u32 frames_drawn;
+    u32 meshes_made;
 } fude_zoom_renderer;
 
 // Draws a dimension on the screen (origin at the centre, Y up): it measures from _a to _b, with its line _offset points
@@ -256,8 +282,8 @@ const struct fude_zoom_rich* fude_zoom_render_rich_of(fude_zoom_renderer* _r, co
 // fude_zoom_render_init makes a renderer with empty caches; fude_zoom_render_destroy frees it and all it holds.
 void fude_zoom_render_init(fude_zoom_renderer* _r);
 void fude_zoom_render_destroy(fude_zoom_renderer* _r);
-// Empties the caches (when the system is short of memory, or a canvas closes): the decoded strokes, the pictures on
-// the GPU, symbols' geometry, graphs' lines and texts' layouts. They are made again as they are drawn.
+// Empties the caches (when the system is short of memory, or a canvas closes): the decoded strokes and their meshes,
+// the pictures on the GPU, symbols' geometry, graphs' lines and texts' layouts. They are made again as they are drawn.
 void fude_zoom_render_trim(fude_zoom_renderer* _r);
 
 // Draws the scene from its camera on a screen _half wide each way (app units), and remembers which frames it drew.

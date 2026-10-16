@@ -539,7 +539,7 @@ frame's own bookkeeping (the query, the sort, the items) is a few per cent.
 - [x] 4.8 Loading (2026-10-15): chunks found by a binary search on their offsets (always increasing: the file is read
       forward), objects appended to their orders and sorted once, the index built once, and the file's CRC worked
       eight bytes a step; a re-saved canvas is byte for byte what it was.
-- [ ] 4.9 Stroke meshes, measured (2026-10-15): tessellating strokes is about 55% of a stroke-heavy canvas's
+- [x] 4.9 Stroke meshes, measured (2026-10-15): tessellating strokes is about 55% of a stroke-heavy canvas's
       render. A mesh kept per stroke or per bucket would save it only while the view is still or panning
       (the fringe is a screen pixel wide, so a zoom makes it again), and needs a new RDE call (a stroke tessellated
       into a mesh, drawn with `rde_rendering_2d_draw_static_transformed`). The Mac draws the gate canvas in about 4 ms
@@ -549,6 +549,34 @@ frame's own bookkeeping (the query, the sort, the items) is a few per cent.
       with `adb shell am start ... --esa args --gate=1000000,--perf=10`): drawing the gate, 31.5 fps, render 20.2 ms a
       frame; the same canvas opened again (loaded in 15.4 ms), 44.2 fps, render 17.8 ms avg, 23.2 ms worst, every
       frame over 20 ms. It does not hold 60 fps: the mesh cache is built (below).
+      Built (2026-10-15; `docs/design/rendering.md`, "Strokes' meshes"). RDE splits `rde_rendering_2d_draw_stroke`
+      into `rde_rendering_2d_tessellate_stroke` (a stroke into an `rde_stroke_mesh`: positions, and each vertex's share
+      of the colour's alpha) and `rde_rendering_2d_draw_stroke_mesh` (a mesh appended to the 2D colour batch, moved and
+      coloured: no draw call or GPU buffer per stroke, rather than `rde_rendering_2d_draw_static_transformed`'s one
+      each); `rde_rendering_2d_draw_stroke` is the two in one, so the tessellation is written once. Its unit test
+      checks the mesh against the old `rde_rendering_2d_draw_stroke`, kept in the test, on 3,000 random strokes: the
+      same triangles, positions bit for bit, the same alphas. The renderer keeps each stroke's mesh with its decoded
+      points (`render_stroke.c`), made in screen units round where its translation lands and moved there as it is
+      drawn, keyed by the turn and scale to the screen, the half-widths' scale and a pixel's size, 64 MB at most
+      (`FUDE_ZOOM_RENDER_MESHES`). A still or panning view, a moved stroke, a theme, a faint stroke or a glow makes
+      none; a zoom makes each again, over its own arrays (no worse than before). Glows and the runs of a stroke far
+      bigger than the screen are made each draw. The zoom suite's `test_render_kept_strokes` checks a kept mesh draws
+      what one made in the draw does, bit for bit, and the old way's triangles within 3.1·10⁻⁵ of a pixel.
+      Measured. The suite (sanitizers on), the gate's screen of 625 flowers (222,864 points: 941,477 vertices and
+      4,159,854 indices a frame; meshes 26.7 MB): a frame tessellating every stroke 39.7 ms; from kept meshes 13.2 ms
+      still, 13.2 ms panning; zooming 38.2 ms. The Mac (M2, `measure` builds of before and after run in turn in one
+      sitting, the gate canvas opened again, `--perf=10`, three runs each): render 4.73, 4.70, 4.68 ms a frame before,
+      3.63, 3.70, 3.76 after (21% less; worst 5.6–5.9 before, 5.1–6.8 after). `sample`: the strokes were 758 of the
+      render's 1,179 samples (64%), now 339 of 812, nearly all of it copying the meshes into the batch (about 30 MB a
+      frame); handing the frame to the GPU (four copies of the batch, two of them the index rewrite that sorts draw
+      commands) is now the larger part, 385 samples. Pictures: every screen in `tools/check/shots.sh` is as it was but
+      for the apps' version (0.5.4 to 0.5.5, not this change); 13 pictures full of strokes, before and after (deep
+      flowers zoomed in, out, panned and at their edge, Night, the gate, smoothing, erasers, lasso, fill, snap, lines):
+      6 the same, 7 with 2 to 17 pixels 1 of 255 apart. To measure on the tablet.
+      On the Galaxy Tab S6 Lite after it (the same `android-measure` app, the gate canvas opened again, `--perf=10`,
+      steady runs): 54.6 and 54.7 fps (44.2 before), a frame 17.6 ms (21.9), render 13.4 ms (17.8), 5 and 14 frames
+      over 20 ms in 10 s (every one before). What is left is copying the meshes into the batch and the flush's index
+      rewrite (RDE): the next step towards 60 on that tablet, if wanted.
 - Also (2026-10-15): a hardening the review asked for — a failed read no longer leaves a scene skipping its index
       (`zfile.c`), and the constraints' passes check each line again (`connect.c`).
 
@@ -593,7 +621,7 @@ frame's own bookkeeping (the query, the sort, the items) is a few per cent.
 
 Every change keeps existing code compiling. Each new function has a unit test, written in RDE's own format and
 listed in the test app's `unit_test_scene.c`. All of them, with the containers', strings' and hashes' existing groups,
-also run from the command line: `zsh tests/headless/run.sh` (new). 379 cases pass (2026-10-15).
+also run from the command line: `zsh tests/headless/run.sh` (new). 383 cases pass (2026-10-15).
 
 **Added**
 - `RDE_PRINTF_FORMAT`, which marks printf-style declarations for format checking.
@@ -685,6 +713,13 @@ also run from the command line: `zsh tests/headless/run.sh` (new). 379 cases pas
   Info.plist use the version the build used (a `--version` was ignored there); a missing compiled shader stops with an
   error (it crashed in `fseek(NULL)`); a relative `-L` in `link_flags` is made absolute against the project file (the
   Android link runs in another folder).
+- Strokes' meshes (4.9): `rde_rendering_2d_draw_stroke` split into `rde_rendering_2d_tessellate_stroke` (a stroke
+  into an `rde_stroke_mesh`: positions and each vertex's share of the colour's alpha) and
+  `rde_rendering_2d_draw_stroke_mesh` (a mesh appended to the 2D colour batch, moved and coloured), with
+  `rde_stroke_mesh_new`/`_free` and `rde_rendering_2d_get_pixel_size`; `rde_rendering_2d_draw_stroke` is the two in
+  one, its output bit for bit as before (`tests/unit_tests/test_stroke_mesh.c`: 3,000 random strokes against the old
+  code, kept in the test). Android's `RDEActivity` passes the starting intent's "args" extra to `main()`
+  (`getArguments`), so a build that reads arguments can be given them through `adb shell am start ... --esa args`.
 - Comments made true: `rde_malloc`/`rde_calloc` (the engine's pool, through SDL, not the system heap) and
   `rde_physics_2d_world_create` (`_body_capacity` is Box2D's first reservation, not a cap).
 - Not changed, for you to decide: `rde_memory_texture_gpu_upload` ignores `free_data`, so a texture's CPU copy can
