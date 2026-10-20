@@ -16,7 +16,7 @@
 // Each product's description, in FUDE_ZOOM_PRODUCT_ order, with fude_zoom_product's fields in order: topics, first,
 // tools, inserts, instruments, exports, hobby, workshop, general_name, maths_name, audio.
 RDE_INTERNAL const fude_zoom_product FZPD_PRODUCTS[] = {
-    // Sketching: everything, as it has been.
+    // ALL: everything, as it has been.
     { FZPD_ALL(FUDE_ZOOM_TOPIC_COUNT), FUDE_ZOOM_TOPIC_GENERAL, FZPD_ALL(FUDE_ZOOM_TOOL_COUNT), FZPD_ALL(FUDE_ZOOM_INSERT_COUNT),
       FZPD_ALL(FUDE_ZOOM_TOOLKIT_COUNT), FZPD_ALL(FUDE_ZOOM_OUT_COUNT), true, true,
       FUDE_TEXT_ZOOM_TOPIC_GENERAL, FUDE_TEXT_ZOOM_TOPIC_MATHS, true },
@@ -31,7 +31,7 @@ RDE_INTERNAL const fude_zoom_product FZPD_PRODUCTS[] = {
           FZPD_BIT(FUDE_ZOOM_INSERT_AREA) | FZPD_BIT(FUDE_ZOOM_INSERT_PIECES) | FZPD_BIT(FUDE_ZOOM_INSERT_MATHS),
           // (formulas — Insert's, the lasso's Formula, Handwriting and Graph on them — hidden for now: Borja,
           // 2026-10-11, until the handwriting reader is trained on real handwriting, docs/product_split.md §10;
-          // Sketching keeps them)
+          // ALL keeps them)
       FZPD_BIT(FUDE_ZOOM_TOOLKIT_RULER) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_SQUARE_45) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_SQUARE_30) |
           FZPD_BIT(FUDE_ZOOM_TOOLKIT_PROTRACTOR) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_COMPASS) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_CIRCLES) |
           FZPD_BIT(FUDE_ZOOM_TOOLKIT_ELLIPSES) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_FRENCH_CURVE) | FZPD_BIT(FUDE_ZOOM_TOOLKIT_STENCIL) |
@@ -58,12 +58,12 @@ RDE_INTERNAL const fude_zoom_product FZPD_PRODUCTS[] = {
 // A compile-time check that every product has its row (the size is -1, which does not compile, when one has not).
 typedef char fzpd_products_counted[(sizeof(FZPD_PRODUCTS) / sizeof(FZPD_PRODUCTS[0]) == FUDE_ZOOM_PRODUCT_COUNT) ? 1 : -1];
 
-// Which product this is (FUDE_ZOOM_PRODUCT_): Sketching, the one with everything, until the shell sets another.
-RDE_INTERNAL u8 fzpd_which = FUDE_ZOOM_PRODUCT_SKETCHING;
+// Which product this is (FUDE_ZOOM_PRODUCT_): ALL, the one with everything, until the shell sets another.
+RDE_INTERNAL u8 fzpd_which = FUDE_ZOOM_PRODUCT_ALL;
 
-// See the header. An unknown value sets Sketching.
+// See the header. An unknown value sets ALL.
 void fude_zoom_product_set(u8 _which) {
-    fzpd_which = _which < FUDE_ZOOM_PRODUCT_COUNT ? _which : FUDE_ZOOM_PRODUCT_SKETCHING;
+    fzpd_which = _which < FUDE_ZOOM_PRODUCT_COUNT ? _which : FUDE_ZOOM_PRODUCT_ALL;
 }
 
 // See the header.
@@ -73,7 +73,7 @@ const fude_zoom_product* fude_zoom_product_get(void) {
 
 // See the header.
 const fude_zoom_product* fude_zoom_product_of(u8 _which) {
-    return &FZPD_PRODUCTS[_which < FUDE_ZOOM_PRODUCT_COUNT ? _which : FUDE_ZOOM_PRODUCT_SKETCHING];
+    return &FZPD_PRODUCTS[_which < FUDE_ZOOM_PRODUCT_COUNT ? _which : FUDE_ZOOM_PRODUCT_ALL];
 }
 
 // See the header. A value of FUDE_ZOOM_TOPIC_COUNT or more is no app's topic.

@@ -10,7 +10,7 @@
 #include "zoom/mechrun.h"
 
 // ===========================================================================
-// Coupling: plays a circuit and a mechanism together (Sketching's Play, with what the lasso holds of both). They are
+// Coupling: plays a circuit and a mechanism together (Play, with what the lasso holds of both). They are
 // stepped together, one mechanism step (FUDE_ZOOM_MECH_STEP) at a time, and between steps each is told what the
 // other did.
 //

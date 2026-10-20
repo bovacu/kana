@@ -69,10 +69,14 @@ static const fude_extension HINDI_EXTENSION = {
     .nav = &HINDI_NAV, .library = HINDI_LIBRARY, .library_count = (u32)(sizeof(HINDI_LIBRARY) / sizeof(HINDI_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def HINDI_SHELL = {
     .info = &HINDI_INFO, .ext = &HINDI_EXTENSION,
-    .bake_config = "apps/hindi/assets/config.rdef",
+    .bake = {
+        .config = "apps/hindi/assets/config.rdef",
+        .out    = "apps/hindi/assets/data/characters.kana",
+        .tools  = "apps/hindi/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
+    },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

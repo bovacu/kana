@@ -14,7 +14,7 @@
 //            open), and those are cut like any fill, the sweep's reach taken out of them. Only a stroke whose outline
 //            cannot be traced is cut through its line instead: the pieces on either side become strokes of their
 //            own, with round ends, and bits shorter than about a pixel are dropped.
-//   STROKE   takes every stroke it touches whole, with every other piece of the same gesture (Kana's eraser).
+//   STROKE   takes every stroke it touches whole, with every other piece of the same gesture (the ink page's eraser).
 //   TRIM     takes the stretch of a touched stroke between the two crossings with other strokes nearest the touch;
 //            with no crossing, all of it.
 //

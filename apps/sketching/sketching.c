@@ -38,7 +38,7 @@ static const fude_app_info SKETCHING_INFO = {
 // and a launch on the canvas last open.
 static const fude_zoom_shell_def SKETCHING_SHELL = {
     .info       = &SKETCHING_INFO,
-    .product    = FUDE_ZOOM_PRODUCT_SKETCHING,
+    .product    = FUDE_ZOOM_PRODUCT_ALL,
     .home_title = FUDE_TEXT_ZOOM_HOME_CANVASES,
     .home_new   = FUDE_TEXT_ZOOM_HOME_NEW_CANVAS,
 };

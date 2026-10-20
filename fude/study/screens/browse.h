@@ -14,10 +14,10 @@
 #include "study/models/select.h"
 
 // ===========================================================================
-// Browse: every character of the character data (in Kana, every kana and kanji) as a grid to scroll and tap. The grid
+// Browse: every character of the character data (Japanese: every kana and kanji) as a grid to scroll and tap. The grid
 // is filtered, sorted and searched by typing (catalog.h), or searched by DRAWING the character (match.h). A tap opens
 // the viewer on that character, walking the grid's list. This is where the "Register" section of
-// apps/kana/docs/design.md starts.
+// the Japanese study app's docs/design.md starts.
 //
 // Input: one pointer at a time. A finger or the pen drags the grid (with inertia) and taps a character; on the
 // drawing pad the PEN writes, while a finger still scrolls. Every stroke finished on the pad ranks the grid again by

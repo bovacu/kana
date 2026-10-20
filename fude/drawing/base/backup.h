@@ -15,7 +15,7 @@
 // Its main types and their lifecycle: fude_backup_info is a plain summary the caller owns. A backup being read is the
 // caller's bytes, which these functions only read.
 // Threads: main thread only.
-// Files: the backup file (its extension is the app's, from its info.h: Kana's is .kanabackup). Every number is
+// Files: the backup file (its extension is the app's, from its info.h: .<id>backup). Every number is
 // little-endian:
 //   "KANABKP\0", u32 version (1), u32 file count, u64 when it was made (Unix seconds), c8[16] the app's version;
 //   then per file: u16 path length, the path (relative to the save folder, '/' between folders, no NUL), u32 size,

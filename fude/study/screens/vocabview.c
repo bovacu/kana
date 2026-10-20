@@ -534,7 +534,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - 24.0f;
     c8                _line[512];
 
-    // The header: the language's badge (Kana's 語), "Vocabulary", and how many words and lists.
+    // The header: the language's badge (Japanese's 語), "Vocabulary", and how many words and lists.
     {
         c8 _words[512], _lists[64];
         FUDE_TEXTF(_words, FUDE_TEXT_VOCAB_WORDS_N, FUDE_TN(fude_vocab_count()));
@@ -581,6 +581,7 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)rde_math_max_f32(1.0f, _y - _bottom) });
     const u32 _first = (u32)rde_math_max_f32(0.0f, rde_math_floor_f32(_view->scroller.offset / FUDE_VOCABVIEW_ROW));
+    // A row's line is its bottom edge, below its words and above the next row's.
     for(u32 _i = _first; _i < _n; _i++) {
         const f32 _row_top = _y - (f32)_i * FUDE_VOCABVIEW_ROW + _view->scroller.offset;
         if(_row_top < _bottom) {

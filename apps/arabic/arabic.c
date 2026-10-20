@@ -69,10 +69,14 @@ static const fude_extension ARABIC_EXTENSION = {
     .nav = &ARABIC_NAV, .library = ARABIC_LIBRARY, .library_count = (u32)(sizeof(ARABIC_LIBRARY) / sizeof(ARABIC_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def ARABIC_SHELL = {
     .info = &ARABIC_INFO, .ext = &ARABIC_EXTENSION,
-    .bake_config = "apps/arabic/assets/config.rdef",
+    .bake = {
+        .config = "apps/arabic/assets/config.rdef",
+        .out    = "apps/arabic/assets/data/characters.kana",
+        .tools  = "apps/arabic/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
+    },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

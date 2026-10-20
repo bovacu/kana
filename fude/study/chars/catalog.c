@@ -189,7 +189,7 @@ void fude_catalog_fold(const c8* _text, c8* _out, usize _size) {
 
 // Adds meanings to the pool as a key, folded (fude_catalog_fold), and returns its offset. Meanings are cut at 2047
 // bytes, a bound on the data the app ships, not on the user's: one character's meanings are at most about 200 bytes
-// in every app's data (Kana's longest: 201), so the cut is never reached, and a key needs no allocation.
+// in every app's data (Japanese's longest: 201), so the cut is never reached, and a key needs no allocation.
 RDE_INTERNAL u32 fude_catalog_meaning_key(rde_arr* _pool, const c8* _text) {
     c8 _folded[2048];
     fude_catalog_fold(_text, _folded, sizeof(_folded));

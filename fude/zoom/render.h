@@ -91,6 +91,11 @@ typedef struct {
     u32               mesh_points;
     u32               mesh_used;
     u64               mesh_bytes;
+    // The mesh's copy on the GPU (rde_rendering_2d_keep_stroke_mesh), made the first time the kept mesh is drawn again
+    // unchanged (a pan): drawn from there, nothing of it uploaded per frame. A zeroed handle: none. Let go with the
+    // mesh (render_stroke.c's fude_zoom_render_mesh_let_go, render.c's fude_zoom_render_let_go), and when the mesh is
+    // made again (render_stroke.c's fude_zoom_render_stroke_mesh).
+    rde_kept_stroke_mesh mesh_gpu;
 } fude_zoom_decoded;
 
 // Geometry the renderer keeps, in the thing's own units (before its place), made once and shared by everything it is

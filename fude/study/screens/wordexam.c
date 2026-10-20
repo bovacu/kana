@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/screens/wordexam.h"
+#include "drawing/base/redraw.h"
 #include "study/screens/exam.h"   // FUDE_EXAM_CANDIDATES: a box is marked the way an exam's answer is.
 #include "lang/lang.h"
 #include "study/widgets/header.h"
@@ -411,6 +412,7 @@ u32 fude_wordexam_wrong(const fude_wordexam* _exam) {
 RDE_INTERNAL void fude_wordexam_grade(fude_wordexam* _exam) {
     const f64 _now = rde_engine_get_time_now();
     if(_exam->grading_item != UINT32_MAX) {
+        fude_redraw_changed();   // (render on demand: grading goes on frame by frame, ML Kit polled, until all are marked)
         fude_wordexam_item* _it = &_exam->items[_exam->grading_item];
         if(fude_recognize_poll(&_exam->recognition)) {
             fude_wordexam_mark_box(_exam, _it, _exam->grading_box, &_exam->recognition);
@@ -428,6 +430,7 @@ RDE_INTERNAL void fude_wordexam_grade(fude_wordexam* _exam) {
         if(!_it->answered || _it->graded) {
             continue;
         }
+        fude_redraw_changed();   // (render on demand: one to grade, this frame or the next)
         for(u32 _b = 0; _b < _it->count; _b++) {
             if(_it->box_graded[_b]) {
                 continue;

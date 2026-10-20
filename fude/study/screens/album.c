@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/screens/album.h"
+#include "drawing/base/redraw.h"
 #include "study/widgets/header.h"
 #include "drawing/base/text.h"
 #include "drawing/base/draw.h"
@@ -374,6 +375,7 @@ RDE_INTERNAL void fude_album_draw_attempt(fude_album* _album, const fude_history
         b8  _partial = false;
         if(_elapsed >= 0.0) {
             if(_clock < 0.0) {
+                fude_redraw_changed();   // (render on demand: a replay plays with the clock, every frame until done)
                 return;   // The replay has not reached this stroke yet.
             }
             if(_clock < (f64)_duration) {
@@ -397,6 +399,7 @@ RDE_INTERNAL void fude_album_draw_attempt(fude_album* _album, const fude_history
 
         if(_partial) {
             rde_rendering_2d_draw_circle(fude_draw_at(_pos[_shown - 1]), _radius * 1.35f, 16u, _theme->pen_tip, NULL);
+            fude_redraw_changed();   // (render on demand: a replay plays with the clock, every frame until done)
             return;
         }
         _clock -= (f64)_duration + FUDE_ALBUM_STROKE_GAP;

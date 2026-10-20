@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/side_parts.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/widgets/kit.h"
@@ -35,8 +36,8 @@
 #define FUDE_SIDE_EDGE     44.0f     // A drag this near the list's top or bottom scrolls it...
 #define FUDE_SIDE_AUTOSCROLL 9.0f     // ...this many units a frame.
 
-// The version, the credits (About) and the documents of Licences are the app's (info.h). Kana's credits, for example,
-// are the short ones its data's licences require to be shown; Licences shows them in full.
+// The version, the credits (About) and the documents of Licences are the app's (info.h). A study app's credits, for
+// example, are the short ones its data's licences require to be shown; Licences shows them in full.
 
 // Returns how many documents Licences shows: the app's, up to FUDE_SIDE_LICENCE_DOCS.
 RDE_INTERNAL u32 fude_side_licence_count(const fude_ui* _ui) {
@@ -166,7 +167,7 @@ RDE_INTERNAL u32 fude_side_nav_count(const fude_ui* _ui) {
 }
 
 // An entry of the app's navigation was pressed (its button's ref says which): it opens what it opens over the page,
-// and the panel closes, unless the entry says to stay (Kana's Reviews with none due, for example, shows a notice
+// and the panel closes, unless the entry says to stay (a study app's Reviews with none due, for example, shows a notice
 // instead).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_nav(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
@@ -278,7 +279,7 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_app_button(rde_ui_node* _node, co
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// The app's tutorial again (Kana's welcome, for example): the panel closes, and the tutorial opens.
+// The app's tutorial again (a study app's welcome, for example): the panel closes, and the tutorial opens.
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_tutorial(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     fude_ui* _ui = (fude_ui*)_user_data;
@@ -896,7 +897,7 @@ RDE_INTERNAL f32 fude_side_settings_rows(fude_ui* _ui, f32 _top, f32 _m, f32 _kw
     _ry -= 50.0f;
     fude_kit_place(rde_ui_label_as_node(_side->language_label), (rde_vec_2F){ _m + _lw * 0.5f, _ry }, (rde_vec_2F){ _lw, 30.0f });
     _ry -= 48.0f;
-    // Only the languages offered: an app that teaches no language (Sketching) has no fourth one (text.h).
+    // Only the languages offered: an app that teaches no language (a canvas app) has no fourth one (text.h).
     const u32 _count = fude_text_language_count();
     const u32 _per   = _narrow ? 3u : _count;
     const f32 _gw    = (_lw - FUDE_SIDE_GAP * (f32)(_per - 1u)) / (f32)_per;
@@ -952,7 +953,7 @@ RDE_INTERNAL f32 fude_side_settings_rows(fude_ui* _ui, f32 _top, f32 _m, f32 _kw
         }
     }
     _ry -= 56.0f;
-    // The app's sections (Kana's Handwriting, for example), then About.
+    // The app's sections (a study app's Handwriting, for example), then About.
     for(u32 _i = 0; _i < fude_side_section_count(_ui); _i++) {
         _ry = fude_app_ext(_ui->app)->sections[_i].layout(_ui, _ry, _m, _kw);
     }
@@ -1530,6 +1531,7 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
             _side->_app_button_shown = _wanted;
             rde_ui_node_set_active(rde_ui_button_as_node(_side->app_button), _wanted);
             fude_side_relayout(_ui);
+            fude_redraw_changed();   // (render on demand: it follows a platform's state, with no event)
         }
     }
 
@@ -1539,6 +1541,7 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
     const rde_vec_4I _insets = rde_window_get_safe_area_insets(_ui->window);
     if(rde_memcmp(&_screen, &_side->_laid_out, sizeof(rde_vec_2F)) != 0 || rde_memcmp(&_insets, &_side->_laid_out_insets, sizeof(rde_vec_4I)) != 0) {
         fude_side_layout(_ui);
+        fude_redraw_changed();   // (render on demand: a late safe area comes with no event)
     }
 
     if(_full) {
@@ -1546,7 +1549,7 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
     }
 
     fude_side_show(rde_ui_button_as_node(_side->menu_button), !_full, &_side->_shown_menu);
-    // The navigation's counts (Kana's "Reviews · n", for example): a label changes only when its count does.
+    // The navigation's counts (a study app's "Reviews · n", for example): a label changes only when its count does.
     for(u32 _i = 0; _side->open && _i < fude_side_nav_count(_ui); _i++) {
         const fude_extension_nav_entry* _entry = &fude_side_nav(_ui)->entries[_i];
         const u32                       _n     = _entry->count != NULL ? _entry->count(_ui->app) : 0u;
@@ -1569,7 +1572,7 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
         fude_side_licence_scroll(_ui);
     }
     for(u32 _i = 0; _side->settings_open && _i < fude_side_section_count(_ui); _i++) {
-        fude_app_ext(_ui->app)->sections[_i].refresh(_ui, false);   // What moves on by itself (Kana's ML Kit download).
+        fude_app_ext(_ui->app)->sections[_i].refresh(_ui, false);   // What moves on by itself (ML Kit's download, say).
     }
     if(!_side->settings_open && _side->data_open) {
         _side->data_open = false;
@@ -1609,8 +1612,10 @@ void fude_side_update(fude_ui* _ui, b8 _full) {
         rde_vec_2F _scroll = rde_ui_scroll_area_get_scroll(_side->notes_list);
         if(_side->drag_at.y > _top - FUDE_SIDE_EDGE) {
             _scroll.y -= FUDE_SIDE_AUTOSCROLL;
+            fude_redraw_changed();   // (render on demand: it scrolls every frame with the finger still)
         } else if(_side->drag_at.y < _side->_list_bl.y + FUDE_SIDE_EDGE) {
             _scroll.y += FUDE_SIDE_AUTOSCROLL;
+            fude_redraw_changed();
         }
         rde_ui_scroll_area_set_scroll(_side->notes_list, _scroll);
         fude_side_drop_target(_ui);

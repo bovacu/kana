@@ -30,10 +30,10 @@
 //   u8 r g b a (the marker's colour), f32 the marker's half-width,
 //   u8 cards_read (the must-read cards closed, one bit each: readcard.h),
 //   u8 ui_size (the interface's size: FUDE_UI_SIZE_, app.h; 0 for the device's),
-//   u8 smoothing (Sketching's, zoom/smooth.h: its level + 1; 0 when never chosen),
+//   u8 smoothing (the canvas apps', zoom/smooth.h: its level + 1; 0 when never chosen),
 //   f32 eraser_radius, u8 units, f32 true_mm_per_point, f32 print_x, f32 print_y, f32 kerf_mm,
-//   u8 show_fps (Sketching's frame rate drawn at the top right: 1 on),
-//   u8 keep_grain (Sketching's fitting: 1 keeps the parts' grain along the board's; 0 lets them turn a quarter),
+//   u8 show_fps (the canvas apps' frame rate drawn at the top right: 1 on),
+//   u8 keep_grain (the canvas apps' fitting: 1 keeps the parts' grain along the board's; 0 lets them turn a quarter),
 //   u8 smooth_chosen (1 when the smoothing above was chosen by hand; 0, or a file from before this field, means it
 //   never was, and the default, off, applies whatever is stored),
 //   u8 mlkit_chosen (always 1: the mlkit byte above is a person's choice. A file from before this field has its mlkit
@@ -70,21 +70,21 @@ RDE_STRUCT {
     f32        marker_radius;
     u8         cards_read;        // The must-read cards closed, one bit each (readcard.h).
     u8         ui_size;           // FUDE_UI_SIZE_ (app.h; 0 for the device's).
-    u8         smoothing;         // Sketching's smoothing (zoom/smooth.h): its level + 1 (0 when never chosen).
+    u8         smoothing;         // The canvas apps' smoothing (zoom/smooth.h): its level + 1 (0 when never chosen).
     f32        eraser_radius;     // The eraser's reach (ink.h; 0 when never chosen).
-    // Sketching's lengths, as Measurements offers them (zoom/page_export.c's fude_zoom_page_set_units; not a
+    // The canvas apps' lengths, as Measurements offers them (zoom/page_export.c's fude_zoom_page_set_units; not a
     // FUDE_ZOOM_UNIT_): 0 mm, 1 cm, 2 inches, 3 feet and inches; FUDE_SETTINGS_UNITS of them.
     u8         units;
-    // Sketching's true size: how many millimetres a screen point really is (0 when not calibrated).
+    // The canvas apps' true size: how many millimetres a screen point really is (0 when not calibrated).
     f32        true_mm_per_point;
-    // Sketching's printer: how long a printed millimetre comes out, across and down (0 when never checked).
+    // The canvas apps' printer: how long a printed millimetre comes out, across and down (0 when never checked).
     f32        print_x, print_y;
-    f32        kerf_mm;           // Sketching's saw: how wide its cut is, in millimetres (0 when never set: 3 is used).
+    f32        kerf_mm;           // The saw: how wide its cut is, in millimetres (0 when never set: 3 is used).
     b8         show_fps;          // The canvas apps': the frame rate drawn at the top right (Settings' Display).
-    // Sketching's fitting of parts into a board: their grain is kept along the board's; otherwise they may turn a
+    // The canvas apps' fitting of parts into a board: their grain is kept along the board's; otherwise they may turn a
     // quarter.
     b8         keep_grain;
-    // Sketching's smoothing was chosen by hand. Otherwise its default (off) applies, because a file from before this
+    // The smoothing above was chosen by hand. Otherwise its default (off) applies, because a file from before this
     // field saved a smoothing anyway.
     b8         smooth_chosen;
 } fude_settings;

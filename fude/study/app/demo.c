@@ -19,7 +19,7 @@
 // learner's work, for the store's screenshots. It is written into the study files through the study's own models,
 // as the app would have written them.
 //
-// The demo's learner studies Japanese, so it is made for Kana; in another app, the groups its data has none of are
+// The demo's learner studies Japanese, so it is made for Japanese; in another app, the groups its data has none of are
 // left out. The learner starts with hiragana, moves on to N5 kanji a week later and to katakana in the third week. They
 // practise a few characters most days (twelve days in a row up to today, with a gap before), take an exam every few
 // days, and do the reviews that fall due (today's are left undone, so the screenshot shows "Reviews · n"). They also

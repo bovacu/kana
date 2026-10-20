@@ -8,7 +8,7 @@
 #include "drawing/base/kfile.h"
 
 // ===========================================================================
-// Character data: every character the app knows how to write (for Kana, every kana and kanji), with its strokes in
+// Character data: every character the app knows how to write (for Japanese, every kana and kanji), with its strokes in
 // order, and what the dictionaries say about it. It is baked offline from KanjiVG and KANJIDIC2 (`--bake`, see
 // bake.h) into one small file that the app ships.
 //
@@ -79,7 +79,7 @@
 //
 // THE STROKES IN A FILE OF THEIR OWN: a file without 'GEOM' has its strokes in FUDE_KANJI_STROKES_FILE beside it
 // (of kind 'STRK': a 'NOTE' chunk saying how and when they were changed, as their licence asks, then 'GEOM').
-// Hanzi's strokes are kept this way: they are Make Me a Hanzi's, under the Arphic Public License, which wants them
+// Chinese strokes are kept this way: they are Make Me a Hanzi's, under the Arphic Public License, which wants them
 // kept apart.
 //
 // A chunk that does not match the records (a different count) is ignored rather than read wrongly: the app then

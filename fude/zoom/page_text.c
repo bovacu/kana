@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, text: texts and sticky notes (the Insert tool's card), writing on the page (0.1.90), and typed text
@@ -989,7 +990,7 @@ void fude_zoom_page_render_inline(fude_zoom_page* _page) {
                           _face == FUDE_ZOOM_RICH_BOLD && _page->renderer.font_bold != NULL ? _page->renderer.font_bold :
                           _face == FUDE_ZOOM_RICH_ITALIC && _page->renderer.font_italic != NULL ? _page->renderer.font_italic : _page->renderer.font;
         const rde_vec_2F _at = FZI_AT(_b.x, _b.y);
-        rde_rendering_2d_draw_text_2(_font, _small, (rde_vec_3F){ _at.x, _at.y, 0.0f }, (rde_vec_2F){ (f32)_px / _page->renderer.font_px, (f32)_px / _page->renderer.font_px }, 0.0f, _c);
+        fude_draw_text_placed(_font, _small, (rde_vec_3F){ _at.x, _at.y, 0.0f }, (rde_vec_2F){ (f32)_px / _page->renderer.font_px, (f32)_px / _page->renderer.font_px }, 0.0f, _c);
         if(_b.style & FUDE_ZOOM_RICH_STRUCK) {
             rde_rendering_2d_draw_line_1(FZI_AT(_b.x, _b.y - _b.px * 0.3f), FZI_AT(_b.x + _b.w, _b.y - _b.px * 0.3f), _c, (f32)rde_math_max_f64(1.0, _px * 0.07));
         }
@@ -1002,6 +1003,7 @@ void fude_zoom_page_render_inline(fude_zoom_page* _page) {
     if(_blink < 0.6) {
         rde_rendering_2d_draw_line_1(_c0, _c1, _t->accent, 2.0f);
     }
+    fude_redraw_after(_blink < 0.6 ? 0.6 - _blink : 1.0 - _blink);   // (render on demand: the caret's next blink)
     #undef FZI_AT
     if(_text != NULL) {
         rde_ui_text_editor_free_text(_page->inline_field, _text);
@@ -1015,6 +1017,7 @@ void fude_zoom_page_render_inline(fude_zoom_page* _page) {
         const f32 _top = fude_app_window_to_screen(_page->app, (rde_vec_2F){ 0.0f, (f32)_win.y - _keys }).y;
         const f32 _need = _top + (f32)FUDE_ZOOM_PAGE_INLINE_KEYS - _c0.y;
         if(_need > 0.5f && _s->camera.z > 0.0) {
+            fude_redraw_changed();   // (render on demand: the keyboard rises with no event of the app's)
             _s->camera.at.y -= (f64)_need / _s->camera.z;
             fude_zoom_camera_settle(_s, fude_zoom_page_half(_page));
         }
@@ -1125,8 +1128,8 @@ void fude_zoom_page_render_top(fude_zoom_page* _page) {
         FUDE_TEXTF(_say, FUDE_TEXT_ZOOM_FORMULA_UNKNOWN, FUDE_TN(_unknown));
         const f32 _px  = 13.0f;
         const f32 _w   = fude_draw_text_width(_page->app->font, _page->app->font_px, _say, _px);
-        rde_rendering_2d_draw_text_2(_page->app->font, _say, (rde_vec_3F){ _left + (_wide - _w) * 0.5f, _bottom + 2.0f, 0.0f },
-                                     (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text_soft);
+        fude_draw_text_placed(_page->app->font, _say, (rde_vec_3F){ _left + (_wide - _w) * 0.5f, _bottom + 2.0f, 0.0f },
+                              (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text_soft);
     }
 }
 

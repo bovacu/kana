@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/ink/canvas.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
 
@@ -120,9 +121,11 @@ void fude_canvas_update(fude_canvas* _canvas, rde_vec_2I _window, rde_vec_4I _sa
         _r->fit    = _fit;
         _r->window = _window;
         _r->safe   = _safe;
+        fude_redraw_changed();   // (render on demand: a safe area can arrive frames after the launch, with no event)
     }
     // Carry a flick on, slowing it down; it stops once it is slower than FUDE_CANVAS_COAST_MIN both ways.
     if(_canvas->coasting && fude_canvas_active_fingers(_canvas) == 0) {
+        fude_redraw_changed();   // (render on demand: the flick moves the page every frame)
         _v->offset.x += _canvas->velocity.x * _dt;
         _v->offset.y += _canvas->velocity.y * _dt;
         const f32 _keep = rde_math_exp_f32(-FUDE_CANVAS_FRICTION * _dt);
@@ -340,8 +343,12 @@ FUDE_CANVAS_TAP_ fude_canvas_finger_up(fude_canvas* _canvas, u64 _finger_id) {
 // Returns true once per gesture when one finger, the only one all gesture, has been held still for
 // FUDE_CANVAS_LONG_PRESS_TIME. The finger is dropped and the view put back as it was. See the header.
 b8 fude_canvas_long_press(fude_canvas* _canvas, rde_vec_2F* _screen) {
-    if(_canvas->long_pressed || _canvas->tap_spoiled || _canvas->tap_fingers != 1 || fude_canvas_active_fingers(_canvas) != 1 ||
-       rde_engine_get_time_now() - _canvas->tap_start < FUDE_CANVAS_LONG_PRESS_TIME) {
+    if(_canvas->long_pressed || _canvas->tap_spoiled || _canvas->tap_fingers != 1 || fude_canvas_active_fingers(_canvas) != 1) {
+        return false;
+    }
+    const f64 _held = rde_engine_get_time_now() - _canvas->tap_start;
+    if(_held < FUDE_CANVAS_LONG_PRESS_TIME) {
+        fude_redraw_after(FUDE_CANVAS_LONG_PRESS_TIME - _held);   // (render on demand: a finger held still sends nothing)
         return false;
     }
 

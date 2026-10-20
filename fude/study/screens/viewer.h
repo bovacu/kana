@@ -11,7 +11,7 @@
 
 // ===========================================================================
 // Viewer: one character at a time, writing itself stroke by stroke from the baked data (kanji.h). It was the first
-// thing to hold in the hand, milestone 2 of apps/kana/docs/design.md.
+// thing to hold in the hand, milestone 2 of the Japanese study app's docs/design.md.
 //
 // The big character and the kana of its readings are drawn from strokes (glyph.h). Other text is in the UI font
 // (drawn with Slug, with the app's script font, Noto Sans JP for Japanese, behind it). That includes the words: the

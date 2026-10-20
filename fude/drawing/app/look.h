@@ -22,6 +22,9 @@
 //   --rtl            the UI right to left, whatever the language
 //   --swipe=DX       a finger dragged DX across the screen on top
 //   --perf=SECONDS
+//   --continuous     every frame drawn, as any flag does (render on demand off: drawing/base/redraw.h)
+//   --on-demand      render on demand kept on all the same, to try it in a launch with other flags (a look's sequence
+//                    then moves on only as frames come)
 // look.c also reads --ui-size=N, --note-card=... and the document flags (--doc, --book, --doc-view, --mark,
 // --lasso-area, --doc-search, --doc-page, --doc-export, --doc-turn), each described at its field there; the crash
 // card reads --crash-card.
@@ -49,7 +52,8 @@ void fude_look_args(i32 _argc, c8** _argv);
 // need them).
 void fude_look_start(struct fude_app* _app);
 void fude_look_loaded(struct fude_app* _app);
-// Called once a frame: moves a shot's sequence on (it counts the frames).
+// Called once a frame: moves a shot's sequence on (it counts the frames), and counts the frame for the clock and for
+// draw.c's kept text shapes (fude_draw_frame).
 void fude_look_frame(struct fude_app* _app);
 // Runs the engine's update and render, timing them when --perf asks (frame times over its seconds, appended to
 // <save dir>/perf.txt).
@@ -72,7 +76,7 @@ b8        fude_look_rtl(void);
 b8        fude_look_given(void);
 // Whether _flag was given (the crash card's --crash-card shows the card in a look all the same).
 b8        fude_look_has(const c8* _flag);
-// Sets what the app adds to --perf's summary line (Kana: the camera's frames).
+// Sets what the app adds to --perf's summary line (a study app: the camera's frames).
 void      fude_look_perf_note(void (*_note)(struct fude_app* _app, c8* _out, usize _size));
 
 #endif

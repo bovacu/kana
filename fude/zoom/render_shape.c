@@ -64,7 +64,7 @@ void fude_zoom_render_dimension(const fude_zoom_renderer* _r, fude_zoom_v2 _a, f
         const f64 _lift = 11.0 * _side;
         const rde_vec_2F _c = { (f32)((_a2.x + _b2.x) * 0.5 + _left.x * _lift), (f32)((_a2.y + _b2.y) * 0.5 + _left.y * _lift) };
         rde_rendering_2d_draw_rounded_rectangle_with_border(_c, (rde_vec_2F){ _tw + 10.0f, 18.0f }, 1.0f, 6u, fude_theme_active()->page, 1.0f, fude_theme_active()->page, NULL);
-        rde_rendering_2d_draw_text_2(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+        fude_draw_text_placed(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
     }
 }
 
@@ -179,7 +179,7 @@ RDE_INTERNAL void fude_zoom_render_tag(const fude_zoom_renderer* _r, rde_vec_2F 
     const f32 _px = 13.0f;
     const f32 _tw = fude_draw_text_width(_r->font, _r->font_px, _label, _px);
     rde_rendering_2d_draw_rounded_rectangle_with_border(_c, (rde_vec_2F){ _tw + 10.0f, 18.0f }, 1.0f, 6u, fude_theme_active()->page, 1.0f, fude_theme_active()->page, NULL);
-    rde_rendering_2d_draw_text_2(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+    fude_draw_text_placed(_r->font, _label, (rde_vec_3F){ _c.x - _tw * 0.5f, _c.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
 }
 
 // An arrowhead at _tip pointing along _d (a unit way, screen).
@@ -342,11 +342,11 @@ RDE_INTERNAL void fude_zoom_render_board_marks(const fude_zoom_renderer* _r, con
         return;   // too small to say it in
     }
     if(_name[0] != 0) {
-        rde_rendering_2d_draw_text_2(_r->font, _name, (rde_vec_3F){ (f32)_c.x - _nw * 0.5f, (f32)_c.y + 3.0f, 0.0f },
-                                     (rde_vec_2F){ (_px + 2.0f) / _r->font_px, (_px + 2.0f) / _r->font_px }, 0.0f, _color);
+        fude_draw_text_placed(_r->font, _name, (rde_vec_3F){ (f32)_c.x - _nw * 0.5f, (f32)_c.y + 3.0f, 0.0f },
+                              (rde_vec_2F){ (_px + 2.0f) / _r->font_px, (_px + 2.0f) / _r->font_px }, 0.0f, _color);
     }
-    rde_rendering_2d_draw_text_2(_r->font, _size, (rde_vec_3F){ (f32)_c.x - _sw * 0.5f, (f32)_c.y - (_name[0] != 0 ? _px + 2.0f : _px * 0.36f), 0.0f },
-                                 (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+    fude_draw_text_placed(_r->font, _size, (rde_vec_3F){ (f32)_c.x - _sw * 0.5f, (f32)_c.y - (_name[0] != 0 ? _px + 2.0f : _px * 0.36f), 0.0f },
+                          (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
 }
 
 // See render_parts.h. Kept by its type, payload, detail and how many of its numbers it is made from
@@ -526,13 +526,13 @@ RDE_INTERNAL void fude_zoom_render_sheet_marks(const fude_zoom_renderer* _r, con
             // Its nearer edge on the tick's end: its middle half its width (or height) further in.
             const f64 _out = rde_math_abs_f64(_t[_i].in.x) * (f64)_w * 0.5 + rde_math_abs_f64(_t[_i].in.y) * (f64)_px * 0.5;
             const fude_zoom_v2 _c = { _t[_i].at.x + _t[_i].in.x * _out, _t[_i].at.y + _t[_i].in.y * _out };
-            rde_rendering_2d_draw_text_2(_r->font, _t[_i].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
-                                         (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
+            fude_draw_text_placed(_r->font, _t[_i].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
+                                  (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _color);
         }
         if(_unit.text[0] != 0) {
             const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _unit.text, 10.0f);
-            rde_rendering_2d_draw_text_2(_r->font, _unit.text, (rde_vec_3F){ (f32)_unit.at.x - _w * 0.5f, (f32)_unit.at.y - 3.6f, 0.0f },
-                                         (rde_vec_2F){ 10.0f / _r->font_px, 10.0f / _r->font_px }, 0.0f, _strong);
+            fude_draw_text_placed(_r->font, _unit.text, (rde_vec_3F){ (f32)_unit.at.x - _w * 0.5f, (f32)_unit.at.y - 3.6f, 0.0f },
+                                  (rde_vec_2F){ 10.0f / _r->font_px, 10.0f / _r->font_px }, 0.0f, _strong);
         }
         // Its size over its top left corner (and its scale when it is not printed at its true size).
         const f64 _k = fude_zoom_sim_scale(_all);
@@ -550,8 +550,8 @@ RDE_INTERNAL void fude_zoom_render_sheet_marks(const fude_zoom_renderer* _r, con
             const fude_zoom_v2 _tl = fude_zoom_sim_apply(_all, (fude_zoom_v2){ -_sheet.hw, _sheet.hh });
             const fude_zoom_v2 _up = { -_all.b / _k, _all.a / _k };   // (its own up on the screen)
             const f32 _tp = 13.0f;
-            rde_rendering_2d_draw_text_2(_r->font, _say, (rde_vec_3F){ (f32)(_tl.x + _up.x * 8.0), (f32)(_tl.y + _up.y * 8.0) + 2.0f, 0.0f },
-                                         (rde_vec_2F){ _tp / _r->font_px, _tp / _r->font_px }, 0.0f, _color);
+            fude_draw_text_placed(_r->font, _say, (rde_vec_3F){ (f32)(_tl.x + _up.x * 8.0), (f32)(_tl.y + _up.y * 8.0) + 2.0f, 0.0f },
+                                  (rde_vec_2F){ _tp / _r->font_px, _tp / _r->font_px }, 0.0f, _color);
         }
     }
     rde_arr_free(&_lines);
@@ -633,8 +633,8 @@ void fude_zoom_render_sheets_stuck(fude_zoom_renderer* _r, const fude_zoom_scene
                     const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _t[_k].text, _px);
                     const f64 _out = rde_math_abs_f64(_t[_k].in.x) * (f64)_w * 0.5 + rde_math_abs_f64(_t[_k].in.y) * (f64)_px * 0.5;
                     const fude_zoom_v2 _c = { _t[_k].at.x + _t[_k].in.x * _out, _t[_k].at.y + _t[_k].in.y * _out };
-                    rde_rendering_2d_draw_text_2(_r->font, _t[_k].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
-                                                 (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _ink);
+                    fude_draw_text_placed(_r->font, _t[_k].text, (rde_vec_3F){ (f32)_c.x - _w * 0.5f, (f32)_c.y - _px * 0.36f, 0.0f },
+                                          (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, _ink);
                 }
             }
         }

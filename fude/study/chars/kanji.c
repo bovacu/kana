@@ -357,7 +357,7 @@ b8 fude_kanji_word_sentence(const fude_kanji_db* _db, u32 _word, fude_kanji_sent
     if(_s >= _db->sentence_count) {
         return false;
     }
-    // Its texts: the sentence in the language taught (Japanese in Kana), then its translations into English, Spanish,
+    // Its texts: the sentence in the language taught (Japanese, for one), then its translations into English, Spanish,
     // French and Portuguese.
     const c8* _texts[5];
     _texts[0] = _db->_sentences[_s];

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, Play and mechanisms: a hand on a mechanism playing (mechrun.h), Play (what the lasso holds, simulated on
@@ -522,6 +523,9 @@ void fude_zoom_page_play_step(fude_zoom_page* _page) {
     if(!_page->play_on || !_page->open) {
         return;
     }
+    if(_page->play_running || _page->play_step_once) {
+        fude_redraw_changed();   // (render on demand: what plays moves every frame)
+    }
     const f64 _now = rde_engine_get_time_now();
     const f64 _dt_real = rde_math_min_f64(rde_math_max_f64(_now - _page->play_clock, 0.0), 0.1);
     _page->play_clock = _now;
@@ -946,9 +950,9 @@ void fude_zoom_page_render_play(fude_zoom_page* _page) {
 // parts cannot fit, a motor jammed, a pulsing red ring.
 RDE_INTERNAL void fude_zoom_page_render_strain(fude_zoom_page* _page, const fude_zoom_mech_world* _w, fude_zoom_sim _hs) {
     const fude_zoom_mech_joint* _j = (const fude_zoom_mech_joint*)_w->joints.memory;
-    const f32 _pulse = 0.5f + 0.5f * rde_math_sin_f32((f32)rde_engine_get_time_now() * 6.0f);
+    // The pulse runs on Play's time, so a paused mechanism stands still (a still screen: drawing/base/redraw.h).
+    const f32 _pulse = 0.5f + 0.5f * rde_math_sin_f32((f32)_page->play_time * 6.0f);
     const f32 _r = 11.0f;
-    RDE_UNUSED(_page);
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_w->joints); _i++) {
         // (where it is now: on its first part as that has moved; a mesh's at its first gear's middle)
         const fude_zoom_v2 _p = fude_zoom_sim_apply(_hs, _j[_i].joint != NULL || _j[_i].kind != FUDE_ZOOM_MECH_JOINT_PIN ?

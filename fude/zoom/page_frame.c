@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, each frame: fude_zoom_page_update, which keeps everything the page shows up to date once a frame.
@@ -57,10 +58,15 @@ RDE_INTERNAL void fude_zoom_page_update_under_way(fude_zoom_page* _page, fude_ap
 
     // A flight under way (nav.h): the camera where it has it now.
     if(_page->flight.active) {
+        fude_redraw_changed();   // (render on demand: it moves the view every frame)
         fude_zoom_fly_step(&_page->flight, _s, fude_zoom_page_half(_page), rde_engine_get_time_now());
     }
 
-    // The pen resting at a stroke's end: a shape, if it looks like one.
+    // The pen resting at a stroke's end: a shape, if it looks like one (render on demand: a pen held still sends
+    // nothing, so the rest's end is a timer).
+    if(_page->drawing && !_page->snapped && !_page->ruled && rde_engine_get_time_now() - _page->moved_at < FUDE_ZOOM_PAGE_HOLD) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_HOLD - (rde_engine_get_time_now() - _page->moved_at));
+    }
     if(_page->drawing && !_page->snapped && !_page->ruled && rde_engine_get_time_now() - _page->moved_at >= FUDE_ZOOM_PAGE_HOLD) {
         fude_zoom_page_try_snap(_page);
         _page->moved_at = rde_engine_get_time_now() + 1e9;   // once a rest (moving again tries again)
@@ -185,6 +191,9 @@ RDE_INTERNAL void fude_zoom_page_update_views(fude_zoom_page* _page, fude_zoom_s
     }
     fude_zoom_page_pages_follow(_page);   // (a notebook: its view on its pages, as many as it needs)
     fude_zoom_page_audio_update(_page);   // (a recording made or played)
+    if(_page->find_after[0] != 0) {
+        fude_redraw_changed();   // (render on demand: it counts frames)
+    }
     if(_page->find_after[0] != 0 && _page->open && ++_page->find_after_frames >= 3u) {
         // (opened from Find's other canvases: the words found in it, the others looked through again from here)
         c8 _words[128];
@@ -212,6 +221,14 @@ RDE_INTERNAL void fude_zoom_page_update_flush(fude_zoom_page* _page, fude_zoom_s
             fude_zoom_page_tools_save(_page);   // (the instruments as they lie now, when they changed)
         }
         _page->flushed_at = _now;
+    }
+    // Render on demand: the next tick is a timer, a second after the last, while there is anything to write: the
+    // journal (an append that failed too), or, after any change, the instruments' file and the frames they lie in.
+    // While a stroke, an erase or a hand on an instrument holds the writing back, none is needed: each ends with an
+    // event.
+    const b8 _waiting = fude_bytes_size(&_s->journal) > 0 || (_page->instruments.held < 0 && fude_redraw_last_change() > _page->flushed_at);
+    if(!_page->drawing && !_page->erasing && _waiting) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_FLUSH - (rde_engine_get_time_now() - _page->flushed_at));
     }
 }
 
@@ -269,7 +286,12 @@ void fude_zoom_page_update(fude_zoom_page* _page) {
         }
     }
 
-    // One finger held still (fingers moving the page, not drawing): the page's menu.
+    // One finger held still (fingers moving the page, not drawing): the page's menu (render on demand: a finger held
+    // still sends nothing, so the hold's end is a timer).
+    if(!_page->long_pressed && !_page->tap_spoiled && fude_zoom_page_finger_count(_page) == 1u && !_page->play_on &&
+       rde_engine_get_time_now() - _page->tap_start < FUDE_ZOOM_PAGE_LONG_PRESS) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_LONG_PRESS - (rde_engine_get_time_now() - _page->tap_start));
+    }
     if(!_page->long_pressed && !_page->tap_spoiled && fude_zoom_page_finger_count(_page) == 1u && !_page->play_on &&
        rde_engine_get_time_now() - _page->tap_start >= FUDE_ZOOM_PAGE_LONG_PRESS) {
         for(u32 _i = 0; _i < FUDE_ZOOM_PAGE_FINGERS; _i++) {

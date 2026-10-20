@@ -36,7 +36,7 @@
 u32 fude_zoom_cut_region(const fude_zoom_v2* _points, const u32* _rings, u32 _n, const fude_zoom_v2* _cut, const u32* _cut_rings, u32 _cut_n,
                          rde_arr* _out, rde_arr* _out_rings, rde_arr* _out_piece);
 
-// The other ways the same arrangement can be laid together (Sketching's Combine, page_edit.c), of the region's rings
+// The other ways the same arrangement can be laid together (Combine, page_edit.c), of the region's rings
 // (ring 0 its outline, the others its holes) and the others' (each a closed polygon). What is kept:
 //   SUBTRACT   what is in the region and in none of the others (fude_zoom_cut_region);
 //   UNION      what is in the region or in any of the others;

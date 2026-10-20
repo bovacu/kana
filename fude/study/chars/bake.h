@@ -10,13 +10,13 @@
 // the app itself, run by fude/lang/<code>/bake.c) fills a fude_bake and writes it into the file the app ships (its
 // format is described in kanji.h):
 //
-//   - the strokes, from an XML file in KanjiVG's form (KanjiVG itself; Hanzi's and Hangul's are made in that form
+//   - the strokes, from an XML file in KanjiVG's form (KanjiVG itself; Chinese and Korean ones are made in that form
 //     by their tools): a character per <kanji>, its strokes the <path>s in "-sN" order, its parts every group's
 //     kvg:element;
 //   - each character's readings, meanings and level, and its words, filled in by the language's own readers, or
 //     read from PREPARED tables (below);
 //   - the example words each character keeps, chosen from the candidates;
-//   - the file written, with its strokes in it or in a file of their own (a licence can ask for that: Hanzi's are
+//   - the file written, with its strokes in it or in a file of their own (a licence can ask for that: Chinese ones are
 //     under the Arphic Public License);
 //   - the look-alikes, found by the matcher (match.h) in the file just written.
 //
@@ -50,6 +50,19 @@
 // Returns true when --bake is on the command line. It is always false on a phone or tablet, which has no bake:
 // there the language's fude_bake_run (lang.h) is this file's, and fails.
 b8 fude_bake_requested(i32 _argc, c8** _argv);
+
+// What a study app gives its bake (study/app/shell.h: fude_study_shell_def.bake), so that a language's bake
+// (lang/<code>/bake.c) names no app: the app's own paths, from the project root where the bake runs, and the notice
+// its changed strokes carry.
+typedef struct fude_bake_app {
+    const c8* config;           // its config ("apps/<app>/assets/config.rdef"): its memory sizes hold the sources whole
+    const c8* out;              // where the character data goes unless --out= says (NULL: the language's default)
+    const c8* tools;            // what makes the sources, named when they are missing (NULL: nothing named)
+    // The notice heading the strokes' own file, beside the character data: where the strokes come from and how the
+    // app's tools changed them, as their licence can ask (the Arphic Public License does). NULL keeps the strokes in
+    // the character data.
+    const c8* strokes_notice;
+} fude_bake_app;
 
 #if !defined(RDE_PLATFORM_MOBILE)
 
@@ -197,24 +210,21 @@ b8    fude_bake_lookalikes(const c8* _path, const fude_bake_look* _look);
 // --- a language's bake from its prepared tables ------------------------------------------
 
 typedef struct {
-    // Where its sources are, and where the file goes: each a default that --strokes=, --prepared= and --out= replace.
+    // Where its sources are: each a default that --strokes= and --prepared= replace. Where the file goes, what makes
+    // the sources and the strokes' notice are the app's (fude_bake_app).
     const c8*             strokes;          // the strokes, KanjiVG's form ("data/raw/hi/devanagarivg.xml")
     const c8*             prepared;         // the folder of prepared tables ("data/raw/hi/prepared")
-    const c8*             out;              // the character data ("apps/hindi/assets/data/characters.kana")
-    const c8*             tools;            // what makes the sources, for the message when they are missing
     const c8* const*      languages;        // the meanings' languages, as its prepare.py wrote them ("es", "pt"...)
     u32                   language_count;
     u32                   word_chars;       // the bake's word_chars and example_chars (0: its defaults): more for a
     u32                   example_chars;    // script whose vowel signs and marks are code points of their own
-    // The notice heading the strokes' own file, beside the character data, saying how they were changed, as a
-    // licence can ask (Chinese's: the Arphic Public License). NULL keeps the strokes in the character data.
-    const c8*             strokes_notice;
     const fude_bake_look* look;             // its look-alikes
 } fude_bake_prepared_def;
 
-// Bakes a language from its prepared tables: the strokes, the tables, the file, then the look-alikes. _argc and _argv
-// are the app's command line (--strokes=, --prepared=, --out=). Returns 0 on success, or 1 with the log saying why.
-i32   fude_bake_run_prepared(const fude_bake_prepared_def* _def, i32 _argc, c8** _argv);
+// Bakes a language from its prepared tables for the app _app describes: the strokes, the tables, the file (at the
+// app's out, with the strokes apart under its notice when it gives one), then the look-alikes. _argc and _argv are
+// the app's command line (--strokes=, --prepared=, --out=). Returns 0 on success, or 1 with the log saying why.
+i32   fude_bake_run_prepared(const fude_bake_prepared_def* _def, const fude_bake_app* _app, i32 _argc, c8** _argv);
 
 // --- helpers ------------------------------------------------------------------------------
 

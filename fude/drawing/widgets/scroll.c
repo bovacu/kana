@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/widgets/scroll.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // See scroll.h.
@@ -79,6 +80,7 @@ void fude_scroller_stop(fude_scroller* _s) {
 // _content_height - _view_height; hitting either end stops the fling. _dt is the frame's time in seconds.
 void fude_scroller_update(fude_scroller* _s, f32 _dt, f32 _content_height, f32 _view_height) {
     if(!_s->pressing && rde_math_abs_f32(_s->velocity) > 1.0f) {
+        fude_redraw_changed();   // (render on demand: the fling moves the list every frame)
         _s->offset   += _s->velocity * _dt;
         _s->velocity *= rde_math_exp_f32(-FUDE_SCROLL_FRICTION * _dt);
     }

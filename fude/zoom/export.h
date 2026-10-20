@@ -110,12 +110,12 @@ b8 fude_zoom_export_svg(const fude_zoom_scene* _s, fude_zoom_v2 _half, rde_color
 // Returns false when nothing was written.
 b8 fude_zoom_export_pdf(const fude_zoom_scene* _s, fude_zoom_v2 _half, rde_color _paper, fude_bytes* _out);
 
-// Appends a PDF of several views to _out, a page each (Sketching's areas): page _i is what camera _views[_i] sees on a
+// Appends a PDF of several views to _out, a page each (the areas): page _i is what camera _views[_i] sees on a
 // screen _halves[_i] each way (points), its paper behind. The scene's camera is moved for each and put back after.
 // Returns false when nothing was written (_n 0, or the PDF could not be made).
 b8 fude_zoom_export_pdf_views(fude_zoom_scene* _s, rde_color _paper, const fude_zoom_camera* _views, const fude_zoom_v2* _halves, u32 _n, fude_bytes* _out);
 
-// Appends a PDF of views printed to scale (Sketching's sheets) to _out: page _i is what camera _views[_i] sees on a
+// Appends a PDF of views printed to scale (the sheets) to _out: page _i is what camera _views[_i] sees on a
 // page _halves[_i] each way (in page points: what it shows at its scale), on white, in the paper theme's ink. The
 // printer's own error is undone as in fude_zoom_export_tiles (_printer). _papers is NULL, or _n arrays of paper.h's
 // fude_zoom_paper_line (in each camera's frame's units): page _i's paper, drawn under its ink (a notebook's:

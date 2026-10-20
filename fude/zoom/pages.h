@@ -18,7 +18,7 @@
 // list (homelist.c) reads the file to show which canvases are notebooks.
 // Its main types and their lifecycle: fude_zoom_pages is a plain value with nothing to free.
 // Threads: main thread only, like the scene.
-// Files: <id>.pages beside the canvas: Kana's header ("KANA", u32 version, u32 kind 'PAGE'; kfile.h), then u8 on,
+// Files: <id>.pages beside the canvas: the KANA header ("KANA", u32 version, u32 kind 'PAGE'; kfile.h), then u8 on,
 // f64 width, f64 height (millimetres) and u32 page count.
 // Design: there is always one page more than the last one written on, so a new page is never something to ask for:
 // one is added as the last one is used. Each page shows its paper (the canvas's dots, squares or lines) at its true

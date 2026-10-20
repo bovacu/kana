@@ -10,7 +10,8 @@ void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_co
 void rde_rendering_2d_draw_rounded_rectangle(const rde_vec_2F a, const rde_vec_2F b, f32 r, u32 p, const rde_color c, rde_shader* sh) { (void)a; (void)b; (void)r; (void)p; (void)c; (void)sh; }
 void rde_rendering_2d_draw_circle_border(const rde_vec_2F p, f32 r, f32 t, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)t; (void)s; (void)c; (void)sh; }
 void rde_rendering_2d_draw_rectangle(const rde_vec_2F a, const rde_vec_2F b, const rde_color c) { (void)a; (void)b; (void)c; }
-void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)s; (void)r; (void)c; if(p.y > 300.0f) snprintf(g_status, sizeof g_status, "%s", t); }
+usize fude_test_shaped_string(const rde_text_engine_shaped_text* t, c8* out, usize size);   // (tests/support/rich.c)
+void rde_rendering_2d_draw_shaped_text_2(rde_font* f, const rde_text_engine_shaped_text* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)s; (void)r; (void)c; if(p.y > 300.0f) fude_test_shaped_string(t, g_status, sizeof g_status); }
 void rde_rendering_begin_clipping_rect(const rde_window* w, rde_vec_2I p, rde_vec_2UI s) { (void)w; (void)p; (void)s; }
 void rde_rendering_end_clipping_rect(void) {}
 rde_vec_2I rde_window_get_size(const rde_window* w) { (void)w; return (rde_vec_2I){ 744, 1133 }; }

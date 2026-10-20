@@ -13,7 +13,7 @@
 //
 // Where it sits: zoom, the canvas apps' layer. The page (page_speech.c) cuts a recording into pieces, hands them in one
 // at a time, polls once a frame, and keeps the phrases in the recording's transcript (transcript.h). Builds: it is only
-// built in where the app was built with -DFUDE_WHISPER (InfiNote, Sketching). Elsewhere fude_listen_built returns false
+// built in where the app was built with -DFUDE_WHISPER (those with audio). Elsewhere fude_listen_built returns false
 // and nothing is read.
 // Its main types and their lifecycle: none for the caller. The module keeps one piece at a time and the loaded model
 // in its own statics; fude_listen_shutdown lets them go.

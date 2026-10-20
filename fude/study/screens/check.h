@@ -15,7 +15,8 @@
 #include "drawing/widgets/scroll.h"
 
 // ===========================================================================
-// Check: free writing, checked (section 4 of apps/kana/docs/design.md). It works without a trained recogniser.
+// Check: free writing, checked (section 4 of the Japanese study app's docs/design.md). It works without a trained
+// recogniser.
 //
 // The lasso's selection on a canvas is READ (segment.h): split into the characters it was written as, and each one
 // ranked against every character by the draw-to-search matcher (match.h), by what it looks like. Each character's

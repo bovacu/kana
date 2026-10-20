@@ -10,8 +10,8 @@
 #include "drawing/doc/worker.h"
 
 // ===========================================================================
-// Document: the PDF under a canvas's ink, to read and to write on. It is either a book from the app's library (Kana's
-// lectures, in its assets) or the canvas's own PDF (one imported, or pictures and scans made into one:
+// Document: the PDF under a canvas's ink, to read and to write on. It is either a book from the app's library (a study
+// app's lectures, in its assets) or the canvas's own PDF (one imported, or pictures and scans made into one:
 // notes/<id>.pdf). The canvas's note says which (notes.h: fude_note.document).
 //
 // Where it sits: drawing/doc, above drawing/ink (the canvas and ink it lies under) and drawing/base. The app's page
@@ -34,7 +34,7 @@
 // the screen shows as "3 / 24" at the bottom.
 //
 // Text: a page's own text comes from the PDF (PDFKit's, pdf.h). A page with none (a scan, a photo) is read by the
-// app's picture reader instead (extension.h: Kana's ML Kit): each such page is read once, in the background, nearest
+// app's picture reader instead (extension.h: ML Kit, say): each such page is read once, in the background, nearest
 // the view first, and its lines are kept beside the PDF (<name>.lines) so it is never read again. The lasso's text
 // and Search use both kinds.
 //

@@ -306,8 +306,8 @@ void fude_zoom_page_draw_tag_px(fude_zoom_page* _page, rde_vec_2F _at, const c8*
     const c8* const _texts[2] = { _first, _second };
     for(u32 _i = 0; _i < _n; _i++) {
         const f32 _y = _c.y + _bh * 0.5f - 3.0f * _u - _line * ((f32)_i + 0.5f);
-        rde_rendering_2d_draw_text_2(_font, _texts[_i], (rde_vec_3F){ _c.x - _w * 0.5f, _y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px },
-                                     0.0f, _i == 0u ? _t->text : _t->text_soft);
+        fude_draw_text_placed(_font, _texts[_i], (rde_vec_3F){ _c.x - _w * 0.5f, _y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px },
+                              0.0f, _i == 0u ? _t->text : _t->text_soft);
     }
 }
 

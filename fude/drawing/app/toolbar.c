@@ -345,7 +345,7 @@ struct fude_toolbar_item { rde_ui_node* node; rde_vec_2F size; };
 // list _items (all _item_count of them, in order along the bar) down to what shows, keeping their order, except that
 // an app's tool that belongs by Paper moves to just before Paper. Returns how many items are left at the front.
 RDE_INTERNAL u32 fude_toolbar_pack_items(fude_toolbar* _toolbar, struct fude_toolbar_item* _items, u32 _item_count) {
-    // The app's tools show only where they are available (Kana's camera, for example, only where text can be read
+    // The app's tools show only where they are available (a study app's camera, say, only where text can be read
     // from it). Elsewhere they are left out of the bar rather than shown dead, and so is the hairline before them when
     // none is shown. The hand shows only on a phone or tablet, since a mouse writes on a computer. The list is then
     // packed, leaving out what does not show.
@@ -738,7 +738,7 @@ FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_clear) {
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_draw)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_DRAW); return RDE_UI_EVENT_RESULT_DEFAULT; }
 // See above.
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_mark)  { FUDE_TOOLBAR_SELF; fude_toolbar_set_tool(_toolbar, FUDE_TOOL_MARK); return RDE_UI_EVENT_RESULT_DEFAULT; }
-// Erase also counts a tap on it while it is already in hand (Sketching moves to its next eraser mode on each).
+// Erase also counts a tap on it while it is already in hand (a canvas app moves to its next eraser mode on each).
 FUDE_TOOLBAR_CALLBACK(fude_toolbar_on_erase) {
     FUDE_TOOLBAR_SELF;
     if(_toolbar->tool == FUDE_TOOL_ERASE) {

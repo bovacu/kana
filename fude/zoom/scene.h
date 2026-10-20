@@ -31,10 +31,10 @@
 //     any depth. The root is the frame with no parent; zooming out past it makes a new one above it
 //     (fude_zoom_camera_settle), so neither way has an end.
 //   - OBJECTS live in one table for the whole canvas, in the order they were made. A frame lists its own, by order key
-//     (z) for drawing and by arrival for the file's buckets. NOTHING IS DELETED BY AN EDIT (Kana's rule): erasing
+//     (z) for drawing and by arrival for the file's buckets. NOTHING IS DELETED BY AN EDIT (ink.h's rule): erasing
 //     marks objects dead, so the undo history only flips flags. An object becomes GARBAGE once it is dead and no undo
 //     step can bring it back: its points are let go then, and the file leaves it out.
-//   - THE HISTORY is Kana's log: actions[0 .. action_count) are applied, and the rest were undone and can be redone
+//   - THE HISTORY is ink.h's: actions[0 .. action_count) are applied, and the rest were undone and can be redone
 //     until a new edit drops them. One gesture is one action (a stroke, an eraser sweep). The history is bounded by
 //     the bytes it keeps alive, not by a number of steps.
 //   - THE JOURNAL: every change is also written, as it happens, into `journal` (ops: zfile.h), which the file appends

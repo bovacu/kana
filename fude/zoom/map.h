@@ -7,7 +7,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// Map: the canvas seen from above (Sketching's Map, and Present). It works out what is drawn, seen from the top of
+// Map: the canvas seen from above (Map, and Present). It works out what is drawn, seen from the top of
 // the canvas (its root frame, where whatever is deeper is a speck at its place), the view on it, the places marked,
 // and the AREAS.
 //

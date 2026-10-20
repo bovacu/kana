@@ -7,7 +7,7 @@
 #include "zoom/zoom.h"
 
 // ===========================================================================
-// Building plans (Sketching's Floor plans and House wiring topics): the diagram library's Floor plan family (doors,
+// Building plans (the Floor plans and House wiring topics): the diagram library's Floor plan family (doors,
 // windows, furniture, fittings), each a plan seen from above and put in at its TRUE SIZE (a bed 90 × 190 cm is that on
 // the canvas, as a wall drawn 4 m long is); and its House wiring family, the symbols an electrician marks a plan with
 // (sockets, switches, lights, the consumer unit...), at the size symbols are drawn.

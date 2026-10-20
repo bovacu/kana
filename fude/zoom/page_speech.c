@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, speech to text (0.1.95, listen.h): a recording's transcript read on the device, Live text, and the
@@ -133,6 +134,11 @@ void fude_zoom_page_listen_download(fude_zoom_page* _page) {
 void fude_zoom_page_listen_update(fude_zoom_page* _page) {
     if(!fude_listen_built() || _page->canvas == 0u) {
         return;
+    }
+    // Render on demand: the model's download and a piece being read are polled (their chips say how far); the reading
+    // thread also wakes the app when a piece is done (listen.c).
+    if(_page->heard_downloading || _page->heard_reading != 0u || fude_listen_busy()) {
+        fude_redraw_after(FUDE_REDRAW_POLL);
     }
     if(_page->heard_downloading) {
         u64 _got = 0, _total = 0;
@@ -387,6 +393,7 @@ void fude_zoom_page_render_caption(fude_zoom_page* _page) {
        rde_engine_get_time_now() - _page->heard_said_at > FUDE_ZOOM_PAGE_LISTEN_CAPTION) {
         return;
     }
+    fude_redraw_after(FUDE_ZOOM_PAGE_LISTEN_CAPTION - (rde_engine_get_time_now() - _page->heard_said_at));   // (render on demand: it goes then)
     const fude_zoom_page_heard* _h = fude_zoom_page_heard_of(_page, _page->audio_recording, false);
     const u32 _n = _h != NULL ? (u32)rde_arr_length(&_h->t.segments) : 0u;
     if(_n == 0u) {

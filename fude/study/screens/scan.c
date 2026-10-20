@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/widgets/header.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 #include "study/screens/scan.h"
 #include "study/widgets/wordcard.h"
@@ -182,6 +183,7 @@ RDE_INTERNAL void fude_scan_on_camera(RDE_MOBILE_PERMISSION_ _permission, RDE_MO
     } else {
         _scan->message = FUDE_TEXT_SCAN_CAMERA_DENIED;
     }
+    fude_redraw_request();   // (render on demand: the answer comes with no event)
 }
 
 // See the header: starts the live camera, asking for its permission first when needed.
@@ -388,7 +390,10 @@ void fude_scan_update(fude_scan* _scan, f32 _dt) {
         fude_scan_start_camera(_scan);
     }
     if(_scan->stage == FUDE_SCAN_LIVE && _scan->camera != NULL) {
+        fude_redraw_changed();   // (render on demand: the camera's frames come with no event, about 30 a second)
         fude_scan_update_camera(_scan);
+    } else if(_scan->stage == FUDE_SCAN_WAITING) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: a photo's reading is polled, with no event)
     }
     // A frame was read: its lines go over what is live (a held frame keeps its own). The time the reading took is
     // counted, for measuring.

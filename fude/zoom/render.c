@@ -270,6 +270,7 @@ RDE_INTERNAL void fude_zoom_render_let_go(fude_zoom_decoded* _d) {
         }
     }
     rde_stroke_mesh_free(&_d->mesh);
+    rde_rendering_2d_release_kept_stroke_mesh(&_d->mesh_gpu);   // (its GPU copy too)
 }
 
 // See the header.

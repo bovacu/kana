@@ -7,6 +7,7 @@
 #include "drawing/app/page.h"
 #include "drawing/app/session.h"
 #include "drawing/base/clock.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/save.h"
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
@@ -113,6 +114,10 @@ b8 fude_look_has(const c8* _flag) {
 void fude_look_args(i32 _argc, c8** _argv) {
     fude_look.argc = _argc;
     fude_look.argv = _argv;
+    // Render on demand (redraw.h): a launch with flags is a developer's look, whose sequences count frames and whose
+    // --perf and --shot must measure and look exactly as before, so every frame is drawn (--continuous says so on its
+    // own); --on-demand keeps render on demand all the same, to try it with flags.
+    fude_redraw_set_continuous(_argc > 1 && !fude_look_has("--on-demand"));
     for(i32 _i = 1; _i < _argc; _i++) {
         const c8* _a = _argv[_i];
         const c8* _v;
@@ -226,6 +231,7 @@ RDE_INTERNAL u32 fude_look_shot_at(void) {
 // Moves the look on by a frame: counts it, does what the flags ask for at this frame, and takes the shot or quits.
 void fude_look_frame(fude_app* _app) {
     fude_clock_frame();   // During a screenshot the clock counts frames, not time (clock.h).
+    fude_draw_frame();    // The texts' kept shapes: what a frame draws is not let go during it (draw.h).
     // --paper: open the paper panel at frame 20, once the toolbar has been laid out. Without a shot, the frames are
     // counted only for this.
     if(fude_look.paper && fude_look.frames == 20u) {
@@ -364,7 +370,7 @@ RDE_INTERNAL void fude_look_perf_write(fude_app* _app, f64 _now) {
     const f64 _span = _now - fude_look.perf_start;
     c8 _line[1024];
     c8 _note[256] = "";
-    if(fude_look.perf_note != NULL) {   // The app's own, such as Kana's camera frames.
+    if(fude_look.perf_note != NULL) {   // The app's own, such as a study app's camera frames.
         fude_look.perf_note(_app, _note, sizeof(_note));
     }
     rde_snprintf(_line, sizeof(_line), "%s| %u frames in %.1f s: %.1f fps, frame %.2f ms avg, %.2f ms worst, %u over 20 ms | update %.2f ms avg, %.2f worst | render %.2f ms avg, %.2f worst%s",

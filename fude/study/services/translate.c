@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/services/translate.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 #include "drawing/base/text.h"
 #include "drawing/ink/mlkit.h"
@@ -94,7 +95,11 @@ FUDE_TRANSLATE_STATE_ fude_translate_state(const c8* _from, const c8* _to) {
     if(!fude_mlkit_enabled() || _from == NULL || _to == NULL) {
         return FUDE_TRANSLATE_UNAVAILABLE;
     }
-    return fude_translate_platform_state(_from, _to);
+    const FUDE_TRANSLATE_STATE_ _state = fude_translate_platform_state(_from, _to);
+    if(_state == FUDE_TRANSLATE_DOWNLOADING) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: the model's arrival is polled, with no event)
+    }
+    return _state;
 }
 
 // See the header. Nothing happens in the demo or while ML Kit is switched off.
@@ -161,7 +166,7 @@ RDE_INTERNAL b8 fude_translate_poll(u32* _ticket, c8* _out, usize _size) {
 
 // --- the answers, each to its asker ---------------------------------------------------
 // Answers are taken from the platform as they come and kept in a box until their askers take them. Each asker takes
-// only its own, so several can wait at once (Kana: a word card over Into Japanese). When the box is full, the oldest
+// only its own, so several can wait at once (a word card over the Translator, say). When the box is full, the oldest
 // answer is dropped, since nobody took it (its asker has gone).
 //
 // Why a fixed box is safe: the bound is what throws away the answers nobody will take (an asker that went before its
@@ -193,8 +198,12 @@ b8 fude_translate_take(u32 _ticket, c8* _out, usize _size) {
             rde_snprintf(_out, _size, "%s", fude_translate_box[_i].text);
             rde_memmove(&fude_translate_box[_i], &fude_translate_box[_i + 1u], sizeof(fude_translate_box[0]) * (fude_translate_box_count - _i - 1u));
             fude_translate_box_count--;
+            fude_redraw_changed();   // (render on demand: its asker shows it)
             return true;
         }
+    }
+    if(_ticket != 0u) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: an answer waited for is polled, with no event)
     }
     return false;
 }

@@ -27,14 +27,39 @@ static u32 next(void) {
 #define LINES  32u   // the most lines of a layout these checks ask for
 #define PX     10.0f
 
-// What fude_draw_text hands the engine (no font draws anything here): how many texts, and the longest one's length.
+// What draw.c hands the engine (no font draws anything here). The shaping is tests/support/rich.c's stand-in (a glyph
+// for each byte, so a shape can be read back), counted: how many shapes were made and freed. Each draw of a shape is
+// counted with what it was drawn with (the text read back from it, the longest one's length, its font, place, scale,
+// turn, colour and the 2D layer it went on), and so is each stroke's layer.
+rde_text_engine_shaped_text fude_test_shape(rde_font* f, const c8* s);                         // (tests/support/rich.c)
+usize fude_test_shaped_string(const rde_text_engine_shaped_text* t, c8* out, usize size);     // (tests/support/rich.c)
+static u32   shaped = 0, freed = 0;
 static u32   drawn = 0;
 static usize drawn_longest = 0;
-void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) {
-    (void)f; (void)p; (void)s; (void)r; (void)c;
-    drawn++;
-    drawn_longest = strlen(t) > drawn_longest ? strlen(t) : drawn_longest;
+static c8    drawn_text[256];
+static struct { rde_font* font; rde_vec_3F at; rde_vec_2F scale; f32 turn; rde_color color; i16 layer; } drawn_with;
+static i16   layer = 0, stroke_layer = -1;
+static u32   layer_sets = 0;
+rde_text_engine_shaped_text rde_text_engine_shape_text(rde_font* f, const rde_text_engine_shaping_config* c, const c8* s) {
+    (void)c;
+    shaped++;
+    return fude_test_shape(f, s);
 }
+void rde_text_engine_free_shaped_text(rde_text_engine_shaped_text* t) {
+    if(!rde_arr_is_inited(&t->lines)) return;   // (a slot that held none)
+    freed++;
+    for(u32 l = 0; l < (u32)rde_arr_length(&t->lines); l++) rde_arr_free(&((rde_text_engine_shaped_line*)rde_arr_at(&t->lines, l))->chars);
+    rde_arr_free(&t->lines);
+}
+void rde_rendering_2d_draw_shaped_text_2(rde_font* f, const rde_text_engine_shaped_text* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) {
+    drawn++;
+    const usize n = fude_test_shaped_string(t, drawn_text, sizeof drawn_text);
+    drawn_longest = n > drawn_longest ? n : drawn_longest;
+    drawn_with.font = f; drawn_with.at = p; drawn_with.scale = s; drawn_with.turn = r; drawn_with.color = c; drawn_with.layer = layer;
+}
+void rde_rendering_2d_set_layer(i16 l) { layer = l; layer_sets++; }
+i16  rde_rendering_2d_get_layer(void) { return layer; }
+void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)n; (void)c; stroke_layer = layer; }
 
 // A layout as fude_draw_text_wrap_spans gives it.
 typedef struct { u32 n; u32 from[LINES], to[LINES]; } spans;
@@ -153,6 +178,109 @@ static void test_canvas_texts(void) {
         ms[run] = (f64)(clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
     }
     printf("  canvas texts through draw.c's layouts, 30 frames: 60 still %.2f ms, 100 still %.2f ms, 100 over a zoom %.2f ms\n", ms[0], ms[1], ms[2]);
+}
+
+// The texts' kept shapes (draw.c: fude_draw_shape_of): a text drawn twice is shaped once and drawn by the very call the
+// engine's rde_rendering_2d_draw_text_2 makes (the same font, place, scale, turn and colour); another text, another
+// font or one byte more is shaped again, but another size is the same shape scaled; a canvas's placed text and a
+// mirrored one are drawn from it too. A screen of 1,000 texts drawn over 30 frames is shaped once; one of 1,100 keeps
+// 1,024 and shapes only the 76 past the bound each frame (a plain LRU would shape all 1,100 every frame); texts that
+// come and go are freed as their slots are reused, never more than 1,025 alive; and fude_draw_forget frees them all.
+static void test_kept_shapes(void) {
+    rde_font* font  = (rde_font*)(any)&measured_font;
+    rde_font* other = (rde_font*)(any)&seed;
+    const rde_color ink = { 10, 20, 30, 255 };
+    fude_draw_forget();
+    shaped = freed = drawn = 0;
+    fude_draw_frame();
+    fude_draw_text(font, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);
+    fude_draw_text(font, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);
+    CHECK(shaped == 1u && drawn == 2u && strcmp(drawn_text, "kept") == 0);
+    CHECK(drawn_with.font == font && drawn_with.at.x == 10.0f && drawn_with.at.y == 20.0f && drawn_with.at.z == 0.0f);
+    CHECK(drawn_with.scale.x == 1.5f && drawn_with.scale.y == 1.5f && drawn_with.turn == 0.0f && memcmp(&drawn_with.color, &ink, sizeof ink) == 0);
+    fude_draw_text(font, 20.0f, "kept", 10.0f, 20.0f, 10.0f, ink);   // another size: the same shape, scaled
+    CHECK(shaped == 1u && drawn_with.scale.x == 0.5f && drawn_with.scale.y == 0.5f);
+    fude_draw_text(font, 20.0f, "kepT", 10.0f, 20.0f, 30.0f, ink);   // one byte other
+    CHECK(shaped == 2u && strcmp(drawn_text, "kepT") == 0);
+    fude_draw_text(font, 20.0f, "kept!", 10.0f, 20.0f, 30.0f, ink);   // one byte more
+    CHECK(shaped == 3u && strcmp(drawn_text, "kept!") == 0);
+    fude_draw_text(other, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);   // another font
+    CHECK(shaped == 4u && drawn_with.font == other && strcmp(drawn_text, "kept") == 0);
+    fude_draw_text(font, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);   // each kept beside the others
+    fude_draw_text(other, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);
+    CHECK(shaped == 4u && drawn_with.font == other);
+    // The canvas's placed text: all it is given passed on as it is, turn and all, from the same kept shape.
+    fude_draw_text_placed(font, "kept", (rde_vec_3F){ 1.0f, 2.0f, 3.0f }, (rde_vec_2F){ 0.25f, 0.5f }, 30.0f, ink);
+    CHECK(shaped == 4u && drawn_with.at.x == 1.0f && drawn_with.at.y == 2.0f && drawn_with.at.z == 3.0f && drawn_with.scale.x == 0.25f &&
+          drawn_with.scale.y == 0.5f && drawn_with.turn == 30.0f && strcmp(drawn_text, "kept") == 0);
+    // Mirrored: placed to end where it would have started (the stand-in's shapes are 0 wide), the same kept shape.
+    fude_draw_mirror_begin(true, -100.0f, 100.0f);
+    fude_draw_text(font, 20.0f, "kept", 10.0f, 20.0f, 30.0f, ink);
+    fude_draw_mirror_end();
+    CHECK(shaped == 4u && drawn_with.at.x == -10.0f && strcmp(drawn_text, "kept") == 0);
+    // A text that is only a number is drawn in the language's digits: what is shaped is what is drawn.
+    fude_draw_text(font, 20.0f, "12", 0.0f, 0.0f, 20.0f, ink);
+    CHECK(shaped == 5u && strcmp(drawn_text, "12") == 0);
+
+    // A screen of 1,000 texts, drawn over 30 frames: each shaped once.
+    static c8 texts[4000][24];
+    for(u32 i = 0; i < 4000u; i++) snprintf(texts[i], sizeof texts[i], "text %u", i);
+    fude_draw_forget();
+    CHECK(freed == shaped);   // (every shape made so far freed)
+    shaped = freed = 0;
+    u32 wrong = 0;
+    for(u32 f = 0; f < 30u; f++) {
+        fude_draw_frame();
+        for(u32 i = 0; i < 1000u; i++) {
+            fude_draw_text(font, 20.0f, texts[i], 0.0f, 0.0f, 20.0f, ink);
+            wrong += strcmp(drawn_text, texts[i]) == 0 ? 0u : 1u;
+        }
+    }
+    printf("  a screen of 1000 texts over 30 frames: %u shaped (each once), %u freed, %u drawn wrong\n", shaped, freed, wrong);
+    CHECK(shaped == 1000u && freed == 0u && wrong == 0u);
+    // A screen of 1,100 (past the 1,024 kept): the first frame shapes all, and each after only the 76 past the bound,
+    // through the spare; the kept ones are never let go. (A plain LRU would shape all 1,100 every frame.)
+    fude_draw_forget();
+    shaped = freed = 0;
+    u32 later = 0;
+    for(u32 f = 0; f < 20u; f++) {
+        fude_draw_frame();
+        const u32 before = shaped;
+        for(u32 i = 0; i < 1100u; i++) {
+            fude_draw_text(font, 20.0f, texts[i], 0.0f, 0.0f, 20.0f, ink);
+            wrong += strcmp(drawn_text, texts[i]) == 0 ? 0u : 1u;
+        }
+        if(f > 0u) later = shaped - before > later ? shaped - before : later;
+        CHECK(shaped - freed <= 1025u);
+    }
+    printf("  a screen of 1100 texts over 20 frames: %u shaped the first, at most %u each after, %u drawn wrong\n", 1100u, later, wrong);
+    CHECK(later == 76u && wrong == 0u);
+    // Screens that change: 300 texts a frame, the next 300 each frame, over 4,000 texts. The ones drawn longest ago
+    // make room and are freed; never more than 1,025 alive; a text drawn again after it was let go is shaped again.
+    fude_draw_forget();
+    shaped = freed = 0;
+    u32 alive_most = 0;
+    for(u32 f = 0; f < 13u; f++) {
+        fude_draw_frame();
+        for(u32 i = 0; i < 300u; i++) {
+            const u32 t = (f * 300u + i) % 4000u;
+            fude_draw_text(font, 20.0f, texts[t], 0.0f, 0.0f, 20.0f, ink);
+            wrong += strcmp(drawn_text, texts[t]) == 0 ? 0u : 1u;
+        }
+        alive_most = shaped - freed > alive_most ? shaped - freed : alive_most;
+    }
+    CHECK(shaped == 3900u && alive_most == 1024u && freed == 3900u - 1024u && wrong == 0u);
+    fude_draw_frame();
+    fude_draw_text(font, 20.0f, texts[0], 0.0f, 0.0f, 20.0f, ink);   // let go long ago
+    CHECK(shaped == 3901u && freed == 3900u - 1023u);
+    fude_draw_text(font, 20.0f, texts[3899], 0.0f, 0.0f, 20.0f, ink);   // drawn last frame: kept
+    CHECK(shaped == 3901u);
+    // Forgetting frees every one (the fonts unloaded or trimmed), and a text is shaped again after.
+    fude_draw_forget();
+    CHECK(freed == shaped);
+    fude_draw_text(font, 20.0f, texts[3899], 0.0f, 0.0f, 20.0f, ink);
+    CHECK(shaped == 3902u && strcmp(drawn_text, texts[3899]) == 0);
+    fude_draw_forget();
 }
 
 int main(void) {
@@ -274,6 +402,7 @@ int main(void) {
     }
     test_exact_widths();
     test_canvas_texts();
+    test_kept_shapes();
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);
     return fails != 0;
 }

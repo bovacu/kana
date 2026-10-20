@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/listen.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/kfile.h"
 #include "drawing/base/save.h"
 
@@ -253,6 +254,7 @@ RDE_INTERNAL any fzls_main(rde_thread* _thread, any _arg) {
         fzls_running = false;
         fzls_done    = true;
         rde_mutex_unlock(fzls_lock);
+        fude_redraw_request();   // (render on demand: wakes the main thread, which takes the piece)
     }
     return NULL;
 }

@@ -9,7 +9,7 @@
 // App info: what the app is, for the parts of the core that say so (fude_app.info): the window's title, the side
 // panel's version line, Settings' About and Licences, Rate, the name of Your data's file, and the save folder.
 //
-// Where it sits: drawing/app. Each app fills one constant fude_app_info in its own source (Kana's in apps/kana/kana.c),
+// Where it sits: drawing/app. Each app fills one constant fude_app_info in its own source (apps/<app>/<app>.c),
 // taking its name and version from its src/version.h. The app's strings tool reads the name from there too, for the
 // texts that say it ({APP}: tools/strings/build.py). app.c, side.c, session.c and crashcard.c read it.
 //
@@ -34,8 +34,8 @@ typedef struct {
 
 // Fills a fude_app_info's licences and licence_count from an app's table of documents, a constant array of
 // fude_app_licence counted by its size, so that a document added to the table is counted with it:
-//   static const fude_app_licence KANA_LICENCES[] = { ... };
-//   static const fude_app_info KANA_INFO = { .name = KANA_NAME, ..., FUDE_APP_LICENCES_OF(KANA_LICENCES) };
+//   static const fude_app_licence APP_LICENCES[] = { ... };
+//   static const fude_app_info APP_INFO = { .name = APP_NAME, ..., FUDE_APP_LICENCES_OF(APP_LICENCES) };
 // FUDE_APP_LICENCE_COUNT is that count. The build stops (an array of negative size) when the table holds none, or
 // more than Licences shows (FUDE_APP_LICENCES), or when it is given a pointer, which has no size to count by.
 #define FUDE_APP_LICENCE_N(_table)     (sizeof(_table) / sizeof((_table)[0]))
@@ -45,19 +45,19 @@ typedef struct {
 
 // What the app is.
 typedef struct {
-    // Its name, as shown: the window's title, the version line, Your data's file ("Kana backup").
+    // Its name, as shown: the window's title, the version line, Your data's file ("<Name> backup").
     const c8*        name;
     // What must never change once the app has users: its save folder on a device and its backup's extension
-    // (<id>backup). NULL means the name in lowercase, letters and digits only (Kana: kana/, .kanabackup). An app
+    // (<id>backup). NULL means the name in lowercase, letters and digits only (Name: name/, .namebackup). An app
     // renamed later sets this to its old id, and an app whose name has no Latin letters must set one.
     const c8*        id;
     // Another app's id whose Your data files this one opens too (NULL: none): an app split from that one, taking what
-    // was drawn in it (InfiNote opens Sketching's .sketchingbackup). Every app's backup is the same kind of file
+    // was drawn in it (it opens that app's .<id>backup too). Every app's backup is the same kind of file
     // (backup.h).
     const c8*        imports;
     const c8*        version;      // Shown, and written into a backup.
     const c8*        store_id;     // The App Store's id, for Rate ("" shows the rating sheet until there is one).
-    // The language's own script, as a fallback behind the UI font (Kana: Noto Sans JP; NULL: none).
+    // The language's own script, as a fallback behind the UI font (Japanese's: Noto Sans JP; NULL: none).
     const c8*        script_font;
     // A font for the Latin letters Roboto lacks, behind it (Hindi's ṭ ḍ, Thai's ǎ ɔ: Noto Sans; NULL: none).
     const c8*        latin_font;
@@ -67,7 +67,7 @@ typedef struct {
     const fude_app_licence* licences;
     u32              licence_count;
     const c8*        faq_url;      // The FAQ & Contact page (NULL to use FUDE_APP_FAQ_URL).
-    // The screen turns with the device, landscape too (Sketching). When false it stays portrait, either way up.
+    // The screen turns with the device, landscape too (the canvas apps). When false it stays portrait, either way up.
     b8               turns;
 } fude_app_info;
 

@@ -34,8 +34,8 @@
 
 // --- Asking ----------------------------------------------------------------------------------------------------------
 
-// Returns the language typed in: the reader's (English when the app's UI is in the language taught, as Kana's in
-// Japanese).
+// Returns the language typed in: the reader's (English when the app's UI is in the language taught: Japanese
+// while Japanese is taught).
 RDE_INTERNAL const c8* fude_translator_from(void) {
     return fude_translate_target();
 }
@@ -198,7 +198,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
     const f32         _right  = (f32)_size.x * 0.5f - (f32)_insets.z - 24.0f;
     const f32         _width  = _right - _left;
 
-    // The header: the language's badge (Kana's is 訳), the title ("Into Japanese" in Kana), and the language typed in,
+    // The header: the language's badge (Japanese's is 訳), the title ("Into Japanese", say), and the language typed in,
     // an arrow, and the language taught, named in itself (日本語). When the UI is in the language taught, English is
     // what is typed. Both names are the UI's list's (text.h). The header leaves room at the top right for the field,
     // which the UI draws.

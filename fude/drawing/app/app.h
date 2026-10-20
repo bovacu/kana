@@ -16,8 +16,8 @@
 // App: the app as the drawing core knows it. It holds the page (and the canvases), the screens stacked over it, the
 // retained UI over everything, and what the app is (info.h) and adds to the core (extension.h).
 //
-// Where it sits: drawing/app, the top of the drawing core. Every app's shell (study/app/shell.c, apps/draw,
-// apps/sketching) fills one fude_app and drives it; nearly everything in drawing/app takes it.
+// Where it sits: drawing/app, the top of the drawing core. Every app's shell (study/app/shell.c, zoom/shell.c,
+// or an app's own) fills one fude_app and drives it; nearly everything in drawing/app takes it.
 //
 // THE LAYERS. Models keep what is written and know nothing of the screen (ink.h, lasso.h, notes.h...). Widgets are
 // pieces of UI that know no screen (kit.h, row.h, toolbar.h, side.h, filterbar.h, notice.h, draw.h, scroll.h).
@@ -115,6 +115,9 @@ const c8*             fude_app_id(const fude_app* _app);
 // The screen on top: the first open one in the table, whose order is the stack's. NULL when none is open and the
 // page shows.
 const fude_screen_slot* fude_app_top(const fude_app* _app);
+// What the app shows, by name: the screen on top's (screen.h), or "the page" when none is open. For a developer's
+// messages (redraw.h's check). The name is the screen's own, valid for the app's life.
+const c8*              fude_app_shown(const fude_app* _app);
 // Whether screen _screen (its place in the table) is open.
 b8                     fude_app_is_open(const fude_app* _app, u32 _screen);
 

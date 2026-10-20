@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/screens/practice.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 #include "drawing/base/clock.h"
 #include "drawing/base/text.h"
@@ -697,6 +698,8 @@ void fude_practice_render(fude_practice* _practice, rde_window* _window, rde_fon
             _practice->demo_start = _now;
             _practice->demo_done  = 0.0;
         }
+        // Render on demand: it writes again once rested.
+        fude_redraw_after(_practice->demo_done > 0.0 ? FUDE_PRACTICE_DEMO_REST - (_now - _practice->demo_done) : 0.0);
     }
 
     // --- Beside it: what it is, how it went before, and how this session went ---

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, a notebook's pages strip (0.1.86), and the panel listing the canvases Find found the words in.
@@ -132,6 +133,7 @@ void fude_zoom_page_strip_draw(fude_zoom_page* _page, rde_window* _window, rde_c
         _s->camera = _was;
         _page->strip_pic_ready[_slot] = true;
         _page->strip_pic_rev[_slot]   = _s->revision;
+        fude_redraw_changed();   // (render on demand: the next, if any, in the next frame)
         return;   // (one a frame)
     }
 }
@@ -252,7 +254,11 @@ void fude_zoom_page_render_strip(fude_zoom_page* _page) {
         _page->strip_pick   = FUDE_ZOOM_NONE;
         _page->strip_lifted = false;
     }
-    // A page held still long enough: lifted, to be dragged to its place.
+    // A page held still long enough: lifted, to be dragged to its place (render on demand: a hand held still sends
+    // nothing, so the hold's end is a timer).
+    if(_page->strip_hand != 0u && !_page->strip_dragged && !_page->strip_lifted && rde_engine_get_time_now() - _page->strip_down_at < FUDE_ZOOM_PAGE_STRIP_HOLD) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_STRIP_HOLD - (rde_engine_get_time_now() - _page->strip_down_at));
+    }
     if(_page->strip_hand != 0u && !_page->strip_dragged && !_page->strip_lifted && rde_engine_get_time_now() - _page->strip_down_at >= FUDE_ZOOM_PAGE_STRIP_HOLD) {
         const u32 _under = fude_zoom_page_strip_under(_page, &_l, _page->strip_down);
         if(_under != FUDE_ZOOM_NONE) {
@@ -268,6 +274,9 @@ void fude_zoom_page_render_strip(fude_zoom_page* _page) {
         const f64 _push = _x < _l.inner.min_x + FUDE_ZOOM_PAGE_STRIP_EDGE ? -8.0 : _x > _l.inner.max_x - FUDE_ZOOM_PAGE_STRIP_EDGE ? 8.0 : 0.0;
         _page->strip_scroll += _push;
         _page->strip_drop    = fude_zoom_page_strip_place(_page, &_l, _x);
+        if(_push != 0.0) {
+            fude_redraw_changed();   // (render on demand: it scrolls on every frame, the hand still)
+        }
     }
     _page->strip_scroll = rde_math_min_f64(rde_math_max_f64(_page->strip_scroll, 0.0), fude_zoom_page_strip_most(_page, &_l));
     const fude_theme* _t = fude_theme_active();
@@ -458,6 +467,9 @@ RDE_INTERNAL f64 fude_zoom_page_everywhere_most(const fude_zoom_page* _page, con
 void fude_zoom_page_render_everywhere(fude_zoom_page* _page) {
     if(!_page->everywhere_shown || _page->presenting || !_page->open) {
         return;
+    }
+    if(_page->everywhere_on) {
+        fude_redraw_changed();   // (render on demand: it looks through a few more canvases each frame)
     }
     fude_zoom_page_everywhere_step(_page);
     if(!_page->everywhere_shown) {

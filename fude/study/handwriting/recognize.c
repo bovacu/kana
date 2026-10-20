@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/handwriting/recognize.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 
 // ===========================================================================
@@ -24,6 +25,9 @@ static void fude_recognize_pump(void) {
     if(fude_recognize_inflight != 0 && fude_mlkit_poll(fude_recognize_answer, sizeof(fude_recognize_answer), NULL)) {
         fude_recognize_done     = fude_recognize_inflight;
         fude_recognize_inflight = 0;
+        fude_redraw_changed();   // (render on demand: the screen waiting on it shows it)
+    } else if(fude_recognize_inflight != 0) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: ML Kit's answer is polled, with no event)
     }
 }
 

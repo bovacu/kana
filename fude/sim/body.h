@@ -17,7 +17,7 @@
 // Threads: pure functions over the caller's data and a constant table, so they are safe on any thread; today they
 // are called on the app's main thread.
 //
-// Units are whatever the outline's are (millimetres on Sketching's canvas). A material's density is in kg/m³, and a
+// Units are whatever the outline's are (millimetres on a canvas app's canvas). A material's density is in kg/m³, and a
 // body is taken to be a plate FUDE_SIM_BODY_THICKNESS thick, because a drawing has no depth.
 // ===========================================================================
 

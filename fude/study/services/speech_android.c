@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/services/speech.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 
 // ===========================================================================
@@ -85,13 +86,10 @@ FUDE_SPEECH_ fude_speech_state(void) {
         return FUDE_SPEECH_NONE;
     }
     fude_speech_start(_env);
-    // When the app comes back after a while away with no voice, the engine is asked again. A gap of more than 1.5
-    // seconds between calls means the app was away, since its frames stop in the background; it may have been in
-    // Settings, where a voice may just have been installed.
-    static f64 _last = 0.0;
-    const f64  _now  = rde_engine_get_time_now();
-    const b8   _back = _last > 0.0 && _now - _last > 1.5;
-    _last = _now;
+    // When the app comes back with no voice, the engine is asked again: it may have been in Settings, where a voice
+    // may just have been installed. Coming back is told by the shell (fude_speech_came_back), not guessed from a gap
+    // between calls: a still screen draws no frames for as long as nothing happens (drawing/base/redraw.h).
+    const b8 _back = fude_speech_take_came_back();
     static jmethodID _state = NULL, _recheck = NULL;
     if(_state == NULL)   { _state   = fude_android_method(FUDE_JAVA_SPEECH, "state", "()I"); }
     if(_recheck == NULL) { _recheck = fude_android_method(FUDE_JAVA_SPEECH, "recheck", "()V"); }
@@ -108,6 +106,9 @@ FUDE_SPEECH_ fude_speech_state(void) {
         fude_speech_started = false;
         fude_speech_start(_env);
         return FUDE_SPEECH_CHECKING;
+    }
+    if(_s != 2 && _s != 3) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: the engine's answer is polled, with no event)
     }
     return _s == 2 ? FUDE_SPEECH_READY : _s == 3 ? FUDE_SPEECH_MISSING : FUDE_SPEECH_CHECKING;
 }

@@ -121,16 +121,16 @@
 #define FUDE_ICON_IMAGE         "\xEE\x8B\x8A"   // ph-image U+E2CA
 #define FUDE_ICON_SCAN          "\xEE\xAE\xB6"   // ph-scan U+EBB6
 #define FUDE_ICON_PAUSE         "\xEE\x8E\x9E"   // ph-pause U+E39E
-#define FUDE_ICON_SHAPES          "\xEE\xB1\x9E"   // ph-shapes U+EC5E (Sketching's shapes tool)
+#define FUDE_ICON_SHAPES          "\xEE\xB1\x9E"   // ph-shapes U+EC5E (the canvas apps' shapes tool)
 #define FUDE_ICON_LINE            "\xEE\x9B\x92"   // ph-line-segment U+E6D2 (a line)
 #define FUDE_ICON_RECTANGLE       "\xEE\x8F\xB0"   // ph-rectangle U+E3F0 (a rectangle)
 #define FUDE_ICON_TRIANGLE        "\xEE\x92\xB0"   // ph-triangle U+E4B0 (a triangle)
 #define FUDE_ICON_FILL            "\xEE\x8E\x92"   // ph-paint-bucket U+E392 (filled shapes)
-#define FUDE_ICON_SMOOTHING       "\xEE\xAA\x9A"   // ph-wave-sine U+EA9A (Sketching's smoothing tool)
+#define FUDE_ICON_SMOOTHING       "\xEE\xAA\x9A"   // ph-wave-sine U+EA9A (the canvas apps' smoothing tool)
 #define FUDE_ICON_SIGNAL_LOW      "\xEE\x85\x86"   // ph-cell-signal-low U+E146 (an amount: a little)
 #define FUDE_ICON_SIGNAL_MEDIUM   "\xEE\x85\x88"   // ph-cell-signal-medium U+E148 (an amount: more)
 #define FUDE_ICON_SIGNAL_HIGH     "\xEE\x85\x84"   // ph-cell-signal-high U+E144 (an amount: a lot)
-#define FUDE_ICON_RULER           "\xEE\x9A\xB8"   // ph-ruler U+E6B8 (the ruler, one of Sketching's instruments)
+#define FUDE_ICON_RULER           "\xEE\x9A\xB8"   // ph-ruler U+E6B8 (the ruler, one of the canvas apps' instruments)
 #define FUDE_ICON_SQUARE_30       "\xEE\x92\xB2"   // ph-triangle-dashed U+E4B2 (the 30/60 set square)
 #define FUDE_ICON_PROTRACTOR      "\xEE\x86\x8C"   // ph-circle-half U+E18C (the protractor)
 #define FUDE_ICON_COMPASS         "\xEE\xA8\x8E"   // ph-compass-tool U+EA0E (the compass)

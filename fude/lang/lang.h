@@ -11,8 +11,8 @@
 // direction, its chart of letters, how its words are found in a line of text and how its free writing is read.
 //
 // Where it sits: this is the interface between the study layer (fude/study, what the six study apps share), which
-// calls it, and one language, which implements it in its own folder: Kana fude/lang/ja, Hanzi fude/lang/zh, Hangul
-// fude/lang/ko, Thai fude/lang/th, Hindi fude/lang/hi, Arabic fude/lang/ar. An app compiles exactly one of them. The
+// calls it, and one language, which implements it in its own folder: Japanese fude/lang/ja, Chinese fude/lang/zh,
+// Korean fude/lang/ko, Thai fude/lang/th, Hindi fude/lang/hi, Arabic fude/lang/ar. An app compiles exactly one. The
 // canvas apps (fude/zoom) teach no language and compile none.
 // Besides lang.c, which answers most of this interface, a language's folder has:
 //   - lang_ios.m, its iOS side: the text recognizer's options (fude_lang_text_options, below);
@@ -345,9 +345,12 @@ const fude_lang_writing_def* fude_lang_writing(void);
 // study/chars/kanji.h's format. Each language has its own, in its bake.c. A phone or tablet has none: the study's
 // stand-in takes its place, and fails.
 
-// Runs the bake with the app's command line (which can name other source and output paths), reporting on the log.
-// Returns 0 on success; anything else is a failure, and the log says why.
-i32       fude_bake_run(i32 _argc, c8** _argv);
+struct fude_bake_app;   // study/chars/bake.h
+
+// Runs the bake for the app _app describes (study/chars/bake.h: fude_bake_app, its paths and its strokes' notice) with
+// the app's command line (which can name other source and output paths), reporting on the log. Returns 0 on success;
+// anything else is a failure, and the log says why.
+i32       fude_bake_run(const struct fude_bake_app* _app, i32 _argc, c8** _argv);
 
 // --- iOS ------------------------------------------------------------------------------
 

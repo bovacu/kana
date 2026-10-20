@@ -9,7 +9,7 @@
 #include "zoom/select.h"
 
 // ===========================================================================
-// Pieces: things kept to use again on any canvas (Sketching's My pieces): a jig's outline, a joint, a diagram's
+// Pieces: things kept to use again on any canvas (My pieces): a jig's outline, a joint, a diagram's
 // corner, a sign. A piece is kept from the lasso (what it holds, or an area with what is in it), with a name, and put
 // back from Insert in the middle of the view at its TRUE SIZE: it is kept in the canvas's own units at ×1 (the home
 // frame's), which are the same length on every canvas, so with the screen calibrated a millimetre stays a millimetre.

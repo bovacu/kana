@@ -457,3 +457,9 @@ Totals: 230 already fixed, 4 cross-area, 149 fixed, 17 kept, 4 not a bug.
 - FIXED — wrong comments: scene.h (loading, GARBAGE, frame.dead), index.h, zfile.h (compaction's triggers), draw.c, render.h, render_parts.h, page.h, extension.h, mlkit.h, tools' headers (build_all.sh, prepared.py)
 - FIXED — tooling: rules.py's app names lacked Thai, Hindi, Arabic and Draw; warnings.sh did not check Draw; Draw took arguments only in debug, not with FUDE_ALLOW_ARGS; shots.txt's "ramp" and "crank" showed renumbered examples (now 37 and 30: their baseline pictures need taking again); docs/quality_counts.txt saved at zero
 - FIXED — match.c: the prepared references (~10 MB) were in the engine's fixed pool — on the std allocator (coding_rules §3)
+
+## What the rendering work found (2026-10-17–18)
+
+The kana side of the rendering review (quality_plan 4.10); the engine's bugs are in quality_plan's "RDE changes".
+
+- FIXED — page_ui.c fude_zoom_page_ui_lay_out: InfiNote launched on the Mac without `--size` showed the microphone's chip over the whole window, so any click started a recording — the row was laid out again only when the screen, a notebook, the recordings or recording changed, and the chip is offered only once a canvas is open, often at the size the row was first laid out at: shown, never placed, it kept the UI's default size — the microphone's offer is in the layout key (page.h `laid_audio`) — no suite builds page_ui.c: checked in the running app

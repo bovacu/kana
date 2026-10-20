@@ -344,8 +344,8 @@ RDE_INTERNAL const fude_zoom_topic* fude_zoom_topic_of(void) {
     return &fude_zoom_topic_bar;
 }
 
-// A topic's name in this app: General's and Maths' are the app's own (product.h: Notes in InfiNote, Sketch and Graphs
-// in InfiniWorkshop); the others are the same in every app.
+// A topic's name in this app: General's and Maths' are the app's own (product.h: Notes in the notes product, Sketch and
+// Graphs in the workshop one); the others are the same in every app.
 RDE_INTERNAL u32 fude_zoom_topic_name(u8 _topic) {
     if(_topic == FUDE_ZOOM_TOPIC_GENERAL) {
         return fude_zoom_product_get()->general_name;

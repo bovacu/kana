@@ -60,7 +60,7 @@ void fude_study_exam(fude_app* _app, const u32* _records, u32 _count) {
 // points into record numbers; at most FUDE_REVIEW_SESSION are due at once.
 u32 fude_study_reviews_due(fude_app* _app, u32* _out, u32 _max) {
     fude_study* _study = FUDE_STUDY(_app);
-    // Every marked character, however many the learner has marked (Kana alone has over 6,000 kanji).
+    // Every marked character, however many the learner has marked (Japanese alone has over 6,000 kanji).
     const u32         _studying = fude_marks_count(FUDE_MARK_STUDYING);
     const u32         _known    = fude_marks_count(FUDE_MARK_KNOWN);
     rde_arr TYPE(u32) _list     = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());

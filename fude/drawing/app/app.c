@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/app.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/crash.h"
 #include "drawing/app/ui.h"
 #include "drawing/app/page.h"
@@ -113,6 +114,15 @@ const fude_screen_slot* fude_app_top(const fude_app* _app) {
     return NULL;
 }
 
+// The top screen's name, or the page's when none is open (a screen with no name is still told apart from the page).
+const c8* fude_app_shown(const fude_app* _app) {
+    const fude_screen_slot* _top = fude_app_top(_app);
+    if(_top == NULL) {
+        return "the page";
+    }
+    return _top->vt->name != NULL ? _top->vt->name : "a screen with no name";
+}
+
 // Whether screen _screen, its index in the table, is open. An index past the table is not.
 b8 fude_app_is_open(const fude_app* _app, u32 _screen) {
     return _screen < _app->screen_count && fude_app_slot_open(&_app->screens[_screen]);
@@ -203,12 +213,15 @@ b8 fude_app_update(fude_app* _app, f32 _dt) {
     fude_app_apply_ui_size(_app);   // First, before anything reads the window's size.
 #if defined(RDE_PLATFORM_MOBILE)
     // Lock the screen to portrait, either way up, on every phone and tablet; an app that turns (fude_app_info.turns,
-    // such as Sketching) may be any way round. It is asked here, once the window has its size, because SDL's own
+    // such as a canvas app) may be any way round. It is asked here, once the window has its size, because SDL's own
     // request when the window is created can come too early and do nothing, and Android then rotates freely. It is
     // asked again each frame until it succeeds.
     static b8 _portrait = false;
     if(!_portrait) {
         _portrait = rde_window_set_orientation_lock(_app->info->turns ? RDE_ORIENTATION_LOCK_NONE : RDE_ORIENTATION_LOCK_PORTRAIT_ANY);
+        if(!_portrait) {
+            fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: asked again soon, event or not)
+        }
     }
 #endif
 

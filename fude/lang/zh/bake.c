@@ -7,27 +7,19 @@
 #include "study/chars/bake.h"
 
 // ===========================================================================
-// See lang.h (fude_bake_run). Hanzi's data bake (study/chars/bake.h), a DESKTOP mode of the app itself:
+// See lang.h (fude_bake_run). Chinese's data bake (study/chars/bake.h), a DESKTOP mode of the app itself:
 //
 //   <desktop build> --bake [--strokes=PATH] [--prepared=DIR] [--out=PATH]
 //
-// It is run from the project root after apps/hanzi/tools/data/ (fetch.py, strokes.py, prepare.py). The defaults are
-// data/raw/zh/hanzivg.xml, data/raw/zh/prepared/ and apps/hanzi/assets/data/characters.kana, with the strokes beside
-// it in a file of their own (strokes.kana). The strokes are Make Me a Hanzi's, under the Arphic Public License, which
-// asks for them to be kept apart like this and for a notice of how they were changed.
+// It is run from the project root after the app's data tools (fetch.py, strokes.py, prepare.py). The defaults are
+// data/raw/zh/hanzivg.xml, data/raw/zh/prepared/ and the app's out (fude_bake_app), with the strokes beside it in a
+// file of their own (strokes.kana). The strokes are Make Me a Hanzi's, under the Arphic Public License, which asks for
+// them to be kept apart like this and for a notice of how they were changed: the app's (fude_bake_app's
+// strokes_notice), since its tools changed them. A bake without one fails.
 //
-// Chinese's sources are read by its tools (apps/hanzi/tools/data/); this file only bakes what they prepared, through
+// Chinese's sources are read by its tools (the app's); this file only bakes what they prepared, through
 // the study's bake (fude_bake_run_prepared). It is left out of phone and tablet builds.
 // ===========================================================================
-
-// The notice the Arphic Public License asks for when the strokes are changed (its §2a): where they come from, how
-// they were changed and when, and where the changed data is published.
-#define FUDE_ZH_NOTICE \
-    "Hanzi's stroke data is Make Me a Hanzi's (github.com/skishore/makemeahanzi), via hanzi-writer-data 2.0.1, " \
-    "derived from Arphic Technology's fonts and licensed under the Arphic Public License (ARPHICPL.TXT). " \
-    "Changed by Hanzi's tools (apps/hanzi/tools/data/strokes.py), October 2026: each stroke's median turned " \
-    "into cubic Bezier curves in a 109-unit box, then stored in this file's format (fixed point). " \
-    "The changed data is published under the same licence: https://github.com/bovacu/hazi_custom_stroke_data"
 
 // Look-alikes are found for the characters on HSK's lists or among the 3,000 commonest. Chinese has no script of
 // letters to compare apart, so no character is one.
@@ -53,22 +45,24 @@ static const fude_bake_look FUDE_ZH_LOOK = {
 // The meanings' other languages, as the tools' prepare.py writes them.
 static const c8* const FUDE_ZH_LANGS[] = { "es", "pt", "fr" };   // prepare.py's LANGS.
 
-// The bake: its default sources and output, and the strokes' notice. Words and examples keep the study's default
-// lengths.
+// The bake: its default sources. Words and examples keep the study's default lengths.
 static const fude_bake_prepared_def FUDE_ZH_BAKE = {
     .strokes        = "data/raw/zh/hanzivg.xml",
     .prepared       = "data/raw/zh/prepared",
-    .out            = "apps/hanzi/assets/data/characters.kana",
-    .tools          = "apps/hanzi/tools/data: fetch.py, strokes.py, prepare.py",
     .languages      = FUDE_ZH_LANGS,
     .language_count = (u32)(sizeof(FUDE_ZH_LANGS) / sizeof(FUDE_ZH_LANGS[0])),   // Counted, so a language added cannot be left out.
-    .strokes_notice = FUDE_ZH_NOTICE,   // In a file of their own, because the licence asks for the notice with them.
     .look           = &FUDE_ZH_LOOK,
 };
 
-// Runs Hanzi's bake with the app's command line. Returns 0 on success.
-i32 fude_bake_run(i32 _argc, c8** _argv) {
-    return fude_bake_run_prepared(&FUDE_ZH_BAKE, _argc, _argv);
+// Runs Chinese's bake with the app's command line. Returns 0 on success.
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
+    // The Arphic Public License asks for the changed strokes to be kept apart, with a notice of how they were changed
+    // (its §2a): the app's, since its tools changed them.
+    if(_app->strokes_notice == NULL) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "bake: Chinese's strokes need the app's notice (fude_bake_app: strokes_notice)");
+        return 1;
+    }
+    return fude_bake_run_prepared(&FUDE_ZH_BAKE, _app, _argc, _argv);
 }
 
 #endif

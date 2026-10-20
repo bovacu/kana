@@ -10,7 +10,7 @@
 // ===========================================================================
 // Library: the screen of documents to read and write on (doc.h). It lists:
 //
-//   the app's books (Kana: free lessons, in its assets), a card each with its cover, title, what it is, and who made
+//   the app's books (free lessons, say, in its assets), a card each with its cover, title, what it is, and who made
 //   it and its licence. A tap opens the book on a canvas of its own in the notes (the same canvas again the next
 //   time);
 //   the learner's own documents: the canvases over a PDF they brought in, newest first. A tap opens one;
@@ -33,7 +33,7 @@
 
 struct fude_app;
 
-#define FUDE_LIBRARY_BOOKS 16u   // The most of the app's books shown (from its extension; Kana has five).
+#define FUDE_LIBRARY_BOOKS 16u   // The most of the app's books shown (from its extension; a study app has a handful).
 
 // One of the learner's documents, as listed: its canvas's id, and its row as drawn last frame (screen space, for
 // taps).

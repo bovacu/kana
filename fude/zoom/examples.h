@@ -8,7 +8,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// Examples (Sketching's Insert → Examples): canvases to learn from, which also try the simulations hard. Circuits go
+// Examples (Insert → Examples): canvases to learn from, which also try the simulations hard. Circuits go
 // from a torch to a chaser of chips, mechanisms from a crank to a machine of many, and some have both working
 // together; each is a canvas of its own, in order from the simplest. They are drawn as a person would draw them (the
 // library's parts at their sizes, wired pin to pin, a title over each), so what they do is what Play does with

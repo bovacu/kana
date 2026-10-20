@@ -302,8 +302,8 @@ void fude_zoom_render_rich_draw(const fude_zoom_renderer* _r, const fude_zoom_ri
         }
         const rde_vec_2F _at = FZRN_AT(_q.x, _q.y);
         fude_zoom_render_ended_text _e;
-        rde_rendering_2d_draw_text_2(fude_zoom_render_font_of(_r, _q.style), fude_zoom_render_ended(&_e, _from, _q.len), (rde_vec_3F){ _at.x, _at.y, 0.0f },
-                                     (rde_vec_2F){ (f32)_px / _r->font_px, (f32)_px / _r->font_px }, 0.0f, _c);
+        fude_draw_text_placed(fude_zoom_render_font_of(_r, _q.style), fude_zoom_render_ended(&_e, _from, _q.len), (rde_vec_3F){ _at.x, _at.y, 0.0f },
+                              (rde_vec_2F){ (f32)_px / _r->font_px, (f32)_px / _r->font_px }, 0.0f, _c);
         fude_zoom_render_ended_free(&_e);
     }
     #undef FZRN_AT
@@ -452,8 +452,8 @@ void fude_zoom_render_text_aligned(const fude_zoom_renderer* _r, const c8* _text
         const c8* _line = &_words[_from[_i]];
         const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _line, (f32)_px);
         const f32 _x = _align == FUDE_ZOOM_ALIGN_LEFT ? (f32)_box.min_x : _align == FUDE_ZOOM_ALIGN_RIGHT ? (f32)_box.max_x - _w : (f32)(_cx - _w * 0.5);
-        rde_rendering_2d_draw_text_2(_r->font, _line, (rde_vec_3F){ _x, (f32)_y, 0.0f },
-                                     (rde_vec_2F){ (f32)_px / _r->font_px, (f32)_px / _r->font_px }, 0.0f, _color);
+        fude_draw_text_placed(_r->font, _line, (rde_vec_3F){ _x, (f32)_y, 0.0f },
+                              (rde_vec_2F){ (f32)_px / _r->font_px, (f32)_px / _r->font_px }, 0.0f, _color);
         _words[_to[_i]] = _after;
     }
     if(_from != _from_small) {

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/models/review.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/kfile.h"
 #include "drawing/base/save.h"
 
@@ -180,6 +181,10 @@ u32 fude_reviews_today(void) {
     }
 #endif
     const rde_date_components _today = rde_date_local_components(rde_date_now_unix_seconds());
+    // Render on demand: what shows the day (the reviews due, "in 2 days") changes at midnight with no event, so the
+    // frame just after it is a timer (asked each time the day is read for the screen).
+    const u32 _into = (u32)_today.hour * 3600u + (u32)_today.minute * 60u + (u32)_today.second;
+    fude_redraw_after((f64)(_into < 86400u ? 86400u - _into : 1u) + 0.5);
     return fude_reviews_days((i32)_today.year, (u32)_today.month, (u32)_today.day);
 }
 

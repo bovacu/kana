@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/screens/exam.h"
+#include "drawing/base/redraw.h"
 #include "study/widgets/header.h"
 #include "study/models/review.h"
 #include "lang/lang.h"
@@ -114,7 +115,7 @@ void fude_exam_destroy(fude_exam* _exam) {
 // Only what the catalog lists counts.
 RDE_INTERNAL b8 fude_exam_in_source(const fude_exam* _exam, FUDE_EXAM_SOURCE_ _source, u32 _record) {
     if(_exam->catalog == NULL || !fude_catalog_passes(_exam->catalog, _record, FUDE_FILTER_ALL)) {
-        return false;   // Only what the catalog lists (in Kana, the kana and the kanji).
+        return false;   // Only what the catalog lists (for Japanese, the kana and the kanji).
     }
     fude_kanji_info _info;
     const u32       _levels = fude_lang_level_count();
@@ -456,6 +457,7 @@ RDE_INTERNAL u32 fude_exam_graded_count(const fude_exam* _exam) {
 RDE_INTERNAL void fude_exam_grade(fude_exam* _exam) {
     const f64 _now = rde_engine_get_time_now();
     if(_exam->grading != UINT32_MAX) {
+        fude_redraw_changed();   // (render on demand: grading goes on frame by frame, ML Kit polled, until all are marked)
         fude_exam_item* _it = &_exam->items[_exam->grading];
         if(fude_recognize_poll(&_exam->recognition)) {
             fude_exam_mark(_exam, _it, &_exam->recognition);
@@ -472,6 +474,7 @@ RDE_INTERNAL void fude_exam_grade(fude_exam* _exam) {
         if(!_it->answered || _it->graded) {
             continue;
         }
+        fude_redraw_changed();   // (render on demand: one to grade, this frame or the next)
         if(fude_ink_alive_strokes(&_it->ink) > 0 && fude_recognize_available()) {
             if(fude_recognize_start(&_exam->recognition, &_it->ink)) {
                 _exam->grading       = _exam->order[_i];

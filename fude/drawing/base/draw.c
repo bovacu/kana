@@ -11,9 +11,11 @@
 // See draw.h.
 //
 // The file keeps its state between calls, all on the main thread: the mirror (fude_draw_m: the screen being drawn
-// right to left, its kept boxes, and the last screen's copy that the pointer is mapped through), the measured text
-// widths (1,536 kept: fude_draw_exact_lru, by the font, its size and the text), the wrapped layouts (64 kept), the
-// balanced widths (32 kept) and the sizes of texts drawn whole (32 kept). The layouts, the balanced widths and the
+// right to left, its kept boxes, and the last screen's copy that the pointer is mapped through), the texts' shapes
+// (1,024 kept and a spare: fude_draw_shape_lru, by the font, its generation and the text; the frame count), the
+// measured text widths (1,536 kept: fude_draw_exact_lru, by the font, its size and the text), the wrapped layouts
+// (64 kept), the balanced widths (32 kept) and the sizes of texts drawn whole (32 kept). The layouts, the balanced
+// widths and the
 // whole sizes are each kept in an rde_lru too, by the whole of what they are made from (the font and its size, the
 // size drawn at, the width and every byte of the text: fude_draw_layout_key), so two texts never share one; in each,
 // the one used longest ago makes room.
@@ -167,11 +169,93 @@ rde_vec_2F fude_draw_pointer(rde_vec_2F _p, b8 _press) {
     return (rde_vec_2F){ fude_draw_m.in_sum - _p.x, _p.y };
 }
 
+// --- text drawn from its kept shape (draw.h: the design note) ---------------------------------------
+
+// How many shapes are kept. A screen draws a few hundred texts at most (Browse about 100 a frame, the canvas a line of
+// each note in view), so this covers a screen with room for the next, and a frame that draws more never shapes more
+// than its texts past the bound (the spare, below).
+#define FUDE_DRAW_SHAPES 1024u
+
+// A kept shape, and the frame it was last drawn in (fude_draw_frames when it was).
+typedef struct {
+    rde_text_engine_shaped_text shape;   // Made by rde_text_engine_shape_text, on the font's allocator; zeroed: none yet.
+    u64                         frame;
+} fude_draw_kept_shape;
+
+// The kept shapes, one for each slot of fude_draw_shape_lru (made on first use, on the std allocator), which knows whose
+// shape each holds (its key: the font's pointer and generation, then every byte of the text) and which was drawn
+// longest ago; and the
+// spare at FUDE_DRAW_SHAPES, which holds the last text shaped past the bound until the next. A fixed array, as the
+// other caches' are: its bound is the cache's.
+RDE_INTERNAL fude_draw_kept_shape fude_draw_shapes[FUDE_DRAW_SHAPES + 1u];
+RDE_INTERNAL rde_lru              fude_draw_shape_lru;
+RDE_INTERNAL rde_arr TYPE(u8)     fude_draw_shape_key;   // Where a shape's key is built (made on first use, std allocator).
+RDE_INTERNAL u64                  fude_draw_frames = 0;   // The frames counted so far (fude_draw_frame).
+
+// Counts a frame (see the header).
+void fude_draw_frame(void) {
+    fude_draw_frames++;
+}
+
+// Returns _text's shape in _font: the kept one, or shaped now into a free slot, the slot drawn longest ago (its shape
+// freed), or, when that one was drawn in this frame too, the spare. Nothing but the font (as its generation says:
+// rde_font_get_generation, new when its fallbacks change or another font takes a freed one's address) and the text
+// decides a shape (draw.h), so they are its whole key. The shape is valid until the next one is asked for: it is drawn
+// at once.
+RDE_INTERNAL const rde_text_engine_shaped_text* fude_draw_shape_of(rde_font* _font, const c8* _text) {
+    if(!rde_lru_is_inited(&fude_draw_shape_lru)) {
+        fude_draw_shape_lru = rde_lru_new(FUDE_DRAW_SHAPES, rde_memory_allocator_get_default_std());
+        fude_draw_shape_key = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
+    }
+    const usize _len  = rde_strlen(_text);
+    const u64   _gen  = rde_font_get_generation(_font);
+    const usize _head = sizeof(_font) + sizeof(_gen);
+    rde_arr_clear(&fude_draw_shape_key);
+    u8* _key = (u8*)rde_arr_add_n(&fude_draw_shape_key, _head + _len);
+    rde_memcpy(_key, &_font, sizeof(_font));
+    rde_memcpy(_key + sizeof(_font), &_gen, sizeof(_gen));
+    rde_memcpy(_key + _head, _text, _len);
+    u32 _slot = rde_lru_find(&fude_draw_shape_lru, _key, _head + _len);
+    if(_slot != RDE_LRU_NONE) {
+        fude_draw_shapes[_slot].frame = fude_draw_frames;
+        return &fude_draw_shapes[_slot].shape;
+    }
+    // Every slot drawn in this frame: a screen with more texts than are kept. Taking the oldest's slot would shape
+    // every text of it every frame (each pushing out the one drawn next), so this one goes to the spare.
+    const u32 _oldest = rde_lru_oldest(&fude_draw_shape_lru);
+    _slot             = FUDE_DRAW_SHAPES;
+    if(rde_lru_length(&fude_draw_shape_lru) < FUDE_DRAW_SHAPES || fude_draw_shapes[_oldest].frame != fude_draw_frames) {
+        _slot = rde_lru_add(&fude_draw_shape_lru, _key, _head + _len, NULL);
+    }
+    fude_draw_kept_shape* _k = &fude_draw_shapes[_slot];
+    rde_text_engine_free_shaped_text(&_k->shape);   // What it held: another text's shape, or nothing yet.
+    _k->shape = rde_text_engine_shape_text(_font, NULL, _text);
+    _k->frame = fude_draw_frames;
+    return &_k->shape;
+}
+
+// Frees every kept shape and forgets whose they were. fude_draw_forget calls it, with the other caches'.
+RDE_INTERNAL void fude_draw_shapes_forget(void) {
+    for(u32 _i = 0; _i <= FUDE_DRAW_SHAPES; _i++) {
+        rde_text_engine_free_shaped_text(&fude_draw_shapes[_i].shape);
+        rde_memset(&fude_draw_shapes[_i], 0, sizeof(fude_draw_shapes[_i]));
+    }
+    rde_lru_clear(&fude_draw_shape_lru);
+}
+
+// Draws _text as rde_rendering_2d_draw_text_2 would, from its kept shape. See the header.
+void fude_draw_text_placed(rde_font* _font, const c8* _text, rde_vec_3F _position, rde_vec_2F _scale, f32 _rotation_deg, rde_color _color) {
+    if(_font == NULL || _text == NULL) {
+        return;
+    }
+    rde_rendering_2d_draw_shaped_text_2(_font, fude_draw_shape_of(_font, _text), _position, _scale, _rotation_deg, _color);
+}
+
 // Draws _text with its baseline starting at (_x, _y), exactly there: no mirroring and no change of digits. Placed
-// texts and icons end up here; only a text mirrored whole is drawn from its shape instead (fude_draw_text).
+// texts and icons end up here; only a text mirrored whole is placed by its shape's width first (fude_draw_text).
 RDE_INTERNAL void fude_draw_text_raw(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
     const f32 _scale = _px / _font_px;
-    rde_rendering_2d_draw_text_2(_font, _text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
+    rde_rendering_2d_draw_shaped_text_2(_font, fude_draw_shape_of(_font, _text), (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
 }
 
 // When _text is only a number (a score, "3 / 20", "×2"), which a screen formats itself, returns it in _buf in the
@@ -214,14 +298,12 @@ void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 
         return;
     }
     // Mirrored: the text ends where it would have started. Its width is taken from the very shape that is drawn, so
-    // the two always agree. It is shaped once a call, as the engine shapes a text drawn from the left
-    // (rde_rendering_2d_draw_text_2 shapes, draws and frees it): a right-to-left screen costs no more than a
-    // left-to-right one.
-    const f32                   _scale = _px / _font_px;
-    rde_text_engine_shaped_text _shape = rde_text_engine_shape_text(_font, NULL, _text);
-    const f32                   _w     = (f32)_shape.bounding_box.width * _scale;
-    rde_rendering_2d_draw_shaped_text_3(_font, &_shape, (rde_vec_3F){ fude_draw_m.sum - _x - _w, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color, NULL, NULL);
-    rde_text_engine_free_shaped_text(&_shape);
+    // the two always agree; it is the kept one, as for a text drawn from the left, so a right-to-left screen costs no
+    // more than a left-to-right one.
+    const f32                          _scale = _px / _font_px;
+    const rde_text_engine_shaped_text* _shape = fude_draw_shape_of(_font, _text);
+    const f32                          _w     = (f32)_shape->bounding_box.width * _scale;
+    rde_rendering_2d_draw_shaped_text_2(_font, _shape, (rde_vec_3F){ fude_draw_m.sum - _x - _w, _y, 0.0f }, (rde_vec_2F){ _scale, _scale }, 0.0f, _color);
 }
 
 // Draws a line as a two-point stroke of even radius, at its drawn place.
@@ -794,4 +876,16 @@ f32 fude_draw_text_whole(rde_font* _font, f32 _font_px, const c8* _text, f32 _x,
     const f32             _line = _p * 1.18f;
     fude_draw_text_wrap(_font, _font_px, _text, _x, _mid + (f32)(_n - 1u) * _line * 0.5f - _p * 0.38f, _p, _width, _line, _color);
     return _p;
+}
+
+// --- forgetting -------------------------------------------------------------------
+
+// Forgets everything kept about texts (see the header). Every cache here is keyed by a font's pointer, so each is
+// emptied; their memory is kept for reuse, but the shapes', which is the font allocator's and the most, is freed.
+void fude_draw_forget(void) {
+    fude_draw_shapes_forget();
+    rde_lru_clear(&fude_draw_exact_lru);
+    rde_lru_clear(&fude_draw_wrap_lru);
+    rde_lru_clear(&fude_draw_balance_lru);
+    rde_lru_clear(&fude_draw_whole_lru);
 }

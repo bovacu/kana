@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, export: the toolbar's Export (PNG, SVG, PDF, DXF, tiles, the cut list, STL...), a notebook's cover and
@@ -357,6 +358,7 @@ RDE_INTERNAL u8 fude_zoom_page_export_format = 0;
 RDE_INTERNAL void fude_zoom_page_on_export_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     fude_zoom_page* _page = (fude_zoom_page*)_user_data;
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL || _count == 0 || _page == NULL) {
         return;   // cancelled
     }
@@ -537,6 +539,9 @@ RDE_INTERNAL void fude_zoom_page_cover_draw(fude_zoom_page* _page, rde_window* _
         _page->cover_changed_at = _now;
     }
     const b8 _busy = _page->drawing || _page->erasing || _page->flight.active;
+    if(_page->cover_due && !_busy) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_COVER_WAIT - (_now - _page->cover_changed_at));   // (render on demand: drawn then, in a render)
+    }
     if(!_page->cover_now && !(_page->cover_due && !_busy && _now - _page->cover_changed_at >= FUDE_ZOOM_PAGE_COVER_WAIT)) {
         return;
     }
@@ -577,12 +582,16 @@ RDE_INTERNAL void fude_zoom_page_cover_draw(fude_zoom_page* _page, rde_window* _
     _page->cover_due   = false;
     _page->cover_now   = false;
     _page->cover_stage = 1u;
+    fude_redraw_after(0.0);   // (render on demand: read back in the next frame's render)
 }
 
 // See page.h. A PNG export's view is drawn larger than the screen (up to FUDE_ZOOM_PAGE_EXPORT_SCALE pixels a point,
 // its longer side FUDE_ZOOM_PAGE_EXPORT_PX at most) by scaling the camera's zoom for the drawing only. The arrows'
 // previews wait while a PNG or a video is being drawn.
 void fude_zoom_page_render_offscreen(fude_zoom_page* _page, rde_window* _window, rde_camera* _camera) {
+    if(_page->export_stage != 0u) {
+        fude_redraw_changed();   // (render on demand: an export goes on frame by frame, its update's and its render's)
+    }
     fude_zoom_page_cover_draw(_page, _window, _camera);   // (its cover, a while after it changed)
     fude_zoom_page_map_draw(_page, _window, _camera);   // (the map's picture, when it is wanted again)
     fude_zoom_page_strip_draw(_page, _window, _camera);   // (a page's picture for the strip, when one is wanted)

@@ -72,10 +72,10 @@ static const fude_extension KANA_EXTENSION = {
     .nav = &KANA_NAV, .library = KANA_LIBRARY, .library_count = (u32)(sizeof(KANA_LIBRARY) / sizeof(KANA_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def KANA_SHELL = {
     .info = &KANA_INFO, .ext = &KANA_EXTENSION,
-    .bake_config = "apps/kana/assets/config.rdef",
+    .bake = { .config = "apps/kana/assets/config.rdef" },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

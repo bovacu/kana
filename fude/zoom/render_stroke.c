@@ -192,11 +192,12 @@ RDE_INTERNAL u32 fude_zoom_render_stroke_points(fude_zoom_renderer* _r, const fu
     return _n;
 }
 
-// Lets stroke _d's kept mesh go, its bytes off the budget (its decoded points stay).
+// Lets stroke _d's kept mesh go, its bytes off the budget (its decoded points stay), and its GPU copy.
 RDE_INTERNAL void fude_zoom_render_mesh_let_go(fude_zoom_renderer* _r, fude_zoom_decoded* _d) {
     _r->mesh_bytes -= _d->mesh_bytes;
     _d->mesh_bytes  = 0;
     rde_stroke_mesh_free(&_d->mesh);
+    rde_rendering_2d_release_kept_stroke_mesh(&_d->mesh_gpu);
 }
 
 // Makes room for _bytes more of kept meshes: while the budget (mesh_budget) would be passed, the mesh drawn longest
@@ -238,7 +239,7 @@ RDE_INTERNAL void fude_zoom_render_mesh_swap(fude_zoom_renderer* _r, fude_zoom_d
 }
 
 // Stroke _d's mesh, drawn turned and scaled to the screen by (_a, _b), its half-widths scaled by _wscale and _extra
-// wider, a pixel _px wide, and how many points it is made from (*_points): the kept one, or made now.
+// wider, a pixel _px wide, and how many points it is made from (*_points): the kept one (*_reused true), or made now.
 //
 // The cache: each stroke's mesh is kept in its decoded entry (render.c's cache), keyed by every number it is made from
 // but the translation, compared exactly: the stroke (its entry: an object's points never change, an edit makes new
@@ -254,11 +255,16 @@ RDE_INTERNAL void fude_zoom_render_mesh_swap(fude_zoom_renderer* _r, fude_zoom_d
 // A stroke's first mesh is made into the scratch and copied into arrays of its size. One it has already is made again
 // over its own arrays, so a zoom, which makes every mesh each frame, copies and allocates nothing more than before
 // (they grow when it does, and are made again at its size when it uses under half of them).
-RDE_INTERNAL const rde_stroke_mesh* fude_zoom_render_stroke_mesh(fude_zoom_renderer* _r, fude_zoom_decoded* _d, b8 _marker, f64 _a, f64 _b, f64 _wscale, f32 _extra, f32 _px, u32* _points) {
+RDE_INTERNAL const rde_stroke_mesh* fude_zoom_render_stroke_mesh(fude_zoom_renderer* _r, fude_zoom_decoded* _d, b8 _marker, f64 _a, f64 _b, f64 _wscale, f32 _extra, f32 _px, u32* _points, b8* _reused) {
+    *_reused = false;
     if(_extra == 0.0f && _d->mesh_bytes > 0u && _d->mesh_a == _a && _d->mesh_b == _b && _d->mesh_wscale == _wscale && _d->mesh_px == _px) {
         _d->mesh_used = _r->draws;
         *_points      = _d->mesh_points;
+        *_reused      = true;
         return &_d->mesh;
+    }
+    if(_extra == 0.0f) {
+        rde_rendering_2d_release_kept_stroke_mesh(&_d->mesh_gpu);   // (made again below: its GPU copy is stale)
     }
     b8 _own = _extra == 0.0f && _d->mesh_bytes > 0u;
     *_points = fude_zoom_render_stroke_points(_r, _d, _a, _b, _wscale, _extra, _marker);
@@ -300,6 +306,24 @@ RDE_INTERNAL const rde_stroke_mesh* fude_zoom_render_stroke_mesh(fude_zoom_rende
     _d->mesh_bytes  = fude_zoom_render_mesh_held(&_d->mesh);
     _r->mesh_bytes += _d->mesh_bytes;
     return &_d->mesh;
+}
+
+// Draws stroke _d's mesh _mesh moved to _at in _color. The stroke's kept mesh drawn again unchanged (_reused: a pan,
+// or a still screen) is drawn from its GPU copy (RDE's rde_rendering_2d_keep_stroke_mesh), made the first time:
+// uploaded once, then only a 20-byte record of each draw goes up per frame (a gate canvas of a million points, still,
+// measure build: 9.7 MB a frame went up before 2026-10-17, 19.3 MB once reopened; 0.18 MB after). A
+// mesh made in this draw (a zoom makes every mesh each frame), a glow, or one that found no room in the budget is
+// appended to the batch as before: uploading it to keep would cost more than it saves. Both draw the same pixels (the
+// engine's kept-mesh shader does the batch's arithmetic in the same order).
+RDE_INTERNAL void fude_zoom_render_mesh_draw(fude_zoom_decoded* _d, const rde_stroke_mesh* _mesh, b8 _reused, rde_vec_2F _at, rde_color _color) {
+    if(_reused && _mesh == &_d->mesh) {
+        if(!rde_rendering_2d_kept_stroke_mesh_is_valid(_d->mesh_gpu)) {
+            _d->mesh_gpu = rde_rendering_2d_keep_stroke_mesh(&_d->mesh);
+        }
+        rde_rendering_2d_draw_kept_stroke_mesh(_d->mesh_gpu, _at, _color);
+        return;
+    }
+    rde_rendering_2d_draw_stroke_mesh(_mesh, _at, _color);
 }
 
 // Points _p (offsets from _at on the screen) with half-widths _rr, _n of them, tessellated into the scratch mesh and
@@ -364,9 +388,10 @@ void fude_zoom_render_stroke_as(fude_zoom_renderer* _r, const fude_zoom_scene* _
     const f32        _px = rde_rendering_2d_get_pixel_size();
     const rde_vec_2F _at = { (f32)_t.x, (f32)_t.y };   // (where its translation lands: the mesh is moved there)
     if(_size <= 2.0 * (_half.x + _half.y)) {
-        u32 _n = 0;
-        const rde_stroke_mesh* _mesh = fude_zoom_render_stroke_mesh(_r, (fude_zoom_decoded*)_d, _marker, _a, _b, _wscale, _extra, _px, &_n);
-        rde_rendering_2d_draw_stroke_mesh(_mesh, _at, _color);
+        u32 _n      = 0;
+        b8  _reused = false;
+        const rde_stroke_mesh* _mesh = fude_zoom_render_stroke_mesh(_r, (fude_zoom_decoded*)_d, _marker, _a, _b, _wscale, _extra, _px, &_n, &_reused);
+        fude_zoom_render_mesh_draw((fude_zoom_decoded*)_d, _mesh, _reused, _at, _color);
         _r->strokes_drawn++;
         _r->points_drawn += _n;
         return;

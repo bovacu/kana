@@ -977,7 +977,7 @@ b8 fude_zoom_page_everywhere_up(fude_zoom_page* _page, u64 _hand);
 
 // --- page_audio.c: audio synced to ink and its panel -----------------------------------------------------------------
 
-// Is it offered (product.h: a notes app's, not InfiniWorkshop's)?
+// Is it offered (product.h: a notes app's, not a workshop app's)?
 b8 fude_zoom_page_audio_offered(void);
 // The path of canvas _canvas's recording _number (beside the canvas), into _out.
 void fude_zoom_page_audio_rec_path(u32 _canvas, u32 _number, c8* _out, usize _size);

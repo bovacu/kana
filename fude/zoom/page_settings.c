@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/handwriting.h"
 
 // ===========================================================================
@@ -614,6 +615,9 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_zoom_page_on_inktest(rde_ui_node* _node, 
 // the one --gate measures. The cost is one long frame: 66 ms on an M2 Mac (a release build; half a second in a debug
 // one), longer on a tablet (not measured yet), which the notice, drawn the frame before, says is coming.
 void fude_zoom_page_inktest_follow(fude_zoom_page* _page) {
+    if(_page->inktest_canvas != 0u) {
+        fude_redraw_changed();   // (render on demand: its canvas opens a frame or two on)
+    }
     if(_page->inktest_canvas == 0u || !_page->open || _page->canvas != _page->inktest_canvas) {
         return;
     }
@@ -643,6 +647,9 @@ void fude_zoom_page_render_fps(fude_zoom_page* _page) {
         _page->fps        = (f64)_page->fps_frames / (_now - _page->fps_since);
         _page->fps_frames = 0u;
         _page->fps_since  = _now;
+    }
+    if(_page->show_fps) {
+        fude_redraw_changed();   // (render on demand: the frame rate counts every frame, so every frame is drawn)
     }
     if(!_page->show_fps || !(_page->fps > 0.0)) {
         return;

@@ -19,8 +19,8 @@
 // Its main types and their lifecycle: none; it only draws, with the caller's glyph cache (glyph.h) and font.
 // Threads: call it on the app's main thread, while a frame is being drawn.
 // Files: none.
-// Design: a badge's character is drawn from its strokes, as glyph.h draws the language's text (Kana has no Japanese
-// font); a character the data has no strokes for leaves the badge's tint empty.
+// Design: a badge's character is drawn from its strokes, as glyph.h draws the language's text (no Japanese font
+// needed); a character the data has no strokes for leaves the badge's tint empty.
 // ===========================================================================
 
 #define FUDE_HEADER_BADGE      40.0f    // a header's badge

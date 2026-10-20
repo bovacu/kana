@@ -981,7 +981,7 @@ RDE_INTERNAL b8 fude_bake_prepared_chars(fude_bake* _bake, const c8* _dir, c8* _
         _char->frequency = (u16)(i32)rde_strtol(_f[4], NULL, 10);
         _bake->level_listed[_char->level]++;
         if(_f[5][0] == 0 && _f[6][0] == 0 && _f[7][0] == 0) {
-            // A script's letter (Korean's syllables) has no text, as Kana's kana have none (fude_lang_latin names it).
+            // A script's letter (Korean's syllables) has no text, as kana have none (fude_lang_latin names it).
             continue;   // a script's letter: no text
         }
         _char->text      = fude_bytes_size(&_bake->text);
@@ -1185,17 +1185,22 @@ b8 fude_bake_requested(i32 _argc, c8** _argv) {
 }
 
 // Bakes a language from its prepared tables (see the header).
-i32 fude_bake_run_prepared(const fude_bake_prepared_def* _def, i32 _argc, c8** _argv) {
+i32 fude_bake_run_prepared(const fude_bake_prepared_def* _def, const fude_bake_app* _app, i32 _argc, c8** _argv) {
     const c8* _strokes  = fude_bake_arg(_argc, _argv, "--strokes=",  _def->strokes);
     const c8* _prepared = fude_bake_arg(_argc, _argv, "--prepared=", _def->prepared);
-    const c8* _out      = fude_bake_arg(_argc, _argv, "--out=",      _def->out);
+    const c8* _out      = fude_bake_arg(_argc, _argv, "--out=",      _app->out);
+    if(_out == NULL) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "bake: no out (neither the app's bake nor --out= gives one)");
+        return 1;
+    }
     if(!rde_file_exists(_strokes)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "bake: %s not found (%s; run from the project root)", _strokes, _def->tools);
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "bake: %s not found (%s; run from the project root)", _strokes,
+                      _app->tools != NULL ? _app->tools : "the app's tools make it");
         return 1;
     }
     // The strokes' own file, when they have one, goes beside the character data (kanji.h).
     c8 _strokes_out[RDE_MAX_PATH];
-    if(_def->strokes_notice != NULL) {
+    if(_app->strokes_notice != NULL) {
         const c8* _slash = rde_strrchr(_out, '/');
         rde_snprintf(_strokes_out, sizeof(_strokes_out), "%.*s%s", _slash != NULL ? (int)(_slash - _out + 1) : 0, _out, FUDE_KANJI_STROKES_FILE);
     }
@@ -1213,7 +1218,7 @@ i32 fude_bake_run_prepared(const fude_bake_prepared_def* _def, i32 _argc, c8** _
     if(!fude_bake_kanjivg(&_bake, _strokes) || !fude_bake_prepared(&_bake, _prepared)) {
         _rc = 1;
     }
-    if(_rc == 0 && !fude_bake_write(&_bake, _out, _def->strokes_notice != NULL ? _strokes_out : NULL, _def->strokes_notice, _t0)) {
+    if(_rc == 0 && !fude_bake_write(&_bake, _out, _app->strokes_notice != NULL ? _strokes_out : NULL, _app->strokes_notice, _t0)) {
         _rc = 1;
     }
     if(_rc == 0 && !fude_bake_lookalikes(_out, _def->look)) {
@@ -1235,7 +1240,8 @@ b8 fude_bake_requested(i32 _argc, c8** _argv) {
 }
 
 // A phone or tablet cannot bake: it always fails.
-i32 fude_bake_run(i32 _argc, c8** _argv) {
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
+    RDE_UNUSED(_app);
     RDE_UNUSED(_argc);
     RDE_UNUSED(_argv);
     return 1;

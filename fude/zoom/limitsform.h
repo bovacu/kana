@@ -8,7 +8,7 @@
 #include "zoom/limits.h"
 
 // ===========================================================================
-// Limitsform: a circuit part's limits (limits.h) asked for on a card (Sketching's Limits, on the lasso's row when it
+// Limitsform: a circuit part's limits (limits.h) asked for on a card (Limits, on the lasso's row when it
 // holds one circuit part alone).
 //
 // Where it sits: zoom, the canvas apps' layer, over drawing/widgets/kit.h and limits.h. The page (page.h) owns one and

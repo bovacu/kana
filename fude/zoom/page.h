@@ -76,7 +76,7 @@
 // Where it sits: fude/zoom, the top of the canvas layer. It brings the scene (scene.h), the renderer (render.h), the
 // tools and the cards together, and plugs into the app shell through extension.h: FUDE_ZOOM_PAGE_KIND, the toolbar's
 // tools (FUDE_ZOOM_TOOLS), Settings' sections, the page's menus and its own widgets. The canvas apps' shell
-// (zoom/shell.c, which Sketching, InfiNote and InfiniWorkshop each describe themselves to) owns the page and calls it.
+// (zoom/shell.c, which each canvas app describes itself to) owns the page and calls it.
 // Its main types and their lifecycle: the shell owns one fude_zoom_page, made with fude_zoom_page_init and freed with
 // fude_zoom_page_destroy. Only one page exists at a time: the extension's hooks, which are handed no page, reach it
 // through a pointer page.c keeps, set by fude_zoom_page_init.
@@ -86,7 +86,7 @@
 // instruments as they lie; its format is described in page_file.c), <id>.pages (pages.h), <id>.words (words.h),
 // <id>.cover.png (the home screen's cover) and the recordings, <id>.audio and <id>.rec<N> (audio.h).
 // Design:
-//   - A stroke is captured by an ink of its own (ink.h, exactly Kana's pen: its pressure, its pens without pressure,
+//   - A stroke is captured by an ink of its own (ink.h, the same pen: its pressure, its pens without pressure,
 //     its sampling) in the camera frame's units round where it began, and becomes the canvas's (scene.h) when the pen
 //     lifts. Brush colour, size and width come from the app's ink, which the toolbar and Settings set as everywhere.
 //   - The canvas's journal is appended about every second while there is anything new, and everything is
@@ -560,6 +560,7 @@ typedef struct fude_zoom_page {
     b8                       shown_listen;
     rde_vec_2F               listen_center;
     f64                      listen_pressed_at;
+    b8                       laid_audio;          // (the row is laid out with the microphone's chip in it)
     b8                       laid_listen;         // (the row is laid out with the recordings' chip in it)
     b8                       laid_recording;      // (...with the microphone's chip wide, showing a recording's time)
     // The strip's hand: held this long without moving, the page under it is lifted, then dragged to its new place.
@@ -681,7 +682,7 @@ typedef struct fude_zoom_page {
     u32                library_tabs;   // the tabs it shows (bits: the families', the connectors'), as opened
     // Electronics (circuit.h): the circuit Play worked out (from what the lasso held) and simulates; and the wire pen.
     fude_zoom_circuit  circuit;
-    f64                circuit_drawn_at; // when the current's dots were last moved on (they move by the time since)
+    f64                circuit_drawn_at; // Play's time when the current's dots last moved on (they move by Play's time since)
     b8                 circuit_failed;  // it was said that the circuit could not be solved (said once, until it can)
     u32                circuit_held;    // a push button held down (its part in the circuit; FUDE_ZOOM_NONE: none)
     f64                circuit_held_at; // ...since when (the circuit's time)
@@ -887,7 +888,7 @@ typedef struct fude_zoom_page {
 
     // A computer's right-button drag (without a drag, it opens the page's menu).
     b8                 mouse_panning;
-    // A flick (as on Kana's canvas): how fast the hand pans (screen units a second, with what it moved since the last
+    // A flick (as on the ink page): how fast the hand pans (screen units a second, with what it moved since the last
     // look waiting), and the view carrying on once let go.
     fude_zoom_v2       pan_velocity;
     fude_zoom_v2       pan_pending;

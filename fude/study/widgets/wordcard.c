@@ -234,7 +234,7 @@ RDE_INTERNAL void fude_wordcard_latin_names(const c8* _written, c8* _out, usize 
 }
 
 // The dictionary's word written exactly as _written, the commonest of those spelt so, into *_out. False when the
-// dictionary has none (Kana's, for one, has only words with a kanji in them).
+// dictionary has none (Japanese's, for one, has only words with a kanji in them).
 RDE_INTERNAL b8 fude_wordcard_lookup(const fude_ui* _ui, const c8* _written, fude_kanji_word* _out) {
     const fude_study*    _study = FUDE_STUDY(_ui->app);
     const fude_kanji_db* _db    = _study->db;

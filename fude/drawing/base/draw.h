@@ -15,9 +15,26 @@
 // one each.
 // Threads: main thread only. It draws through the engine's renderer and keeps state between calls (the mirror, the
 // Fill font, the caches below).
+// Lifecycle: the caches fill as texts are drawn and are emptied by fude_draw_forget, which the UI calls when it
+// unloads or trims the fonts. The shells count frames for it (fude_draw_frame).
 // Design:
 //   Right to left: screens always lay out left to right, and the drawing mirrors what they draw
 //   (fude_draw_mirror_begin), so no screen needs code of its own for right-to-left languages.
+//   Every text is drawn from its kept shape. Shaping a text (its glyphs and their places, by HarfBuzz) is most of what
+//   drawing it costs, and the engine's rde_rendering_2d_draw_text_2 shapes, draws and frees the shape on every call:
+//   about half of a Browse frame. So each text's shape is made once and kept, up to 1024 of them, by all that decides
+//   it: the font (its pointer, which stands for its size while it is loaded, and its generation, rde_font_get_generation,
+//   which moves when its fallbacks change or another font is loaded where a freed one was) and every byte of the text.
+//   The engine shapes at the size the font was loaded at with no configuration, and the size a text is drawn at only
+//   scales the shape as it is drawn, so neither is in the key. A kept shape is drawn by the very call
+//   rde_rendering_2d_draw_text_2 makes with the shape it makes (rde_rendering_2d_draw_shaped_text_2, the same
+//   arguments): the pixels are the same. The shape drawn longest ago makes room for a new one, unless it was drawn in
+//   this frame too (more texts on the screen than are kept): then the new one is shaped into a spare, so the kept ones
+//   stay kept and only the texts past the bound are shaped each frame, as all of them were. A shape is freed when its
+//   slot is reused, and all of them by fude_draw_forget.
+//   A grid of cards drawn card by card (its box, its text, the next box...) needs nothing of its own: RDE's 2D batch
+//   gathers draws that do not overlap, so the boxes are drawn in one run and the texts in another (Browse: 13 draw
+//   calls a frame).
 //   Text widths are measured for real by the engine and kept, by font and the whole text, up to 1536 of them, the
 //   one used longest ago making room for a new one (what a screen draws each frame stays kept). An estimate from
 //   average advances runs short on real sentences (a notice wider than its pill, a wrapped line past its card) and is
@@ -41,7 +58,19 @@
 void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color);
 // Turns on a developer's check (--text-check): every text drawn past _window's sides is logged, once each.
 void fude_draw_text_check(rde_window* _window);   // NULL turns the check off
-
+// Draws _text exactly as rde_rendering_2d_draw_text_2 does with the same arguments (the same pixels: placed as given,
+// no mirroring and no change of digits), but from the text's kept shape instead of shaping it again. For code that
+// places its texts itself, as the canvas does. A NULL font or text draws nothing.
+void fude_draw_text_placed(rde_font* _font, const c8* _text, rde_vec_3F _position, rde_vec_2F _scale, f32 _rotation_deg, rde_color _color);
+// Counts a frame, so the kept shapes that a frame draws are never let go during it (see Design). The shells call it
+// once a frame, before drawing, through the look harness (look.h: fude_look_frame). Without it the cache still draws
+// right, but once full it keeps the shapes it has and shapes every other text each time.
+void fude_draw_frame(void);
+// Forgets everything kept about texts: their shapes (their memory freed), their widths, wrapped layouts, balanced
+// widths and the sizes texts are drawn whole at. The UI calls it before it unloads the fonts, since all of these are
+// kept by a font's pointer and a font loaded later at the same address would be taken for the old one, and when it
+// trims them (the app going to the background), to give the shapes' memory back with the glyphs'.
+void fude_draw_forget(void);
 // Draws a line from _a to _b, _radius wide on each side.
 void fude_draw_line(rde_vec_2F _a, rde_vec_2F _b, f32 _radius, rde_color _color);
 

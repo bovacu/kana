@@ -7,7 +7,7 @@
 
 // ===========================================================================
 // Zoom video: writes a video file one frame at a time, as H.264 in an MP4, with the system's own encoder. It makes
-// Sketching's Export → Zoom video: the camera flown from the whole canvas down to the view, each frame drawn off screen
+// Export → Zoom video: the camera flown from the whole canvas down to the view, each frame drawn off screen
 // and handed in here.
 //
 // Where it sits: zoom, the canvas apps' layer. The page (page_export.c) is its only user: it opens a video, adds one

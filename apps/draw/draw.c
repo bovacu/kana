@@ -22,6 +22,7 @@
 #include "drawing/widgets/row.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
+#include "drawing/base/redraw.h"
 #include "version.h"
 
 // RDE's config for the app, beside its assets.
@@ -67,6 +68,7 @@ RDE_INTERNAL fude_app        app;
 // ones before it.
 void init_func(i32 _argc, c8** _argv, rde_window* _window) {
     window = _window;
+    fude_redraw_start();         // Render on demand (redraw.h): the launch flags below may draw every frame instead.
     fude_app_window(_window);    // Its units (dp on Android), set before anything reads its size.
     // The words come first, because the UI is built in them: the device's language when Draw speaks it. A saved
     // choice replaces it later (session.h).
@@ -110,6 +112,7 @@ void on_event(rde_window* _window, rde_event* _event) {
     if(_event == NULL) {
         return;
     }
+    fude_redraw_changed();   // Render on demand: whatever an event does is drawn (redraw.h).
     // When the app is out of sight, or the OS is short of memory, the fonts' glyph memory is given back.
     if(_event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_LOW_MEMORY) {
         fude_ui_trim_fonts(&ui);
@@ -135,6 +138,7 @@ RDE_INTERNAL void draw_update(f32 _dt) {
     if(!_pencil_taps && _pencil_tries < 120u) {
         _pencil_tries++;
         _pencil_taps = rde_pen_listen_double_tap(window);
+        fude_redraw_after(0.0);   // (render on demand: tried again on the next frame, event or not)
     }
 #endif
     fude_ink_frame_begin(&ink);
@@ -185,9 +189,10 @@ void on_fixed_update(f32 _fixed_dt) {
     RDE_UNUSED(_fixed_dt);
 }
 
-// RDE's late update: nothing to do.
+// RDE's late update, after RDE's UI has moved: the frame is drawn, or left as it is (render on demand: redraw.h).
 void on_late_update(f32 _dt) {
     RDE_UNUSED(_dt);
+    fude_redraw_frame_end(window, fude_app_shown(&app));
 }
 
 // RDE's crash handler: logs the error and its call stack.

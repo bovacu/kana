@@ -43,6 +43,11 @@ b8   fude_speech_open_settings(void);
 // For a developer's look on a computer, which has no voice: makes the voice show as missing, so that its card and
 // its button can be seen. It has no effect on iOS or Android.
 void fude_speech_look_missing(void);
+// The app is back on screen (the shell calls it on the foreground event): on Android, the next fude_speech_state
+// asks the engine again when there was no voice. fude_speech_take_came_back returns whether it was called since it
+// last returned true (the platform's fude_speech_state takes it). Main thread.
+void fude_speech_came_back(void);
+b8   fude_speech_take_came_back(void);
 // Reads _text (UTF-8) aloud, first stopping whatever was being read. Does nothing for NULL, or where there is no
 // voice.
 void fude_speak(const c8* _text);

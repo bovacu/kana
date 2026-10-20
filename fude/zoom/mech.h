@@ -8,7 +8,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// Mechanisms: the parts of Sketching's Mechanisms topic (linkages, gears, springs, weights and more, drawn as the
+// Mechanisms: the parts of the Mechanisms topic (linkages, gears, springs, weights and more, drawn as the
 // diagram library's symbols: symbol.h's Mechanisms family), and the plan of how they are joined, which mechrun.h
 // runs as rigid bodies in RDE's 2D physics.
 //

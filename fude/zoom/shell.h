@@ -12,10 +12,9 @@
 // and render, the end) and owns everything the app is made of: the drawing core's page models and UI, the deep-zoom
 // page (page.h) in place of the ink page, and the home screen (home.h), its one screen.
 //
-// Where it sits: the top of the zoom layer. It is the same for every canvas app (Sketching, InfiNote,
-// InfiniWorkshop): an app is only a description of itself in a fude_zoom_shell_def (what it is, what it offers, its
-// home screen's words and welcome, whether it opens on its home screen), and its main() hands that to
-// fude_zoom_shell_run (apps/infinote/infinote.c is one).
+// Where it sits: the top of the zoom layer. It is the same for every canvas app (one per product, product.h): an app is
+// only a description of itself in a fude_zoom_shell_def (what it is, what it offers, its home screen's words and
+// welcome, whether it opens on its home screen), and its main() hands that to fude_zoom_shell_run (apps/<app>/<app>.c).
 // Its main types and their lifecycle: everything the app owns is a static in shell.c, made once when RDE calls its
 // init and destroyed when RDE ends it, so there is one app per process. The fude_zoom_shell_def belongs to the app and
 // must stay valid for the whole run (it is normally a static const), and so must its welcome.

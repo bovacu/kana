@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/app/study.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/session.h"
 #include "drawing/app/import.h"
 #include "drawing/base/text.h"
@@ -88,6 +89,7 @@ RDE_INTERNAL b8  fude_study_sheet_cut;
 RDE_INTERNAL void fude_study_on_sheet_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     fude_app* _app = (fude_app*)_user_data;
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL) {
         fude_notice_show(fude_text(FUDE_TEXT_SHEET_FAILED));
         return;

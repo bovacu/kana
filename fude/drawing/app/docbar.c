@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/docbar.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/app.h"
 #include "drawing/app/page.h"
 #include "drawing/app/session.h"
@@ -114,6 +115,7 @@ RDE_INTERNAL b8 fude_docbar_write(fude_docbar* _bar, const c8* _path) {
 RDE_INTERNAL void fude_docbar_on_export_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     fude_docbar* _bar = (fude_docbar*)_user_data;
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL || _count == 0u) {
         return;   // Cancelled, or there was no dialog.
     }
@@ -323,6 +325,7 @@ void fude_docbar_update(fude_docbar* _bar, b8 _hidden) {
     if(_bar->_mode_laid != _bar->mode || rde_memcmp(&_screen, &_bar->_laid_for, sizeof(rde_vec_2F)) != 0 ||
        rde_memcmp(&_insets, &_bar->_insets_for, sizeof(rde_vec_4I)) != 0) {
         fude_docbar_layout(_bar);
+        fude_redraw_changed();   // (render on demand: a late safe area comes with no event)
     }
 }
 

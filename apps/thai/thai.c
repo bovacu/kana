@@ -67,10 +67,14 @@ static const fude_extension THAI_EXTENSION = {
     .nav = &THAI_NAV, .library = THAI_LIBRARY, .library_count = (u32)(sizeof(THAI_LIBRARY) / sizeof(THAI_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def THAI_SHELL = {
     .info = &THAI_INFO, .ext = &THAI_EXTENSION,
-    .bake_config = "apps/thai/assets/config.rdef",
+    .bake = {
+        .config = "apps/thai/assets/config.rdef",
+        .out    = "apps/thai/assets/data/characters.kana",
+        .tools  = "apps/thai/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
+    },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

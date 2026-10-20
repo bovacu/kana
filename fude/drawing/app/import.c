@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/import.h"
+#include "drawing/base/redraw.h"
 #include "drawing/doc/doc.h"
 #include "drawing/app/documents.h"
 #include "drawing/doc/pdf.h"
@@ -26,6 +27,10 @@ RDE_INTERNAL struct {
     rde_arr TYPE(rde_str) paths;   // Every file that came in (a scan's pages, the pictures picked), copied.
 } fude_import_in;
 
+// Android's picker is open, or its files are still being copied (on a Java thread): its answer is polled, and nothing
+// wakes the app when it comes, so render on demand looks again every FUDE_REDRAW_POLL (fude_import_update).
+RDE_INTERNAL b8 fude_import_picking = false;
+
 // Frees the waiting paths and marks nothing as waiting.
 RDE_INTERNAL void fude_import_forget(void) {
     rde_str* _paths = (rde_str*)fude_import_in.paths.memory;
@@ -43,6 +48,7 @@ void fude_import_arrived(u8 _kind, const c8* const* _paths, u32 _count) {
         fude_import_in.paths = rde_arr_new(sizeof(rde_str), rde_memory_allocator_get_default_std());
     }
     fude_import_forget();
+    fude_import_picking    = false;
     fude_import_in.kind    = _kind;
     fude_import_in.waiting = true;
     for(u32 _i = 0; _paths != NULL && _i < _count; _i++) {
@@ -51,6 +57,7 @@ void fude_import_arrived(u8 _kind, const c8* const* _paths, u32 _count) {
             rde_arr_add(&fude_import_in.paths, (any)&_copy);
         }
     }
+    fude_redraw_request();   // (render on demand: a picker's callback comes with no event of the app's)
 }
 
 // --- where from -----------------------------------------------------------------------------
@@ -69,6 +76,7 @@ b8 fude_import_camera_available(void) {
 RDE_INTERNAL void fude_import_on_files(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     RDE_UNUSED(_user_data);
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL) {
         fude_notice_show(fude_text(FUDE_TEXT_DOC_CANT_PICK));
         return;
@@ -85,6 +93,7 @@ void fude_import_files(fude_app* _app) {
 #if defined(RDE_PLATFORM_ANDROID)
     RDE_UNUSED(fude_import_on_files);
     fude_import_platform_pick_files();   // The system's document picker, which hands over copies, like the photos'.
+    fude_import_picking = true;
     return;
 #endif
     // A PDF, or pictures: many can be picked at once, and each becomes a page.
@@ -100,6 +109,9 @@ void fude_import_photos(fude_app* _app) {
     RDE_UNUSED(_app);
     if(fude_import_photos_available()) {
         fude_import_platform_pick_photos();
+#if defined(RDE_PLATFORM_ANDROID)
+        fude_import_picking = true;
+#endif
     }
 }
 
@@ -108,6 +120,9 @@ void fude_import_camera(fude_app* _app) {
     RDE_UNUSED(_app);
     if(fude_import_camera_available()) {
         fude_import_platform_scan();
+#if defined(RDE_PLATFORM_ANDROID)
+        fude_import_picking = true;
+#endif
     }
 }
 
@@ -192,6 +207,9 @@ b8 fude_import_update(fude_app* _app) {
 #if defined(RDE_PLATFORM_ANDROID)
     fude_import_platform_poll();
 #endif
+    if(fude_import_picking) {
+        fude_redraw_after(FUDE_REDRAW_POLL);
+    }
     if(!fude_import_in.waiting) {
         return false;
     }
@@ -207,7 +225,7 @@ b8 fude_import_update(fude_app* _app) {
         rde_arr_add(&_list, (any)&_path);
     }
     const c8* const* _paths = (const c8* const*)_list.memory;
-    // An app with its own page takes them itself (Sketching, for example, puts the pictures on its canvas); otherwise
+    // An app with its own page takes them itself (a canvas app, say, puts the pictures on its canvas); otherwise
     // they become a new canvas.
     const fude_page_kind* _kind = fude_app_ext(_app)->page_kind;
     const b8              _own  = _kind != NULL && _kind->imported != NULL;

@@ -70,10 +70,25 @@ static const fude_extension HANZI_EXTENSION = {
     .nav = &HANZI_NAV, .library = HANZI_LIBRARY, .library_count = (u32)(sizeof(HANZI_LIBRARY) / sizeof(HANZI_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// The notice the Arphic Public License asks for when the strokes are changed (its §2a): where they come from, how
+// they were changed and when, and where the changed data is published. The bake writes it at the head of the strokes'
+// own file (fude/lang/zh/bake.c).
+#define HANZI_STROKES_NOTICE \
+    "Hanzi's stroke data is Make Me a Hanzi's (github.com/skishore/makemeahanzi), via hanzi-writer-data 2.0.1, " \
+    "derived from Arphic Technology's fonts and licensed under the Arphic Public License (ARPHICPL.TXT). " \
+    "Changed by Hanzi's tools (apps/hanzi/tools/data/strokes.py), October 2026: each stroke's median turned " \
+    "into cubic Bezier curves in a 109-unit box, then stored in this file's format (fixed point). " \
+    "The changed data is published under the same licence: https://github.com/bovacu/hazi_custom_stroke_data"
+
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def HANZI_SHELL = {
     .info = &HANZI_INFO, .ext = &HANZI_EXTENSION,
-    .bake_config = "apps/hanzi/assets/config.rdef",
+    .bake = {
+        .config = "apps/hanzi/assets/config.rdef",
+        .out    = "apps/hanzi/assets/data/characters.kana",
+        .tools  = "apps/hanzi/tools/data: fetch.py, strokes.py, prepare.py",
+        .strokes_notice = HANZI_STROKES_NOTICE,   // The strokes in a file of their own, with it.
+    },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

@@ -11,6 +11,7 @@
 #include "drawing/widgets/row.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
+#include "drawing/base/redraw.h"
 #include "drawing/ink/mlkit.h"
 #include "zoom/themes.h"
 #include "zoom/page.h"
@@ -63,7 +64,7 @@ RDE_INTERNAL void fude_zoom_shell_render_top(rde_window* _window, f32 _dt);
 // --- the home screen and the extension's hooks --------------------------------------------------
 
 // The home screen's New: makes a canvas in the folder it shows and opens it; a notebook of pages, in an app whose New
-// makes one (InfiNote's: A4).
+// makes one (a notes app's: A4).
 RDE_INTERNAL void fude_zoom_shell_home_new(fude_app* _app, u32 _folder) {
     c8 _name[FUDE_NOTE_NAME];
     fude_notes_new_name(_app->notes, FUDE_NOTE_CANVAS, _name, sizeof(_name));
@@ -171,6 +172,7 @@ RDE_INTERNAL void fude_zoom_shell_place_home(void) {
 // order matters: each step needs the ones before it.
 RDE_INTERNAL void fude_zoom_shell_init(i32 _argc, c8** _argv, rde_window* _window) {
     window = _window;
+    fude_redraw_start();         // Render on demand (redraw.h): the launch flags below may draw every frame instead.
     fude_app_window(_window);    // Its units (dp on Android), set before anything reads its size.
     fude_text_drop_taught_language();   // A drawing app teaches no language, so it has no fourth one (Japanese).
     fude_text_set_language(fude_text_default_language());
@@ -234,6 +236,7 @@ RDE_INTERNAL void fude_zoom_shell_event(rde_window* _window, rde_event* _event) 
     if(_event == NULL) {
         return;
     }
+    fude_redraw_changed();   // Render on demand: whatever an event does is drawn (redraw.h).
     if(_event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_LOW_MEMORY) {
         fude_ui_trim_fonts(&ui);
         fude_zoom_page_trim(&zoom);
@@ -265,6 +268,7 @@ RDE_INTERNAL void fude_zoom_shell_update(f32 _dt) {
     if(!_pencil_taps && _pencil_tries < 120u) {
         _pencil_tries++;
         _pencil_taps = rde_pen_listen_double_tap(window);
+        fude_redraw_after(0.0);   // (render on demand: tried again on the next frame, event or not)
     }
 #endif
     if(zoom.cover_stamp != home_cover_seen) {
@@ -323,13 +327,15 @@ RDE_INTERNAL void fude_zoom_shell_on_render(rde_window* _window, f32 _dt) {
     fude_zoom_page_perf_frame(&zoom, update_took, rde_engine_get_time_now() - _t0);
 }
 
-// RDE's fixed update and late update: the app has nothing to do in them.
+// RDE's fixed update: the app has nothing to do in it.
 RDE_INTERNAL void fude_zoom_shell_on_fixed_update(f32 _fixed_dt) {
     RDE_UNUSED(_fixed_dt);
 }
 
+// RDE's late update, after RDE's UI has moved: the frame is drawn, or left as it is (render on demand: redraw.h).
 RDE_INTERNAL void fude_zoom_shell_on_late_update(f32 _dt) {
     RDE_UNUSED(_dt);
+    fude_redraw_frame_end(window, fude_app_shown(&app));
 }
 
 // RDE's crash handler: logs the error and its call stack.

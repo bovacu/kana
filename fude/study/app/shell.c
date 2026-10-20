@@ -13,9 +13,11 @@
 #include "drawing/base/theme.h"
 #include "drawing/base/text.h"
 #include "drawing/base/draw.h"
+#include "drawing/base/redraw.h"
 #include "study/app/study.h"
 #include "study/chars/bake.h"
 #include "study/screens/chart.h"
+#include "study/chars/glyph.h"
 #include "drawing/ink/mlkit.h"
 #include "study/handwriting/match.h"
 #include "study/models/marks.h"
@@ -23,6 +25,7 @@
 #include "study/models/review.h"
 #include "study/models/vocab.h"
 #include "study/models/charnote.h"
+#include "study/services/speech.h"
 #include "lang/lang.h"
 
 // ===========================================================================
@@ -103,6 +106,7 @@ RDE_INTERNAL void fude_hud_render(rde_window* _window) {
     const f32               _x      = -(f32)_size.x * 0.5f + (f32)_insets.x + 20.0f;   // inside the safe area
     f32                     _y      = (f32)_size.y * 0.5f - (f32)_insets.y - 34.0f;
     c8                      _line[192];
+    fude_redraw_changed();   // (render on demand: its numbers change every frame, so every frame is drawn while it shows)
 
     fude_hud_line(ink.pen_seen ? "PEN  (stylus events arriving)" : page.touch_seen ? "TOUCH ONLY  - no pen events!" : "waiting for input...", _x, &_y, 34.0f);
     rde_snprintf(_line, sizeof(_line), "pressure %.2f (raw %.2f)%s   tilt %.0f / %.0f   pen id %u   %s", (f64)ink.pressure, (f64)ink.pressure_raw,
@@ -162,7 +166,7 @@ RDE_INTERNAL void fude_shell_place_screens(void) {
 RDE_INTERNAL void fude_shell_init(i32 _argc, c8** _argv, rde_window* _window) {
     if(fude_bake_requested(_argc, _argv)) {
         baking = true;
-        const i32 _rc = fude_bake_run(_argc, _argv);
+        const i32 _rc = fude_bake_run(&shell->bake, _argc, _argv);
         rde_log_level(_rc == 0 ? RDE_LOG_LEVEL_INFO : RDE_LOG_LEVEL_ERROR, "bake %s", _rc == 0 ? "finished" : "FAILED");
         // Not rde_engine_destroy_engine, because rde_run carries on after its init returns.
         rde_engine_set_running(false);
@@ -170,6 +174,7 @@ RDE_INTERNAL void fude_shell_init(i32 _argc, c8** _argv, rde_window* _window) {
     }
 
     window = _window;
+    fude_redraw_start();         // render on demand (redraw.h): the launch flags below may draw every frame instead
     fude_app_window(_window);    // its units (dp on Android), set before anything reads its size
     // The words come first, because the UI is built in them. The device's language is used when the app speaks it, and
     // a saved choice replaces it later (session.h).
@@ -263,11 +268,18 @@ RDE_INTERNAL void fude_shell_event(rde_window* _window, rde_event* _event) {
     if(baking || _event == NULL) {
         return;
     }
+    fude_redraw_changed();   // Render on demand: whatever an event does is drawn (redraw.h).
     // When the app goes out of sight, or the OS is short of memory, the fonts' glyph memory goes back to what it
-    // started with (each glyph uploads again when it is next drawn). An event comes before the frame draws, as
-    // rde_font_trim needs.
+    // started with (each glyph uploads again when it is next drawn), and the characters kept on the GPU are let go
+    // (glyph.h: each is made again when it is next drawn). An event comes before the frame draws, as rde_font_trim
+    // needs.
     if(_event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_BACKGROUND || _event->type == RDE_EVENT_TYPE_MOBILE_LOW_MEMORY) {
         fude_ui_trim_fonts(&ui);
+        fude_glyph_forget();
+    }
+    // Back on screen, perhaps from the device's settings with a voice just installed: Android asks for it again.
+    if(_event->type == RDE_EVENT_TYPE_MOBILE_DID_ENTER_FOREGROUND) {
+        fude_speech_came_back();
     }
     // When the app leaves, it saves now. The autosave (session.h) is the guarantee, because this event reaches here
     // through the queue and may not be handled before the app is suspended. The camera stops, and what was in view
@@ -299,6 +311,7 @@ RDE_INTERNAL void fude_shell_update(f32 _dt) {
         return;
     }
     fude_look_frame(app);
+    fude_glyph_frame();   // The kept characters: what a frame draws is not let go during it (glyph.h).
     fude_study_look_frame(app);
     // When a language is chosen, the UI follows, and so do the meanings in it (English where the data has none in that
     // language).
@@ -321,6 +334,7 @@ RDE_INTERNAL void fude_shell_update(f32 _dt) {
     if(!_pencil_taps && _pencil_tries < 120u) {
         _pencil_tries++;
         _pencil_taps = rde_pen_listen_double_tap(window);
+        fude_redraw_after(0.0);   // (render on demand: tried again on the next frame, event or not)
     }
 #endif
     fude_study_update(app);   // Select mode's end, and a better voice offered
@@ -380,13 +394,17 @@ RDE_INTERNAL void fude_shell_on_render(rde_window* _window, f32 _dt) {
     fude_look_timed_render(app, fude_shell_render_frame, _window, _dt);
 }
 
-// RDE's fixed update and late update: the app has nothing to do in them.
+// RDE's fixed update: the app has nothing to do in it.
 RDE_INTERNAL void fude_shell_on_fixed_update(f32 _fixed_dt) {
     RDE_UNUSED(_fixed_dt);
 }
 
+// RDE's late update, after RDE's UI has moved: the frame is drawn, or left as it is (render on demand: redraw.h).
 RDE_INTERNAL void fude_shell_on_late_update(f32 _dt) {
     RDE_UNUSED(_dt);
+    if(!baking) {
+        fude_redraw_frame_end(window, fude_app_shown(app));
+    }
 }
 
 // RDE's crash handler: logs the error and its call stack.
@@ -428,6 +446,7 @@ RDE_INTERNAL void fude_shell_end(void) {
     fude_notes_destroy(&notes);
     fude_check_destroy(&check);
     fude_match_release();
+    fude_glyph_forget();   // (before the data goes: its pointer is in every kept character's key)
     fude_kanji_unload(&kanji_db);
     fude_ink_destroy(&ink);
 }
@@ -441,7 +460,7 @@ i32 fude_study_shell_run(const fude_study_shell_def* _def, i32 _argc, c8** _argv
 #endif
     // The bake runs from the project root (its sources are in data/raw/...), where the app's config is under
     // apps/<app>/; that config's memory sizes hold the data files whole.
-    const c8* _config = fude_bake_requested(_argc, _argv) ? _def->bake_config : FUDE_SHELL_CONFIG;
+    const c8* _config = fude_bake_requested(_argc, _argv) ? _def->bake.config : FUDE_SHELL_CONFIG;
     return rde_run(_argc, _argv, _config, fude_shell_init, fude_shell_event, fude_shell_on_fixed_update, fude_shell_on_update,
                    fude_shell_on_late_update, fude_shell_on_render, fude_shell_on_crash, fude_shell_end);
 }

@@ -11,7 +11,7 @@
 #include "study/chars/wordsplit.h"
 
 // ===========================================================================
-// Translator ("Into Japanese" in Kana: the Vocabulary's Translate with Google): a word or a sentence typed in the
+// Translator ("Into Japanese", say: the Vocabulary's Translate with Google): a word or a sentence typed in the
 // reader's language, in the field at the top right, and its translation into the language taught, by Google ML Kit's
 // translator on the device (translate.h). Whether a translation is right is for the reader to judge; what the screen
 // gives is what to do with it:

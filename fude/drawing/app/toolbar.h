@@ -10,7 +10,7 @@
 // ===========================================================================
 // Toolbar: the floating toolbar, a movable bar of the page's tools that can sit anywhere on screen, vertical or
 // horizontal: Undo, Redo, the hand, Draw, Mark, Erase, Lasso, Clear, the brush's size, Color, Page/Screen, Paper,
-// the app's own tools (extension.h; Kana's camera), Rotate and Reset. Beside it open its panels: the colour palette,
+// the app's own tools (extension.h; a camera, say), Rotate and Reset. Beside it open its panels: the colour palette,
 // the paper, and an app tool's choices. It shows over the page only; a screen on top hides it.
 //
 // Where it sits: drawing/app. The UI (ui.h) holds one fude_toolbar and drives it; the page, the session (which saves
@@ -61,7 +61,7 @@ typedef struct fude_toolbar {
 
     FUDE_TOOL_     tool;
     FUDE_TOOL_     tool_before;     // The tool before it (a pen's double tap goes back to it).
-    // How many times Erase was pressed while already chosen (Sketching moves to the next eraser mode on each).
+    // How many times Erase was pressed while already chosen (a canvas app moves to the next eraser mode on each).
     u32            erase_taps;
     // How many times one of the bar's tools was chosen; an app's own tool lets go when it changes (extension.h).
     u32            tool_taps;

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/handwriting/textink.h"
+#include "drawing/base/redraw.h"
 #include "study/chars/glyph.h"
 #include "lang/lang.h"
 
@@ -16,7 +17,7 @@
 #define FUDE_TEXTINK_LINE    1.25f              // a line's height, in cells
 #define FUDE_TEXTINK_INSET   0.06f              // a character's margin in its cell, in cells
 #define FUDE_TEXTINK_POINT_S (1.0f / 120.0f)    // seconds between written points (the timing a stroke keeps)
-// Where joined forms join, on the baseline, in KanjiVG units: Arabic's strokes (apps/arabic/tools/strokes) end a
+// Where joined forms join, on the baseline, in KanjiVG units: Arabic's strokes (its app's tools/strokes) end a
 // joining tail at the box's left, x 11, and take the join from the letter before at its right, x 98.
 #define FUDE_TEXTINK_JOIN_LEFT  11.0f
 #define FUDE_TEXTINK_JOIN_RIGHT 98.0f
@@ -385,6 +386,9 @@ b8 fude_textink_update(fude_textink_reader* _reader) {
     if(fude_recognize_available()) {
         if(!_reader->asked) {
             _reader->asked = fude_recognize_start(&_reader->recognition, &_reader->drawing);
+            if(!_reader->asked) {
+                fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: ML Kit busy, asked again on a later frame)
+            }
             return false;   // asked, or ML Kit is busy with another request: try again next frame
         }
         if(!fude_recognize_poll(&_reader->recognition)) {

@@ -15,17 +15,17 @@
 
 // ===========================================================================
 // See lang.h (fude_bake_run). Japanese's offline data bake: KanjiVG, KANJIDIC2, the JLPT lists, JMdict and Tatoeba
-// become the character data file the app ships (its format is in kanji.h). It is a DESKTOP mode of Kana itself, not a
-// separate tool:
+// become the character data file the app ships (its format is in kanji.h). It is a DESKTOP mode of the app itself, not
+// a separate tool:
 //
 //   <desktop build> --bake [--kanjivg=PATH] [--kanjidic=PATH] [--jlpt=DIR] [--jmdict=PATH] [--tatoeba=DIR] [--out=PATH]
 //
 // It is run from the project root. The defaults are data/raw/kanjivg.xml, data/raw/kanjidic2.xml, data/raw/jlpt/
 // (Waller's n1..n5-kanji-char-eng.mem), data/raw/JMdict.xml when it is there and else data/raw/JMdict_e.xml,
-// data/raw/tatoeba/, and assets/data/characters.kana (FUDE_KANJI_FILE). The sources are NOT in the repository
-// (COMMANDS.txt says where to get them); the baked file is an asset. KanjiVG and KANJIDIC2 are required. The JLPT
-// lists are optional: without them every character reads "not listed". So are JMdict, without which there are no
-// example words, and Tatoeba, without which there are no example sentences.
+// data/raw/tatoeba/, and the app's out (fude_bake_app), else assets/data/characters.kana (FUDE_KANJI_FILE). The sources
+// are NOT in the repository (COMMANDS.txt says where to get them); the baked file is an asset. KanjiVG and KANJIDIC2
+// are required. The JLPT lists are optional: without them every character reads "not listed". So are JMdict, without
+// which there are no example words, and Tatoeba, without which there are no example sentences.
 //
 // Every character KanjiVG has strokes for is kept (kana and kanji, and some punctuation), with KANJIDIC2's readings
 // and meanings where it has an entry. A KanjiVG path that cannot be parsed drops its character and is reported, so
@@ -1297,13 +1297,13 @@ static const fude_bake_look FUDE_BAKE_LOOK = {
 // Runs Japanese's bake with the app's command line (see the top): KanjiVG, then KANJIDIC2, the JLPT lists from N5 to
 // N1, JMdict and Tatoeba; then writes the file and adds the look-alikes. Returns 0 on success, 1 on any failure (the
 // log says why).
-i32 fude_bake_run(i32 _argc, c8** _argv) {
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
     const c8* _kanjivg  = fude_bake_arg(_argc, _argv, "--kanjivg=",  "data/raw/kanjivg.xml");
     const c8* _kanjidic = fude_bake_arg(_argc, _argv, "--kanjidic=", "data/raw/kanjidic2.xml");
     const c8* _jlpt     = fude_bake_arg(_argc, _argv, "--jlpt=",     "data/raw/jlpt");
     // The full JMdict when it is there (English and the other languages), or else JMdict_e (English only).
     const c8* _jmdict   = fude_bake_arg(_argc, _argv, "--jmdict=",   rde_file_exists("data/raw/JMdict.xml") ? "data/raw/JMdict.xml" : "data/raw/JMdict_e.xml");
-    const c8* _out      = fude_bake_arg(_argc, _argv, "--out=",      FUDE_KANJI_FILE);
+    const c8* _out      = fude_bake_arg(_argc, _argv, "--out=",      _app->out != NULL ? _app->out : FUDE_KANJI_FILE);
     const c8* _tatoeba  = fude_bake_arg(_argc, _argv, "--tatoeba=",  "data/raw/tatoeba");
 
     for(u32 _i = 0; _i < 2; _i++) {

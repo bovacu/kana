@@ -10,7 +10,7 @@
 #include "zoom/homelist.h"
 
 // ===========================================================================
-// Home: the home screen (0.1.92), the app's canvases shown as cards (InfiNote's notebooks, InfiniWorkshop's
+// Home: the home screen (0.1.92), the app's canvases shown as cards (a notes app's notebooks, a workshop app's
 // projects). Each card has its cover (a picture of the canvas the page keeps beside it, <id>.cover.png), its name,
 // whether it is a notebook, and when it was last left. A folder's folders come first, then its canvases, the most
 // recently left first.
@@ -18,10 +18,10 @@
 //   a tap on a card     opens the canvas (or goes into the folder)
 //   a card held         shows its Rename and Delete (they open the side panel's card for it)
 //   Back                goes out of a folder, or else back to the canvas
-//   New                 makes a canvas in the folder shown and opens it (the app's own kind: InfiNote's is a notebook)
+//   New                 makes a canvas in the folder shown and opens it (the app's own kind: a notebook, say)
 //
 // Over it, once, comes the app's welcome (first-run guidance): a few lines and two ways in, the app's first step
-// (InfiniWorkshop: its examples) or a new canvas.
+// (a workshop app: its examples) or a new canvas.
 //
 // Where it sits: fude/zoom, a screen (drawing/app/screen.h) of the canvas apps' shell (zoom/shell.c),
 // over homelist.h, which gathers its cards.

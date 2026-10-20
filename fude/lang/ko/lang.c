@@ -405,7 +405,7 @@ b8 fude_lang_reading_from_latin(const c8* _latin, c8* _out, usize _size) {
     return _any;
 }
 
-// --- badges: Kana's, as Korean reads those hanja ------------------------------------------
+// --- badges: Japanese's, as Korean reads those hanja ------------------------------------------
 
 // Returns the syllable a badge shows, in FUDE_LANG_BADGE_ order, or 0 out of range. They are the Japanese app's badge
 // kanji (音 訓 部 試 語 似 記) as Korean reads those hanja, and 번 from 번역 (translation).

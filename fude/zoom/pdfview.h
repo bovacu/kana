@@ -10,7 +10,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// PDF view: a canvas over a PDF (Sketching's Insert → PDF). The PDF's pages lie under the ink and are written on like
+// PDF view: a canvas over a PDF (Insert → PDF). The PDF's pages lie under the ink and are written on like
 // anything else drawn; the PDF is the canvas's own (notes.h: <id>.pdf).
 //
 // Where it sits: zoom, the canvas apps' layer, over drawing/doc's pdf.h (which opens, draws, searches and writes PDFs)
@@ -20,7 +20,7 @@
 // Its main types and their lifecycle: the page makes its fude_zoom_pdfview with fude_zoom_pdfview_init, opens a PDF in
 // it with fude_zoom_pdfview_open, and lets it go with fude_zoom_pdfview_close (opening another closes the one before).
 // Threads: every function is called on the main thread. The pages' pictures are drawn by a PDF worker of the view's own
-// (drawing/doc/worker.h, the module Kana's documents draw with too: RDE's detached threads, one started for each
+// (drawing/doc/worker.h, the module doc.h's documents draw with too: RDE's detached threads, one started for each
 // piece), one piece at a time, nearest the view first; the view looks each frame whether the piece is done. Nothing
 // waits for a piece (a page not drawn yet shows as blank paper) but fude_zoom_pdfview_export, which draws the PDF's
 // pages itself and so waits for the piece being drawn, if any. A PDF let go while a piece is being drawn leaves that
@@ -31,7 +31,7 @@
 // page.h's FUDE_ZOOM_PAGE_MM_PER_UNIT), their middles on x = 0 and the first page's top on y = 0 (Y points up, so the
 // pages go down). The canvas is as big as the pages: page_frame.c keeps the view over them and never out past them
 // (fude_zoom_pdfview_bounds), and it zooms in as far as any canvas goes.
-// Drawing: from textures, as Kana's documents are drawn (doc.h). Each page has a whole picture, sharp enough at a
+// Drawing: from textures, as doc.h's documents are drawn. Each page has a whole picture, sharp enough at a
 // glance; once the view rests, the part of each page on screen is drawn again at the screen's own pixels, so it is
 // sharp at any zoom however deep (the PDF is drawn again for what is on screen). In a dark theme the pages are dark
 // too: the paper in the page's colour, the print in the text's.
@@ -43,7 +43,7 @@
 #define FUDE_ZOOM_PDFVIEW_GAP        8.0      // The gap between pages, in millimetres.
 // A whole page's picture's width, a sharp piece's most, the pixels to a point, how much of the whole pages is kept and
 // how long the view rests before the sharp pieces are drawn are the PDF worker's (worker.h: FUDE_DOC_WHOLE_PX,
-// FUDE_DOC_SHARP_MAX, FUDE_DOC_SCALE, FUDE_DOC_KEEP_BYTES, FUDE_DOC_REST), as Kana's documents have them. So is the
+// FUDE_DOC_SHARP_MAX, FUDE_DOC_SCALE, FUDE_DOC_KEEP_BYTES, FUDE_DOC_REST), as doc.h's documents have them. So is the
 // choice of the whole pages to keep and draw (fude_doc_wholes).
 
 // One of the PDF's pages on the canvas, with its pictures.

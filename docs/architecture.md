@@ -174,8 +174,9 @@ handed.
 An app is a `main()` that calls RDE's `rde_run` with its callbacks: init, event, fixed update, update, late update,
 render, crash and end. RDE calls init once, then each frame every pending event, the fixed update (zero or more
 times, at a fixed step), the update, the late update and the render, and end when it stops. Every app leaves the
-fixed and late updates empty (nothing here runs at a fixed step), and its crash callback only logs: the crash
-report is `crash.h`'s. Everything they do runs on the main thread.
+fixed update empty (nothing here runs at a fixed step); its late update, after RDE's UI has moved, only decides
+whether the frame is drawn (`fude_redraw_frame_end`: "Render on demand", below); and its crash callback only logs:
+the crash report is `crash.h`'s. Everything they do runs on the main thread.
 
 A study app, with `apps/kana/kana.c`, `fude/study/app/shell.c`, `fude/drawing/app/app.c` and
 `fude/drawing/app/session.c` open:
@@ -303,6 +304,130 @@ reads them before anything is built, since some change what is built; `fude_look
 sequence, each flag at its frame, the shot at frame 45 or later (`fude_look_shot_at`: later with a document or
 presses, or where `--shot-at` says), then quits five frames after (`--stay`: no shot, no quitting). A study app's
 own flags are in `study/app/look.c`, the canvas apps' in `zoom/look.c` (and the page's in `zoom/page_look.c`).
+
+## Render on demand
+
+A still screen is not drawn again every vsync. A frame nothing changed in is left as it is (the window keeps showing
+its last picture: nothing is shaped, tessellated, uploaded or presented), and the app sleeps until an event, a timer or
+another thread wakes it. `drawing/base/redraw.h` decides, on RDE's render on demand (`rde_engine_set_render_on_demand`,
+`rde_engine_frame_unchanged`, `rde_engine_wake_after`, `rde_engine_request_frame`: RDE's
+`05_rendering_foundation.md`, "Render on demand"). Measured on the Mac in debug builds, which still draw a still
+screen once a second (the check, below), Kana's Browse went from 17.6% of a CPU to 0.1% and InfiNote's canvas from
+20.6% to 0.1% (`docs/quality_plan.md` 4.10).
+
+**The rule** (`fude_redraw_end_frame_at`), applied once a frame by `fude_redraw_frame_end` from each shell's late
+update (`study/app/shell.c: fude_shell_on_late_update`, `zoom/shell.c: fude_zoom_shell_on_late_update`, Draw's
+`on_late_update`): late, so RDE's UI has moved and can say so. A frame is drawn when
+1. every frame is: a launch with flags (`look.c: fude_look_args`, through `fude_redraw_set_continuous`). The looks
+   count frames, and `--perf`, `--gate` and the screenshots must measure and look exactly as before; `--on-demand`
+   keeps render on demand with other flags. A release takes no flags, so it always draws on demand;
+2. something changed in this frame or the 3 before it, or within the last half second (`FUDE_REDRAW_GRACE_FRAMES`,
+   `FUDE_REDRAW_GRACE_SECONDS`): an event, a report below, RDE's UI moving (`rde_ui_get_wake_after` is 0), or the
+   app's start (`fude_redraw_start`, first thing in each shell's init). The grace period draws what settles a frame
+   or two after a change without reporting it (a layout resolved the frame after, a picture decoded a frame later, a
+   short fade). A count of frames alone is too short for a fade at 120 Hz, and a time alone too few frames after a
+   slow one (a file opened in one 600 ms frame);
+3. a timer is due: one asked for with `fude_redraw_after`, or the UI's next change (a focused field's caret). It draws
+   its one frame with no grace period after it, or a blinking caret would draw every frame. A source drawn from the
+   clock cannot tell in its update that its picture changed, so the frame it wakes is drawn for it.
+
+Otherwise `fude_redraw_frame_end` calls `rde_engine_frame_unchanged`, and `rde_engine_wake_after` with the soonest
+timer kept, or the check's next probe if sooner (a timer is kept as a time on the engine's clock until it is due, 2 ms
+early at most, `FUDE_REDRAW_EARLY`, since RDE sleeps in whole milliseconds); with neither, RDE sleeps until an event or
+a request. It also sets RDE's render on demand each frame, off while every frame is drawn, so a launch with flags runs
+exactly as without it. RDE itself always draws after a window event that changes what the window shows, and after a
+return to the foreground.
+
+**No heartbeat.** Nothing else draws: a still screen is never drawn again, however long it waits. The first version drew
+one frame a second whatever happened, so that a source that forgot to report showed at most a second late; the owner
+dropped it (2026-10-18). It hid the very bug it was there for, and it drew a frame a second on every still screen
+(Hanzi's Browse spent 3.3% of a CPU on it in a debug build). Without it a forgotten source leaves the screen stale until
+the next touch, a visible bug, and a developer's build names it (the check, below).
+
+**Who reports.** Everything that changes the screen with no event reports itself where it lives, with one call:
+- `fude_redraw_changed`: it moved this frame, or moves every frame while it runs (from its update or its render: a
+  render's report counts for the next frame);
+- `fude_redraw_after(seconds)`: it changes on its own then (the soonest asked for wins);
+- `fude_redraw_after(FUDE_REDRAW_POLL)`: it waits on an answer it polls, which comes with no event (a platform's,
+  read over JNI or from the main queue): looked at again 10 times a second while it waits;
+- `fude_redraw_request`: another thread has something new (any thread: its flag is under a mutex, and it wakes RDE
+  with `rde_engine_request_frame`).
+
+The table names them changed, after (after 0: the next frame), poll and request.
+
+| Where | What changes with no event | Call |
+|---|---|---|
+| the shells' events: `study/app/shell.c: fude_shell_event`, `zoom/shell.c: fude_zoom_shell_event`, Draw's `on_event` | whatever an event does | changed |
+| the shells' updates: `fude_shell_update`, `fude_zoom_shell_update`, Draw's `draw_update` | Apple Pencil's double tap, listened for each frame for the first 120 (iOS) | after 0 |
+| `study/app/shell.c: fude_hud_render` | the study HUD's numbers, every frame it shows | changed |
+| RDE's UI, read by `fude_redraw_frame_end` (`rde_ui_get_wake_after`) | its colour blends, scroll areas' flings and springs, toggles, toasts, spinners; a focused field's caret, a held finger, a tooltip | changed; timer |
+| `drawing/ink/canvas.c: fude_canvas_update`, `fude_canvas_long_press` | a safe area arriving after launch; the page's flick; a finger held still | changed; after |
+| `drawing/widgets/scroll.c: fude_scroller_update` | a list's fling | changed |
+| `drawing/widgets/notice.c: fude_notice_show`, `fude_notice_render` | a notice shown (often by a job's answer); held, then fading | changed; after, then changed |
+| `drawing/app/page.c: fude_page_finger_poll`, `fude_page_render_zoom` | a finger's wait before it writes, then its long press; the zoom pill, held then fading | after; after, then changed |
+| `drawing/app/pagemenu.c: fude_pagemenu_row_faces` | "Copied" on a button, going back | after |
+| `drawing/app/readcard.c: fude_readcard_render` | the reading card's countdown, each whole second | after |
+| `drawing/app/session.c: fude_session_autosave` | the autosave, a quiet second after a change (and again after a failed one) | after |
+| `drawing/app/ui.c: fude_ui_update`, `side.c: fude_side_update`, `docbar.c: fude_docbar_update` | a safe area arriving a frame or two after launch; the side panel's app button following a platform's state, and its list scrolling under a drag held at its edge | changed |
+| `drawing/app/handwriting.c: fude_handwriting_refresh` | ML Kit's model downloading; its state shown | poll; changed |
+| `drawing/app/import.c: fude_import_update` | Android's picked files | poll |
+| `drawing/app/app.c: fude_app_update` | Android's orientation lock, until it holds | poll |
+| `drawing/app/import.c: fude_import_arrived`, `fude_import_on_files`; `session.c: fude_session_on_export_path`, `fude_session_on_import_path`; `docbar.c: fude_docbar_on_export_path`; `study/app/files.c: fude_study_on_sheet_path`; `zoom/page_export.c: fude_zoom_page_on_export_path` | a picker's files, a file dialog's answer: they may come while the app sleeps | request |
+| `drawing/doc/doc.c: fude_doc_update`, `fude_doc_render_pill` | a search gathering its matches; pages probed for text, a few a frame; a page's reading; the rest before the sharp pieces; the page pill, held then fading | changed; after 0; poll; after; after, then changed |
+| `drawing/doc/worker.c: fude_doc_worker_work` | a PDF's piece drawn, on the worker's thread | request |
+| `study/chars/glyph.c: fude_glyph_box` | stroke-order playback, until done | changed |
+| `study/handwriting/guide.c: fude_guide_update`, `fude_guide_render_steps`, `fude_guide_render_over` | guided practice: the next step after its tick; the stroke writing itself, a wrong stroke fading, the tick fading in | after; changed |
+| `study/handwriting/recognize.c: fude_recognize_pump` | ML Kit's reading, polled until it comes | poll; changed |
+| `study/handwriting/textink.c: fude_textink_update`, `study/screens/browse.c: fude_browse_update` | ML Kit busy: asked again | poll |
+| `study/models/review.c: fude_reviews_today` | local midnight, where the reviews' day shows | after |
+| `study/screens/album.c: fude_album_date` | a replay, until done | changed |
+| `study/screens/check.c: fude_check_update` | the reading, once "Reading…" has been drawn | after 0 |
+| `study/screens/exam.c: fude_exam_grade`, `wordexam.c: fude_wordexam_grade` | answers graded one a frame, ML Kit polled | changed |
+| `study/screens/practice.c: fude_practice_render` | the demo writing again after its rest | after |
+| `study/screens/scan.c: fude_scan_update`, `fude_scan_on_camera` | Text from a photo's live camera (about 30 frames a second); a photo's reading; the camera permission's answer | changed; poll; request |
+| `study/services/translate.c: fude_translate_state`, `fude_translate_take` | a translation model downloading; an answer waited for, and its arrival | poll; changed |
+| `study/services/speech_android.c: fude_speech_state` | Android's voice check, asked again when the app comes back (`fude_speech_came_back`, from `fude_shell_event`) | poll |
+| `zoom/page_frame.c: fude_zoom_page_update_under_way`, `fude_zoom_page_update_views` | a flight; a pen resting at a stroke's end (a shape); a canvas opened from Find, its words found a few frames on | changed; after; changed |
+| `zoom/page_frame.c: fude_zoom_page_update_flush`, `fude_zoom_page_update` | the journal's flush, and after any change the instruments' file (`fude_redraw_last_change`); one finger held still (the page's menu) | after |
+| `zoom/page_input.c: fude_zoom_page_coast` | a flick | changed |
+| `zoom/page_mech.c: fude_zoom_page_play_step` | Play running or taking a Step. Paused, nothing moves: the current's dots and the warning rings run on Play's time, not the clock | changed |
+| `zoom/page_audio.c: fude_zoom_page_audio_update`, `fude_zoom_page_audio_permitted` | a recording made or played; the microphone permission's answer | changed; request |
+| `zoom/page_speech.c: fude_zoom_page_listen_update`, `fude_zoom_page_render_caption` | the speech model's download and a piece being read; the live caption going | poll; after |
+| `zoom/listen.c: fzls_main` | a piece transcribed, on its thread | request |
+| `zoom/page_find.c: fude_zoom_page_hand_update`, `fude_zoom_page_read_update` | ML Kit reading handwriting for Find, and its answer; the lines found again a second after a change | poll; changed; after |
+| `zoom/page_strip.c: fude_zoom_page_strip_draw`, `fude_zoom_page_render_strip`, `fude_zoom_page_render_everywhere` | the strip's pages drawn one a frame; a page held to lift it, then scrolling under it; Find in every canvas, a few canvases a frame | changed; after; changed |
+| `zoom/page_render.c: fude_zoom_page_previews_draw`, `fude_zoom_page_render_marks`, `fude_zoom_page_render_brush` | the arrows' previews, one a frame; the empty screen's marks, found once the camera rests; the brush's circle back after the pen lifts | changed; after |
+| `zoom/page_present.c: fude_zoom_page_map_refresh`, `fude_zoom_page_render_present` | the map looked at again and followed, its picture drawn the next frame; the laser's trail fading; the presenting pill, held then fading | after; changed; after, then changed |
+| `zoom/page_export.c: fude_zoom_page_render_offscreen`, `fude_zoom_page_cover_draw` | an export's frames; the cover after its quiet wait, read back the frame after | changed; after |
+| `zoom/page_settings.c: fude_zoom_page_render_fps`, `fude_zoom_page_inktest_follow` | the frame rate shown (every frame, so it counts them); the test canvas opening | changed |
+| `zoom/page_custom.c: fude_zoom_page_examples_follow`, `fude_zoom_page_template_follow`, `fude_zoom_page_library_hold` | an example or a template filled once its canvas is open; a hold on one of My parts in the library | changed; after |
+| `zoom/page_text.c: fude_zoom_page_render_inline` | the caret's blink; the view moved up for the keyboard | after; changed |
+| `zoom/page_ui.c: fude_zoom_page_ui_update_line_chip`, `page_pieces.c: fude_zoom_page_render_pieces`, `instrument_draw.c: fude_zoom_instruments_render` | a line's length chip going; a piece's × going grey; an instrument's angle going after a turn | after |
+| `zoom/home.c: fude_zoom_home_cover_of`, `fude_zoom_home_update` | covers loaded a few a frame; a card held | changed; after |
+| `zoom/pdfview.c: fude_zoom_pdfview_update` | a PDF's rest before its sharp pieces; a search's matches | after; changed |
+
+A new animation, timer, poll or worker reports the same way and gets its row here, or the screen is stale until the
+next touch. A simulation's animation runs on Play's time (`page.h`: `play_time`), so it stands still while Play is
+paused (`docs/design/rendering.md`, "When it draws").
+
+**The check** (`FUDE_REDRAW_CHECK`: a developer's build, `RDE_DEBUG`; never a release or a measuring build, and not
+while every frame is drawn). While the rule leaves frames undrawn, the first of them is drawn anyway and its picture
+kept, as what the screen shows (the reference); then one frame every second (`FUDE_REDRAW_CHECK_SECONDS`) is drawn and
+compared with it, pixel for pixel (`fude_redraw_check_step` plans it, `fude_redraw_compare` compares; the picture is
+RDE's `rde_window_take_screenshot_bytes` of the whole window, drawn into a texture and read back). A difference means
+the screen changed and nothing reported it. It is logged as a warning ("redraw check: the screen changed and nothing
+reported it"), with what shows (`fude_app_shown`: the screen on top, or the page), how many pixels changed in what box,
+and the seconds since the last change reported; the box is written out as it was and as it is
+(`redraw_check_before.png`, `redraw_check_after.png`, in the working folder). The new picture is kept either way, so a
+change is told once, and a source that keeps moving is told every second. What it costs: a frame drawn and read back
+every second on a still screen (the read back stalls the GPU for that frame, and in threaded mode the main thread waits
+for the render thread to draw it), a copy of the window's pixels (4 bytes each) on the std allocator, and a comparison
+that skips rows that are the same. Pixels, because they are what a person sees, whatever drew them, and nothing else RDE
+offers tells two pictures apart; a hash of a frame's 2D commands, asked of RDE, would do it without the read back.
+
+The suite `tests/redraw` checks the rule (the grace period, a still screen never drawn again, timers kept until due,
+RDE's UI and other threads waking it, continuous runs, 20,000 random frames against the rule), the check (its
+reference, probes and comparison), and the scroller's, the canvas's and a notice's reports.
 
 ## What the core asks of an app
 
@@ -446,6 +571,19 @@ icons land at the mirrored place without being mirrored themselves.
   (`fude_draw_icon_dir`).
 - **An icon inside a label's text** ("+ Add"): `fude_draw_icon_label`, which
   keeps it at the start of the line in either direction.
+
+**Drawing text.** A screen draws its text through `drawing/base/draw.h`: `fude_draw_text`
+and the wrapped and whole texts built on it, or `fude_draw_text_placed` where the code
+places a text itself (the canvas does). Never the engine's `rde_rendering_2d_draw_text_2`:
+it shapes the text again on every call, and shaping is most of what drawing a text costs.
+draw.c shapes each text once and keeps the shape, RDE's glyph runs, drawing it by the
+engine's own call, so the pixels are the same ("Caches": text shapes). A grid drawn
+tile by tile (a box, its text, the next box) needs nothing of its own: RDE's 2D batch
+gathers draws that do not overlap (RDE's `06_rendering_2d.md`, "Layers": within 256
+commands, never past a draw it cannot bound), so the boxes are drawn in one run and the
+texts in another. Browse is 13 draw calls a frame either way; the tiles that layered
+them by hand (`fude_draw_tiles_begin`/`_end`) were taken out on 2026-10-19, every
+screen's picture the same bytes without them.
 
 ## Documents
 
@@ -701,8 +839,12 @@ app restarts.
 **The rule for new code.** Nothing the main thread owns is touched from another
 thread. A thread is handed a job of its own, filled before it starts, and reports
 back through one flag under a mutex (or the platform's main queue, or a Java field
-behind a lock or volatile), which the main thread polls once a frame. Nothing on
-the main thread waits for it, but for these: `fude_listen_shutdown` waits for a
+behind a lock or volatile), which the main thread polls once a frame. A still screen
+runs no frames ("Render on demand"), so the thread also wakes the app as it sets its
+flag (`fude_redraw_request`, safe from any thread), or the poller asks to look again
+while it waits (`fude_redraw_after(FUDE_REDRAW_POLL)`, when no code of ours runs on
+the thread that answers). Nothing on the main thread waits for it, but for these:
+`fude_listen_shutdown` waits for a
 piece being read, as the app goes or before the model is downloaded again; a zoom
 video waits for Apple's encoder (it is made a frame at a time, not in real time,
 and each frame waits until the writer is ready for it, `video_apple.m`); a PDF
@@ -745,9 +887,10 @@ oldest; an `rde_lru` would need a slot for every entry the budget could hold.
 | Cache | Holds (and its bound) | Made again when | Saves |
 |---|---|---|---|
 | The strings' renders (`base/text.c`) | every plain string, rendered once a language (with English stand-ins where it has none); 256 filled-in templates (`FUDE_TEXT_RENDERS`), in an `rde_lru` keyed by the id and every argument, whole | the language changes (all dropped); past 256, the one used longest ago makes room | RDE rendering the same strings every frame |
-| Text widths (`base/draw.c`: `fude_draw_exact_width`) | 1,536 texts' widths per unit of size (`FUDE_DRAW_EXACT_KEPT`), in an `rde_lru` keyed by the font, the size it was loaded at and the text (a key of up to 1,024 bytes: a longer text is measured each time; a text with RDE's `[` markup is estimated instead) | past 1,536, the one used longest ago makes room; nothing else (a loaded font's letters never change) | the engine laying a text out every time it is measured: every label, every frame |
-| Text layouts (`base/draw.c`) | 64 texts' wrapped lines and 32 balanced widths, each in an `rde_lru` keyed by the font and its size, the size drawn at, the width and the whole text (`fude_draw_layout_key`) | the one used longest ago makes room | measuring every place a line may break, every frame |
-| A text's whole size (`base/draw.c`: `fude_draw_whole_size`) | 32 texts drawn whole on several lines: the size they fit at and their lines, in an `rde_lru` keyed as the layouts are, and the lines allowed | the one used longest ago makes room | wrapping a text again and again only to know how big it is |
+| Text widths (`base/draw.c`: `fude_draw_exact_width`) | 1,536 texts' widths per unit of size (`FUDE_DRAW_EXACT_KEPT`), in an `rde_lru` keyed by the font, the size it was loaded at and the text (a key of up to 1,024 bytes: a longer text is measured each time; a text with RDE's `[` markup is estimated instead) | past 1,536, the one used longest ago makes room; all when the UI trims or unloads the fonts (`fude_draw_forget`: a font loaded later at a freed one's address would be taken for it) | the engine laying a text out every time it is measured: every label, every frame |
+| Text shapes (`base/draw.c`: `fude_draw_shape_of`) | every text drawn through draw.c (`fude_draw_text` and so its icons, wrapped and whole texts; the canvas's `fude_draw_text_placed`): its shape (`rde_text_engine_shape_text`: RDE's glyph runs, each glyph an `rde_text_engine_shaped_char` with its font, its glyph's record and its exact pen, and no picture of it, so a glyph's picture let go and made again leaves the shape good), drawn by the call the engine's `rde_rendering_2d_draw_text_2` makes with the shape it makes, so the pixels are the same. 1,024 (`FUDE_DRAW_SHAPES`) and a spare, in an `rde_lru` keyed by the font's pointer and every byte of the text (the engine shapes at the size the font was loaded at; the size drawn at only scales the shape) | past 1,024, the one drawn longest ago, never one this frame drew (`fude_draw_frame`, counted by the look harness each frame; more texts on screen than that: the rest shaped into the spare each frame); all when the UI trims or unloads the fonts (`fude_draw_forget`) | shaping every text every frame, as `rde_rendering_2d_draw_text_2` does: Browse shaped 74 texts a frame, 1 now (the engine's text field); its render 0.60 → 0.37 ms, Chart's 0.80 → 0.45 ms (a Mac, the measure build, 2026-10-16) |
+| Text layouts (`base/draw.c`) | 64 texts' wrapped lines and 32 balanced widths, each in an `rde_lru` keyed by the font and its size, the size drawn at, the width and the whole text (`fude_draw_layout_key`) | the one used longest ago makes room; all at `fude_draw_forget` | measuring every place a line may break, every frame |
+| A text's whole size (`base/draw.c`: `fude_draw_whole_size`) | 32 texts drawn whole on several lines: the size they fit at and their lines, in an `rde_lru` keyed as the layouts are, and the lines allowed | the one used longest ago makes room; all at `fude_draw_forget` | wrapping a text again and again only to know how big it is |
 | The UI's widgets (`app/ui.c`) | every retained widget | the language changes, or a canvas's topic changes its bar: "The UI, and rebuilding it" | building them every frame |
 | What a label says (`docbar.c`, `side.c`, `toolbar.h`, `row.h`, `filterbar.h`, `handwriting.h`, `study.h`) | the numbers it was made from: the document bar's `_page_said` (the page in the middle, the pages), `_count_said` (the mode, the pages while one is asked for, the matches, the one shown, done and searching) and `_mode_laid`; the side panel's `_nav_counts`, its canvases' list (`_notes_revision`, `_notes_open`), `_data_shown` and `_app_button_shown`; the toolbar's `_*_shown`; the filter bar's `_chosen_shown`, `_on_shown`, `_available_shown`; Handwriting's `_shown`; a row's faces | a number differs; `_count_said` is reset as the mode changes or a search starts | shaping text every frame |
 | The reviews due (`study/app/study.c`, `fude_study_reviews_count`) | the side panel's "Reviews · n" | the marks' revision, the reviews' revision or today's day number changes (`_reviews_for`, compared whole: a sum could match another day's) | going through every marked character each frame the panel is open |
@@ -755,6 +898,7 @@ oldest; an `rde_lru` would need a slot for every entry the budget could hold.
 | Statistics' numbers (`stats.c`: `fude_stats_compute`) | every number the screen shows, worked out from every history file | the screen opens | reading every practice file every frame |
 | The vocabulary's map (`study/models/vocab.c`: `fude_vocab_by_text`) | each word's id by its written form and reading | the words change wholesale (edited, read, cleared: `fude_vocab_words_changed`); a word added is added to it | a search of every word each time a word is looked for |
 | The catalog (`study/chars/catalog.c`) | every character's readings and meanings, copied as search keys | the meanings' language changes (`fude_browse_language_changed` makes it again) | reading them out of the character data at every search |
+| Whole characters (`study/chars/glyph.c`: `fude_glyph_kept_lru`, "Kept characters" below) | each character drawn whole (`fude_glyph_character`, and the ghost under one writing itself): the mesh of all its strokes on the GPU (RDE's `rde_rendering_2d_keep_stroke_mesh`), placed from its box's top-left; 512 (`FUDE_GLYPH_KEPT`), in an `rde_lru` keyed by the character data's pointer, the code point, the size on screen and a target pixel's size, whole | another size, a display of another density or a zoom makes another; past 512, the one drawn longest ago goes, never one drawn this frame (the rest are made each time they are drawn, as before); all at a trim and before the data is unloaded (`fude_glyph_forget`) | tessellating every character every frame and sending its triangles up again |
 | The word split's index (`study/chars/wordsplit.c`) | every word's written form, folded, in a hash map: 2 to 4 MB, made in a few ms | another character database is split (it is of one, known by its address) | searching the dictionary for every word of a line |
 | The matcher's prepared strokes (`study/handwriting/match.c`) | every character resampled and fitted the first time it is compared (about 80,000 strokes, 10 MB, on the std allocator, as everything that grows with the data is: the engine's pool is fixed, `coding_rules.md` §3), and the records sorted by stroke count (`by_count`), so a ranking walks only the counts it compares | another database (`fude_match_layout`, known by its records' address and count); `fude_match_release` at the end | about 80 ms (a debug build) every ranking; the counts, with a floor under the rough cost, make a ranking 1.8 times faster optimised (`docs/quality_plan.md` 4.7) |
 | A document's textures (`doc/doc.c`; a canvas app's PDF view, `zoom/pdfview.c`, the same) | each page whole, drawn at about its size on screen (`fude_doc_whole_size`: 1,100 pixels wide at most, no side past `FUDE_DOC_SHARP_MAX`, 4,096), and what is on screen at the screen's pixels. Bounded by bytes (`fude_doc_wholes`): the pages on screen always, the others nearest the view first while all fit `FUDE_DOC_KEEP_BYTES` (48 MB; each byte held twice, on the GPU and in the memory texture's copy on the std allocator, which RDE's upload does not let go) | the theme's colours change (all dropped, the running piece stale); a page turned (all dropped, laid out again, the running piece stale); a sharp piece off screen, or zoomed over 2% away; a whole page no longer kept, or zoomed until its picture is 15% too coarse or 2.3 times too fine. A page is drawn only when it is kept, so a still view draws each once and the worker rests | drawing PDF pages every frame |
@@ -771,7 +915,7 @@ last column are that work's, measured in the suites.
 | Cache | Holds (and its bound) | Made again when | Saves |
 |---|---|---|---|
 | Decoded strokes (`render.c`: `fude_zoom_render_decoded`) | each visible stroke's and fill's points as f32 x, y and radius in its own units, a fill's triangles and cut edge with them; found by object (`slot_of`); 64 MB (`FUDE_ZOOM_RENDER_CACHE`), counted in bytes | past the budget, the least recently drawn go (never one this draw used); all of them as the canvas closes or memory runs short (`fude_zoom_render_trim`). An object's points never change (an edit makes a new object: `scene.h`), so nothing else makes one stale | decoding every visible stroke (`codec.h`) every frame |
-| Strokes' meshes (`render_stroke.c`, kept in each decoded entry) | each stroke's tessellated triangles (RDE's `rde_stroke_mesh`) in screen units round where its translation lands, keyed by the turn and scale to the screen, the half-widths' scale and a pixel's size; 64 MB (`FUDE_ZOOM_RENDER_MESHES`), counted as the arrays' capacity | a zoom, a turned or scaled stroke or another pixel size makes one again; past the budget the one drawn longest ago goes (never one this draw used); with its decoded entry and with a trim. A pan, a still view, a theme or a faint stroke keeps it (the colour is given as it is drawn) | tessellating every visible stroke every frame (about 55% of a stroke-heavy canvas's render) |
+| Strokes' meshes (`render_stroke.c`, kept in each decoded entry) | each stroke's tessellated triangles (RDE's `rde_stroke_mesh`) in screen units round where its translation lands, keyed by the turn and scale to the screen, the half-widths' scale and a pixel's size; 64 MB (`FUDE_ZOOM_RENDER_MESHES`), counted as the arrays' capacity. The second time a kept mesh is drawn as it is, a copy of it on the GPU too (`mesh_gpu`: RDE's `rde_rendering_2d_keep_stroke_mesh`), drawn from there after; bounded by the meshes', since it lives only beside one | a zoom, a turned or scaled stroke or another pixel size makes one again; past the budget the one drawn longest ago goes (never one this draw used); with its decoded entry and with a trim. Its GPU copy goes with it, and whenever it is made again. A pan, a still view, a theme or a faint stroke keeps both (the colour is given as it is drawn) | tessellating every visible stroke every frame (about 55% of a stroke-heavy canvas's render); with the copies, uploading every kept mesh every frame (4.10, the gate canvas still, the measure build: 9.7 MB a frame → 0.18 MB, its render 0.91–1.82 → 0.22 ms) |
 | Pictures on the GPU (`render.c`: `fude_zoom_render_picture`) | a texture for each picture's bytes, shared by its copies; found through `picture_of`, a map keyed by the payload's handle and serial (a freed payload slot is given out again with a new serial); 256 MB of texture (`FUDE_ZOOM_RENDER_TEXTURES`, 4 bytes a pixel). A picture that does not decode is kept as none, not tried again | past the budget, the least recently drawn; all at a trim | decoding a JPEG or PNG and uploading it every frame |
 | Kept geometry (`render.c`: `geo_lru`, `geos`; made by `render_symbol.c` and `render_shape.c`) | a symbol's parts at its kind, size and detail, and their triangles; a shape's outline at its detail; a cut board's rings; a shape's or board's triangles once a fill needs them. Keyed by `fude_zoom_render_geo_key`, compared whole: a symbol's kind, detail, half sizes and custom part; a shape's or board's type, payload (handle and serial: an edit makes a new payload), detail and how many of its numbers. 2,048 entries (`FUDE_ZOOM_RENDER_GEOS`) holding at most 2^21 points and triangle corners (`FUDE_ZOOM_RENDER_GEO_POINTS`), and one spare | past either bound, the one used longest ago, never one this draw used: what does not fit then is made into the spare, drawn from there and made again next time, while the rest stay kept; all at a trim | cutting curves and triangulating every symbol, shape and board every frame (every Library tile's symbol: 11.94 → 0.095 ms a frame; 500 filled shapes: 3.67 → 0.28 ms) |
 | Notes' layouts (`render_text.c`: `rich_lru`, `fude_zoom_render_rich_aligned`) | a text's lines and marks laid out (only a text with marks is), keyed by its four fonts, the size they are loaded at, its letters' size, its width, its alignment and then its words; a plain text's wrapped lines kept in its slot too, with the size and width on the screen they were found at (`fude_zoom_render_plain_lines`); 256 (`FUDE_ZOOM_RENDER_RICH`) and a spare | past 256, the one drawn longest ago, never one this draw used (more notes on screen than that: the rest laid out into the spare each draw); a plain text's lines also at each step of a zoom; all at a trim | measuring every word of every note every frame (300 notes over 50 frames: 69.7 → 21.6 ms); wrapping every plain text every frame once more than draw.c's 64 layouts were on screen (300 plain texts: 44 laid out a still draw, not 300) |
@@ -786,10 +930,29 @@ last column are that work's, measured in the suites.
 | Play's circuit and what plays (`page_mech.c`; `page.h`: `play_seen`, `play_what_key`, `play_what_parts`) | the circuit built from the drawing while it plays; which of what the lasso holds would play | the circuit: the canvas's revision moves while it plays; what plays: what the lasso holds, or the custom parts (`fude_zoom_logic_revision`), change | building the circuit every step; working out what plays every frame |
 | Pictures the page draws off screen: the home screen's covers (`home.h`: `cover_lru`, 48, by canvas), a notebook strip's pages (`page.h`: `strip_lru`, 24, by page), the arrows' previews (8), the map | each one's texture | the strip's page at a new revision; a preview when the revision changes, its slot given to another arrow once no arrow points at what it shows; the map when what is drawn changes (`map_contents_rev`); a cover when the page writes it again (`cover_stamp`); covers and the strip past their bounds, the one shown longest ago; all at a trim (`fude_zoom_page_trim`) | drawing the canvas again for each small picture, every frame |
 
+**Kept characters.** A whole character is drawn from one mesh of all its strokes
+kept on the GPU (`glyph.h`, Design), made the first time and then only moved and
+coloured by each draw, as a canvas keeps its strokes' meshes. Its key is all its
+shape follows from: the character data, the character, its size on screen (which
+sets the pen and how finely its curves are flattened) and a target pixel's size
+(its soft edge is one pixel wide). A part of a character (the viewer's stroke
+being drawn, a character writing itself) is still made each frame, since it
+changes every frame. The kept meshes are drawn by a pipeline of their own, so
+RDE's gathering (`rde_rendering_2d.c`) puts them together past what they do not
+overlap, as it does Slug text: Browse's characters and captions are two changes
+of pipeline, not two a cell. Its pixels differ from drawing by stroke only by
+rounding: a mesh placed by a translation adds its coordinates in another order,
+so a few soft-edge pixels move by 1 of 255 (5 of Kana's 19 screenshots: 2 to 34
+pixels each). Kana's Browse, before → after (2026-10-19, `--browse --perf=10`):
+on a Galaxy Tab S6 Lite (android-measure, three runs each), render 5.6–5.7 →
+2.8 ms a frame, 624 → 62 KB sent to the GPU a frame, 13 → 109 draw calls but 13
+→ 14 changes of pipeline, no frame over 20 ms either way (the loop is paced to
+vsync); on the Mac (measure, 744x1133), 474 → 48 KB a frame, the frame's CPU
+1.9–2.6 → 1.3 ms.
+
 Not caches, whatever their names: a `fude_glyph` (the screens' "glyph cache")
-holds scratch arrays, and a character is flattened and tessellated from its
-strokes every frame it is drawn, as a canvas's strokes are (keeping meshes is
-`docs/quality_plan.md` 4.9's question, for the canvas's strokes first). The
+holds scratch arrays (the kept characters are glyph.c's, shared by every screen).
+A still study screen is not drawn at all ("Render on demand"). The
 notice keeps its text alone; its lines come from draw.c's layouts each frame it
 shows. The session's last written and last seen copies are how it knows what to
 save ("How an app runs"). The renderer's and the page's scratch arrays (`found`,
@@ -894,8 +1057,9 @@ Every check runs on the Mac; none needs a device.
   `study`, `canvas` or one app; the picture's name; its launch flags), for every
   app or those named, which must be built for the Mac first. An app's first run,
   from no saves, is shot (the welcome) and its saves kept; every other capture
-  starts from a copy of them, and a shot's clock counts frames (`clock.h`), so the
-  same code draws the same pixels. Pictures are compared byte for byte with
+  starts from a copy of them, a shot's clock counts frames (`clock.h`), and a launch
+  with flags draws every frame ("Render on demand"), so the same code draws the same
+  pixels. Pictures are compared byte for byte with
   `build/shots/baseline/`. `python3 tools/check/pngdiff.py before.png after.png
   --out diff.png` shows where two differ.
 - **`tests/run.sh`** builds and runs the 39 suites (`tests/README.md`), each with

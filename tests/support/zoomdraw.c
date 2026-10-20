@@ -17,6 +17,10 @@ __attribute__((weak, visibility("hidden"))) u32 fude_zoom_render_editable(const 
 __attribute__((weak, visibility("hidden"))) void fude_draw_text(rde_font* _font, f32 _font_px, const c8* _text, f32 _x, f32 _y, f32 _px, rde_color _color) {
     (void)_font; (void)_font_px; (void)_text; (void)_x; (void)_y; (void)_px; (void)_color;
 }
+// A text the canvas places itself (draw.h: fude_draw_text_placed, which draws it from its kept shape): nothing.
+__attribute__((weak, visibility("hidden"))) void fude_draw_text_placed(rde_font* _font, const c8* _text, rde_vec_3F _position, rde_vec_2F _scale, f32 _rotation_deg, rde_color _color) {
+    (void)_font; (void)_text; (void)_position; (void)_scale; (void)_rotation_deg; (void)_color;
+}
 // Text in a box (render_text.c, in the zoom suite): one line, the whole text, as fude_draw_text_wrap's stand-in has it.
 __attribute__((weak, visibility("hidden"))) u32 fude_draw_text_wrap_lines(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width) { (void)_font; (void)_font_px; (void)_text; (void)_px; (void)_width; return 1u; }
 __attribute__((weak, visibility("hidden"))) u32 fude_draw_text_wrap_spans(rde_font* _font, f32 _font_px, const c8* _text, f32 _px, f32 _width, u32* _from, u32* _to, u32 _max) {

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/doc/doc.h"
+#include "drawing/base/redraw.h"
 #include "drawing/ink/pagefile.h"
 #include "drawing/base/kfile.h"
 #include "drawing/base/save.h"
@@ -295,7 +296,7 @@ RDE_INTERNAL void fude_doc_take(fude_doc* _doc, const fude_doc_place* _at) {
             // and the page is not saved as read (FUDE_DOC_TEXT_FAILED), so the next opening tries it again.
             fude_doc_pages(_doc)[_piece->page].text = FUDE_DOC_TEXT_FAILED;
         } else {
-            // The reader cannot take it now (for example ML Kit, Kana's reader, is off or not on this device), so it
+            // The reader cannot take it now (ML Kit, a study app's reader, say, is off or not on this device), so it
             // is not asked again while this document is open.
             _doc->reader_off = true;   // Stop asking the reader for this document.
         }
@@ -640,6 +641,21 @@ void fude_doc_update(fude_doc* _doc, const fude_doc_place* _at) {
         fude_doc_read_next(_doc, _v);
     }
     fude_doc_let_go(_doc, _v, _window);
+    // Render on demand: a search gathers its matches each frame; pages are probed for text a few a frame; a page's
+    // reading is a platform's answer, polled; the sharp pieces start once the view has rested. The worker's pieces
+    // wake the app themselves (worker.c).
+    if(_doc->searching && !_doc->search_done) {
+        fude_redraw_changed();
+    }
+    if(!_doc->reader_off && _doc->probe < _doc->page_count) {
+        fude_redraw_after(0.0);
+    }
+    if(_doc->reading != UINT32_MAX || _doc->reader_drain) {
+        fude_redraw_after(FUDE_REDRAW_POLL);
+    }
+    if(_now - _doc->moved_at < FUDE_DOC_REST) {
+        fude_redraw_after(FUDE_DOC_REST - (_now - _doc->moved_at));
+    }
 }
 
 // --- drawing ----------------------------------------------------------------------------------
@@ -889,6 +905,12 @@ void fude_doc_render_pill(fude_doc* _doc, fude_view _view, rde_font* _font, f32 
         return;
     }
     const f32 _fade = _age <= FUDE_DOC_PILL_TIME ? 1.0f : 1.0f - (f32)((_age - FUDE_DOC_PILL_TIME) / FUDE_DOC_PILL_FADE);
+    // Render on demand: still while fully shown, then fading every frame until it is gone.
+    if(_age < FUDE_DOC_PILL_TIME) {
+        fude_redraw_after(FUDE_DOC_PILL_TIME - _age);
+    } else {
+        fude_redraw_changed();
+    }
     c8        _text[512];
     FUDE_TEXTF(_text, FUDE_TEXT_OF_N, FUDE_TN(fude_doc_page_in_middle(_doc, _view) + 1u), FUDE_TN(_doc->page_count));
     const f32         _px     = 18.0f;

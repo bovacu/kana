@@ -21,7 +21,7 @@
 // ===========================================================================
 // See study.h. This file holds the study's launch flags, a developer's (look.h has the core's, and how they are
 // read). They open a screen in a given state, do something at a given frame of a shot's sequence, or probe two of the
-// device's own services. TEXT, JA and the like are in the language taught (Japanese in Kana).
+// device's own services. TEXT, JA and the like are in the language taught (Japanese, for one).
 //
 //   --browse --browse-sort=N --chart --library --notice   the lists, the language's chart (lang.h), the Library, and
 //                                                          the longest notice at the bottom

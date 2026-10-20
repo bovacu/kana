@@ -49,7 +49,7 @@
 //     64 KB (zfile.c's FUDE_ZOOM_FILE_COMPACT_MIN), the first time a canvas is written, after a failed write, and when
 //     opening found a torn end or read the backup. Nothing compacts a file before it leaves the app: Your data
 //     (backup.h) copies it as it is, which opens as a compacted one does.
-//   - A file that does not parse at all is kept as <name>.bad and never overwritten (Kana's rule), and the .bak is
+//   - A file that does not parse at all is kept as <name>.bad and never overwritten (kfile.h's rule), and the .bak is
 //     tried instead.
 // ===========================================================================
 

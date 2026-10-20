@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/instrument_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // See instrument.h. The instruments, drawn (fude_zoom_instruments_render): each in the pile's order, the top
@@ -39,8 +40,8 @@ RDE_INTERNAL void fude_zoom_instrument_text(const fude_zoom_instruments_look* _l
         return;
     }
     const f32 _w = fude_draw_text_width(_look->font, _look->font_px, _text, _px);
-    rde_rendering_2d_draw_text_2(_look->font, _text, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
-                                 (rde_vec_2F){ _px / _look->font_px, _px / _look->font_px }, 0.0f, _color);
+    fude_draw_text_placed(_look->font, _text, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
+                          (rde_vec_2F){ _px / _look->font_px, _px / _look->font_px }, 0.0f, _color);
 }
 
 // The graduations along a straight edge: a millimetre's ticks (or a finer or
@@ -610,6 +611,7 @@ void fude_zoom_instruments_render(const fude_zoom_instruments* _ins, const fude_
         }
         // Its angle, while it turns and a moment after.
         if(_ins->held == (i32)_k && _now - _ins->turned_at < 1.2 && _ins->turned_at > 0.0) {
+            fude_redraw_after(1.2 - (_now - _ins->turned_at));   // (render on demand: it goes then, the hand still down)
             f64 _deg = rde_math_fmod_f64(_t->angle * 180.0 / RDE_PI + 360.0, 180.0);
             c8 _s[24];
             fude_zoom_instrument_number(rde_math_round_f64(_deg * 10.0) / 10.0, _s, sizeof(_s));

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, Find: Find in a canvas and through every canvas, and handwriting read as text (drawing/ink/mlkit.h,
@@ -483,8 +484,10 @@ void fude_zoom_page_hand_update(fude_zoom_page* _page) {
         c8  _out[1024];
         f64 _ms = 0.0;
         if(!fude_mlkit_poll(_out, sizeof(_out), &_ms)) {
+            fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: ML Kit's answer is polled)
             return;
         }
+        fude_redraw_changed();
         c8* _end = rde_strchr(_out, '\n');
         if(_end != NULL) {
             *_end = 0;   // the best candidate
@@ -517,6 +520,9 @@ void fude_zoom_page_hand_update(fude_zoom_page* _page) {
         return;
     }
     const f64 _now = rde_engine_get_time_now();
+    if(_page->hand_revision != _page->scene.revision && _now - _page->hand_found_at < 1.0) {
+        fude_redraw_after(1.0 - (_now - _page->hand_found_at));   // (render on demand: the lines are found again then)
+    }
     if(_page->hand_revision != _page->scene.revision && _now - _page->hand_found_at >= 1.0) {
         fude_zoom_hand_lines(&_page->scene, &_page->hand_lines, &_page->hand_strokes);
         _page->hand_revision = _page->scene.revision;
@@ -662,8 +668,10 @@ void fude_zoom_page_read_update(fude_zoom_page* _page) {
     c8  _out[2048];
     f64 _ms = 0.0;
     if(!fude_mlkit_poll(_out, sizeof(_out), &_ms)) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: ML Kit's answer is polled)
         return;
     }
+    fude_redraw_changed();
     _page->reading = false;
     if(_page->read_stale) {
         _page->read_stale = false;   // (read on a canvas left since: let go)

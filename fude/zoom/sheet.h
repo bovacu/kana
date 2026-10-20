@@ -8,7 +8,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// Sheet: measured sheets (shape.h's SHEET; Sketching's Insert, Measured sheet). A sheet is a rectangle of a size typed
+// Sheet: measured sheets (shape.h's SHEET; Insert, Measured sheet). A sheet is a rectangle of a size typed
 // exactly, such as a cutting mat, a sheet of plywood, a printer's bed or a drawing's paper, with a ruler along each
 // of its four sides in real units and, if wanted, a grid that the pen snaps to.
 //

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/utf8.h"
 
 // ===========================================================================
@@ -324,6 +325,9 @@ void fude_zoom_page_examples_card(fude_zoom_page* _page) {
 
 // See page_parts.h. Once a frame: the one waiting drawn once its canvas is open, then the next made.
 void fude_zoom_page_examples_follow(fude_zoom_page* _page) {
+    if(_page->examples_waiting != 0u) {
+        fude_redraw_changed();   // (render on demand: its canvas opens a frame or two on)
+    }
     if(_page->examples_waiting == 0u || !_page->open || _page->canvas != _page->examples_waiting || rde_arr_length(&_page->examples_todo) == 0u) {
         return;
     }
@@ -837,8 +841,11 @@ void fude_zoom_page_custom_card(fude_zoom_page* _page, u32 _item) {
 // See page_parts.h. Once a frame: a hand held still on a Custom tile for FUDE_ZOOM_PAGE_CUSTOM_HOLD seconds, its card;
 // what that hand does next is the panel's no more.
 void fude_zoom_page_library_hold(fude_zoom_page* _page) {
-    if(!_page->library_open || _page->library_hand == 0u || _page->library_dragged || _page->library_family != FUDE_ZOOM_PAGE_LIBRARY_CUSTOM ||
-       rde_engine_get_time_now() - _page->library_down_at < FUDE_ZOOM_PAGE_CUSTOM_HOLD) {
+    if(!_page->library_open || _page->library_hand == 0u || _page->library_dragged || _page->library_family != FUDE_ZOOM_PAGE_LIBRARY_CUSTOM) {
+        return;
+    }
+    if(rde_engine_get_time_now() - _page->library_down_at < FUDE_ZOOM_PAGE_CUSTOM_HOLD) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_CUSTOM_HOLD - (rde_engine_get_time_now() - _page->library_down_at));   // (render on demand: a timer)
         return;
     }
     fude_zoom_page_library_layout _l;
@@ -1039,6 +1046,9 @@ RDE_INTERNAL void fude_zoom_page_template_open(fude_zoom_page* _page, u8 _kind, 
 // See page_parts.h. Once a frame: the template being made, filled once its canvas is open: the piece put on it, or the
 // part's drawing (as it was made) or its inside drawn from what it is; then the view out to all of it.
 void fude_zoom_page_template_follow(fude_zoom_page* _page) {
+    if(_page->template_making != 0u) {
+        fude_redraw_changed();   // (render on demand: its canvas opens a frame or two on)
+    }
     if(_page->template_making == 0u || !_page->open || _page->canvas != _page->template_making) {
         return;
     }

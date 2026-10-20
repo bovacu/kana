@@ -4,7 +4,8 @@
 
 // ===========================================================================
 // See speech.h. The stand-ins for every platform but iOS (speech_ios.m) and Android (speech_android.c), where there
-// is no voice yet. Only fude_speech_look_missing is built everywhere; it has an effect only here.
+// is no voice yet. fude_speech_look_missing is built everywhere (it has an effect only here), and so is the app's
+// coming back (fude_speech_came_back), which Android's voice check takes.
 // ===========================================================================
 
 // Set by fude_speech_look_missing: the voice shows as missing instead of as none, for a developer's look.
@@ -13,6 +14,21 @@ RDE_INTERNAL b8 fude_speech_missing_look = false;
 // See the header.
 void fude_speech_look_missing(void) {
     fude_speech_missing_look = true;
+}
+
+// Set by fude_speech_came_back, taken by the platform's fude_speech_state (Android's asks the engine again).
+RDE_INTERNAL b8 fude_speech_back = false;
+
+// See the header.
+void fude_speech_came_back(void) {
+    fude_speech_back = true;
+}
+
+// See the header.
+b8 fude_speech_take_came_back(void) {
+    const b8 _back   = fude_speech_back;
+    fude_speech_back = false;
+    return _back;
 }
 
 #if !defined(RDE_PLATFORM_IOS) && !defined(RDE_PLATFORM_ANDROID)   // iOS: speech_ios.m; Android: speech_android.c.

@@ -301,8 +301,8 @@ RDE_INTERNAL void fude_zoom_render_symbol_plot_labels(const fude_zoom_render_sym
             const f32 _tw = fude_draw_text_width(_r->font, _r->font_px, _lb[_i].text, _lpx);
             const f32 _x = _lb[_i].align == 1u ? (f32)_at.x - _tw : (_lb[_i].align >= 3u ? (f32)_at.x : (f32)_at.x - _tw * 0.5f);
             const f32 _y = _lb[_i].align == 0u ? (f32)_at.y - _lpx * 0.7f : (f32)_at.y - _lpx * 0.36f;
-            rde_rendering_2d_draw_text_2(_r->font, _lb[_i].text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _lpx / _r->font_px, _lpx / _r->font_px }, 0.0f,
-                                         _lb[_i].curve > 0u ? _curve[(_lb[_i].curve - 1u) % 6u] : fude_theme_active()->text_soft);
+            fude_draw_text_placed(_r->font, _lb[_i].text, (rde_vec_3F){ _x, _y, 0.0f }, (rde_vec_2F){ _lpx / _r->font_px, _lpx / _r->font_px }, 0.0f,
+                                  _lb[_i].curve > 0u ? _curve[(_lb[_i].curve - 1u) % 6u] : fude_theme_active()->text_soft);
         }
         const f32 _em = _lpx * 1.25f;
         const b8  _maths = _r->formulas != NULL && _r->formulas->ready;
@@ -340,7 +340,7 @@ RDE_INTERNAL void fude_zoom_render_symbol_plot_labels(const fude_zoom_render_sym
                 } else if(_box != NULL) {
                     fude_zoom_render_formula(_r, _box, (fude_zoom_sim){ (f64)_em, 0.0, (f64)_left, (f64)_base }, _c);
                 } else {
-                    rde_rendering_2d_draw_text_2(_r->font, _lb[_i].text, (rde_vec_3F){ _left, _base, 0.0f }, (rde_vec_2F){ _lpx / _r->font_px, _lpx / _r->font_px }, 0.0f, _c);
+                    fude_draw_text_placed(_r->font, _lb[_i].text, (rde_vec_3F){ _left, _base, 0.0f }, (rde_vec_2F){ _lpx / _r->font_px, _lpx / _r->font_px }, 0.0f, _c);
                 }
                 _y = _base - _down - _lpx * 0.3f;
             }
@@ -422,7 +422,7 @@ RDE_INTERNAL void fude_zoom_render_symbol_names(const fude_zoom_render_sym* _sy,
                     _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (f64)_q.u * _n[1], (f64)(_q.side == FUDE_ZOOM_PIN_UP ? _inset_v : -_inset_v) * _n[2] });
                     _x = (f32)_at.x - _w * 0.5f;
                 }
-                rde_rendering_2d_draw_text_2(_r->font, _q.name, (rde_vec_3F){ _x, (f32)_at.y - _qpx * 0.36f, 0.0f }, (rde_vec_2F){ _qpx / _r->font_px, _qpx / _r->font_px }, 0.0f, _soft);
+                fude_draw_text_placed(_r->font, _q.name, (rde_vec_3F){ _x, (f32)_at.y - _qpx * 0.36f, 0.0f }, (rde_vec_2F){ _qpx / _r->font_px, _qpx / _r->font_px }, 0.0f, _soft);
             }
         }
     }
@@ -436,8 +436,8 @@ RDE_INTERNAL void fude_zoom_render_symbol_names(const fude_zoom_render_sym* _sy,
             for(u32 _i = 0; _i < _nw; _i++) {
                 const fude_zoom_v2 _at = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (f64)_words[_i].u * _n[1], (f64)_words[_i].v * _n[2] });
                 const f32 _w = fude_draw_text_width(_r->font, _r->font_px, _words[_i].text, _px);
-                rde_rendering_2d_draw_text_2(_r->font, _words[_i].text, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
-                                             (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, fude_theme_active()->text_soft);
+                fude_draw_text_placed(_r->font, _words[_i].text, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
+                                      (rde_vec_2F){ _px / _r->font_px, _px / _r->font_px }, 0.0f, fude_theme_active()->text_soft);
             }
         }
     }

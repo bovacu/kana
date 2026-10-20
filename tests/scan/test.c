@@ -13,7 +13,6 @@ static rde_texture* g_tex = (rde_texture*)0x1234;
 void rde_rendering_2d_draw_stroke(const rde_vec_2F* p, const f32* r, u32 n, rde_color c) { (void)p; (void)r; (void)n; (void)c; }
 void rde_rendering_2d_draw_circle(const rde_vec_2F p, f32 r, u32 s, const rde_color c, rde_shader* sh) { (void)p; (void)r; (void)s; (void)c; (void)sh; }
 void rde_rendering_2d_draw_rectangle(const rde_vec_2F a, const rde_vec_2F b, const rde_color c) { (void)a; (void)b; (void)c; }
-void rde_rendering_2d_draw_text_2(rde_font* f, const c8* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)f; (void)t; (void)p; (void)s; (void)r; (void)c; }
 void rde_rendering_2d_draw_polygon_with_border(const rde_vec_2F* p, u32 n, const rde_color f, f32 t, const rde_color b, rde_shader* sh) { (void)p; (void)n; (void)f; (void)t; (void)b; (void)sh; g_polys++; }
 void rde_rendering_2d_draw_polygon_border(const rde_vec_2F* p, u32 n, f32 t, const rde_color c, rde_shader* sh) { (void)p; (void)n; (void)t; (void)c; (void)sh; g_borders++; }
 void rde_rendering_2d_draw_texture_2(const rde_texture* t, rde_vec_3F p, rde_vec_2F s, f32 r, rde_color c) { (void)t; (void)p; (void)c; g_textures++; g_last_rotation = r; g_last_scale = s; }

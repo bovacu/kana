@@ -13,7 +13,7 @@
 #define INFINIWORKSHOP_NAME "InfiniWorkshop"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define INFINIWORKSHOP_VERSION "0.2.0"
+#define INFINIWORKSHOP_VERSION "0.2.3"
 
 // The app's Apple ID on the App Store (digits only). Empty until the app is there.
 #define INFINIWORKSHOP_APP_STORE_ID ""

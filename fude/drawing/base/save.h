@@ -42,7 +42,7 @@ void       fude_save_set_folder(const c8* _name);
 // extension, so 63 bytes is far more than any app needs and well within a file name's 255.
 #define FUDE_SAVE_FOLDER_MAX 64u
 
-// Returns the folder for what was downloaded and can be downloaded again (InfiNote's speech model, tens of MB), ending
+// Returns the folder for what was downloaded and can be downloaded again (a speech model, tens of MB), ending
 // in '/', and creates it on first use: downloads/ in the platform's cache folder for the app (Android's cache, iOS's
 // Library/Caches; ./downloads/ on a computer). No backup takes it in, neither the device's (iCloud's, or
 // Google's, which keeps at most 25 MB of an app) nor Your data's, since it is nobody's work; and the system may empty

@@ -11,11 +11,11 @@
 //
 //   <desktop build> --bake [--strokes=PATH] [--prepared=DIR] [--out=PATH]
 //
-// It is run from the project root after apps/arabic/tools/ (strokes/compose.py, then data/fetch.py and
+// It is run from the project root after the app's tools (strokes/compose.py, then data/fetch.py and
 // data/prepare.py). The defaults are data/raw/ar/arabicvg.xml (the letters' strokes, Arabic's own),
-// data/raw/ar/prepared/ and apps/arabic/assets/data/characters.kana.
+// data/raw/ar/prepared/ and the app's out (fude_bake_app).
 //
-// Arabic's sources are read by its tools (apps/arabic/tools/data/); this file only bakes what they prepared,
+// Arabic's sources are read by its tools (the app's); this file only bakes what they prepared,
 // through the study's bake (fude_bake_run_prepared). It is left out of phone and tablet builds.
 // ===========================================================================
 
@@ -47,8 +47,6 @@ static const c8* const FUDE_AR_LANGS[] = { "es", "pt", "fr", "ja" };   // prepar
 static const fude_bake_prepared_def FUDE_AR_BAKE = {
     .strokes        = "data/raw/ar/arabicvg.xml",
     .prepared       = "data/raw/ar/prepared",
-    .out            = "apps/arabic/assets/data/characters.kana",
-    .tools          = "apps/arabic/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
     .languages      = FUDE_AR_LANGS,
     .language_count = (u32)(sizeof(FUDE_AR_LANGS) / sizeof(FUDE_AR_LANGS[0])),   // Counted, so a language added cannot be left out.
     .word_chars     = 20u,   // In code points, harakat included, since words keep their vowels (كِتَاب is 6).
@@ -57,8 +55,8 @@ static const fude_bake_prepared_def FUDE_AR_BAKE = {
 };
 
 // Runs Arabic's bake with the app's command line. Returns 0 on success.
-i32 fude_bake_run(i32 _argc, c8** _argv) {
-    return fude_bake_run_prepared(&FUDE_AR_BAKE, _argc, _argv);
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
+    return fude_bake_run_prepared(&FUDE_AR_BAKE, _app, _argc, _argv);
 }
 
 #endif

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/page.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/app.h"
 #include "drawing/app/documents.h"
 #include "drawing/app/ui.h"
@@ -215,6 +216,8 @@ RDE_INTERNAL void fude_page_finger_poll(fude_page_input* _page) {
     }
     const f64 _held  = rde_engine_get_time_now() - _page->finger_since;
     const f32 _moved = fude_page_finger_moved_from_start(_page, _page->finger_points[_page->finger_count - 1]);
+    // Render on demand: the next moment to decide at, the wait's end and then the long press's.
+    fude_redraw_after((_held < FUDE_PAGE_FINGER_WAIT ? FUDE_PAGE_FINGER_WAIT : FUDE_CANVAS_LONG_PRESS_TIME) - _held);
     if(_held >= FUDE_CANVAS_LONG_PRESS_TIME && _moved < FUDE_PAGE_FINGER_MOVE) {
         fude_pagemenu_open_context(&_page->app->ui->page, _page->finger_points[0], fude_canvas_from_screen(_page->app->canvas, _page->finger_points[0]));
         _page->finger_state = FUDE_PAGE_FINGER_IGNORED;   // Until it lifts.
@@ -260,8 +263,8 @@ void fude_page_let_go(fude_page_input* _page) {
 
 // --- events -------------------------------------------------------------------------------
 
-// Hands a press at _screen to what the app draws over the page (extension.h: page_press; Kana's translation card, for
-// example). The page still gets the press as well.
+// Hands a press at _screen to what the app draws over the page (extension.h: page_press; a study app's translation
+// card, for example). The page still gets the press as well.
 RDE_INTERNAL void fude_page_press_app(fude_page_input* _page, rde_vec_2F _screen) {
     const fude_extension* _ext = fude_app_ext(_page->app);
     if(_ext->page_press != NULL) {
@@ -293,8 +296,8 @@ RDE_INTERNAL void fude_page_pen_event(fude_page_input* _page, rde_event* _event)
             _ink->sample_time = (f64)_event->time_stamp * 1e-9;   // SDL's event time, in nanoseconds.
 
             // On the UI the pen is pressing a button, which the UI gets as a synthetic mouse click right after this
-            // event, so it must not also write underneath. What the app draws over the page (Kana's translation card,
-            // for example) answers here.
+            // event, so it must not also write underneath. What the app draws over the page (a study app's translation
+            // card, for example) answers here.
             fude_page_press_app(_page, _screen);
             if(fude_ui_hit(_ui, _screen)) {
                 _page->pen_on_ui = true;
@@ -555,6 +558,12 @@ RDE_INTERNAL void fude_page_render_zoom(fude_page_input* _page, rde_window* _win
         return;
     }
     const f32 _fade = _age <= FUDE_PAGE_ZOOM_TIME ? 1.0f : 1.0f - (f32)((_age - FUDE_PAGE_ZOOM_TIME) / FUDE_PAGE_ZOOM_FADE);
+    // Render on demand: still while fully shown, then fading every frame until it is gone.
+    if(_age < FUDE_PAGE_ZOOM_TIME) {
+        fude_redraw_after(FUDE_PAGE_ZOOM_TIME - _age);
+    } else {
+        fude_redraw_changed();
+    }
 
     // The text is measured once per new value. The pill fits it, and it sits in the middle: across by its width, and
     // up and down by its digits' height.
@@ -604,7 +613,7 @@ void fude_page_render(fude_page_input* _page, rde_window* _window) {
     fude_page_render_zoom(_page, _window);
     fude_doc_render_pill(&_page->doc, _app->canvas->view, _app->font, _app->font_px, _window);
     if(fude_app_ext(_app)->page_render != NULL) {
-        fude_app_ext(_app)->page_render(_app, _window);   // Such as Kana's Translate with Google card.
+        fude_app_ext(_app)->page_render(_app, _window);   // Such as a study app's Translate with Google card.
     }
 }
 

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/home.h"
+#include "drawing/base/redraw.h"
 #include "zoom/words.h"
 #include "zoom/pages.h"
 #include "drawing/app/app.h"
@@ -127,6 +128,7 @@ RDE_INTERNAL rde_texture* fude_zoom_home_cover_of(fude_zoom_home* _home, u32 _no
         return _home->covers[_kept].texture;
     }
     if(*_loads >= FUDE_ZOOM_HOME_LOADS) {
+        fude_redraw_changed();   // (render on demand: the rest are loaded in the next frames)
         return NULL;
     }
     (*_loads)++;
@@ -277,8 +279,13 @@ RDE_INTERNAL void fude_zoom_home_update(fude_zoom_home* _home, f32 _dt) {
         _home->held            = FUDE_ZOOM_HOME_NONE;
     }
     fude_scroller_update(&_home->scroller, _dt, _home->content_h, _home->list_max.y - _home->list_min.y);
-    // A card held still: its buttons (the lift that follows makes no tap).
+    // A card held still: its buttons (the lift that follows makes no tap). Render on demand: a hand held still sends
+    // nothing, so the hold's end is a timer.
     b8 _swallow = false;
+    if(_home->pressing && !_home->press_moved && !_home->welcome && _home->held == FUDE_ZOOM_HOME_NONE &&
+       rde_engine_get_time_now() - _home->press_at < FUDE_ZOOM_HOME_HOLD) {
+        fude_redraw_after(FUDE_ZOOM_HOME_HOLD - (rde_engine_get_time_now() - _home->press_at));
+    }
     if(_home->pressing && !_home->press_moved && !_home->welcome && rde_engine_get_time_now() - _home->press_at >= FUDE_ZOOM_HOME_HOLD &&
        _home->held == FUDE_ZOOM_HOME_NONE) {
         const u32 _i = fude_zoom_home_card_at(_home, _home->press);

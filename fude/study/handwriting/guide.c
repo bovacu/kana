@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/handwriting/guide.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/text.h"
 #include "study/handwriting/match.h"
 #include "drawing/base/draw.h"
@@ -83,6 +84,9 @@ RDE_INTERNAL void fude_guide_next_stage(fude_guide* _guide, f64 _now) {
 
 // Moves a finished step on to the next once it has shown its tick for FUDE_GUIDE_PAUSE seconds.
 b8 fude_guide_update(fude_guide* _guide, f64 _now) {
+    if(_guide->stage_done_at > 0.0 && _now - _guide->stage_done_at < FUDE_GUIDE_PAUSE) {
+        fude_redraw_after(FUDE_GUIDE_PAUSE - (_now - _guide->stage_done_at));   // (render on demand: the next step then)
+    }
     if(_guide->stage_done_at > 0.0 && _now - _guide->stage_done_at >= FUDE_GUIDE_PAUSE) {
         fude_guide_next_stage(_guide, _now);
         return true;
@@ -296,6 +300,9 @@ RDE_INTERNAL void fude_guide_render_steps(fude_guide* _guide, fude_glyph* _glyph
     if(_guide->stage == FUDE_GUIDE_TRACE || _guide->misses > 0) {
         const f64 _duration = FUDE_GLYPH_STROKE_BASE + FUDE_GLYPH_STROKE_PER * (f64)_length;
         const f64 _t        = (_now - _guide->shown_at - FUDE_GUIDE_DEMO_DELAY) / _duration;
+        if(_t < 1.0) {
+            fude_redraw_changed();   // (render on demand: it writes itself with the clock, after its short delay)
+        }
         if(_t > 0.0 && _t < 1.0) {
             const rde_vec_2F _end = fude_glyph_stroke(_glyph, &_stroke, _tl, _scale, _pen, (f32)_t, fude_guide_alpha(_theme->pen_tip, 0.75f));
             rde_rendering_2d_draw_circle(fude_draw_at(_end), _pen * 1.4f, 20, _theme->pen_tip, NULL);
@@ -317,6 +324,7 @@ void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _
     // The wrong stroke, red, fading out.
     const f64 _since = _now - _guide->rejected_at;
     if(_guide->rejected_count > 0 && _since < FUDE_GUIDE_FADE) {
+        fude_redraw_changed();   // (render on demand: it fades every frame)
         static rde_vec_2F _screen[FUDE_GUIDE_MAX_POINTS];
         const f32         _k = _size / _units;
         for(u32 _i = 0; _i < _guide->rejected_count; _i++) {
@@ -329,6 +337,9 @@ void fude_guide_render_over(fude_guide* _guide, rde_vec_2F _tl, f32 _size, f32 _
     // A step done: a tick over the square, fading in over a quarter of a second.
     if(_guide->stage_done_at > 0.0) {
         const f32        _in = (f32)rde_math_min_f64(1.0, (_now - _guide->stage_done_at) / 0.25);
+        if(_in < 1.0f) {
+            fude_redraw_changed();   // (render on demand: it fades in every frame)
+        }
         const rde_vec_2F _c  = { _tl.x + _size * 0.5f, _tl.y - _size * 0.5f };
         const f32        _u  = _size * 0.22f;
         const rde_color  _g  = fude_guide_alpha(_theme->score_good, _in);

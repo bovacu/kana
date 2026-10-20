@@ -8,10 +8,10 @@
 // ===========================================================================
 // Session: what is kept between launches (save.h's files) and what leaves the app as a file. The open page and the
 // settings are written a moment after the last change (never mid-stroke) and on leaving the app, so an iPadOS kill
-// loses at most that moment. Canvases switched in the side panel are saved and loaded here, and the app's own files
-// are opened here too (extension.h: Kana's marks, exams, words, reviews, notes). Your data's export and import
-// (backup.h) are shared on a tablet and saved where chosen on a computer (and the app's own files go the same way:
-// Kana's practice sheets).
+// loses at most that moment. Canvases switched in the side panel are saved and loaded here, and the app's own files are
+// opened here too (extension.h: a study app's marks, exams, words, reviews, notes). Your data's export and import
+// (backup.h) are shared on a tablet and saved where chosen on a computer (and the app's own files go the same way: a
+// study app's practice sheets).
 //
 // Where it sits: drawing/app. The shell calls it at launch, each frame and on leaving; the side panel's Your data and
 // the document bar use its file helpers.
@@ -39,7 +39,7 @@ typedef struct {
 } fude_session_info;
 
 // Reads everything at launch: the canvases, the app's own files, the settings, and the open page. The very first time
-// (no settings yet) it runs the app's first launch (Kana: the welcome), takes the device's theme, and saves the
+// (no settings yet) it runs the app's first launch (a study app: the welcome), takes the device's theme, and saves the
 // settings at once, so from then on the theme is the learner's.
 void fude_session_load(struct fude_app* _app);
 // Called once a frame: opens a canvas chosen in the side panel (saving the one left), does what Your data asked for,
@@ -63,7 +63,7 @@ fude_session_info fude_session_info_now(void);
 void fude_session_export_to(struct fude_app* _app, const c8* _path, b8 _share);
 void fude_session_import_pick(struct fude_app* _app, const c8* _path);
 // Writes into _out the path for a file to share, in the outbox in the save folder, deleting what earlier shares left
-// there. Its name is _stem and today's date, with the extension _ext ("Kana backup 2026-10-01.kanabackup").
+// there. Its name is _stem and today's date, with the extension _ext ("<Name> backup 2026-10-01.<id>backup").
 void fude_session_outbox_path(c8* _out, usize _size, const c8* _stem, const c8* _ext);
 // Writes into _out the chosen _path with _ext (".pdf") added when it was left out. _ext_upper (may be NULL) is another
 // ending that counts as having it (".PDF").

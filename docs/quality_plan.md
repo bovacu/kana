@@ -577,6 +577,165 @@ frame's own bookkeeping (the query, the sort, the items) is a few per cent.
       steady runs): 54.6 and 54.7 fps (44.2 before), a frame 17.6 ms (21.9), render 13.4 ms (17.8), 5 and 14 frames
       over 20 ms in 10 s (every one before). What is left is copying the meshes into the batch and the flush's index
       rewrite (RDE): the next step towards 60 on that tablet, if wanted.
+      With the flush's index rewrite skipped where the draws are already in order (2026-10-16, RDE: "RDE changes" below),
+      the same tablet, the same canvas, three runs: 59.7, 59.8, 59.8 fps (the display's 60), a frame 16.0 ms, render
+      9.9, 9.1, 9.1 ms (13.4 with meshes alone, 17.8 before either), 2 to 4 frames over 20 ms in 10 s.
+      The flush's index rewrite, skipped where it changes nothing (2026-10-16; RDE, `rde_rendering_2d.c`). At the end
+      of each 2D frame RDE sorted the draw commands and copied every shader's indices into a scratch and back in that
+      order, even when each command already started where the one before it ended, which a canvas of strokes always
+      does (one command, 1.8 million indices at the Mac's window size): two copies of 7 MB a frame that left every byte
+      where it was. One walk over the commands now finds the shaders whose commands are in place and leaves them be;
+      the others are rewritten as before, so the GPU is given the same bytes and the same draws. Measured on the Mac
+      (M2, `measure` builds of before and after, each on its own engine library, run in turn in one sitting,
+      `--perf=10`, three runs each): the gate drawn, render 3.29, 3.37, 3.32 ms a frame before, 3.00, 2.99, 2.92
+      after; the same canvas opened again, 3.22, 3.33, 3.40 before, 2.92, 2.94, 2.95 after (11% less; update 0.07–0.10
+      ms before, 0.13–0.16 after, as it rose with the meshes too). `sample` (6 s, three of each, in turn): the canvas's
+      flush was 354–381 samples of the render's 765–824, 195–198 of them the rewrite's two copies; now 227–242 of
+      703–733, the upload's two copies and little else. Those copies and the meshes' copy into the batch take a little
+      longer than they did (the upload's 148–170 samples are 204–223, the page's drawing 406–438 is 472–493: the cache
+      no longer holds what the rewrite left in it, it seems), so the render saves about half of what the rewrite cost.
+      Pictures: every screen as it was. The tablet's measuring APK is built
+      (`build/infiniworkshop-android-measure/game.apk`), not installed: to measure there.
+- [x] 4.10 RDE's rendering, reviewed and fixed (2026-10-16–19). The owner asked for a review of
+      RDE's 2D, 3D and UI/text rendering: what is conceptually wrong, what wastes work, what could batch. It found 21
+      correctness bugs and eleven kinds of waste, all to be fixed. Every change is in "RDE changes" below; the kana
+      side is here.
+      - **Owner's decision on text:** no shaping cache inside the engine. An app that draws text by string keeps the
+        shaped text and draws it with `rde_rendering_2d_draw_shaped_text_2`, as `rde_ui` labels already do.
+        `fude/drawing/base/draw.c` keeps its shapes (`fude_draw_shape_of`: an `rde_lru` of 1,024 shapes plus a
+        spare, keyed by the font and the text's bytes; nothing drawn this frame is evicted; all freed at
+        `fude_draw_forget`). Every fude text draw goes through it (`fude_draw_text`, `fude_draw_text_placed` for the
+        25 placed draws in fude/zoom). Its test in tests/draw: a text drawn twice is shaped once, any byte or font
+        reshapes, a 1,000-text screen over 30 frames is shaped once.
+      - **Tiles drawn in two layers:** `fude_draw_tiles_begin`/`_end` put a grid's text one layer above its
+        backgrounds, so the 2D batch grouped each. Used by Browse, the chart, the Album, the vocabulary and the
+        translator. Taken out on 2026-10-19: RDE's 2D batch now gathers draws that do not overlap on its own, and
+        every screen draws the same bytes with the same draw calls without them (Browse: 13 a frame).
+      - **Measured, Kana's Browse (Mac, `measure` builds, before and after in turn):**
+        - render 0.59–0.60 ms → 0.36–0.37 ms (the chart 0.80 → 0.45);
+        - texts shaped a frame: 74 → 0;
+        - per frame: draws 178 → 107, pipeline binds 176 → 105, scissors 177 → 106.
+
+        Most of what is left is one draw per Slug text run, which phase 2 merges.
+      - **Measured, the gate canvas (InfiniWorkshop `measure`, `--gate=1000000 --perf=10`):**
+        - kept stroke meshes now stay on the GPU, so the bytes uploaded a frame went from 9.70 MB to 0.176 MB (first
+          open) and from 19.30 MB to 0.179 MB (reopened);
+        - render 0.91–1.82 → 0.22 ms, and 1.69–2.75 → 0.28 ms.
+
+        `fude/zoom/render_stroke.c`, `render.c` and `render.h` call the new `rde_rendering_2d_keep_stroke_mesh` family.
+        The zoom suite's harness stands in for it, so it records kept and made meshes alike.
+      - **Pictures:**
+        - Rounded shapes' corners are now antialiased; straight sides are byte for byte the same.
+        - Slug text is heavier where it is light on dark. Its coverage was applied twice.
+        - Text is about 2% wider, because advances are no longer floored per glyph. Chips sized to their text grow 1–2
+          px, and two paragraphs re-wrap (welcome-2's card gains a line; the Settings licence).
+        - Arabic "بِـ" joins before the tatweel.
+        - Punctuation kerns ("T.").
+
+        The pictures as they were before any of this are kept for the comparison; the baseline is the owner's to
+        refresh.
+      - **Phase 2, Slug text batched (RDE).**
+        - Each string's quads are placed on the CPU, so one uniform serves a whole range.
+        - Consecutive runs merge into one draw, across fonts.
+        - All Slug fonts share one glyph texture pair.
+        - A draw moves ahead, past draws it does not overlap, to join one it merges with.
+
+        Kana's Browse, per frame, old → new (debug, lldb, frames 120–130):
+
+        | | Old | New |
+        |---|---|---|
+        | Draws | 107 | 11 |
+        | Pipeline binds | 105 | 10 |
+        | Scissors | 106 | 11 |
+        | Sampler binds | 103 | 7 |
+        | Command buffers | 2 | 1 |
+        | Render (`measure`) | 0.94–0.99 ms | 0.51–0.54 ms |
+
+        InfiNote's main screen goes from 23 draws to 8.
+      - **Pixels from phase 2:**
+        - Moving the placement from the GPU to the CPU shifts each vertex by float rounding (about 10⁻⁵ px).
+        - Where a pixel's centre lies exactly on a glyph's straight edge, that flips it: 7,149 pixels over 124 of
+          151 pictures, isolated, on glyph edges.
+        - The notches the old renderer left at such points (the "Y" stem in Kana's library) are gone.
+      - **Phase 2, render on demand (fude, all ten apps).** A still screen draws one frame a second instead of
+        sixty.
+        - One module decides: `fude/drawing/base/redraw.{h,c}`, its rule in `fude_redraw_end_frame_at`, called from
+          each shell's late update.
+        - A frame is drawn when the launch asks for continuous drawing (a debug launch with any flag, or
+          `--continuous`; release builds take no flags).
+        - A frame is drawn when something changed in the last 4 frames or 0.5 s: an event, `fude_redraw_changed`,
+          `fude_redraw_request` from any thread, or RDE's UI moving (`rde_ui_get_wake_after`).
+        - A frame is drawn when a timer asked for with `fude_redraw_after` is due. It draws one frame, with no grace
+          period, so a caret's blink stays one frame.
+        - Otherwise nothing is drawn, however long the screen stays still. A first version drew one frame a second
+          (a heartbeat) as a safety net. You chose the natural flow instead: every change reports itself. Debug
+          builds then check for a source that forgot to: once a second while still they draw a frame anyway, compare
+          it with the last drawn one, and warn with the screen's name and before/after pictures if it differs.
+        - Each source reports through one call: animations and fades, flights, flicks, Play, recordings, the PDF
+          worker, ML Kit and other polled answers (every 0.1 s), timers (holds, autosave, the journal flush, the
+          cover), file-dialog callbacks.
+
+        `docs/architecture.md` ("Render on demand") lists them. The suite `tests/redraw` checks the rule, including
+        20,000 random frames, and fails against five broken versions of it. Every screenshot is byte for byte as
+        before.
+
+        Measured on the Mac (debug builds, still screen, 20 s; the same binary with `--continuous`, then
+        `--on-demand`):
+
+        | Screen | CPU | Frames in 10 s |
+        |---|---|---|
+        | Kana's Browse | 17.6% → 0.1% | 593 → 10 |
+        | Hanzi's Browse | 26.8% → 3.3% | 599 → 10 |
+        | InfiNote's canvas | 20.6% → 0.1% | 600 → 10 |
+        | Sketching's canvas | 13.1% → 0.1% | 600 → 10 |
+        | InfiniWorkshop's canvas | 13.3% → 0.1% | 597 → 10 |
+        | Draw's page | 10.2% → 0.1% | 594 → 10 |
+
+        Those were measured with the heartbeat. Without it, Kana's measure build (release, no flags) draws 0 frames
+        in 10 s on a still screen, at 0.1% CPU. Debug builds draw 10, the check's frames.
+        - A paused Play is a still screen: the circuit's current dots and the warning rings run on Play's own clock.
+        - Five sources that the heartbeat had hidden now report themselves:
+          - Android's voice check after the app comes back;
+          - the reviews' day labels at midnight;
+          - Android's orientation-lock retry;
+          - the autosave's retry;
+          - the journal flush's retry.
+        - Checked live through lldb: strokes, holds, flicks, flights, notices, the journal flush and the cover while
+          asleep, the practice demo, stroke-order playback, PDF pieces and the reading-card countdown.
+        - Not run: Android and iOS (surface recreation, permission dialogs and pickers were reasoned about and
+          built, not run).
+      - **Phase 3, after three second-opinion reviews (2026-10-19), kana's side:**
+        - **Kept characters.** Browse drew its 364 glyph strokes from scratch every frame. Each character is now one
+          mesh kept on the GPU (`fude/study/chars/glyph.c`; 512 kept, keyed by character, size and pixel size, all
+          forgotten on trim). RDE's regrouping now moves kept meshes too. Before, each character sat between two
+          captions, and the tablet switched GPU pipeline 299 times a frame (now 14).
+
+          | Kana's Browse | Before | After |
+          |---|---|---|
+          | Galaxy Tab render | 5.6–5.7 ms | 2.8 ms |
+          | Galaxy Tab bytes uploaded a frame | 624 KB | 62 KB |
+          | Mac frame CPU (measure) | 1.9–2.6 ms | 1.3 ms |
+
+          Five of Kana's nineteen screens differ by 1/255 in 2–34 soft-edge pixels: a moved mesh rounds in another
+          order. Test: `tests/glyph`.
+        - **Text fields.** Text and caret sat low in every field, in every app (your report). It was an old editor
+          bug: the baseline was at the bottom of the line box. They are centred now, within 1 px.
+        - **Tiles.** The two-layer tiles are gone (`fude_draw_tiles_*`): RDE's batch groups Browse's cells by itself.
+          All 151 pictures are the same bytes, and draws are equal or fewer (Vocabulary 8 → 6).
+        - **Render on demand, the last of it:**
+          - The debug check for a forgotten source is in.
+          - On Android, a still screen burned a whole core inside SDL's wait. The vendored SDL is fixed: the tablet
+            now sits at about 6% in total, 0 frames.
+          - The audio device stops after 3 s of silence, and SDL's accelerometer listener is off unless an app opens
+            the sensor.
+          - Frames are paced to Android's vsync (Choreographer). Frames over 20 ms on Browse went from 9/1/2 to 0–2
+            per run, with one frame less latency.
+        - **App names.** 171 comments in fude named an app; all are generic now. `rules.py`'s app-identity check reads
+          comments and symbol names too, so the 0 holds: 233 hits on the tree before, 0 now.
+          `FUDE_ZOOM_PRODUCT_SKETCHING` is `FUDE_ZOOM_PRODUCT_ALL`. The language bakes take their app paths and
+          Hanzi's licence notice from the app (the shell def's `bake`), and the rebuilt data is byte-identical.
+        - **Versions on the tablet:** Kana 0.5.10, study apps 0.1.8, canvas apps 0.2.2. The final install is still to
+          do.
 - Also (2026-10-15): a hardening the review asked for — a failed read no longer leaves a scene skipping its index
       (`zfile.c`), and the constraints' passes check each line again (`connect.c`).
 
@@ -621,7 +780,8 @@ frame's own bookkeeping (the query, the sort, the items) is a few per cent.
 
 Every change keeps existing code compiling. Each new function has a unit test, written in RDE's own format and
 listed in the test app's `unit_test_scene.c`. All of them, with the containers', strings' and hashes' existing groups,
-also run from the command line: `zsh tests/headless/run.sh` (new). 383 cases pass (2026-10-15).
+also run from the command line: `sh tests/headless/run.sh` (new; sh, not zsh, which does not split its flags).
+503 cases pass, and the groups that need the engine running, `sh tests/engine/run.sh`, 51 (2026-10-17).
 
 **Added**
 - `RDE_PRINTF_FORMAT`, which marks printf-style declarations for format checking.
@@ -720,6 +880,19 @@ also run from the command line: `zsh tests/headless/run.sh` (new). 383 cases pas
   one, its output bit for bit as before (`tests/unit_tests/test_stroke_mesh.c`: 3,000 random strokes against the old
   code, kept in the test). Android's `RDEActivity` passes the starting intent's "args" extra to `main()`
   (`getArguments`), so a build that reads arguments can be given them through `adb shell am start ... --esa args`.
+- The 2D flush's index rewrite (4.9, 2026-10-16): skipped for a shader whose draw commands, in drawing order, each
+  start where the one before it ended (a frame drawn in the order it is drawn, as a canvas of strokes is). The rewrite
+  copied such a shader's indices twice, into a scratch and back, only to leave every byte where it was. One walk over
+  the commands decides; a shader with a command out of place is rewritten whole, as before, and the others are not
+  touched. The sort and the rewrite moved out of `_rde_rendering_flush_all_commands_2d` into
+  `_rde_rendering_2d_order_commands` (`rde_rendering_2d.c`; it says why and when it skips, as do the file's overview
+  and `rde.c`'s), its scratch passed in; `rde_shader_buffer_slot`'s rewrite fields say what they hold while it
+  decides. New for the test, your call whether it stays public: `rde_rendering_2d_order_draws` and
+  `rde_rendering_2d_batch_draw` (rde.h), the same code run on draws the caller describes, without a GPU. Its test,
+  `tests/unit_tests/test_2d_order.c`, runs the old sort and rewrite (kept in the test) on the same frames (in order,
+  out of order, across layers, stencil masks, shader and texture switches, draws with buffers of their own, indices no
+  draw records, 20,000 random frames) and checks the indices, first indices, order and draw calls byte for byte, that
+  nothing is copied when a frame is in order, and only the shaders out of place when it is not.
 - Comments made true: `rde_malloc`/`rde_calloc` (the engine's pool, through SDL, not the system heap) and
   `rde_physics_2d_world_create` (`_body_capacity` is Box2D's first reservation, not a cap).
 - Not changed, for you to decide: `rde_memory_texture_gpu_upload` ignores `free_data`, so a texture's CPU copy can
@@ -727,6 +900,437 @@ also run from the command line: `zsh tests/headless/run.sh` (new). 383 cases pas
   `link` lines (Google Mobile Ads 11 needs `-framework JavaScriptCore` by hand; 13 needs Xcode 16); `builder run`
   starts the app in the project's folder (its saves land there); assets' dot files (`.DS_Store`) are packed into APKs;
   on POSIX `bs_copy_file_if_exists` always reports success.
+
+**Uncommitted, 2026-10-16–17: the rendering review (4.10), for you to review**
+
+Every fix has a unit test that was checked to fail without it.
+
+*Frame and 2D* (`rde_rendering.c`, `rde_rendering_2d.c`, `rde_shader.c`, `rde_svg.c`, `rde.c`, the 2D shaders):
+- **Blend.** Alpha is stored as a + d(1−a); it was a·a + d(1−a). A transparent render texture is flagged
+  premultiplied and drawn with a premultiplied shader. The gate canvas exported to PNG had 342,377 pixels with alpha
+  below 255 on an opaque page; it now has none.
+- **Draw order and stencil.**
+  - `draw_static*` and particles close the open batch before they record.
+  - Particles set a stencil mode.
+  - Masked draws are no longer sorted after all unmasked ones.
+  - Nested and sibling masks each test only themselves: the reference is counted by depth, and push/use/pop are
+    documented in rde.h. A nested mask used to hit a fatal assert.
+- **Clipping.**
+  - The clip state is reset after an SVG draw.
+  - The no-clip scissor is the whole viewport, its x/y included, so FIT with bars no longer cuts a strip.
+  - `begin_clipping_rect` places the clip in the drawing's own size and nests as a stack; `end` restores the one
+    before.
+- **Pipeline rebuilds.** A pipeline rebuilt for MSAA or stencil keeps slot 1 per instance (particles had broken).
+  Single-sample 2D pipelines are not rebuilt on an MSAA change.
+- **Merging.** Untextured draws merge: no texture counts as an identity. The GPU texture is captured at record time,
+  and extra samplers are compared. 40 shapes are now 1 draw.
+- **Kept stroke meshes on the GPU** (new: `rde_rendering_2d_keep_stroke_mesh` and its family). They live in one GPU
+  arena with 12-byte vertices and u16 indices, are uploaded once in the flush's copy pass, and are drawn with offsets
+  and a small uniform. Kept is byte for byte what appended was.
+- **The frame.**
+  - One copy pass and one render pass per target, single-thread.
+  - One transfer buffer per shader, and a frame's flushes share one buffer per frame at their own offsets.
+  - Buffers shrink after a while unused.
+  - The frame arena is cleared once, colours are unpacked per vertex, and samplers are bound only when they change.
+  - The sort is skipped when the commands are already in order: 4M indices, 0.843 ms → 0.001 ms.
+- **Fences on Metal.** A signalled fence is released only after the next submit; releasing it before SDL had cleaned
+  its command buffer let the next submit reuse it, so command buffers stuck and pools grew while the GPU lagged.
+- **Rounded rectangles** antialiased at the corners only. The sides snap to where the hard edge was, so they are byte
+  for byte as before. Toolbar round buttons' false bars are gone (exact arc ends).
+- **Translucent strokes:** a sharp joint is inked once. **Rotated quads** move as one in physical pixels.
+- **Render on demand** (new, opt-in, off by default): `rde_engine_set_render_on_demand`,
+  `rde_engine_frame_unchanged`, `rde_engine_wake_after` and `rde_engine_request_frame`.
+- **The profiler's draw counter** counts every draw, Slug's included.
+
+*3D* (`rde_rendering_3d.c` rebuilt, clustered, decals, GPU cull, compute, the mesh/skybox/BRDF shaders,
+`mesh_3d_depth_alpha.frag` new):
+- **Lights.** Point and spot lights live in a storage buffer that grows; there is no cap.
+  `RDE_MAX_POINT_LIGHTS`/`_SPOT_LIGHTS` are now only starting capacities. Clustered lighting is the one path, and it
+  samples shadows; `rde_rendering_3d_clustered_set_enabled`/`_is_enabled` are removed. The old fixed arrays wrote 96
+  bytes past a struct on the stack.
+- **Shadows.**
+  - One depth-only atlas replaces the spot array and the 32×6 cube array.
+  - A per-frame budget ranks lights by brightness × apparent size: 8 lights in 4096² on desktop, 4 in 2048² on
+    mobile (`rde_lighting_set_shadow_budget`). A light outside the budget still lights the scene, unshadowed.
+  - A point light takes 6 tiles, each a little over 90° so filtering stays inside it.
+  - Casters are classified once per frame and culled per view, with a static-caster cache per tile.
+  - Cascades: their count is a setting (`rde_lighting_set_shadow_cascade_count`, 1–4, default 3); the light view no
+    longer moves with the camera, so texel snapping works; there is a shadow distance
+    (`rde_directional_light.shadow_distance`).
+  - No more trails: a light with no caster gets a cleared tile.
+  - Skinned-only scenes get shadows, the spot cache is keyed on the view-projection, MASK/BLEND casters are
+    alpha-tested, and casters draw both faces with slope bias.
+- **Batching.** Opaque draws are sorted by (shader, mesh), with one mapped instance buffer, one copy pass and one
+  scene render pass. State is bound only on change, and frame uniforms are pushed once. A test scene of 900
+  interleaved meshes: 13.8 → 0.60 ms CPU, 1,483 → 29 draws, 718 → 5 render passes. 200 lights: 1.96 → 0.28 ms.
+- **Pass order.** Opaque static → skinned → dynamic → decals → skybox → every BLEND mesh back to front → blended text
+  → particles. One place decides CLEAR or LOAD and routes render textures and MSAA, so no pass draws on last frame.
+- **Shading.**
+  - Colour factors are applied after decoding the texture (they were squared).
+  - Normals use the cofactor matrix (non-uniform scale).
+  - Double-sided back faces flip their normal.
+  - The skybox no longer applies pow(2.2) twice; LDR cubes are sRGB with mips.
+  - The BRDF table uses k = α/2.
+- **Culling and buffers.**
+  - Dynamic batches no longer wrap u16 indices past 65,535 vertices.
+  - GPU cull is no longer out of bounds past 42 groups.
+  - The frustum, the cascades and the clusters all come from the projection actually used: in portrait the frustum
+    covered 56% of the view (`rde_rendering_3d_get_camera_frustum`).
+  - Bounds use Arvo's method, and skinned meshes are culled.
+  - Buffers grow ×1.5, NPOT textures get mipmaps, and compute work is recorded in the frame's command buffer.
+
+*Text and UI* (`rde_text_engine.c`, `rde_font.c`, `rde_slug.c`, `rde_ui.c` and the widgets, slug/text shaders):
+- **Dangling `char_info`.** A shaped character pointed into the font's glyph map, which moves when it grows. It now
+  carries copies.
+- **Shaping.**
+  - Each font run is shaped once (1,034 → 374 `hb_shape` calls for Browse's strings), and punctuation joins its
+    neighbours, so it kerns.
+  - FriBidi is skipped when nothing is right-to-left, and HarfBuzz buffers are reused.
+  - 29.3 → 16.6 µs a string.
+  - The engine keeps no shaping cache (your decision). Every `rde_ui` widget that draws text keeps its shaped text,
+    the editor's placeholder included.
+- **Correctness.**
+  - Advances are kept in 26.6 and rounded once.
+  - Slug's em comes from the exact scale.
+  - The ellipsis cuts between whole characters.
+  - Bidi is ordered per line after wrapping.
+  - Slug's per-pass limits grow instead of dropping text.
+  - COLRv1 foreground stops are resolved per draw.
+  - Fallback fonts at another size are placed by their own scale.
+  - rde.h's text docs now say what is true.
+- **Atlas.** Packing adds only the new glyph, only dirty rectangles are uploaded, coverage is stored as R8, and Slug
+  glyph rows are uploaded once per frame.
+- **UI.**
+  - A node's layer comes from what it overlaps, so later siblings draw over earlier ones and hit-testing agrees.
+  - Masks use the per-mask stencil reference.
+  - A label that fits pushes no scissor.
+  - The clip stack's overflow is reported.
+- **Two use-after-frees and a double free.** A font unloaded mid-frame was still in the atlas upload queue, and an
+  editor destroyed on its own freed twice.
+
+*Phase 2, what phase 1 left:*
+- **`rde_render_texture_read_pixels` returns straight colour again.** It is un-premultiplied when the render texture
+  is premultiplied. kana's three exports draw an opaque page first, so their PNGs are byte for byte the same.
+- **A render texture on a BLEND or MASK 3D material** is un-premultiplied in the mesh shaders (a flag in the
+  material's spare channel, so no new pipelines). World-space UI canvases are OPAQUE and unchanged.
+- **3D atlas text billboards.**
+  - Each glyph reads its own font's atlas: a fallback glyph used to read the primary font's.
+  - They sample LINEAR, since a billboard is always scaled.
+  - Text used only on billboards is uploaded; it never reached the GPU.
+  - The by-string billboard function says it shapes every call.
+- **Atlas glyphs have a 1-texel gutter** (`rde_font.c`). LINEAR sampling of magnified text drew lines from its
+  neighbours. Unscaled text samples NEAREST and never reads the gutter.
+- **The metrics overlay keeps each row's shaped text:** 3.0–3.3 ms → 0.17–0.21 ms a draw (debug). A NULL font no
+  longer crashes it. New `rde_metrics_get_overlay_shape_count`, for the test.
+- **Integer limits.**
+  - `RDE_i8/i16/i32/i64_MIN` were positive literals, so an i16 never equalled `RDE_i16_MIN`. They are now typed,
+    as −MAX − 1, and every MAX is cast to its type.
+  - `RDE_u64_MAX` reads as unsigned in Lua; it read as −1.
+  - The .rdef getters clamp before narrowing: an i8 of 200 read as −56, and every negative float read as 1.2e-38.
+  - The Lua generator understands the new forms.
+- **The engine architecture docs** (tools/doc_generator: 3D, 2D, clustered lighting, decals, text, UI, foundation)
+  say what the code does now.
+- **Slug text batched** (`rde_slug.c`, `rde_rendering_2d.c`).
+  - Quads are placed on the CPU in the drawing's vertex space: position, em size, scale and rotation. So Slug now
+    follows the 2D camera and FIT like every other draw. 3D Slug runs keep em-space quads, byte for byte as before.
+  - A Slug command extends the previous one at record time, and contiguous entries with the same clip are one draw,
+    across fonts.
+  - One curve/band texture pair (`g_slug_store`) serves every Slug font. The oldest glyph of any font is evicted,
+    `rde_font_trim` frees a font's glyphs, and the store shrinks back once nothing holds it up.
+  - Every Slug upload is recorded in the frame's copy pass (no command buffer of its own), and the quad index buffer
+    is static.
+- **Gathering** (`_rde_rendering_2d_gather_commands`, after the sort). A command moves earlier to just after the
+  nearest command it merges with, past commands of the same layer and clip it does not overlap. It never crosses a
+  stencil mask or a command whose bounds are unknown. `rde_draw_command_2d` gains a 16-byte bounds field.
+- **Slug honours rotation and scale.y**, so `rde_ui_label_set_rotation` works on Slug fonts. Its no-clip scissor
+  includes the viewport's x/y.
+- **Atlas text rotation was wrong.** Radians were passed where `rde_math_mat_rotate` takes degrees, so 90° turned the
+  text 1.6°, and each glyph turned about a point of its own. It now turns about the text's position.
+- **CPU arrays shrink.** At the end of a 600-frame window whose peak is under a quarter of the capacity, an array
+  shrinks to twice the peak.
+- **Retina snapping.** Unrotated sprites snap to physical pixels at a whole scale of 2 or more; 1x is the old
+  rounding bit for bit.
+- **Bugs the reviewers suspected, verified and fixed** (each test fails without its fix):
+  - **A font atlas growing mid-frame** released its old texture while 2D commands recorded earlier in the frame
+    still bound it, and that texture lacked the frame's new glyphs. It was made worse by this week's capture of
+    textures at record time.
+    - The old texture now gets its pending glyphs, is retired, and is released once its frame has been submitted
+      (`rde_font.c`: `_rde_font_retire_gpu_texture`, `_rde_font_release_retired_textures`).
+    - Also fixed: a font's very first text was recorded with no texture, so for one frame it sampled whatever was
+      bound before (at HEAD too).
+    - Test `test_font_atlas.c`.
+  - **A shadow tile kept another light's depth** when its light left the budget for a few frames and came back.
+    Rendering a tile now drops every other record overlapping it (`test_shadow_cache.c`).
+  - **Decals applied alpha twice:** a premultiplied shader with a straight blend. The pass now blends premultiplied
+    (`test_decals.c`).
+  - **Decals and the clustered overlay assumed a full-window viewport.** With FIT bars a square decal came out
+    1.79× wide, and the overlay lit the bars. Both now use the scene's viewport (`decals`, `clustered_overlay`).
+  - **Threaded mode read live state.** The render thread read the live directional light, IBL and skybox. They are
+    now copied into the frame's slot when the packet is built.
+  - **Floating windows never ticked:** `_rde_ui_update` skipped `windows_root`, so their widgets got no
+    transitions and no `on_update` (`test_ui_window.c`).
+  - **Every Lua plugin failed to load** (at HEAD too). The generated cdef used `rde_memory_allocator` without
+    declaring it.
+    - The generator now declares any `rde_` type that is used but not declared, as an opaque struct, with a build
+      warning.
+    - `rde_model_load_params` and `rde_bounding_box` are exported with their fields.
+    - Tests `test_lua_cdef.c` and `test_lua_plugins.c`.
+  - **Stale comments made true:** `mesh_3d_pbr.frag`, the tonemap and IBL blocks, the UI's z-bands,
+    `rde_text_engine.c`'s header, and `rde_shader.c`'s blend list.
+- **Render on demand, the engine's part** (for kana's adoption, 4.10).
+  - A window or display event always draws (`frame_forced` in `rde.c`), until a window has really drawn, so a
+    swapchain not ready yet does not count. A minimised app does not spin.
+  - Returning to the foreground wakes a sleeping engine and draws (`rde_event.c`). SDL never queues those events.
+  - New `rde_ui_get_wake_after`: 0 when RDE's UI moved this frame, above 0 for a timer, below 0 for nothing.
+    - Moving: transitions, scroll flings and spring-backs, toggles, toasts, spinners.
+    - Timers: a focused editor's caret, the touch-hold selection, tooltip dwell.
+  - Mobile edit-menu picks call `rde_engine_request_frame`.
+  - Test: `test_render_on_demand.c` (an EXPOSED event during "unchanged" frames is drawn).
+- **Not done:** threaded mode keeps one pass per drawing. Sharing a pass would hold drawings back and lose the
+  overlap threaded mode is for. Nothing runs threaded today.
+
+*Tests and the builder:*
+- `tests/main.c` runs staged groups one at a time and confirms a leak over up to 8 more passes. SDL's pools grow to a
+  high-water mark and stop.
+- `tests/unit_test_util.h` passes a group's test names as the variadic part, so a group of one test compiles under
+  clang's `-Werror`.
+- Its `RDE_UNIT_TEST_EXPECT_*` macros parenthesise their arguments. Pasted bare, an argument bound into the
+  comparison: `EXPECT_I32_EQ(a ? b : c, 61)` compared `a ? b : (c == 61)`, so `test_crash.c`'s length check passed
+  for any length. It holds at 61 now. Found by the hub session.
+- `rde_build.c`'s `compile_tests` adds `external/include` (the tests reach SDL's atomics), and `test_uuid.c` uses
+  `rde_memset`.
+- `sh tests/engine/run.sh` now builds and runs on the Mac: 51 cases pass. `sh tests/headless/run.sh` (sh, not zsh)
+  passes 503.
+
+*For you to decide:*
+- **Rounded rectangles.** Sides snapped to the old raster (chosen), or purely geometric antialiasing, which would
+  make off-grid sides soft.
+- **A kept-mesh draw outside a 2D drawing:** it draws nothing and warns once (chosen), or it asserts.
+- **3D into a render texture** is documented as unsupported. Render textures are RGBA8 and 3D renders in 16-bit HDR
+  with no tonemap on that path.
+- **Shadow casters** draw both faces with slope bias plus a texel-relative normal offset, which keeps closed meshes
+  as before.
+- **Text metrics changed meaning.** A line's height is now tallest + deepest over the whole line, and a trailing
+  "\r\n" is one break.
+- **Not done yet:** SSAO darkening only ambient light, which needs a depth prepass or a second target, and LOD levels
+  in one buffer with multi-draw, which needs a mesh-format change.
+- **World-space UI canvases are OPAQUE**, so their transparent parts show black, as before. As BLEND they would now
+  composite correctly.
+- **The atlas gutter** costs about one texel per glyph on each axis.
+- **Slug pixels.** Byte-identical text would need the old em-to-clip rows carried per vertex (+32 bytes a vertex). The
+  CPU placement was kept; its only cost is the isolated edge pixels above.
+- **Rotation directions differ.** Text turns counter-clockwise for positive degrees (as the label docs say); sprites
+  (`rde_rendering_2d_draw_texture_*`) turn clockwise.
+- **Odd drawing sizes.** Slug keeps the exact half size as its centre, so its pixels stay put. The batch uses the
+  floored half, so Slug text can sit 0.5 unit right of where atlas text would.
+- **`rde_font_trim`'s return value** now means "the shared store is back at its start size", which can be false
+  while another font still holds glyphs.
+- **`rde_model_load_ex` takes its allocator in the middle**, so the Lua generator cannot strip it: Lua calls it as
+  `(path, nil, params)`. Move the allocator last, as the engine's other functions have it, or teach
+  `_rde_lua_strip_allocator` the middle.
+- **The Lua plugin suite's own failures**, visible now that plugins load:
+  - `t_io_path_escape` gets error code 8.
+  - `t_alloc_strip` finds no depth format before any 3D frame.
+  - `t_memory_bomb` and `t_str_arr_roundtrip` crash in libunwind while LuaJIT unwinds an error on macOS arm64.
+- **A font gaining k pages in one frame** now uploads the whole atlas k times. Spare layers would avoid it, at up to
+  twice the atlas's GPU memory.
+- **Threaded mode is finished since** (see the 2026-10-18–19 block below), and still off by default.
+- **Render on demand (kana), decided:**
+  - no heartbeat, plus the debug check;
+  - a paused Play is still;
+  - on iOS the engine now sleeps in UIKit's run loop instead of SDL's 1 ms polling (built; to test on an iPad).
+
+**Uncommitted, 2026-10-18–19: the rendering made natural, threaded mode finished, Lua fixed (for you to review)**
+
+You asked for a pipeline that is correct, efficient, easy to follow, well structured and natural. Four reviews (frame
+and 2D, 3D, text and UI, SIMD) listed where the code was unusual and why. Fixers then changed the cause, not the
+symptom, each fix with a test that fails without it. The checklist, ticked as each item landed and was checked, is the
+"RDE Rendering Pipeline Plan" doc (https://claude.ai/code/artifact/aed39bbb-5e10-4497-89ec-5f42a9c07500); your
+decisions are in its last table.
+
+*Frame, 2D and threaded mode:*
+- **A pipeline cache.** Pipelines are keyed by shader, stencil mode and pass targets. 2D drawn into a render texture had
+  used screen-format pipelines (175 Metal validation errors). It also replaces the in-place MSAA rebuilds, the stencil
+  variants made mid-pass and SVG's rebuild hook.
+- **One deferred-deletion queue on one frame clock.** Unloading something the frame still draws no longer frees it
+  under the GPU, in single-thread mode too. It replaces three ad-hoc "release later" schemes and the GPU-idle waits in
+  unloads; cubemaps, IBL, meshes, models and fonts go through it.
+- **One upload service:** a per-frame staging arena recorded into the frame's one copy pass, replacing about 40 sites
+  that each made their own command buffer.
+- **One 2D coordinate space and one view-projection per drawing.** Clips are float rectangles in drawing space
+  (`rde_rendering_2d_begin_clip` / `end_clip`), viewport regions are real (`rde_camera_set_viewport_region`), and a
+  scissor can no longer reach past its target.
+- **Premultiplied alpha throughout 2D.** `rde_rendering_clear_background_color` now clears what is drawn into: a render
+  texture started transparent before.
+- **Simpler 2D state.**
+  - SVG is drawn as a texture.
+  - The unused LDR MSAA target is gone (about 90 MB at 4x on an iPad Pro).
+  - Clear/load is per-target state; the global window "cursor" is gone; flush points are explicit.
+  - Particles, 2D and 3D, are copied into the frame when drawn.
+- **Immutable frame packets with one executor,** run inline in single-thread mode and on the render thread in threaded
+  mode. Single-thread and threaded give the same frame hash (`tests/engine/run.sh --compare`).
+- **Threaded mode** (still OFF by default):
+  - It presents from an offscreen target per window; the main thread acquires, blits and presents (your choice b).
+  - Five thread-sanitizer races are fixed (allocation counters, peak windows, metrics counters, pool counters, Slug
+    init). None are left in RDE code; the remaining reports are inside SDL's Metal backend.
+  - A crash is fixed: the kept-mesh upload buffer was sized on one thread and written on the other.
+  - Measured, threaded against single-thread: Kana Browse −7%, the gate canvas about equal, encode-heavy 3D large
+    (200 lights 2.66 → 1.93 ms).
+- **Your decisions:**
+  - rounded rectangles with exact signed-distance coverage (one quad each);
+  - one rotation convention: positive is clockwise on screen, for everything;
+  - vsync from the config honoured, and `--vsync` accepted.
+- **Speed:**
+  - `_rde_2d_extra_samplers` returns early: it scanned 63 empty slots per draw, 34% of the gate canvas's CPU frame.
+  - Stroke tessellation is bit-exact and about 20% faster, twice over: from scalar fixes, then from the maths pass.
+  - sqrt, floor, ceil, round, trunc and fabs are compiler built-ins, bit-identical.
+  - The 3D LOD pick went from 7.2 to 4.9 ns.
+  - Bounds taken at record time were built, measured slower and taken back.
+- **Found on the way:**
+  - `rde_window_destroy` leaked each window's creation properties.
+  - `rde_hash_map_foreach` read one slot past the end on its last step.
+
+*Apple platforms always present with vsync* (`rde_rendering.c` `_rde_rendering_unsynced_present_allowed`, used by
+all three present-mode choosers). Your Mac restarted twice on 2026-10-19. Both were kernel panics in the display
+coprocessor: "DCP PANIC – program_swap: Async Swap request landing on unsupported platform". They came from presenting
+without vsync: measuring runs with `--vsync=false`, and RDE gave every window after the first no vsync. No program
+should be able to do that, so RDE refuses it there. Frame cost is measured on the CPU (`--perf`).
+
+*3D:*
+- **A view object** decides each pass's target, size, viewport and clear/load in one place. SSAO and the outline are
+  right under FIT bars, and 3D into a render texture works, at its own aspect.
+- **SSAO** comes from a depth prepass and darkens ambient light only (your choice).
+- **Decals** are lit, in the forward shader (your choice).
+- **One render-item list** with per-pass sort keys (your choice).
+- **Bloom and the outline** are folded into the tonemap: one full-screen pass instead of three.
+- **Shadows:**
+  - cached static depth per tile, with only the moving casters drawn on top;
+  - persistent tile placement with hysteresis;
+  - a light re-added at a freed light's address no longer inherits its cache.
+- **LOD** by projected screen error, with all LODs in one index buffer.
+- **GPU culling** stays opt-in, on the main path's instance data (your choice); the double instance offset that dropped
+  cubes is fixed.
+- **3D Slug text is drawn like 2D's:** 8 billboards are 1 draw. Each entry's plane sits in a storage buffer;
+  `rde_slug_vertex` is unchanged.
+- **Colour:**
+  - Colour maps are sRGB with mips made in linear light, data maps UNORM, and no pow(2.2) is left (a decode flag
+    covers render textures used as maps).
+  - 3D text and particles decode their sRGB colour too, so they match 2D before the tonemap.
+- **Smaller changes:**
+  - one lighting layout for Blinn and PBR;
+  - shader includes (`engine/shaders/include/`);
+  - the BRDF table baked once;
+  - load-time GPU work through the upload service;
+  - a default directional light;
+  - the 4-wide SIMD frustum test (`rde_simd.h`: NEON, SSE2 or scalar; bit-identical, 4.6× faster).
+- **The `RDE_RENDERIG_` typo** is renamed to `RDE_RENDERING_`, with the old names kept as marked deprecated aliases.
+
+*Text and UI:*
+- **Shaped text is a glyph run:** exact 26.6 pens, byte clusters, rows and row metrics. Shaping rasterises nothing,
+  and Slug draws at the exact pen.
+- **A font is a face plus sizes:** the face holds the bytes, FT_Face, hb_face and fallback chain; a size is an FT_Size
+  and hb_font. Scaled labels keep their fallbacks.
+- **One shared glyph atlas,** R8 and BGRA 2D arrays. It grows by GPU copy, uploads only new glyphs in the copy pass,
+  and evicts pages. The k-uploads-per-k-pages problem is gone.
+- **The UI is drawn in tree order,** one layer per band, with the batch's gathering grouping draws. Kana Browse: 11 →
+  12 draws, byte-identical pictures.
+- **Every UI band was drawn twice a frame:** a macro evaluated its argument twice.
+- **Colour emoji** are on the premultiplied path (no dark fringe); one text shader per atlas format; Slug honours
+  stencil masks; one font loader.
+- **The metrics HUD** gained a "Text shapes" row, and `rde_metrics_get_overlay_shape_count` is gone.
+- **The heatmap's y caption** reads upwards like the charts'.
+- **Being finished as this is written:** the UI on the new clip API, and the Slug store handed over at frame close
+  (the last render-thread waits).
+
+*Vendored SDL, two local patches* (marked `RDE:`, listed in the memory notes): in `SDL_gpu_metal.m`
+`METAL_BindGraphicsPipeline`, samplers, storage textures and vertex storage buffers are re-bound when a pipeline's
+counts differ. On Metal they share binding slots. Without it, Slug text drawn after a sprite drew nothing: kana's
+Settings and Licences dialogs lost most of their text.
+
+*Lua and the builder:*
+- **`rde_model_load_ex`** takes its allocator last, and Lua calls it as `(path, params)`. The Godot .tscn importer on
+  your Windows machine must swap its last two arguments. `rde_rdef_try_parse` is `(path, out, allocator)` too (the hub
+  session's).
+- **The Lua plugin suite is green** (33 tests).
+  - A path that didn't exist yet escaped the plugin's mount.
+  - The sandbox loaded a second, unstarted copy of the engine.
+  - macOS arm64's LuaJIT uses internal unwinding: external crashed in libunwind through JIT frames.
+  - Every string and array Lua got from RDE leaked.
+  - Several entry points called Lua outside a protected call.
+- **Physics callbacks** never call Lua inside a step: events are queued and delivered after it. The contact filter isn't
+  exported to Lua. Physics tells listeners of freed bodies through a hook (`_rde_physics_2d/3d_on_free`), so it knows
+  nothing of Lua.
+- **Path functions** go through the plugin's mounts.
+- **Android's arm64 LuaJIT:** my old DUALNUM suspicion was wrong (the output is byte-identical); its row now follows
+  LuaJIT's Makefile. A number-mode test is to run on the tablet.
+- **The builder** recompiles itself again: the Android LuaJIT row outgrew its array.
+
+*2026-10-19 (evening): three second-opinion reviews and a docs pass, all fixed* (each with a test that fails
+without its fix):
+- **Frame and threaded mode:**
+  - ImGui is a pass of the frame.
+  - The atlas unload goes through the deferred queue; a window destroyed from its own callback waits for the frame's
+    end; MSAA changed mid-frame becomes a request for the next frame.
+  - The pak's mip pyramid is bounds-checked.
+  - The deletion queue drains before a render-on-demand sleep; the present is keyed by frame; fences are released by
+    one thread.
+  - Static meshes follow the 2D rotation and +y rule; one units-per-pixel function; premultiplied alpha applied once.
+  - A resized render texture is cleared; a 2D bake into a render texture outside a frame gets its own submission.
+  - Debug resolution works in both modes.
+- **A rare threaded crash.** A texture made, uploaded and unloaded between frames was released while its upload sat in
+  a frame already handed over (4.5% of threaded runs; 0 in over 800 after). Also fixed in the threaded paths:
+  - a vsync-change race;
+  - an audio callback race;
+  - the text libraries reading the pool's counter unlocked;
+  - a GPU-idle wait at 64 fences.
+
+  The thread sanitizer now shows only SDL's own false positive. Mac crash reports name their functions (dladdr).
+- **3D:** five multi-view and shadow-cache bugs (a mesh vanished from a second view; a returning light lost its
+  shadow; a picture-in-picture view showed the first view's image; two views shared a shadow tile's depth; a lost
+  invalidation). Also:
+  - SIMD identical with FMA on x86;
+  - each view's own projection and frustum (new `rde_rendering_3d_screen_to_world_ray`);
+  - the decal atlas through the upload service;
+  - GPU-compute objects deferred;
+  - per-window post targets;
+  - cluster grids kept across views.
+- **Text and UI:**
+  - an atlas grown in a frame with no drawing recursed until it crashed;
+  - a fallback chain mixing Slug and atlas fonts corrupted both stores;
+  - `rde_font_load_from_memory` returned the default font;
+  - fallback cycles and leaks;
+  - a shelf packer for the atlas;
+  - lists rebinding only rows that change;
+  - Slug read past a band row's end (a stroke could vanish);
+  - the even-odd flag;
+  - `rde_font_get_generation`;
+  - text editors centred (the old low-text bug).
+
+  The vendored SDL Metal patch now marks every binding dirty on any pipeline change, compute too.
+- **Outside rendering:**
+  - iOS purchases finish (they replayed every launch), and iOS ads are reachable (built with each app).
+  - Parked results wake render on demand, and Cmd+Q / system quit ends the app (`RDE_EVENT_TYPE_SYSTEM_QUIT_REQUESTED`).
+  - Plugins: leaks, a use-after-free and a sandbox hole fixed; reload works.
+  - Localization skips a bad line instead of emptying the language.
+  - Long sounds stream; the audio device rests after 3 s.
+  - `builder check` wants three-part Android ids.
+  - The network allocator hooks no longer crash.
+  - Eight more architecture notes match the code.
+- **Android:**
+  - The vendored SDL's wait spun a whole core on a still screen. It is fixed (`SDL_events.c`, and `HAVE_SEM_TIMEDWAIT`
+    in the Android build config), both marked `RDE:`.
+  - Frames are paced to AChoreographer's vsync.
+  - The accelerometer listener starts only when an app opens the sensor.
+- **The disk:** on 2026-10-19 the agents' scratch copies filled it once (34 MB free). They were cleaned up, and
+  backups now keep notes only.
+
+*Still for you to decide or do:*
+- the autocomplete plugin (it needs tree-sitter, and names a type nothing defines; the hub session plans a generic
+  completion plugin);
+- the iOS run-loop sleep, implemented but untested on an iPad;
+- the Lua number-mode test on the tablet;
+- filing the vendored SDL patches upstream;
+- `rde_font_parameters` lost its atlas page fields, an API break nothing in kana used.
 
 **Removed**
 - `rde_file_free_read_text` and `rde_file_free_read_bytes`: declared but never implemented, and contradicting the

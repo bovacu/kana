@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/doc/worker.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/theme.h"
 
 // ===========================================================================
@@ -93,6 +94,8 @@ RDE_INTERNAL any fude_doc_worker_work(rde_thread* _thread, any _data) {
     rde_mutex_unlock(fude_doc_worker_mutex);
     if(_orphaned) {
         fude_doc_piece_release(_piece);
+    } else {
+        fude_redraw_request();   // (render on demand: wakes the main thread, which takes the piece and draws it)
     }
     return NULL;
 }

@@ -11,11 +11,11 @@
 //
 //   <desktop build> --bake [--strokes=PATH] [--prepared=DIR] [--out=PATH]
 //
-// It is run from the project root after apps/thai/tools/ (strokes/compose.py, then data/fetch.py and data/prepare.py).
+// It is run from the project root after the app's tools (strokes/compose.py, then data/fetch.py and data/prepare.py).
 // The defaults are data/raw/th/thaivg.xml (the letters' strokes, Thai's own), data/raw/th/prepared/ and
-// apps/thai/assets/data/characters.kana.
+// the app's out (fude_bake_app).
 //
-// Thai's sources are read by its tools (apps/thai/tools/data/); this file only bakes what they prepared,
+// Thai's sources are read by its tools (the app's); this file only bakes what they prepared,
 // through the study's bake (fude_bake_run_prepared). It is left out of phone and tablet builds.
 // ===========================================================================
 
@@ -47,8 +47,6 @@ static const c8* const FUDE_TH_LANGS[] = { "es", "pt", "fr", "ja" };   // prepar
 static const fude_bake_prepared_def FUDE_TH_BAKE = {
     .strokes        = "data/raw/th/thaivg.xml",
     .prepared       = "data/raw/th/prepared",
-    .out            = "apps/thai/assets/data/characters.kana",
-    .tools          = "apps/thai/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
     .languages      = FUDE_TH_LANGS,
     .language_count = (u32)(sizeof(FUDE_TH_LANGS) / sizeof(FUDE_TH_LANGS[0])),   // Counted, so a language added cannot be left out.
     .word_chars     = 16u,   // In code points, so a word's vowel signs and marks count too.
@@ -57,8 +55,8 @@ static const fude_bake_prepared_def FUDE_TH_BAKE = {
 };
 
 // Runs Thai's bake with the app's command line. Returns 0 on success.
-i32 fude_bake_run(i32 _argc, c8** _argv) {
-    return fude_bake_run_prepared(&FUDE_TH_BAKE, _argc, _argv);
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
+    return fude_bake_run_prepared(&FUDE_TH_BAKE, _app, _argc, _argv);
 }
 
 #endif

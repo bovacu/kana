@@ -19,7 +19,7 @@
 //   FUDE_ZOOM_HAND_POINTS: x, y pairs with y down, the baseline at 9, a small letter's top at 0 and a capital's at -12.
 //   A -128, -128 pair lifts the pen between two strokes.
 // Licence: the acknowledgement below must stay with the data; the app shows it in Licences, Handwriting
-//   (apps/sketching/assets/fonts/LICENSE-Hershey.txt).
+//   (the app's assets/fonts/LICENSE-Hershey.txt).
 //   The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of
 //   Standards. The format of the Font data in this distribution was originally created by James Hurt, Cognition,
 //   Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).

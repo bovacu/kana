@@ -27,11 +27,10 @@
 #include "drawing/app/library.h"
 
 // ===========================================================================
-// Study: the study layer's part of a study app. It is what a study app (Kana, Hanzi for Mandarin, Hangul for Korean,
-// and the others) adds to the drawing core through its extension (extension.h): the camera on the toolbar, the
-// page's reading (Copy as text, Translate, Save word, Check, Paste text, Text from a photo), the word card,
-// Settings' Handwriting section and the study files. It also holds the verbs that lead from one study screen to
-// another.
+// Study: the study layer's part of a study app. It is what a study app (one for each language taught) adds to the
+// drawing core through its extension (extension.h): the camera on the toolbar, the page's reading (Copy as text,
+// Translate, Save word, Check, Paste text, Text from a photo), the word card, Settings' Handwriting section and the
+// study files. It also holds the verbs that lead from one study screen to another.
 //
 // Where it sits: the study layer (study/app). The study shell (shell.h) makes the fude_study and hands RDE's calls
 // to it; the study screens and widgets reach the study through it, and each app's extension starts with
@@ -202,7 +201,7 @@ void fude_study_tutorial(struct fude_app* _app);
 
 // The study's part of a study app's extension (extension.h), first in its initializer; the app adds its own (its
 // side panel, its lectures):
-//   static const fude_extension KANA_EXTENSION = { FUDE_STUDY_EXTENSION, .nav = &KANA_NAV, ... };
+//   static const fude_extension APP_EXTENSION = { FUDE_STUDY_EXTENSION, .nav = &APP_NAV, ... };
 #define FUDE_STUDY_EXTENSION                                                                                                      \
     .tools = &FUDE_STUDY_CAMERA, .tool_count = 1u,                                                                                \
     .selection_row = &FUDE_PAGETEXT_SELECTION_ROW, .context_row = &FUDE_PAGETEXT_CONTEXT_ROW, .text_row = &FUDE_PAGETEXT_TEXT_ROW, \

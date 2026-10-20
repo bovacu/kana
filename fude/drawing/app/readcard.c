@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/readcard.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/screen.h"
 #include "drawing/base/draw.h"
 #include "drawing/base/text.h"
@@ -231,6 +232,8 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
     c8 _label[512];
     if(_wait > 0u) {
         FUDE_TEXTF(_label, FUDE_TEXT_READ_CLOSE_IN, FUDE_TN(_wait));
+        // Render on demand: the count goes down when the seconds left fall to the next whole number.
+        fude_redraw_after((f64)_card->seconds - (rde_engine_get_time_now() - _card->opened_at) - (f64)(_wait - 1u));
         fude_draw_card(_card->close_min, _card->close_max, 14.0f, _t->surface_2, _t->surface_2);
     } else {
         rde_snprintf(_label, sizeof(_label), "%s", fude_text(FUDE_TEXT_CLOSE));

@@ -9,7 +9,10 @@ the renderer, its caches, pictures, frames, the backdrop, the draw) and four mod
 
 Most of this note is the caches: what each keeps, by what key, up to what bound, and what makes it stale. They were
 reworked on 2026-10-15 (`docs/quality_plan.md` Phase 4, items 4.1 to 4.6, and 4.9 for strokes' meshes, with the
-numbers); this is the result.
+numbers); since then a stroke's kept mesh also has a copy on the GPU, every text is drawn from a kept shape, and a
+frame is drawn only when something on it changed (4.10). This is the result. What the renderer draws through, RDE's
+frame, its uploads and its kept-mesh arena, is RDE's: `~/RDE/tools/doc_generator/engine_architecture/` has it
+(`05_rendering_foundation.md`, `06_rendering_2d.md`, `12_text_and_fonts.md`).
 
 ---
 
@@ -27,7 +30,38 @@ The same renderer draws the page's off-screen pictures (a cover, the map, a stri
 frame, an arrow's preview) with the camera swapped for the draw. They are drawn before the page's own draw each frame
 (`fude_zoom_page_render_offscreen`), so `visible` is always the screen's when input comes.
 
-Main thread only, inside the app's 2D drawing block: it draws through the engine and loads textures.
+Main thread only, inside the app's 2D drawing block: it draws through the engine and loads textures. In RDE's threaded
+mode (off by default) the render thread draws a frame after it was recorded, so whatever the renderer lets go of on
+the GPU (a texture, a mesh's copy) goes through RDE, which keeps it until no frame in flight can read it.
+
+## When it draws
+
+The renderer runs only in a frame that is drawn, and the apps draw on demand (`drawing/base/redraw.h`;
+`docs/architecture.md`, "Render on demand", has the rule and every source). A frame is drawn when something changed in
+it or in the 3 frames before it, or within the last half second (the grace period), when a timer asked for is due,
+and in every frame of a launch with flags (`--perf`, `--gate`, the screenshots). Otherwise the shell's late update
+(`fude_redraw_frame_end`) tells RDE the frame is unchanged (`rde_engine_frame_unchanged`), RDE draws nothing,
+and the app sleeps until an event, the soonest timer (`rde_engine_wake_after`) or another thread
+(`rde_engine_request_frame`). A canvas left still is not drawn at all, however long it shows: there is no heartbeat
+drawing it once a second to be safe. The owner chose that (2026-10-18): a source that forgets to report shows as a
+stale screen, a visible bug, and a developer's build names it (the check, in `docs/architecture.md`) instead of a
+heartbeat hiding it a second at a time.
+
+So the caches pay off in frames that move or have just moved: a pan draws every kept mesh from its copy on the GPU, a
+zoom makes every mesh again, and the frames of the grace period draw everything kept as it is.
+
+What on the canvas changes with no event says so where it lives: a flight, a flick, Play, a recording, the laser's
+trail, an export, the off-screen pictures made one a frame, and the frame rate shown, each frame they move
+(`fude_redraw_changed`); holds, the caret, the journal's flush, the cover, the map and the chips that go after a while,
+as timers (`fude_redraw_after`); ML Kit and the speech model, polled; the PDF worker and the transcription thread, from
+their threads (`fude_redraw_request`). The table in `docs/architecture.md` names each one's function.
+
+**A paused Play is a still screen.** What plays moves on Play's time (`page.h`: `play_time`), which only
+`page_mech.c: fude_zoom_page_play_step` moves, while Play runs or takes a Step; that is also when it reports a change.
+The current's dots (`page_circuit.c: fude_zoom_page_render_circuit`), a hurt part's pulse
+(`fude_zoom_page_render_hurt`) and a jammed joint's ring (`page_mech.c: fude_zoom_page_render_strain`) run on it. They
+ran on the wall clock before, so a paused circuit still pulsed and its screen was never still; the owner asked for
+paused simulations to stand still (2026-10-18).
 
 ## A draw
 
@@ -128,13 +162,14 @@ Three rules shape the renderer's caches since 4.2 to 4.6; where one breaks a rul
 | Cache | Where | Key | Bound | Made again when |
 |---|---|---|---|---|
 | decoded strokes and fills | render.c `cache`, `slot_of` | the object's index | 64 MB (`FUDE_ZOOM_RENDER_CACHE`) | let go past the budget, or trimmed |
-| strokes' meshes | render_stroke.c, in each decoded entry (`fude_zoom_decoded`'s `mesh`) | the stroke's entry, then its turn and scale to the screen, its half-widths' scale and a pixel's size, compared exactly | 64 MB (`FUDE_ZOOM_RENDER_MESHES`) | a zoom, the stroke turned or scaled, another pixel size; let go with its entry, past the budget, or trimmed |
+| strokes' meshes, and their copies on the GPU | render_stroke.c, in each decoded entry (`fude_zoom_decoded`'s `mesh`, and `mesh_gpu` in RDE's kept-mesh arena) | the stroke's entry, then its turn and scale to the screen, its half-widths' scale and a pixel's size, compared exactly | 64 MB (`FUDE_ZOOM_RENDER_MESHES`) for the meshes; a copy only beside its mesh, and no bigger | a zoom, the stroke turned or scaled, another pixel size; let go with its entry, past the budget, or trimmed; the copy with its mesh |
 | kept geometry: symbols, shapes, cut boards | render.c `geos`, `geo_lru` | `fude_zoom_render_geo_key` | 2,048 entries (`FUDE_ZOOM_RENDER_GEOS`), 2²¹ points and corners (`FUDE_ZOOM_RENDER_GEO_POINTS`) | a new payload (an edit), another detail or size |
 | notes' layouts, and plain texts' lines | render_text.c `rich`, `rich_lru` | fonts, sizes, width, alignment, then the words | 256 (`FUDE_ZOOM_RENDER_RICH`) and a spare | a word, size, width or font changed; a plain text's lines also when its size or width on the screen changes (a zoom) |
 | graphs' lines | render.c `plots`, `plot_lru` | the graph's kind, its text, its half sizes | 24 (`FUDE_ZOOM_RENDER_PLOTS`) and a spare | its text or size changed; every frame while it plays |
 | pictures on the GPU | render.c `pictures`, `picture_of` | the payload's handle and serial | 256 MB at 4 bytes a pixel (`FUDE_ZOOM_RENDER_TEXTURES`) | let go past the budget, or trimmed |
 | junction dots | page_circuit.c `junctions` | the scene's revision, the hidden layers, the frames drawn and their transforms, the screen's size | one answer | any of those changed |
-| text widths and layouts | `drawing/base/draw.c` | the font, its size, the size drawn at, the width, the text | 1,536 widths, 64 layouts, 32 balanced widths, 32 whole sizes | (LRU); a plain text on the canvas keeps its lines in the renderer instead (the row above) |
+| texts' shapes | `drawing/base/draw.c` (`fude_draw_shape_of`) | the font's pointer, then every byte of the text | 1,024 (`FUDE_DRAW_SHAPES`) and a spare | past the bound, the one drawn longest ago makes room, never one this frame drew; all when the UI trims or unloads its fonts (`fude_draw_forget`) |
+| text widths and layouts | `drawing/base/draw.c` | the font, its size, the size drawn at, the width, the text | 1,536 widths, 64 layouts, 32 balanced widths, 32 whole sizes | (LRU); all at `fude_draw_forget`; a plain text on the canvas keeps its lines in the renderer instead (the notes' row) |
 
 ### Decoded strokes and fills
 
@@ -161,7 +196,8 @@ and appends a mesh to its 2D colour batch, moved and coloured (`rde_rendering_2d
 GPU buffer of its own, so a screen of hundreds of strokes is still one draw. `rde_rendering_2d_draw_stroke` is the two
 in one, so the two ways never differ. Tessellating was most of a stroke-heavy canvas's render (4.9), so the renderer
 keeps each stroke's mesh with its decoded points (`render_stroke.c`'s `fude_zoom_render_stroke_mesh`), and a still or
-panning view only copies the kept meshes into the batch.
+panning view draws the kept meshes as they are: from their copies on the GPU (below), neither tessellated nor copied
+into the batch.
 
 **In which units.** A mesh cannot be kept in the stroke's own units as the other geometry is: its fringe is a pixel
 wide on the screen, so its shape depends on the stroke's size there. It is made in screen units round where the
@@ -186,10 +222,40 @@ draw the kept ones. A zoom makes every mesh each frame, as every frame did befor
 arrays, so a zoom copies and allocates no more than it did (the arrays are made again at its size when it uses under
 half of them).
 
+**On the GPU.** Appended to the batch, a kept mesh was still copied into the batch and up to the GPU every frame it was
+drawn: 9.7 MB a frame on InfiniWorkshop's gate canvas (a million points, still, the measure build), 19.3 MB once
+reopened. So the second time a kept mesh is drawn as it is, `render_stroke.c: fude_zoom_render_mesh_draw` keeps a copy
+of it on the GPU (RDE's `rde_rendering_2d_keep_stroke_mesh`), holds the handle in the decoded entry (`mesh_gpu`, an
+`rde_kept_stroke_mesh`: a slot and a generation, zeroed for none), and from then on draws it with
+`rde_rendering_2d_draw_kept_stroke_mesh`, moved and coloured as the batch would. RDE keeps every such mesh in one arena:
+a range of one GPU vertex buffer (12 bytes a vertex, the mesh's own `rde_stroke_vertex`) and one index buffer (u16
+indices when the mesh has at most 65,536 vertices, else u32), first-fit in each buffer's free ranges or from its end,
+the buffers doubling when the end passes them. The mesh goes up once, in the next frame's copy pass. After that each
+draw sends a 20-byte record (the translation, half the drawing's size, the colour) and is an indexed draw of its own
+at the mesh's offsets, where the batch drew all its strokes in one; `stroke_kept.vert.hlsl` does the batch's arithmetic
+in the same order, so the pixels are the same. The gate canvas now uploads 0.18 MB a frame, and its render went from
+0.91–1.82 ms to 0.22 ms (1.69–2.75 ms to 0.28 ms reopened; `quality_plan.md` 4.10). RDE's `06_rendering_2d.md`
+("Kept stroke meshes") describes the arena.
+- **Why only the second draw.** A mesh made in this draw (a zoom makes every mesh each frame), a glow, and one that found
+  no room in the budget are appended to the batch as before: a mesh that will not be drawn again as it is would cost an
+  upload for nothing.
+- **What lets a copy go** (`rde_rendering_2d_release_kept_stroke_mesh`, which zeroes the handle): the mesh about to be
+  made again (`fude_zoom_render_stroke_mesh` lets its stale copy go before it tessellates: a zoom, a turn, a scale,
+  another pixel size), the mesh let go past the budget (`fude_zoom_render_mesh_let_go`), and its decoded entry let go
+  (`render.c: fude_zoom_render_let_go`), so a trim too. A glow leaves the stroke's copy alone. Letting go is safe at any
+  moment: RDE keeps the ranges until every frame that may still read them is done (`frame_serial_done`), and only then
+  hands them out again.
+- **Its bound.** None of its own: a copy exists only beside a kept mesh and is no bigger than it (12 bytes a vertex, as
+  in memory; 2 or 4 an index against 4), so `FUDE_ZOOM_RENDER_MESHES` bounds the copies too.
+  `rde_rendering_2d_get_kept_stroke_mesh_bytes` says what they hold. The arena's GPU buffers never shrink (open points).
+- **The mesh in memory stays.** Its key and its budget are on it, and a zoom makes it again over its own arrays, so a
+  kept stroke is held twice, in memory and on the GPU. Nothing in the code or the history says whether dropping the
+  memory copy once it is on the GPU was weighed (open points).
+
 **Not kept.** A glow (the selection's, wider by `_extra`) is made into the renderer's `mesh_scratch` each time: kept,
 it would push out the stroke's own mesh, drawn in the same draw. So are a stroke far bigger than the screen (its runs
-near it, above) and a far one (cut on the CPU). Fills' soft edges and shapes' lines still go through
-`rde_rendering_2d_draw_stroke` each draw.
+near it, above) and a far one (cut on the CPU). They are appended to the batch, as are fills' soft edges and shapes'
+lines, which still go through `rde_rendering_2d_draw_stroke` each draw.
 
 **Bound.** `FUDE_ZOOM_RENDER_MESHES` (64 MB, the renderer's `mesh_budget`), counted as the meshes' arrays' room: 12
 bytes a vertex and 4 an index, a point on the screen being about 4 vertices and 18 indices (some 120 bytes, ten times
@@ -199,12 +265,13 @@ of the draw stamps as the decoded entries are. A mesh that finds no room is draw
 next draw; a draw that finds nothing to let go stops looking until the next draw. So past the bound the meshes kept
 stay kept and only the rest are made each draw. The gate's screen of 625 flowers of 400 points holds 26.7 MB.
 
-**What a frame costs now.** With the meshes kept, a still or panning frame of a stroke-heavy canvas is mostly copying:
-the kept meshes into the engine's 2D batch (`rde_rendering_2d_draw_stroke_mesh`), then, at the end of the 2D frame, the
-batch into the GPU's upload buffers (RDE's flush). The flush also copied the indices twice more, to lay them out in the
-order the draw commands are drawn in; a canvas is one command, already in that order, and RDE now leaves such indices
-where they are (2026-10-16: the gate canvas renders about a tenth faster on the Mac, `quality_plan.md` 4.9). Those two
-copies are what is left; the next step would be the batch written straight into the upload buffers, in RDE.
+**What a frame costs now.** A still canvas costs nothing: no frame is drawn ("When it draws"). A panning frame of a
+stroke-heavy canvas draws every kept mesh from its copy on the GPU: per stroke a 20-byte record and a draw call, no
+geometry copied. A zooming frame makes every mesh again, as it always has, and appends each to the batch: copied into
+the batch's arrays, then up in the frame's one copy pass (RDE's `05_rendering_foundation.md`, "Uploads"). Strokes
+appended one after another are one command of the batch, already in drawing order, so RDE does not copy their indices
+again to lay them out (2026-10-16: the gate canvas rendered about a tenth faster on the Mac, `quality_plan.md` 4.9). A
+kept mesh's draw closes the batch's open command first, so what was drawn before it stays under it.
 
 ### Kept geometry: symbols, shapes and cut boards
 
@@ -303,6 +370,27 @@ life:
   size drawn at, the width and the text. A plain text on the canvas is wrapped by draw.c at its size and width on the
   screen, but its lines are kept by the renderer, in its slot of the notes' layouts (above), so draw.c's 64 layouts
   do not bound how many plain texts a still screen keeps: the notes' 256 and the spare do.
+- **Shapes** (`fude_draw_shape_of`). Every text the page draws itself goes through draw.c (RDE's UI keeps its own
+  labels' shapes, and a formula's glyphs are meshes, `formula.h`'s): the panels' and cards' texts through
+  `fude_draw_text` (and the kit, `kit.h`, which draws with it), and the 25 texts the canvas places itself (a note's
+  runs, a plain text's lines, dimensions, tags, a board's and a sheet's marks, pins' names, graphs' labels, readouts)
+  through `fude_draw_text_placed`, which draws exactly what the engine's `rde_rendering_2d_draw_text_2` draws with the
+  same arguments. That engine call shapes the
+  text, draws it and frees the shape, every call; draw.c shapes each text once (`rde_text_engine_shape_text`) and keeps
+  the shape, and draws it with `rde_rendering_2d_draw_shaped_text_2`, the very call `rde_rendering_2d_draw_text_2`
+  makes with the shape it made, so the pixels are the same. A shape is RDE's glyph runs: for each glyph an
+  `rde_text_engine_shaped_char` with its font (a fallback's, mid-string), its glyph and the font's record of it (found
+  by index), its exact pen in 26.6 fixed point, its advance and its bytes. It holds no picture of the glyph: RDE finds
+  or makes that as the glyph is drawn (for kana's fonts, all Slug, the glyph's outline in RDE's Slug store), so a
+  picture evicted or trimmed leaves the kept shape good; the next draw makes the picture again. Only the font going
+  makes a shape stale, since a shape trusts its font's pointer. The key is that pointer (which stands for the size and
+  the fallbacks it was loaded with) and every byte of the text: the engine shapes at the size the font was loaded at,
+  and the size a text is drawn at only scales the shape. 1,024 are kept (`FUDE_DRAW_SHAPES`) and a spare: the one
+  drawn longest ago makes room, never one this frame drew (draw.c counts frames, `fude_draw_frame`, from the look
+  harness's `fude_look_frame` every frame), and a text past that goes into the spare, shaped each frame. All of them go
+  at `fude_draw_forget`, which the UI calls before it unloads its fonts and when it trims them. The canvas's own fonts,
+  a note's bold, italic and bold italic (`page_render.c: fude_zoom_page_rich_fonts`), are loaded once and never
+  unloaded while the app runs, so their shapes never outlive them.
 
 Not the renderer's: the formulas' set boxes (512) and glyphs' meshes (6,000) are `formula.h`'s, owned by the page,
 and are dropped all at once when full. The strip's page pictures, the arrows' previews, the map and the cover are the
@@ -311,8 +399,8 @@ page's (`page_driver.md`).
 ## Trim and destroy
 
 `fude_zoom_render_trim` empties every cache: the pictures off the GPU and out of their map, the decoded strokes with
-their meshes and `slot_of`, the kept geometry and its spare, the graphs' lines and the notes' layouts. All of them come back as they are
-drawn. It is called:
+their meshes, the meshes' copies on the GPU (handed back to RDE's arena) and `slot_of`, the kept geometry and its spare,
+the graphs' lines and the notes' layouts. All of them come back as they are drawn. It is called:
 
 - **when a canvas closes** (`fude_zoom_page_close`). This one is a must, not a saving: the decoded strokes are found
   by object index and the pictures and geometry by payload handle and serial, which are a scene's own. The next canvas
@@ -335,6 +423,12 @@ drawn. It is called:
   playing graphs. A stroke's mesh is allocated when it is first kept, and again only when it outgrows its arrays or
   uses under half of them.
 - A stroke's mesh holds no translation and no colour: whatever else it is made from is in its key.
+- A stroke's copy on the GPU is its kept mesh as it is: it is let go whenever that mesh is made again or let go, and
+  never kept for a mesh in the scratch (a glow, one with no room).
+- Every text is drawn through draw.c (`fude_draw_text`, `fude_draw_text_placed`), never by string with
+  `rde_rendering_2d_draw_text_2`, which shapes it every call; and a font is unloaded only after `fude_draw_forget`.
+- Whatever changes the canvas with no event reports itself to `redraw.h` ("When it draws"), or the screen stays as it
+  was until the next touch.
 - Off-screen draws come before the page's own, so `visible` is the screen's.
 
 ## How to change common things
@@ -352,6 +446,12 @@ a third of a pixel; cut it on the CPU when it is far.
 **A new cache.** Key it by the whole of what it is made from, bound it, never let go of what this draw used, and empty
 it in `fude_zoom_render_trim`; then say so in this note and in the module's header.
 
+**Something drawn that moves on its own** (an animation, a fade, a pulse). Report it where it lives: `fude_redraw_changed`
+each frame it moves (from its update or its render), `fude_redraw_after` with the seconds until it next changes when
+it waits, or `fude_redraw_request` from another thread when that thread has something new. A simulation's animation
+runs on Play's time (`play_time`), not the wall clock, so it stands still while Play is paused. Add its row to the
+table in `docs/architecture.md` ("Render on demand"). A developer's build warns when one is forgotten.
+
 ## Open points
 
 - **A child frame sorts at layer 0's rank: an open decision for the owner.** A FRAME object's `layer` field is 0, so
@@ -362,6 +462,17 @@ it in `fude_zoom_render_trim`; then say so in this note and in the module's head
   `pdfview.c`'s export, which sort by the same key, would each go down once a layer), or give each frame the layer it
   was first drawn on. The backdrop (`fude_zoom_render_cover`) and the frame a new stroke goes in
   (`scene.c`'s `fude_zoom_scene_covered`) compare draw keys, so they follow whatever the key says.
+- **RDE's kept-mesh arena never shrinks.** Its two GPU buffers grow by doubling and keep their size until the engine
+  stops; a trim (memory short, the app in the background) gives every range back to the arena, not the memory to the
+  system. On a tablet that has drawn a big canvas, that is up to twice the most the copies ever held. Not measured.
+- **A kept stroke is held twice**, its mesh in memory and its copy on the GPU (above). Dropping the memory copy once
+  the GPU has it would halve the meshes' memory, but the key, the budget and a zoom's remaking over the same arrays
+  would need another home. Not tried.
+- **An off-screen picture remakes the screen's meshes.** A stroke keeps one mesh, so a cover, the map, a strip's page
+  or a preview drawn of strokes that are also on the screen makes their meshes at its own scale and lets their GPU
+  copies go; the screen's draw in the same frame makes them again, and the frame after uploads their copies anew. It
+  was already two tessellations before the copies; with render on demand those pictures are drawn seldom. Not
+  measured.
 
 ## Where the tests are
 
@@ -377,10 +488,16 @@ covers nothing, under and over by draw key), `test_render_kept_strokes` (strokes
 bit, against the old way within a hundredth of a pixel, kept through a pan, a move, a theme, a faint stroke, a glow, a
 hidden layer, an erase and its undo, made again on a zoom, a turn and another pixel size, and the bound),
 `test_render_kept_strokes_timed` (the gate's screen, each frame tessellating every stroke against drawn from kept
-meshes, still, panning and zooming), `test_far_views` and `test_far_lasso` (views far from 0). `tests/draw`
-checks draw.c's layouts and balanced widths. Each change in Phase 4 was timed in its test against the old code kept
-there (`docs/quality_plan.md` Phase 4 has the numbers); whole-app
-frame times come from `--perf` and `--gate` (`COMMANDS.txt`). RDE's own test of the tessellation is
-`~/RDE/tests/unit_tests/test_stroke_mesh.c` (the mesh against `rde_rendering_2d_draw_stroke` as it was, on thousands
-of random strokes, bit for bit), and of the flush's draw order `test_2d_order.c` (the indices laid out as the old
-rewrite laid them, byte for byte, and not copied when they are in order already).
+meshes, still, panning and zooming), `test_far_views` and `test_far_lasso` (views far from 0). The suite opens no 2D
+drawing, so it stands in for RDE's kept-mesh calls (`rde_rendering_2d_keep_stroke_mesh` and its family, in
+`tests/zoom/test.c`): a kept copy draws the corners its mesh would, so every kept-stroke check covers the copies too;
+none checks a copy's life on its own. `tests/draw` checks draw.c's layouts and balanced widths, and its kept shapes
+(`test_kept_shapes`: a text drawn twice is shaped once and drawn by the engine's own call; another font or byte is
+shaped again, another size is not; 1,000 texts over 30 frames shaped once, 1,100 keep 1,024 and shape the 76 past the
+bound; `fude_draw_forget` frees them all). `tests/redraw` checks render on demand's rule and the developer's check.
+Each change in Phase 4 was timed in its test against the old code kept there (`docs/quality_plan.md` Phase 4 has the
+numbers); whole-app frame times come from `--perf` and `--gate` (`COMMANDS.txt`), which draw every frame (any launch
+flag does). RDE's own test of the tessellation is `~/RDE/tests/unit_tests/test_stroke_mesh.c` (the mesh against
+`rde_rendering_2d_draw_stroke` as it was, on thousands of random strokes, bit for bit), of a kept mesh
+`test_2d_render.c` (its pixels against the batch's), and of the 2D draws' order `test_2d_order.c` (the indices laid
+out as the old rewrite laid them, byte for byte, and not copied when they are in order already).

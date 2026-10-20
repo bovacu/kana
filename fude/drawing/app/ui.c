@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/ui.h"
+#include "drawing/base/redraw.h"
 #include "drawing/widgets/kit.h"
 #include "drawing/base/text.h"
 #include "drawing/base/theme.h"
@@ -132,6 +133,7 @@ void fude_ui_update(fude_ui* _ui) {
         }
         _ui->_insets_seen = _insets;
         fude_toolbar_layout(&_ui->bar);
+        fude_redraw_changed();   // (render on demand: a late safe area comes with no event)
     }
 
     fude_toolbar_update(&_ui->bar, _full);
@@ -189,7 +191,7 @@ void fude_ui_update(fude_ui* _ui) {
 
     const fude_extension* _ext = fude_app_ext(_app);
     if(_ext->ui_update != NULL) {
-        _ext->ui_update(_ui, _full);   // The app's own widgets (Kana's word card, for example).
+        _ext->ui_update(_ui, _full);   // The app's own widgets (a study app's word card, for example).
     }
     fude_side_update(_ui, _full);
     fude_crashcard_update(_ui);
@@ -351,8 +353,8 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     rde_ui_node* _root = rde_ui_canvas_get_root(_ui->canvas);
 
     // Built in the order they stack, bottom first: the toolbar, the page's menus, the document bar, the screens' rows,
-    // bars and fields; the side panel and Settings over them; the app's own widgets over those (Kana's word card,
-    // for example, which opens from any screen); and the crash card over everything.
+    // bars and fields; the side panel and Settings over them; the app's own widgets over those (a study app's word
+    // card, for example, which opens from any screen); and the crash card over everything.
     fude_toolbar_create(&_ui->bar, _root, _app);
     fude_pagemenu_build(&_ui->page, _root);
     fude_docbar_create(&_ui->docbar, _root, _app);
@@ -378,7 +380,7 @@ RDE_INTERNAL void fude_ui_build(fude_ui* _ui) {
     }
     fude_side_create(_ui, _root);
     if(fude_app_ext(_app)->ui_build != NULL) {
-        fude_app_ext(_app)->ui_build(_ui, _root);   // The app's own (Kana's word card, for example).
+        fude_app_ext(_app)->ui_build(_ui, _root);   // The app's own (a study app's word card, for example).
     }
     fude_crashcard_create(_ui, _root);   // Over everything: it asks about a crash report.
 
@@ -405,7 +407,7 @@ void fude_ui_init(fude_ui* _ui, fude_app* _app) {
     // gives the memory back (fude_ui_trim_fonts).
     const rde_font_parameters _slug = RDE_DEFAULT_SLUG_FONT_PARAMETERS;
     _ui->font    = rde_font_load(FUDE_DRAW_FONT_REGULAR, FUDE_KIT_FONT_SIZE, NULL, &_slug, NULL);
-    // The language's script falls through to the app's font for it (for Kana's Japanese, Noto Sans JP), whose glyphs
+    // The language's script falls through to the app's font for it (for Japanese, Noto Sans JP), whose glyphs
     // load as they are first used.
     const c8* _script = _app->info->script_font;
     _ui->font_script  = _script != NULL ? rde_font_load(_script, FUDE_KIT_FONT_SIZE, NULL, &_slug, NULL) : NULL;
@@ -479,8 +481,10 @@ void fude_ui_follow_language(fude_ui* _ui) {
     }
 }
 
-// Gives back the GPU memory every loaded font's glyphs grew into.
+// Gives back the GPU memory every loaded font's glyphs grew into, and the memory of the texts' shapes kept for them
+// (draw.h: fude_draw_forget).
 void fude_ui_trim_fonts(fude_ui* _ui) {
+    fude_draw_forget();
     rde_font* const _fonts[] = { _ui->font, _ui->font_script, _ui->font_latin, _ui->font_icons, _ui->font_icons_fill };
     for(u32 _i = 0; _i < sizeof(_fonts) / sizeof(_fonts[0]); _i++) {
         if(_fonts[_i] != NULL) {
@@ -500,6 +504,9 @@ void fude_ui_destroy(fude_ui* _ui) {
         rde_ui_canvas_destroy(_ui->canvas);
         _ui->canvas = NULL;
     }
+    // What draw.c keeps for the fonts' texts goes first: a font loaded later at a freed one's address would be taken
+    // for it.
+    fude_draw_forget();
     if(_ui->font != NULL) {
         rde_font_clear_fallbacks(_ui->font);
         rde_font_unload(_ui->font);

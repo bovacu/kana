@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, the map, areas and Present (map.h): the map's panel, Insert's Named area, and presenting the areas
@@ -107,6 +108,9 @@ void fude_zoom_page_map_refresh(fude_zoom_page* _page) {
     }
     fude_zoom_scene* _s   = &_page->scene;
     const f64        _now = rde_engine_get_time_now();
+    if(_page->map_contents_rev != _s->revision && _now - _page->map_drawn_at < 0.4) {
+        fude_redraw_after(0.4 - (_now - _page->map_drawn_at));   // (render on demand: looked at again then)
+    }
     if(_page->map_contents_rev != _s->revision && _now - _page->map_drawn_at >= 0.4) {
         _page->map_contents     = fude_zoom_page_map_contents(_page);
         _page->map_contents_rev = _s->revision;
@@ -120,6 +124,9 @@ void fude_zoom_page_map_refresh(fude_zoom_page* _page) {
     const f64 _ww   = fude_zoom_box_is_empty(_was) ? 0.0 : _was.max_x - _was.min_x;
     const b8  _off  = _ww <= 0.0 || rde_math_abs_f64(_want.min_x - _was.min_x) > 0.03 * _ww || rde_math_abs_f64(_want.max_x - _was.max_x) > 0.03 * _ww ||
                       rde_math_abs_f64(_want.min_y - _was.min_y) > 0.03 * _ww || rde_math_abs_f64(_want.max_y - _was.max_y) > 0.03 * _ww;
+    if(_off && _now - _page->map_world_at < 0.2 && _page->map_ready) {
+        fude_redraw_after(0.2 - (_now - _page->map_world_at));   // (render on demand: followed then)
+    }
     if(_off && (_now - _page->map_world_at >= 0.2 || !_page->map_ready)) {
         _page->map_world    = _want;
         _page->map_world_at = _now;
@@ -128,6 +135,9 @@ void fude_zoom_page_map_refresh(fude_zoom_page* _page) {
     const rde_color _paper = fude_theme_active()->page;
     if(rde_memcmp(&_paper, &_page->map_paper, sizeof(_paper)) != 0) {
         _page->map_stale = true;
+    }
+    if(_page->map_stale) {
+        fude_redraw_after(0.0);   // (render on demand: its picture is drawn off screen in the next frame)
     }
 }
 
@@ -702,6 +712,7 @@ void fude_zoom_page_render_present(fude_zoom_page* _page) {
         if(_age >= FUDE_ZOOM_PAGE_LASER_LIFE) {
             continue;
         }
+        fude_redraw_changed();   // (render on demand: the trail fades every frame)
         const f32 _alpha = (f32)(1.0 - _age / FUDE_ZOOM_PAGE_LASER_LIFE);
         rde_rendering_2d_draw_line_1(_q->at, _p->at, (rde_color){ 255, 59, 48, (u8)(70.0f * _alpha) }, 11.0f);
         rde_rendering_2d_draw_line_1(_q->at, _p->at, (rde_color){ 255, 59, 48, (u8)(255.0f * _alpha) }, 3.5f);
@@ -714,6 +725,13 @@ void fude_zoom_page_render_present(fude_zoom_page* _page) {
     const f32 _shown = fude_zoom_page_present_shown(_page);
     if(_shown <= 0.0f) {
         return;
+    }
+    // Render on demand: the pill stays for 3 s after a touch, then fades every frame.
+    const f64 _touched = _now - _page->present_touched_at;
+    if(_touched < 3.0) {
+        fude_redraw_after(3.0 - _touched);
+    } else {
+        fude_redraw_changed();
     }
     const fude_theme* _t = fude_theme_active();
     fude_zoom_page_present_layout _l;

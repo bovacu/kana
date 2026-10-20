@@ -14,7 +14,7 @@
 #define HANZI_ID "hanzi"
 
 // The app's version, shown at the bottom of the side panel and in Settings.
-#define HANZI_VERSION "0.1.6"
+#define HANZI_VERSION "0.1.9"
 
 // The app's Apple ID on the App Store (App Store Connect › the app › App
 // Information › Apple ID, digits only). Empty until the app is there: "Rate

@@ -31,7 +31,7 @@ typedef enum {
 
 // Means "use the theme's ink": fully transparent, which no real stroke colour is.
 #define FUDE_THEME_INK (rde_color){ 0, 0, 0, 0 }
-// Means "use the theme's page": a fill the colour of the page under it, whatever the theme (Sketching's diagram
+// Means "use the theme's page": a fill the colour of the page under it, whatever the theme (the canvas apps' diagram
 // shapes use it, so lines behind them do not show through). No real colour has this value.
 #define FUDE_THEME_PAGE_FILL (rde_color){ 255, 254, 253, 1 }
 

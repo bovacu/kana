@@ -8,7 +8,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// Trim and Extend (Sketching's precision tools): where a straight line is crossed by what else is drawn in its own
+// Trim and Extend (the precision tools): where a straight line is crossed by what else is drawn in its own
 // frame (shapes' outlines, guides among them; strokes' centrelines; fills' edges). Trim cuts away the piece of a line
 // between the crossings either side of where it is tapped; Extend carries a line's ends on to the first thing each
 // would meet.

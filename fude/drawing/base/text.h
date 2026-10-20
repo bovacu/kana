@@ -48,12 +48,12 @@ RDE_STRUCT {
 // The list: English, Spanish, Brazilian Portuguese, the taught language, French.
 extern fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES];
 
-// Makes _language the fourth language, the one the app teaches (a study app's lang layer gives it: Hanzi's Chinese,
-// Hangul's Korean), with its name in itself and its flag; both are kept, not copied. Call at start, before the first
+// Makes _language the fourth language, the one the app teaches (a study app's lang layer gives it: Chinese,
+// Korean...), with its name in itself and its flag; both are kept, not copied. Call at start, before the first
 // fude_text_set_language. It is taken only when the strings file has that language; until then the fourth stays
 // Japanese.
 void          fude_text_set_taught_language(RDE_LANGUAGE_ _language, const c8* _name, const c8* _flag);
-// For an app that teaches no language (Sketching): the fourth language is not offered at all. It is not in Settings,
+// For an app that teaches no language (a canvas app): the fourth language is not offered at all. It is not in Settings,
 // not taken from the device, and a saved choice of it is let go. Call at start, before the first
 // fude_text_set_language.
 void          fude_text_drop_taught_language(void);

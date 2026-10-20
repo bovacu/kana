@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, its own widgets (the extension's, ui.h): the line's chip, and the buttons and chips the page puts over the
@@ -461,16 +462,19 @@ RDE_INTERNAL void fude_zoom_page_ui_show(rde_ui_button* _button, b8 _show, b8* _
     }
 }
 
-// The buttons placed again when the screen, a notebook or the recordings changed, or recording began or ended
-// (fude_zoom_page_ui_update's): Back beside the menu button (home before it, where there is a home screen);
-// along the bottom left the bookmarks, Find, the map, the microphone, the recordings, a notebook's page chip and
-// the depth; the bookmarks' rows and the depth's levels over them. Each centre is kept on the page, where the
-// hit test and the next frames find it.
+// The buttons placed again when the screen, a notebook, the microphone's offer or the recordings changed, or
+// recording began or ended (fude_zoom_page_ui_update's): Back beside the menu button (home before it, where there is
+// a home screen); along the bottom left the bookmarks, Find, the map, the microphone, the recordings, a notebook's
+// page chip and the depth; the bookmarks' rows and the depth's levels over them. Each centre is kept on the page,
+// where the hit test and the next frames find it.
 RDE_INTERNAL void fude_zoom_page_ui_lay_out(fude_zoom_page* _page, fude_ui* _ui, rde_vec_2F _screen, b8 _notebook, b8 _audio, b8 _listen, b8 _recording) {
-    if(_screen.x != _page->laid_out.x || _screen.y != _page->laid_out.y || _notebook != _page->laid_pages || _listen != _page->laid_listen ||
-       _recording != _page->laid_recording) {
+    // (The microphone's chip is in the key: it is offered only once a canvas is open, often at the size the row was
+    // first laid out at, and a chip shown but never placed kept the UI's default size, covering the window.)
+    if(_screen.x != _page->laid_out.x || _screen.y != _page->laid_out.y || _notebook != _page->laid_pages || _audio != _page->laid_audio ||
+       _listen != _page->laid_listen || _recording != _page->laid_recording) {
         _page->laid_out       = _screen;
         _page->laid_pages     = _notebook;
+        _page->laid_audio     = _audio;
         _page->laid_listen    = _listen;
         _page->laid_recording = _recording;
         const rde_vec_4I _in = rde_window_get_safe_area_insets(_ui->window);   // Left, top, right, bottom.
@@ -671,6 +675,9 @@ RDE_INTERNAL b8 fude_zoom_page_ui_update_line_chip(fude_zoom_page* _page, rde_ve
     // A new line's length, by its end (canvas units: the screen's, from its bottom left), for a while after it is drawn
     // (line_chip_until). The chip's width is guessed from its bytes, 8 points each.
     // A cut board has none: its sizes typed again would make it a plain rectangle (fude_zoom_page_board_cut).
+    if(_here && rde_engine_get_time_now() < _page->line_chip_until) {
+        fude_redraw_after(_page->line_chip_until - rde_engine_get_time_now());   // (render on demand: it goes then)
+    }
     b8 _chip = _here && rde_engine_get_time_now() < _page->line_chip_until && !fude_zoom_numpad_shown(&_page->numpad) && !_page->drawing &&
                _page->line_chip_object < fude_zoom_scene_object_count(&_page->scene) &&
                (fude_zoom_scene_object(&_page->scene, _page->line_chip_object)->flags & FUDE_ZOOM_FLAG_ALIVE) &&
@@ -918,8 +925,8 @@ void fude_zoom_page_ui_update(fude_ui* _ui, b8 _full) {
     if(_page == NULL || _page->back_button == NULL) {
         return;
     }
-    // Placed again when the screen, a notebook, the recordings or recording change (fude_zoom_page_ui_lay_out): Back
-    // beside the menu button, the depth at the bottom left, its levels over it.
+    // Placed again when the screen, a notebook, the microphone, the recordings or recording change
+    // (fude_zoom_page_ui_lay_out): Back beside the menu button, the depth at the bottom left, its levels over it.
     const rde_vec_2F _screen = fude_kit_screen_size(_ui->window);
     const b8 _notebook = _page->open && _page->pages.on;
     // A page's layout (Cornell, To-do) chosen on a notebook, the canvas made endless since: its paper what it shows

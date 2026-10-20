@@ -5,19 +5,20 @@
 
 #include "rde.h"
 #include "drawing/app/app.h"
+#include "study/chars/bake.h"
 
 // ===========================================================================
 // Study shell: the program every study app runs. It answers what RDE calls (init, the events, each frame's update
 // and render, the end) and owns everything the app is made of: the page, the character data and every study screen.
 //
-// Where it sits: the top of the study layer (study/app). It is the same for every study app (Kana, Hanzi, Hangul,
-// Thai, Hindi, Arabic): an app is only a description of itself in a fude_study_shell_def (what it is, its side
-// panel, its lectures), and its main() hands that to fude_study_shell_run.
+// Where it sits: the top of the study layer (study/app). It is the same for every study app (one for each language
+// taught): an app is only a description of itself in a fude_study_shell_def (what it is, its side panel, its lectures),
+// and its main() hands that to fude_study_shell_run.
 // Its main types and their lifecycle: everything the app owns is a static in shell.c, made once when RDE calls its
 // init and destroyed when RDE ends it, so there is one app per process. The fude_study_shell_def belongs to the app
 // and must stay valid for the whole run (it is normally a static const).
 // Threads: everything here runs on the app's main thread, inside rde_run.
-// Files: it reads the app's config (./assets/config.rdef, beside the assets, or bake_config when running the data
+// Files: it reads the app's config (./assets/config.rdef, beside the assets, or bake.config when running the data
 // bake) and the baked character data (kanji.h: FUDE_KANJI_FILE). The saves belong to the session (session.h).
 // Design: app.h describes how the app is put together. The page lies at the bottom (page.h: writing on it, moving
 // it). The screens stack over it in a fixed order (FUDE_STUDY_SCREEN_), and the first one open is on top: only it
@@ -52,8 +53,8 @@ typedef enum {
 typedef struct {
     const fude_app_info*  info;          // what it is: its name, fonts, licences, credits (info.h)
     const fude_extension* ext;           // what it adds: FUDE_STUDY_EXTENSION, its side panel, its lectures
-    const c8*             bake_config;   // its config as seen from the project root, where the data bake runs
-                                         // ("apps/kana/assets/config.rdef"): its memory sizes hold the sources whole
+    fude_bake_app         bake;          // what its data bake needs, from the project root where it runs (bake.h):
+                                         // its config, where the character data goes, its tools, its strokes' notice
 } fude_study_shell_def;
 
 // Runs the app described by _def (through rde_run), from its main(), and returns rde_run's result. With --bake it

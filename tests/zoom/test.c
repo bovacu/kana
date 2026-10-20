@@ -11374,10 +11374,10 @@ static void test_products(void) {
     static const u8 instruments[15] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
     static const u8 exports[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
     u8 out[32];
-    const fude_zoom_product* all = fude_zoom_product_of(FUDE_ZOOM_PRODUCT_SKETCHING);
+    const fude_zoom_product* all = fude_zoom_product_of(FUDE_ZOOM_PRODUCT_ALL);
     CHECK(fude_zoom_product_keep(inserts, 16u, all->inserts, out) == 16u && memcmp(out, inserts, 16u) == 0);
     CHECK(fude_zoom_product_keep(instruments, 15u, all->instruments, out) == 15u && fude_zoom_product_keep(exports, 12u, all->exports, out) == 12u);
-    fude_zoom_product_set(FUDE_ZOOM_PRODUCT_SKETCHING);
+    fude_zoom_product_set(FUDE_ZOOM_PRODUCT_ALL);
     for(u8 t = 0; t < FUDE_ZOOM_TOPIC_COUNT; t++) CHECK(fude_zoom_product_has_topic(t) && fude_zoom_product_topic(t) == t);
 
     fude_zoom_product_set(FUDE_ZOOM_PRODUCT_NOTES);
@@ -11427,10 +11427,10 @@ static void test_products(void) {
         CHECK(fude_zoom_product_has_topic(fude_zoom_product_get()->first) && fude_zoom_product_get() == fude_zoom_product_of(k));
     }
     fude_zoom_product_set(200u);
-    CHECK(fude_zoom_product_get() == fude_zoom_product_of(FUDE_ZOOM_PRODUCT_SKETCHING));
+    CHECK(fude_zoom_product_get() == fude_zoom_product_of(FUDE_ZOOM_PRODUCT_ALL));
     // (each app's own names and recordings: what the canvas asks, not which app it is)
     CHECK(fude_zoom_product_of(FUDE_ZOOM_PRODUCT_NOTES)->audio && !fude_zoom_product_of(FUDE_ZOOM_PRODUCT_WORKSHOP)->audio &&
-          fude_zoom_product_of(FUDE_ZOOM_PRODUCT_SKETCHING)->audio);
+          fude_zoom_product_of(FUDE_ZOOM_PRODUCT_ALL)->audio);
     CHECK(fude_zoom_product_of(FUDE_ZOOM_PRODUCT_WORKSHOP)->general_name != fude_zoom_product_of(FUDE_ZOOM_PRODUCT_NOTES)->general_name);
     printf("  Notes: Insert %u of General's 16, instruments %u of 15, exports %u of 12; Workshop: Insert %u\n", n_in, n_ins, n_out, w_in);
 }
@@ -14337,6 +14337,53 @@ void rde_rendering_2d_draw_stroke_mesh(const rde_stroke_mesh* m, rde_vec_2F t, r
     for(u32 i = 0; i < ni; i++) bi[i] = first + idx[i];
 }
 f32 rde_rendering_2d_get_pixel_size(void) { return rs_pixel; }
+
+// Strokes' meshes kept on the GPU (rde_rendering_2d_keep_stroke_mesh: render_stroke.c keeps a stroke's mesh the second
+// time it is drawn unchanged), stood in for as the batch's draw is: the mesh copied here when kept, and drawn as
+// rde_rendering_2d_draw_stroke_mesh above draws one — rs_mode 1 records the same corners; rs_mode 2 copies nothing (a
+// kept mesh goes up once: the frame only sends a record of the draw), only counts it. The engine's would draw nothing
+// here (it says so once): it draws only inside a 2D drawing, which a suite never opens.
+typedef struct { rde_stroke_mesh mesh; u32 generation; b8 used; } rs_kept_entry;
+static rde_arr rs_kept;
+static u32     rs_kept_generation = 0;
+rde_kept_stroke_mesh rde_rendering_2d_keep_stroke_mesh(const rde_stroke_mesh* m) {
+    if(!rde_arr_is_inited(&rs_kept)) rs_kept = rde_arr_new(sizeof(rs_kept_entry), NULL);
+    u32 slot = (u32)rde_arr_length(&rs_kept);
+    for(u32 i = 0; i < (u32)rde_arr_length(&rs_kept); i++) {
+        if(!((rs_kept_entry*)rs_kept.memory)[i].used) { slot = i; break; }
+    }
+    if(slot == (u32)rde_arr_length(&rs_kept)) rde_arr_add_n(&rs_kept, 1);
+    rs_kept_entry* e = &((rs_kept_entry*)rs_kept.memory)[slot];
+    e->mesh = rde_stroke_mesh_new(NULL);
+    const usize nv = rde_arr_length(&m->vertices), ni = rde_arr_length(&m->indices);
+    if(nv > 0) memcpy(rde_arr_add_n(&e->mesh.vertices, nv), m->vertices.memory, nv * sizeof(rde_stroke_vertex));
+    if(ni > 0) memcpy(rde_arr_add_n(&e->mesh.indices, ni), m->indices.memory, ni * sizeof(u32));
+    e->generation = ++rs_kept_generation;
+    e->used       = true;
+    return (rde_kept_stroke_mesh){ slot, e->generation };
+}
+b8 rde_rendering_2d_kept_stroke_mesh_is_valid(rde_kept_stroke_mesh k) {
+    if(k.generation == 0u || !rde_arr_is_inited(&rs_kept) || k.slot >= (u32)rde_arr_length(&rs_kept)) return false;
+    const rs_kept_entry* e = &((const rs_kept_entry*)rs_kept.memory)[k.slot];
+    return e->used && e->generation == k.generation;
+}
+void rde_rendering_2d_draw_kept_stroke_mesh(rde_kept_stroke_mesh k, rde_vec_2F t, rde_color c) {
+    if(!rde_rendering_2d_kept_stroke_mesh_is_valid(k)) return;
+    const rde_stroke_mesh* m = &((const rs_kept_entry*)rs_kept.memory)[k.slot].mesh;
+    if(rs_mode == 2u) {
+        if(rde_arr_length(&m->vertices) > 0 && c.a != 0) rs_meshes++;
+        return;
+    }
+    rde_rendering_2d_draw_stroke_mesh(m, t, c);
+}
+void rde_rendering_2d_release_kept_stroke_mesh(rde_kept_stroke_mesh* k) {
+    if(k != NULL && rde_rendering_2d_kept_stroke_mesh_is_valid(*k)) {
+        rs_kept_entry* e = &((rs_kept_entry*)rs_kept.memory)[k->slot];
+        rde_stroke_mesh_free(&e->mesh);
+        e->used = false;
+    }
+    if(k != NULL) *k = (rde_kept_stroke_mesh){ 0 };
+}
 
 // The renderer drawn with rs_mode 1: the corners it drew, in a new array (rde_arr_free after).
 static rde_arr rs_draw(fude_zoom_renderer* r, const fude_zoom_scene* s, fude_zoom_v2 half) {

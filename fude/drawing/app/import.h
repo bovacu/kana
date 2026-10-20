@@ -9,7 +9,7 @@
 // Import: documents brought in, each onto a canvas of its own (doc.h): a PDF from Files, pictures from Files or the
 // Photos library, or pages scanned with the camera. Pictures and scans are made into a PDF first, a page each
 // (pdf.h), so everything reads, zooms and is written on the same way. An app with its own page (extension.h:
-// page_kind's imported, Sketching) takes what came in instead.
+// page_kind's imported: a canvas app) takes what came in instead.
 //
 // Files come through the system's file dialog (RDE's; on a device, the Files picker). The Photos library and the
 // camera are iOS's own (import_ios.m): the photo picker needs no permission, since only what is picked reaches the

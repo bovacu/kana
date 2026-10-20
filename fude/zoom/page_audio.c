@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, audio synced to ink (0.1.93): recordings kept beside the canvas, the ink linked to them, and their panel.
@@ -172,6 +173,7 @@ RDE_INTERNAL void fude_zoom_page_audio_permitted(RDE_MOBILE_PERMISSION_ _permiss
     if(_page != NULL) {
         _page->audio_asked = _status == RDE_MOBILE_PERMISSION_STATUS_GRANTED ? 2u : 3u;
     }
+    fude_redraw_request();   // (render on demand: the answer comes with no event; any thread)
 }
 
 // The microphone's chip: a recording started (once the microphone may be used), or the one running stopped. Asking
@@ -271,6 +273,11 @@ b8 fude_zoom_page_audio_tap(fude_zoom_page* _page, rde_vec_2F _screen) {
 void fude_zoom_page_audio_update(fude_zoom_page* _page) {
     if(!_page->open) {
         return;
+    }
+    // Render on demand: a recording is pumped from the microphone, and a recording played into the speaker, every
+    // frame (their buffers hold a second at most), and its time shows.
+    if(_page->audio_recording != 0u || (_page->audio_playing != 0u && _page->player.playing)) {
+        fude_redraw_changed();
     }
     if(_page->audio_asked == 2u) {
         _page->audio_asked = 0u;

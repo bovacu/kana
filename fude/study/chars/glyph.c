@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/chars/glyph.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/draw.h"
 #include "drawing/base/theme.h"
 #include "lang/lang.h"
@@ -10,7 +11,8 @@
 //
 // A stroke is flattened into points (kanji.h: fude_kanji_stroke_points) and drawn as one variable-width stroke by
 // RDE, through the fude_glyph's arrays of points and radii, which are reused from stroke to stroke so that drawing
-// allocates nothing once they have grown.
+// allocates nothing once they have grown. A whole character is made once into a mesh of all its strokes and kept on
+// the GPU (the header's Design: "Kept characters"; the cache is below, before fude_glyph_character).
 // ===========================================================================
 
 // Sets up _glyph to draw the characters of _db (NULL draws nothing).
@@ -117,6 +119,140 @@ RDE_INTERNAL void fude_glyph_base_hint(u32 _codepoint, rde_vec_2F _origin, f32 _
     }
 }
 
+// --- kept characters (the header's Design) ---------------------------------------------------------------------------
+
+// A kept character: the mesh of all its strokes on the GPU, placed from the box's top-left, and the frame it was last
+// drawn in.
+typedef struct {
+    rde_kept_stroke_mesh mesh;    // Zeroed: none (a character with no stroke keeps none, and draws nothing).
+    u64                  frame;   // fude_glyph_frames when it was last drawn.
+} fude_glyph_kept;
+
+// The kept characters, one for each slot of fude_glyph_kept_lru (made on first use, on the std allocator), which knows
+// whose each slot holds (its key: fude_glyph_key) and which was drawn longest ago. A fixed array, as draw.c's caches
+// are: its bound is the cache's, FUDE_GLYPH_KEPT.
+RDE_INTERNAL fude_glyph_kept fude_glyph_kept_slots[FUDE_GLYPH_KEPT];
+RDE_INTERNAL rde_lru         fude_glyph_kept_lru;
+RDE_INTERNAL u64             fude_glyph_frames = 0;   // The frames counted so far (fude_glyph_frame).
+// Where a character's mesh is made: each stroke in the first, then all of them together in the second (made on first
+// use, on the std allocator, reused from character to character; freed by fude_glyph_forget).
+RDE_INTERNAL rde_stroke_mesh fude_glyph_one_stroke;
+RDE_INTERNAL rde_stroke_mesh fude_glyph_all_strokes;
+
+// A key's bytes: the character data's pointer, the code point, the size on screen and the size of a target pixel.
+#define FUDE_GLYPH_KEY_BYTES (sizeof(const fude_kanji_db*) + sizeof(u32) + 2u * sizeof(f32))
+
+// Writes into _out (FUDE_GLYPH_KEY_BYTES) the key of a kept character: everything its mesh's shape follows from (the
+// header's Design). The fields are copied one after another, so no padding byte is ever compared.
+RDE_INTERNAL void fude_glyph_key(u8* _out, const fude_kanji_db* _db, u32 _codepoint, f32 _size, f32 _pixel) {
+    rde_memcpy(_out, &_db, sizeof(_db));
+    _out += sizeof(_db);
+    rde_memcpy(_out, &_codepoint, sizeof(_codepoint));
+    _out += sizeof(_codepoint);
+    rde_memcpy(_out, &_size, sizeof(_size));
+    _out += sizeof(_size);
+    rde_memcpy(_out, &_pixel, sizeof(_pixel));
+}
+
+// Makes _info's whole character into fude_glyph_all_strokes: each stroke as fude_glyph_stroke draws it whole
+// (flattened at FUDE_GLYPH_SCREEN_TOLERANCE screen units when that is coarser, a pen of radius _radius, _scale screen
+// units per KanjiVG unit), with a soft edge _pixel wide, placed from the box's top-left at (0, 0) since the draw moves
+// it there. The strokes' triangles follow one another in stroke order, so the one mesh draws as the strokes drawn one
+// after another did.
+RDE_INTERNAL void fude_glyph_make_whole(fude_glyph* _glyph, const fude_kanji_info* _info, f32 _scale, f32 _radius, f32 _pixel) {
+    if(!rde_arr_is_inited(&fude_glyph_all_strokes.vertices)) {
+        fude_glyph_one_stroke  = rde_stroke_mesh_new(rde_memory_allocator_get_default_std());
+        fude_glyph_all_strokes = rde_stroke_mesh_new(rde_memory_allocator_get_default_std());
+    }
+    rde_arr_clear(&fude_glyph_all_strokes.vertices);
+    rde_arr_clear(&fude_glyph_all_strokes.indices);
+
+    const f32 _tolerance = rde_math_max_f32(FUDE_GLYPH_TOLERANCE, FUDE_GLYPH_SCREEN_TOLERANCE / _scale);
+    for(u32 _s = 0; _s < _info->strokes; _s++) {
+        fude_kanji_stroke _stroke;
+        if(!fude_kanji_stroke_at(_glyph->db, _info, _s, &_stroke)) {
+            continue;
+        }
+        rde_vec_2F _pts[FUDE_GLYPH_MAX_POINTS];
+        const u32  _n = fude_glyph_flatten(&_stroke, _tolerance, _pts, NULL);
+        rde_arr_clear(&_glyph->_points);
+        rde_arr_clear(&_glyph->_radii);
+        for(u32 _i = 0; _i < _n; _i++) {
+            const rde_vec_2F _p = { _pts[_i].x * _scale, -_pts[_i].y * _scale };   // (KanjiVG's Y runs down)
+            rde_arr_add(&_glyph->_points, &_p);
+            rde_arr_add(&_glyph->_radii, &_radius);
+        }
+        rde_rendering_2d_tessellate_stroke((const rde_vec_2F*)_glyph->_points.memory, (const f32*)_glyph->_radii.memory, _n, _pixel,
+                                           &fude_glyph_one_stroke);
+
+        // Appended: its vertices after the strokes before it, and its indices moved on by as many.
+        const u32 _base     = (u32)fude_glyph_all_strokes.vertices.count;
+        const u32 _vertices = (u32)fude_glyph_one_stroke.vertices.count;
+        const u32 _indices  = (u32)fude_glyph_one_stroke.indices.count;
+        if(_vertices == 0u || _indices == 0u) {
+            continue;
+        }
+        rde_stroke_vertex* _v = (rde_stroke_vertex*)rde_arr_add_n(&fude_glyph_all_strokes.vertices, _vertices);
+        rde_memcpy(_v, fude_glyph_one_stroke.vertices.memory, (usize)_vertices * sizeof(rde_stroke_vertex));
+        u32*       _to   = (u32*)rde_arr_add_n(&fude_glyph_all_strokes.indices, _indices);
+        const u32* _from = (const u32*)fude_glyph_one_stroke.indices.memory;
+        for(u32 _i = 0; _i < _indices; _i++) {
+            _to[_i] = _base + _from[_i];
+        }
+    }
+}
+
+// Draws _info's whole character, its box's top-left laid out at _origin, _size screen units square, in _color, from its
+// kept mesh: made and kept now when it is not kept yet, the slot drawn longest ago making room. When every kept one
+// has been drawn in this frame, the character is drawn from the mesh just made instead (the same triangles and colours
+// as a kept one: rde.h, rde_rendering_2d_draw_kept_stroke_mesh), so a screen with more characters than are kept does
+// not make and drop kept ones every frame. Inside a kept box (fude_draw_keep_begin), whose move it takes.
+RDE_INTERNAL void fude_glyph_draw_whole(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _origin, f32 _size, rde_color _color) {
+    const f32        _scale  = _size / FUDE_KANJI_BOX;
+    const f32        _radius = rde_math_max_f32(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
+    const f32        _pixel  = rde_rendering_2d_get_pixel_size();
+    const rde_vec_2F _at     = fude_draw_at(_origin);
+    if(!rde_lru_is_inited(&fude_glyph_kept_lru)) {
+        fude_glyph_kept_lru = rde_lru_new(FUDE_GLYPH_KEPT, rde_memory_allocator_get_default_std());
+    }
+
+    u8 _key[FUDE_GLYPH_KEY_BYTES];
+    fude_glyph_key(_key, _glyph->db, _info->codepoint, _size, _pixel);
+    u32 _slot = rde_lru_find(&fude_glyph_kept_lru, _key, sizeof(_key));
+    if(_slot == RDE_LRU_NONE) {
+        fude_glyph_make_whole(_glyph, _info, _scale, _radius, _pixel);
+        const b8 _full = rde_lru_length(&fude_glyph_kept_lru) >= FUDE_GLYPH_KEPT;
+        if(_full && fude_glyph_kept_slots[rde_lru_oldest(&fude_glyph_kept_lru)].frame == fude_glyph_frames) {
+            rde_rendering_2d_draw_stroke_mesh(&fude_glyph_all_strokes, _at, _color);
+            return;
+        }
+        _slot = rde_lru_add(&fude_glyph_kept_lru, _key, sizeof(_key), NULL);
+        rde_rendering_2d_release_kept_stroke_mesh(&fude_glyph_kept_slots[_slot].mesh);   // (another character's, or none)
+        fude_glyph_kept_slots[_slot].mesh = rde_rendering_2d_keep_stroke_mesh(&fude_glyph_all_strokes);
+    }
+    fude_glyph_kept_slots[_slot].frame = fude_glyph_frames;
+    rde_rendering_2d_draw_kept_stroke_mesh(fude_glyph_kept_slots[_slot].mesh, _at, _color);
+}
+
+// Counts a frame (see the header).
+void fude_glyph_frame(void) {
+    fude_glyph_frames++;
+}
+
+// Lets every kept character go and frees the meshes they were made in (see the header). What is drawn next makes them
+// again.
+void fude_glyph_forget(void) {
+    for(u32 _i = 0; _i < FUDE_GLYPH_KEPT; _i++) {
+        rde_rendering_2d_release_kept_stroke_mesh(&fude_glyph_kept_slots[_i].mesh);
+        fude_glyph_kept_slots[_i].frame = 0;
+    }
+    if(rde_lru_is_inited(&fude_glyph_kept_lru)) {
+        rde_lru_free(&fude_glyph_kept_lru);
+    }
+    rde_stroke_mesh_free(&fude_glyph_one_stroke);
+    rde_stroke_mesh_free(&fude_glyph_all_strokes);
+}
+
 // Draws a whole character (see the header).
 b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, f32 _size, rde_color _color) {
     fude_kanji_info _info;
@@ -124,18 +260,11 @@ b8 fude_glyph_character(fude_glyph* _glyph, u32 _codepoint, rde_vec_2F _origin, 
         return false;
     }
 
-    const f32 _scale  = _size / FUDE_KANJI_BOX;
-    const f32 _radius = rde_math_max_f32(0.8f, _scale * FUDE_GLYPH_WIDTH * 0.5f);
     // A character is never mirrored: on a right-to-left screen its box goes where that screen puts it, and the strokes
     // keep their own direction.
     fude_draw_keep_begin((rde_vec_2F){ _origin.x, _origin.y - _size }, (rde_vec_2F){ _origin.x + _size, _origin.y }, false);
-    fude_glyph_base_hint(_codepoint, _origin, _scale);
-    for(u32 _s = 0; _s < _info.strokes; _s++) {
-        fude_kanji_stroke _stroke;
-        if(fude_kanji_stroke_at(_glyph->db, &_info, _s, &_stroke)) {
-            fude_glyph_stroke(_glyph, &_stroke, _origin, _scale, _radius, 1.0f, _color);
-        }
-    }
+    fude_glyph_base_hint(_codepoint, _origin, _size / FUDE_KANJI_BOX);
+    fude_glyph_draw_whole(_glyph, &_info, _origin, _size, _color);
     fude_draw_keep_end();
     return true;
 }
@@ -158,8 +287,8 @@ void fude_glyph_box(rde_vec_2F _tl, f32 _size) {
 }
 
 // Declared here so that fude_glyph_writing can come first.
-RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _scale, f32 _radius, f64 _elapsed,
-                                           rde_font* _font, f32 _font_px, f32 _number_px);
+RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _size, f32 _scale, f32 _radius,
+                                           f64 _elapsed, rde_font* _font, f32 _font_px, f32 _number_px);
 
 // Draws a character writing itself (see the header).
 b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _size, f64 _elapsed,
@@ -169,25 +298,24 @@ b8 fude_glyph_writing(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_
 
     // It is never mirrored, as a character is not (fude_glyph_character).
     fude_draw_keep_begin((rde_vec_2F){ _tl.x, _tl.y - _size }, (rde_vec_2F){ _tl.x + _size, _tl.y }, false);
-    const b8 _done = fude_glyph_writing_strokes(_glyph, _info, _tl, _scale, _radius, _elapsed, _font, _font_px, _number_px);
+    const b8 _done = fude_glyph_writing_strokes(_glyph, _info, _tl, _size, _scale, _radius, _elapsed, _font, _font_px, _number_px);
     fude_draw_keep_end();
+    if(!_done) {
+        fude_redraw_changed();   // (render on demand: it writes itself with the clock, every frame until done)
+    }
     return _done;
 }
 
-// Draws fude_glyph_writing's strokes, at _scale screen units per KanjiVG unit. Each stroke takes
-// FUDE_GLYPH_STROKE_BASE seconds plus FUDE_GLYPH_STROKE_PER for each unit of its length, with FUDE_GLYPH_STROKE_GAP
-// between strokes. Returns true once the last stroke is finished.
-RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _scale, f32 _radius, f64 _elapsed,
-                                           rde_font* _font, f32 _font_px, f32 _number_px) {
+// Draws fude_glyph_writing's strokes, _size screen units square (_scale screen units per KanjiVG unit). Each stroke
+// takes FUDE_GLYPH_STROKE_BASE seconds plus FUDE_GLYPH_STROKE_PER for each unit of its length, with
+// FUDE_GLYPH_STROKE_GAP between strokes. Returns true once the last stroke is finished.
+RDE_INTERNAL b8 fude_glyph_writing_strokes(fude_glyph* _glyph, const fude_kanji_info* _info, rde_vec_2F _tl, f32 _size, f32 _scale, f32 _radius,
+                                           f64 _elapsed, rde_font* _font, f32 _font_px, f32 _number_px) {
     fude_glyph_base_hint(_info->codepoint, _tl, _scale);
 
-    // The ghosts first: the whole shape, faint, so that the eye knows where the writing is going.
-    for(u32 _s = 0; _s < _info->strokes; _s++) {
-        fude_kanji_stroke _stroke;
-        if(fude_kanji_stroke_at(_glyph->db, _info, _s, &_stroke)) {
-            fude_glyph_stroke(_glyph, &_stroke, _tl, _scale, _radius, 1.0f, fude_theme_active()->ghost);
-        }
-    }
+    // The ghosts first: the whole shape, faint, so that the eye knows where the writing is going. It is the whole
+    // character, so it is drawn from its kept mesh, as fude_glyph_character draws it.
+    fude_glyph_draw_whole(_glyph, _info, _tl, _size, fude_theme_active()->ghost);
 
     // Then the writing, stroke by stroke, in time.
     f64 _clock = _elapsed;

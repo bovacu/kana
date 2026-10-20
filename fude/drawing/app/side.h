@@ -16,7 +16,7 @@
 //
 // A menu button at the top-left of the page opens a panel from the left edge, over the page, on a dimmed backdrop (a
 // tap on the backdrop closes the panel). It holds:
-//   the app's navigation (extension.h; Kana's Study: Kanji, Kana, Album...);
+//   the app's navigation (extension.h; a study app's Study: its characters, its chart, Album...);
 //   Notes: the folders and canvases (notes.h), folders within folders, with + Folder and + Canvas. A tap opens a
 //           canvas, or opens or closes a folder. "…" on a row offers rename and delete, and for a folder a new canvas
 //           or folder in it. The handle at a row's left DRAGS it: a line shows where it will go (indented to the level
@@ -47,7 +47,7 @@
 #define FUDE_SIDE_ROW_PX        14.0f   // A setting's name.
 #define FUDE_SIDE_BODY_PX       13.0f
 #define FUDE_SIDE_SMALL_PX      11.5f   // Notes, the credits.
-// The most documents in Licences: the app's (Kana: Data, Fonts, Libraries, ML Kit).
+// The most documents in Licences: the app's (a study app: Data, Fonts, Libraries, ML Kit).
 #define FUDE_SIDE_LICENCE_DOCS  FUDE_APP_LICENCES
 #define FUDE_SIDE_LICENCE_LINES 48    // Labels for the lines on screen, reused as it scrolls.
 

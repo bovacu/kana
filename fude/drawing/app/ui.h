@@ -22,7 +22,7 @@
 //   each screen's rows of buttons (row.h) and, where a screen declares them, its filter bar (filterbar.h) and its
 //   field at the top right, shown while that screen is on top (app.h);
 //   the side panel and Settings (side.h); the crash card (crashcard.h); and the app's own widgets (extension.h:
-//   Kana's word card), over all of them.
+//   a study app's word card), over all of them.
 //
 // Where it sits: drawing/app. The shell owns one fude_ui and calls it each frame; the app (app.h), the page and the
 // app's extension reach the widgets through fude_app.ui.
@@ -34,8 +34,8 @@
 //
 // Threads: main thread only, like all of RDE's UI.
 //
-// Files: loads the fonts once: Roboto with Slug, the app's script font behind it (Kana: Noto Sans JP), Phosphor last
-// for the icons, and Phosphor Fill on its own.
+// Files: loads the fonts once: Roboto with Slug, the app's script font behind it (Japanese: Noto Sans JP), Phosphor
+// last for the icons, and Phosphor Fill on its own.
 //
 // Design: the canvas is CONSTANT_PIXEL, so one UI unit is one window unit: the bar is the same size on every screen
 // and positions match the pen's. Its automatic safe area is off, because it would move the root and every widget with
@@ -73,7 +73,7 @@ typedef struct fude_ui {
     fude_side           side;
     fude_crashcard      crash;     // Asks about the last session's crash report (crashcard.h).
     fude_handwriting    handwriting;   // Settings' Handwriting, in an app that lists it (handwriting.h).
-    // The page alone on the screen (Sketching presenting): the bar, the menus and the menu button are put away.
+    // The page alone on the screen (a canvas app presenting): the bar, the menus and the menu button are put away.
     b8                  chrome_hidden;
 
     u32                 _text_revision;                // The language the widgets were built in (fude_text_revision).
@@ -86,7 +86,7 @@ typedef struct fude_ui {
 } fude_ui;
 
 // fude_ui_init loads the fonts and builds everything; the app's screens must already be in place. fude_ui_destroy
-// lets go of the canvas, its widgets and the fonts.
+// lets go of the canvas, its widgets, what draw.c keeps for the fonts' texts (fude_draw_forget) and the fonts.
 void       fude_ui_init(fude_ui* _ui, fude_app* _app);
 void       fude_ui_destroy(fude_ui* _ui);
 // Brings the widgets up to date: the screen on top's row (and bar, and field) shown and the others hidden, the toolbar
@@ -105,13 +105,14 @@ void       fude_ui_frame(const fude_ui* _ui, u32 _screen, fude_screen_frame* _fr
 // Rebuilds the whole UI when the language has changed. Call it once a frame, outside the UI's own events, because a
 // language chosen in Settings rebuilds everything, the button that chose it included.
 void       fude_ui_follow_language(fude_ui* _ui);
-// Builds every widget again now, as a language change does (when an app's tools changed: Sketching's topics). Never
+// Builds every widget again now, as a language change does (when an app's tools changed: a canvas app's topics). Never
 // call it from inside a widget's own press; do it the frame after.
 void       fude_ui_rebuild_now(fude_ui* _ui);
 // Whether the UI is laid out right to left (a right-to-left language, or --rtl).
 b8         fude_ui_rtl(void);
-// Makes the fonts give back the GPU memory their glyphs grew into (rde_font_trim), when the app went to the
-// background or the OS is short of memory. Call it before drawing.
+// Makes the fonts give back the GPU memory their glyphs grew into (rde_font_trim), and draw.c the memory of the
+// texts' shapes it keeps (fude_draw_forget), when the app went to the background or the OS is short of memory. Call
+// it before drawing.
 void       fude_ui_trim_fonts(fude_ui* _ui);
 // Presses button _button of the row of the screen on top, as a tap would (a developer's look: --press). Returns false
 // when there is no such button, or it is greyed out.

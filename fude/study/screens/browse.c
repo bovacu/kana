@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/screens/browse.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/text.h"
 #include "study/models/marks.h"
 #include "drawing/base/draw.h"
@@ -436,6 +437,8 @@ void fude_browse_update(fude_browse* _browse, f32 _dt) {
     if(_browse->_recognize_wanted) {
         if(!fude_browse_pad_used(_browse) || !fude_recognize_available() || fude_recognize_start(&_browse->recognition, &_browse->pad)) {
             _browse->_recognize_wanted = false;
+        } else {
+            fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: ML Kit busy, asked again on a later frame)
         }
     }
     if(fude_recognize_poll(&_browse->recognition)) {

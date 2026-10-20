@@ -11,7 +11,8 @@ The checks, each named after its section in coding_rules.md:
     libc-call       a C library or POSIX function called (comments and strings are ignored)
     void-pointer    a void* or const void* written out, where RDE writes any (comments and strings are ignored)
     layer           an #include that goes against the layer table (coding_rules.md §1)
-    app-identity    an app's name or symbols inside fude/ (log prefixes, product checks, KANA_/SKETCHING_ symbols)
+    app-identity    an app's name or symbols inside fude/, in code, strings and comments (log prefixes, product
+                    checks, KANA_/…_SKETCHING symbols, apps/<app>/ paths, "Kana's", "InfiNote")
     file-size       a source file over FILE_LINES lines (generated files are skipped)
     function-size   a function over FUNCTION_LINES lines
     undocumented    a public function in a header with no comment above it (or above its group of declarations)
@@ -95,6 +96,31 @@ APP_SYMBOL = re.compile(r'\b(?:KANA|HANZI|HANGUL|THAI|HINDI|ARABIC|DRAW|SKETCHIN
 APP_STRING = re.compile(r'"[^"\n]*(?:\b(?:kana|hanzi|hangul|thai|hindi|arabic|draw|sketching|infinote|infiniworkshop):|'
                         r'\b(?:Sketching|InfiNote|InfiniWorkshop)\b)[^"\n]*"')
 PRODUCT_CHECK = re.compile(r'\bfude_zoom_product_which\s*\(')
+# A canvas app's name anywhere in a symbol (FUDE_ZOOM_PRODUCT_SKETCHING, fude_infinote_…), which APP_SYMBOL's
+# leading \b misses. Only theirs: a study app's name inside a symbol is its script's or language's
+# (FUDE_VIEWER_KANA_SIZE, FUDE_KO_HANGUL_H), and DRAW is a word (FUDE_TOOL_DRAW).
+CANVAS_IN_SYMBOL = re.compile(r'\b\w*_(?:SKETCHING|INFINOTE|INFINIWORKSHOP|sketching|infinote|infiniworkshop)(?![A-Za-z0-9])\w*|'
+                              r'\b(?:sketching|infinote|infiniworkshop)_\w+')
+# A path into an app (apps/hanzi/tools/…), in a comment or a string: shared code takes such paths from the app.
+APP_PATH = re.compile(r'\bapps/(?:kana|hanzi|hangul|thai|hindi|arabic|draw|sketching|infinote|infiniworkshop)\b')
+
+# Comments too, because that is where app names collect: an example that names the app it came from ("Kana's
+# camera", "Sketching's Insert → PDF") says the module serves that app, and the next change takes it at its word.
+# Checked in comments:
+#   - the canvas apps' names (Sketching, InfiNote, InfiniWorkshop): they are nothing else;
+#   - Kana and Hanzi, capitalized, as an app is written: always as "Kana's", "Kana:" or "(Kana", and otherwise unless
+#     the word starts a sentence. The scripts are written in lower case (kana, hanzi) and only begin a sentence with
+#     a capital ("Kana are known sooner than kanji");
+#   - apps/<app>/ paths, and APP_SYMBOL's and CANVAS_IN_SYMBOL's symbols.
+# Not checked, because shared code may say them: Hangul, Thai, Hindi and Arabic, which are the scripts' and languages'
+# own names before they are the apps'; Draw, a word; the KANA file format, its "KANA" magic and the .kana extension
+# (upper and lower case, which the capitalized check does not take); and the names below.
+COMMENT_CANVAS = re.compile(r'\b(?:Sketching|InfiNote|InfiniWorkshop|infinote|infiniworkshop)\b')
+COMMENT_STUDY = re.compile(r'\b(?:Kana|Hanzi)\b')
+COMMENT_ALLOWED = [
+    'Make Me a Hanzi',      # the Chinese strokes' dataset (lang/zh, study/chars/kanji.h)
+    '"Kana"', '"Hanzi"',    # a chart's or screen's title, quoted: the script's name (study/screens/chart.h)
+]
 GENERATED = re.compile(r'(^|/)text_ids\.h$')
 
 
@@ -237,16 +263,73 @@ def check_documentation(path, raw, findings):
         depth += code.count('{') - code.count('}')
 
 
+def comments_by_line(raw):
+    """Each line's comment text (from // or /* */, its markers and leading '*' dropped), by line number, and the
+    numbers of the lines that also hold code."""
+    code_lines = {i + 1 for i, line in enumerate(strip(raw).split('\n')) if line.strip()}
+    text = []
+    i, n = 0, len(raw)
+    while i < n:
+        if raw.startswith('//', i):
+            j = raw.find('\n', i)
+            j = n if j < 0 else j
+            text.append(' ' * 2 + raw[i + 2:j])
+            i = j
+        elif raw.startswith('/*', i):
+            j = raw.find('*/', i + 2)
+            j = n if j < 0 else j
+            text.append('  ' + re.sub(r'(?m)^(\s*)\*', r'\1 ', raw[i + 2:j]) + '  ')
+            i = j + 2
+        elif raw[i] in '"\'':
+            j = i + 1
+            while j < n and raw[j] != raw[i] and raw[j] != '\n':
+                j += 2 if raw[j] == '\\' else 1
+            text.append(re.sub(r'[^\n]', ' ', raw[i:j + 1]))
+            i = j + 1
+        else:
+            text.append('\n' if raw[i] == '\n' else ' ')
+            i += 1
+    lines = ''.join(text).split('\n')
+    return {k + 1: line.strip() for k, line in enumerate(lines)}, code_lines
+
+
+def starts_sentence(before, previous, has_code):
+    """Whether a word after _before (its line's comment text up to it) starts a sentence: after . ! or ?, or first
+    on a line whose comment starts there (beside code, or after a line with no comment, an empty one or a rule such
+    as '// --- handwriting ---') or follows a sentence's end."""
+    before = before.rstrip()
+    if before:
+        return before[-1] in '.!?'
+    return has_code or not previous or previous[-1] in '.!?' or re.search(r'[-=]{3,}$', previous) is not None
+
+
 def check_identity(path, raw, findings):
     if not path.startswith('fude/'):
         return
     with_strings = strip(raw, keep_strings=True)
     for m in APP_SYMBOL.finditer(with_strings):
         findings['app-identity'].append((path, line_of(with_strings, m.start()), m.group(0)))
+    for m in CANVAS_IN_SYMBOL.finditer(with_strings):
+        findings['app-identity'].append((path, line_of(with_strings, m.start()), m.group(0)))
     for m in APP_STRING.finditer(with_strings):
         findings['app-identity'].append((path, line_of(with_strings, m.start()), m.group(0)[:60]))
+    for m in APP_PATH.finditer(with_strings):
+        findings['app-identity'].append((path, line_of(with_strings, m.start()), m.group(0) + ' (a path, in code)'))
     for m in PRODUCT_CHECK.finditer(with_strings):
         findings['app-identity'].append((path, line_of(with_strings, m.start()), 'checks which product it is'))
+    comments, code_lines = comments_by_line(raw)
+    for line, text in comments.items():
+        for allowed in COMMENT_ALLOWED:
+            text = text.replace(allowed, ' ' * len(allowed))
+        found = [m.group(0) for pattern in (APP_SYMBOL, CANVAS_IN_SYMBOL, APP_PATH, COMMENT_CANVAS)
+                 for m in pattern.finditer(text)]
+        for m in COMMENT_STUDY.finditer(text):
+            after = text[m.end():]
+            labelled = after.startswith(("'s", ':')) or text[:m.start()].rstrip().endswith('(')
+            if labelled or not starts_sentence(text[:m.start()], comments.get(line - 1, ''), line in code_lines):
+                found.append(m.group(0) + (after[:2] if after.startswith("'s") else after[:1] if after.startswith(':') else ''))
+        for what in found:
+            findings['app-identity'].append((path, line, what + ' (in a comment)'))
 
 
 def run():

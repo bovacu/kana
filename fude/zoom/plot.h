@@ -7,7 +7,7 @@
 #include "zoom/zoom.h"
 
 // ===========================================================================
-// Plot: draws the diagram library's Maths family (Sketching's Maths topic) from its text: a GRAPH (curves drawn on
+// Plot: draws the diagram library's Maths family (the Maths topic) from its text: a GRAPH (curves drawn on
 // axes), AXES and a NUMBER LINE. Each line of the text says one thing, and numbers are written as maths writes them
 // (calc.h: 2pi, pi/2, 1e3):
 //   a function of x        "y = sin(x)", "f(x) = x^2 - 1", "x^2 - 1"

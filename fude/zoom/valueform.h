@@ -7,7 +7,7 @@
 #include "drawing/widgets/kit.h"
 
 // ===========================================================================
-// Valueform: a part's value asked for on a card (Sketching's Value, on the lasso's row): a resistor's resistance, a
+// Valueform: a part's value asked for on a card (Value, on the lasso's row): a resistor's resistance, a
 // capacitor's capacitance, a source's volts, a motor's speed, a weight's mass.
 //
 // Where it sits: zoom, the canvas apps' layer, over drawing/widgets/kit.h, whose form (fude_kit_form) is its card. The

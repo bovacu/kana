@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/pagemenu.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
 #include "drawing/widgets/kit.h"
@@ -41,7 +42,7 @@ void fude_pagemenu_on_cut(fude_app* _app, any _self, u32 _arg) {
 // Makes the button with press _press read "Copied" for FUDE_PAGEMENU_COPIED_TIME seconds.
 void fude_pagemenu_copied(fude_pagemenu* _menu, fude_row_press _press) {
     // It goes on the row on screen, which is the one that was pressed: the text row while it shows (over an area of a
-    // PDF's text), else the selection row. The same press can be in both rows (Kana's Copy as text, for example), so
+    // PDF's text), else the selection row. The same press can be in both rows (a study app's Copy as text, say), so
     // the row is chosen first.
     _menu->copied_row = _menu->text.panel != NULL && _menu->text.open ? &_menu->text : &_menu->selection;
     _menu->copied     = fude_row_def_find(_menu->copied_row->def, _press);
@@ -80,11 +81,12 @@ static const fude_row_button FUDE_PAGEMENU_SELECTION[] = {
 static const fude_row_def FUDE_PAGEMENU_SELECTION_ROW = FUDE_ROW_DEF(FUDE_PAGEMENU_SELECTION);
 
 // Fills _faces for _row (the selection row or the text row): "Copied" for a moment on the button that copied, then
-// the app's own faces on top (Kana's "Reading…", for example, while the selection is read for a button).
+// the app's own faces on top (a study app's "Reading…", for example, while the selection is read for a button).
 RDE_INTERNAL void fude_pagemenu_row_faces(fude_pagemenu* _menu, const fude_row* _row, fude_row_face* _faces) {
     rde_memset(_faces, 0, sizeof(fude_row_face) * FUDE_ROW_BUTTONS);
     if(_menu->copied_row == _row && _menu->copied != FUDE_ROW_NONE && rde_engine_get_time_now() < _menu->copied_until) {
         rde_snprintf(_faces[_menu->copied].label, FUDE_ROW_LABEL, "%s", fude_text(FUDE_TEXT_SEL_COPIED));
+        fude_redraw_after(_menu->copied_until - rde_engine_get_time_now());   // (render on demand: it goes back then)
     }
     const fude_extension* _ext = fude_app_ext(_menu->app);
     if(_ext->selection_faces != NULL) {
@@ -184,8 +186,8 @@ void fude_pagemenu_open_context(fude_pagemenu* _menu, rde_vec_2F _screen, rde_ve
         return;
     }
     _menu->context_canvas = _canvas;
-    // Paste is greyed out when there is nothing to paste now. Then the app sets its own buttons' faces (Kana's, for
-    // example: whether there is text to paste, which is all iOS tells without asking the user, and whether a photo
+    // Paste is greyed out when there is nothing to paste now. Then the app sets its own buttons' faces (a study app's,
+    // for example: whether there is text to paste, which is all iOS tells without asking the user, and whether a photo
     // can be read).
     rde_memset(_menu->context_faces, 0, sizeof(_menu->context_faces));
     const u32 _paste = fude_row_def_find(_menu->context.def, fude_pagemenu_on_paste);

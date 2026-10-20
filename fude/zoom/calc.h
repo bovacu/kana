@@ -9,7 +9,7 @@
 // Calc: reads a function of x as it is written ("y = sin(x)", "x^2/4 - 1", "2x + 3", "3(x+1)(x-2)", "sqrt(abs(x))",
 // "e^-x", "|x|"), parses it once into steps, and works it out quickly for any x.
 //
-// Where it sits: `fude/zoom`, the canvas layer. plot.c draws Sketching's graphs with it (symbol.h's Maths family), and
+// Where it sits: `fude/zoom`, the canvas layer. plot.c draws the graphs with it (symbol.h's Maths family), and
 // texcalc.c turns LaTeX into it and back.
 // Its main type, fude_zoom_calc, is a plain value the caller keeps; there is nothing to free.
 // Threads: pure functions over the caller's data, so they are safe on any thread; they are called on the app's main

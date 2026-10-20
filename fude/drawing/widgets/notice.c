@@ -4,6 +4,7 @@
 #include "drawing/base/theme.h"
 #include "drawing/base/draw.h"
 #include "drawing/base/clock.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // See notice.h.
@@ -24,6 +25,7 @@ void fude_notice_show(const c8* _text) {
     rde_str_clear(&fude_notice_text);
     rde_str_append_str(&fude_notice_text, _text != NULL ? _text : "");
     fude_notice_at = fude_clock_now();   // the app's clock, so a screenshot taken mid-fade is the same every time
+    fude_redraw_changed();               // (often shown by a job's answer, with no event)
 }
 
 // Draws the notice in its pill, centred across, _above the bottom of the safe area, fading over its last
@@ -39,6 +41,12 @@ void fude_notice_render(rde_window* _window, rde_font* _font, f32 _font_px, f32 
         return;
     }
     const f32         _fade = _age <= FUDE_NOTICE_TIME ? 1.0f : 1.0f - (f32)((_age - FUDE_NOTICE_TIME) / FUDE_NOTICE_FADE);
+    // Render on demand: still while fully shown, then fading every frame until it is gone.
+    if(_age < FUDE_NOTICE_TIME) {
+        fude_redraw_after(FUDE_NOTICE_TIME - _age);
+    } else {
+        fude_redraw_changed();
+    }
     const fude_theme* _t    = fude_theme_active();
     const rde_vec_2I  _size = rde_window_get_size(_window);
     const rde_vec_4I  _safe = rde_window_get_safe_area_insets(_window);   // Left, top, right, bottom.

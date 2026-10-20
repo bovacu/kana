@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/handwriting.h"
+#include "drawing/base/redraw.h"
 #include "drawing/app/ui.h"
 #include "drawing/app/side.h"
 #include "drawing/widgets/kit.h"
@@ -19,10 +20,14 @@ void fude_handwriting_refresh(fude_ui* _ui, b8 _force) {
     const FUDE_MLKIT_ _state = fude_mlkit_state();
     const b8          _on    = fude_mlkit_enabled();
     const i32         _shown = (i32)_state + (_on ? 0 : 100);
+    if(_state == FUDE_MLKIT_DOWNLOADING) {
+        fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: the download's end is polled, with no event)
+    }
     if(_hw->toggle == NULL || (!_force && _shown == _hw->_shown)) {
         return;
     }
     _hw->_shown = _shown;
+    fude_redraw_changed();
 
     const c8* _status   = "";
     const c8* _download = NULL;

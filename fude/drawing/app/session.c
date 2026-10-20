@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "drawing/app/session.h"
+#include "drawing/base/redraw.h"
 #include "drawing/base/crash.h"
 #include "drawing/app/app.h"
 #include "drawing/app/ui.h"
@@ -59,7 +60,7 @@ RDE_INTERNAL const fude_page_kind* fude_session_kind(const fude_app* _app) {
 // The last save, for the HUD.
 RDE_INTERNAL fude_session_info fude_session_hud = { 0.0, 0.0f, 0u, false, "" };
 
-// Returns Your data's file extension: the app's id and "backup" (Kana's is kanabackup). It is in a static buffer,
+// Returns Your data's file extension: the app's id and "backup" (name: namebackup). It is in a static buffer,
 // rewritten by each call.
 RDE_INTERNAL const c8* fude_session_backup_ext(const fude_app* _app) {
     static c8 _ext[80];
@@ -145,8 +146,8 @@ RDE_INTERNAL void fude_session_apply(fude_app* _app, const fude_settings* _s) {
         fude_app_ext(_app)->settings_apply(_app, _s);
     }
     _app->canvas->paper_size     = _s->paper_size < FUDE_PAPER_SIZE_COUNT ? (FUDE_PAPER_SIZE_)_s->paper_size : FUDE_PAPER_MEDIUM;
-    // A language the app no longer offers falls back to the device's (Hanzi's Japanese, for example, from before
-    // Chinese took its place).
+    // A language the app no longer offers falls back to the device's (the language it taught before another took
+    // its place, for example).
     fude_session_language        = fude_text_language_offered((RDE_LANGUAGE_)_s->language) ? _s->language : 0u;
     _app->finger_writes          = _s->finger_writes;
     _app->pen_ever               = _s->pen_ever;
@@ -238,10 +239,17 @@ RDE_INTERNAL void fude_session_autosave(fude_app* _app) {
         fude_session_seen_page     = fude_session_shown_now(_app);
         fude_session_seen_settings = _settings;
         fude_session_changed_at    = _now;
+        fude_redraw_after(FUDE_SESSION_AUTOSAVE_DELAY);   // (render on demand: the save is due then, with no event)
         return;
     }
     if(!_app->ink->drawing && !fude_lasso_busy(_app->lasso) && (_kind == NULL || !_kind->busy(_app)) && _now - fude_session_changed_at >= FUDE_SESSION_AUTOSAVE_DELAY) {
         fude_session_save_now(_app, false);
+    }
+    // Render on demand: a save still due (one that failed waits another quiet period: fude_session_save_now) is a
+    // timer. One held back by a stroke or a drag needs none: what holds it ends with an event.
+    const f64 _since = rde_engine_get_time_now() - fude_session_changed_at;
+    if(_since < FUDE_SESSION_AUTOSAVE_DELAY) {
+        fude_redraw_after(FUDE_SESSION_AUTOSAVE_DELAY - _since);
     }
 }
 
@@ -298,7 +306,7 @@ void fude_session_load(fude_app* _app) {
     fude_session_canvas = _app->notes->open;
     fude_notes_canvas_path(fude_session_canvas, fude_session_document, sizeof(fude_session_document));
 
-    // The app's own files (Kana's, for example: marks, exams, words, reviews, characters' notes).
+    // The app's own files (a study app's, for example: marks, exams, words, reviews, characters' notes).
     if(fude_app_ext(_app)->session_open != NULL) {
         fude_app_ext(_app)->session_open(_app, _dir);
     }
@@ -309,7 +317,7 @@ void fude_session_load(fude_app* _app) {
         fude_session_apply(_app, &_settings);
     } else if(_loaded == FUDE_LOAD_MISSING) {
         if(fude_app_ext(_app)->first_launch != NULL) {
-            fude_app_ext(_app)->first_launch(_app);   // Such as Kana's welcome: what it is, and its gestures.
+            fude_app_ext(_app)->first_launch(_app);   // Such as a study app's welcome: what it is, and its gestures.
         }
         // The very first time, take the theme the device is in: Night when it is dark, Paper otherwise, as the launch
         // screen was. The settings are saved at once (below), so from then on the theme is the user's.
@@ -417,6 +425,7 @@ void fude_session_with_extension(c8* _out, usize _size, const c8* _path, const c
 RDE_INTERNAL void fude_session_on_export_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     fude_app* _app = (fude_app*)_user_data;
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL) {
         fude_side_data_message(_app->ui, fude_text(FUDE_TEXT_DATA_EXPORT_FAILED), true);
         return;
@@ -463,6 +472,7 @@ void fude_session_import_pick(fude_app* _app, const c8* _path) {
 RDE_INTERNAL void fude_session_on_import_path(const c8* const* _paths, u32 _count, i32 _filter, any _user_data) {
     RDE_UNUSED(_filter);
     fude_app* _app = (fude_app*)_user_data;
+    fude_redraw_request();   // (render on demand: a dialog's answer may come while the app sleeps, with no event)
     if(_paths == NULL) {
         fude_side_data_message(_app->ui, fude_text(FUDE_TEXT_DATA_CANT_OPEN), true);
         return;
@@ -496,7 +506,7 @@ void fude_session_outbox_path(c8* _out, usize _size, const c8* _stem, const c8* 
     rde_file_create_missing_dirs(_out);
 }
 
-// Returns Your data's file type for the system's dialogs ("Kana backup", *.kanabackup, for example). It is kept in
+// Returns Your data's file type for the system's dialogs ("<Name> backup", *.<id>backup). It is kept in
 // statics, because a dialog reads it until it answers.
 RDE_INTERNAL const rde_dialog_filter* fude_session_backup_filter(const fude_app* _app) {
     static c8                _name[128];
@@ -507,7 +517,7 @@ RDE_INTERNAL const rde_dialog_filter* fude_session_backup_filter(const fude_app*
 }
 
 // Points *_out at the file types an import opens and returns how many: the app's own backups, and those of the app it
-// can take from (info.h: imports; InfiNote takes Sketching's, for example). Kept in statics, like the one above.
+// can take from (info.h: imports, for an app split from another). Kept in statics, like the one above.
 RDE_INTERNAL u32 fude_session_import_filters(const fude_app* _app, const rde_dialog_filter** _out) {
     static rde_dialog_filter _filters[2];
     static c8                _name[128], _ext[80];

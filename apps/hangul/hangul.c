@@ -72,10 +72,14 @@ static const fude_extension HANGUL_EXTENSION = {
     .nav = &HANGUL_NAV, .library = HANGUL_LIBRARY, .library_count = (u32)(sizeof(HANGUL_LIBRARY) / sizeof(HANGUL_LIBRARY[0])),
 };
 
-// What the shell runs: what the app is, what it adds, and its config as the data bake sees it.
+// What the shell runs: what the app is, what it adds, and what its data bake needs (paths from the project root).
 static const fude_study_shell_def HANGUL_SHELL = {
     .info = &HANGUL_INFO, .ext = &HANGUL_EXTENSION,
-    .bake_config = "apps/hangul/assets/config.rdef",
+    .bake = {
+        .config = "apps/hangul/assets/config.rdef",
+        .out    = "apps/hangul/assets/data/characters.kana",
+        .tools  = "apps/hangul/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
+    },
 };
 
 // Runs the app: the study apps' shell does everything, with what is defined above.

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, the hands: a press, a move and a lift handed to the tool they are for, fingers (pinch, pan, taps), a
@@ -445,6 +446,7 @@ void fude_zoom_page_coast(fude_zoom_page* _page) {
         _page->coasting = false;
         return;
     }
+    fude_redraw_changed();   // (render on demand: the flick moves the view every frame)
     const f64 _dt = rde_math_min_f64((f64)rde_engine_get_delta(), 0.05);
     fude_zoom_camera_pan(&_page->scene, (fude_zoom_v2){ _page->pan_velocity.x * _dt, _page->pan_velocity.y * _dt });
     fude_zoom_camera_settle(&_page->scene, fude_zoom_page_half(_page));

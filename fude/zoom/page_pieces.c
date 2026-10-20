@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, my pieces (piece.h): kept from the lasso, put back from Insert, laid as a stencil (instrument.h), and
@@ -451,6 +452,9 @@ void fude_zoom_page_render_pieces(fude_zoom_page* _page) {
         const fude_zoom_box _d = fude_zoom_page_piece_drop(_tile);
         const rde_vec_2F _dc = { (f32)((_d.min_x + _d.max_x) * 0.5), (f32)((_d.min_y + _d.max_y) * 0.5) };
         const b8 _armed = _page->piece_armed == (i32)_i && rde_engine_get_time_now() - _page->piece_armed_at < 3.0;
+        if(_armed) {
+            fude_redraw_after(3.0 - (rde_engine_get_time_now() - _page->piece_armed_at));   // (render on demand: grey again then)
+        }
         rde_rendering_2d_draw_circle_with_border(_dc, 11.0f, 20u, _armed ? _t->score_poor : _t->surface_2, 1.0f, _armed ? _t->score_poor : _t->outline, NULL);
         const rde_color _x = _armed ? fude_kit_text_on(_t->score_poor) : _t->text_soft;
         rde_rendering_2d_draw_line_1((rde_vec_2F){ _dc.x - 4.0f, _dc.y - 4.0f }, (rde_vec_2F){ _dc.x + 4.0f, _dc.y + 4.0f }, _x, 1.4f);

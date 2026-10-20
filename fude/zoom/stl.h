@@ -8,7 +8,7 @@
 #include "zoom/scene.h"
 
 // ===========================================================================
-// STL export: a 3D model for a printer (Sketching's Export → 3D model). The view, or what the lasso holds, becomes
+// STL export: a 3D model for a printer (Export → 3D model). The view, or what the lasso holds, becomes
 // solids in millimetres, written as a binary STL that a slicer opens.
 //
 // Where it sits: zoom, the canvas apps' layer. The page (page_export.c) calls fude_zoom_export_stl; it walks the view

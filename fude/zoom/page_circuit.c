@@ -432,7 +432,8 @@ RDE_INTERNAL void fude_zoom_page_render_hurt(fude_zoom_page* _page, const fude_z
     const fude_zoom_v2 _mid = fude_zoom_sim_apply(_all, (fude_zoom_v2){ 0.0, 0.0 });
     const f32 _r = (f32)rde_math_max_f64(rde_math_max_f64(_hw, _hh) * _k * 1.15, 10.0);
     const rde_vec_2F _c = { (f32)_mid.x, (f32)_mid.y };
-    const f32 _pulse = 0.5f + 0.5f * rde_math_sin_f32((f32)rde_engine_get_time_now() * 6.0f);
+    // The pulse runs on Play's time, so a paused circuit stands still (a still screen: drawing/base/redraw.h).
+    const f32 _pulse = 0.5f + 0.5f * rde_math_sin_f32((f32)_page->play_time * 6.0f);
     if(_q->burnt) {
         rde_rendering_2d_draw_circle(_c, _r, 32u, (rde_color){ 40, 30, 28, 150 }, NULL);
         const f32 _x = _r * 0.55f;
@@ -501,8 +502,8 @@ RDE_INTERNAL void fude_zoom_page_render_scope_readout(fude_zoom_page* _page, con
         const f32 _x = (f32)_in.x + _dx * _along, _y = (f32)_in.y + _dy * _along;
         // On the screen's own dark, over what a wave past its top draws there.
         rde_rendering_2d_draw_rectangle((rde_vec_2F){ _x + 0.5f * _w[_i], _y }, (rde_vec_2F){ _w[_i] + _px * 0.6f, _px * 1.3f }, (rde_color){ 12, 24, 18, 235 });
-        rde_rendering_2d_draw_text_2(_font, _say[_i], (rde_vec_3F){ _x, _y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px }, 0.0f,
-                                     _colour[_i]);
+        fude_draw_text_placed(_font, _say[_i], (rde_vec_3F){ _x, _y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px }, 0.0f,
+                              _colour[_i]);
         _along += _w[_i] + _gap;
     }
 }
@@ -735,7 +736,7 @@ RDE_INTERNAL void fude_zoom_page_current_dot(any _user, rde_vec_2F _at) {
 }
 
 // The current, while a circuit plays (fude_zoom_page_render_circuit's): dots moving along each wire's pieces as
-// said where it is called (_hs, _hk: the home frame's way onto the screen and its scale; _fdt: the time since the
+// said where it is called (_hs, _hk: the home frame's way onto the screen and its scale; _fdt: Play's time since the
 // dots last moved), and each node's volts once, by its longest wire's middle (_tag, _tu: the tags' size and as
 // much smaller their offsets).
 RDE_INTERNAL void fude_zoom_page_render_circuit_current(fude_zoom_page* _page, fude_zoom_circuit* _c, fude_zoom_v2 _half, fude_zoom_sim _hs, f64 _hk,
@@ -1112,11 +1113,10 @@ void fude_zoom_page_render_circuit(fude_zoom_page* _page, fude_zoom_v2 _half) {
     const f64 _hk = fude_zoom_sim_scale(_hs);
     const f32 _tag = fude_zoom_page_play_tag_px(_page);
     const f32 _tu  = _tag / FUDE_ZOOM_PAGE_TAG_PX;   // How far from what it tells of, as much smaller.
-    const f64 _now = rde_engine_get_time_now();
-    // The current's dots move by the time since they last moved (the page's circuit_drawn_at), a tenth of a second
-    // at most.
-    const f64 _fdt = rde_math_min_f64(rde_math_max_f64(_now - _page->circuit_drawn_at, 0.0), 0.1);
-    _page->circuit_drawn_at = _now;
+    // The current's dots move by Play's time since they last moved (the page's circuit_drawn_at), a tenth of a second
+    // at most: paused, they stand still (a still screen: drawing/base/redraw.h).
+    const f64 _fdt = rde_math_min_f64(rde_math_max_f64(_page->play_time - _page->circuit_drawn_at, 0.0), 0.1);
+    _page->circuit_drawn_at = _page->play_time;
     // Current: dots along each wire's pieces, as fast as it is strong (25 points a second for each tenfold over a
     // microamp, from 8 to 160), its way.
     fude_zoom_page_render_circuit_current(_page, &_page->circuit, _half, _hs, _hk, _fdt, _tag, _tu);

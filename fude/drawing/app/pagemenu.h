@@ -18,8 +18,8 @@
 //   at a long press (a right-click on a computer): Paste, Select all, just above the finger.
 //
 // Those are the core's own rows. An app puts its own rows together instead (extension.h: selection_row, context_row),
-// with the core's buttons where it wants them (FUDE_PAGEMENU_BUTTON_ below) and its own between them: Kana's reading
-// of the page (study/widgets/pagetext.h) adds Copy as text, Translate, Save word and Check, and Paste text and Text
+// with the core's buttons where it wants them (FUDE_PAGEMENU_BUTTON_ below) and its own between them: the study
+// layer's reading (study/widgets/pagetext.h) adds Copy as text, Translate, Save word and Check, and Paste text and Text
 // from a photo. An app may also give a row for an area of a PDF's text that the lasso took (extension.h: text_row).
 //
 // Where it sits: drawing/app. The UI (ui.h) holds the fude_pagemenu (fude_ui.page) and drives it; the page opens the
@@ -78,7 +78,7 @@ void fude_pagemenu_restyle(fude_pagemenu* _menu);
 void fude_pagemenu_update(fude_pagemenu* _menu, b8 _hidden);
 // Whether the point _ui (UI canvas units) is on one of the menus.
 b8   fude_pagemenu_hit(const fude_pagemenu* _menu, rde_vec_2F _ui);
-// Makes the button whose press is _press say "Copied" for a moment (Copy, or an app's own: Kana's Copy as text). It is
+// Makes the button whose press is _press say "Copied" for a moment (Copy, or an app's own: Copy as text). It is
 // looked for in the selection row, then in the text row (an area of a PDF's text), so whichever row was pressed shows
 // it.
 void fude_pagemenu_copied(fude_pagemenu* _menu, fude_row_press _press);

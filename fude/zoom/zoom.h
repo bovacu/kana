@@ -9,8 +9,8 @@
 // Zoom: the types every part of the deep-zoom canvas shares (ids, points, boxes, transforms), and the f64 maths on
 // them.
 //
-// Where it sits: the bottom of fude/zoom, the canvas layer of the three canvas apps (Sketching, InfiNote,
-// InfiniWorkshop). Every other zoom module includes it.
+// Where it sits: the bottom of fude/zoom, the canvas layer of the canvas apps (one per product, product.h). Every other
+// zoom module includes it.
 // Its main types and their lifecycle: plain values (fude_zoom_v2, fude_zoom_box, fude_zoom_sim, fude_zoom_xform),
 // passed and returned by copy; nothing here allocates.
 // Threads: every function is pure and keeps no state, so any thread may call them.

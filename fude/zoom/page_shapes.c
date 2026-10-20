@@ -910,7 +910,7 @@ void fude_zoom_page_render_stretch(fude_zoom_page* _page) {
             const f32 _px = 15.0f, _tw = fude_draw_text_width(_font, _page->app->font_px, _said, _px);
             const rde_vec_2F _c2 = { (f32)(_at.x + _out.x * (36.0 + _tw * 0.5 * rde_math_abs_f64(_out.x))), (f32)(_at.y + _out.y * 36.0) };
             rde_rendering_2d_draw_rounded_rectangle_with_border(_c2, (rde_vec_2F){ _tw + 18.0f, 28.0f }, 0.5f, 6u, _t->surface, 1.5f, _t->accent, NULL);
-            rde_rendering_2d_draw_text_2(_font, _said, (rde_vec_3F){ _c2.x - _tw * 0.5f, _c2.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
+            fude_draw_text_placed(_font, _said, (rde_vec_3F){ _c2.x - _tw * 0.5f, _c2.y - _px * 0.36f, 0.0f }, (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
         }
         return;
     }

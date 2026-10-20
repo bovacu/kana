@@ -8,10 +8,10 @@
 // ===========================================================================
 // Products: the apps made from the deep-zoom canvas (docs/product_split.md). There is one engine; each app offers its
 // own topics (FUDE_ZOOM_TOPIC_, below), and in them only its own tools, Insert entries, instruments and exports: what a
-// topic lists and the app allows (the product's set and the topic's, together). Sketching has all of them (the
-// developer's build); Notes (InfiNote) is for writing, study and maths; Workshop (InfiniWorkshop) is for projects that
-// work (circuits, mechanisms, plans, wood, sewing) and graphs; diagrams and Kanban are in both. Every app opens the
-// same canvas file: a canvas made in another app opens, its topic changed to one of this app's if it is not one.
+// topic lists and the app allows (the product's set and the topic's, together). ALL has all of them (the
+// developer's build); NOTES is for writing, study and maths; WORKSHOP is for projects that work (circuits, mechanisms,
+// plans, wood, sewing) and graphs; diagrams and Kanban are in both. Every app opens the same canvas file: a canvas made
+// in another app opens, its topic changed to one of this app's if it is not one.
 //
 // Where it sits: zoom, the canvas apps' layer. The shell (zoom/shell.c) sets the product once, from the app's
 // description (apps/<app>/<app>.c); the page asks it what to offer (page_topics.c, for the bar; page_audio.c and
@@ -38,9 +38,9 @@ typedef enum {
     FUDE_ZOOM_TOPIC_COUNT
 } FUDE_ZOOM_TOPIC_;
 
-// Which app this is.
+// The products, each what a canvas app offers (product.c's table).
 typedef enum {
-    FUDE_ZOOM_PRODUCT_SKETCHING = 0,   // Every topic and tool (the app as it has always been).
+    FUDE_ZOOM_PRODUCT_ALL = 0,   // Every topic and tool (the developer's build).
     FUDE_ZOOM_PRODUCT_NOTES,
     FUDE_ZOOM_PRODUCT_WORKSHOP,
     FUDE_ZOOM_PRODUCT_COUNT
@@ -97,9 +97,9 @@ typedef struct {
     b8  audio;         // Whether it records sound with the ink (a notes app's: not Workshop's).
 } fude_zoom_product;
 
-// fude_zoom_product_set sets which app this is (FUDE_ZOOM_PRODUCT_; an unknown value means Sketching), once, from the
+// fude_zoom_product_set sets which app this is (FUDE_ZOOM_PRODUCT_; an unknown value means ALL), once, from the
 // shell, before the page is made. fude_zoom_product_get returns the app's description: the canvas asks it what the app
-// offers, never which app it is. fude_zoom_product_of returns any product's (Sketching's for an unknown value). The
+// offers, never which app it is. fude_zoom_product_of returns any product's (ALL's for an unknown value). The
 // pointers returned are to constant tables and stay valid for the app's life.
 void                     fude_zoom_product_set(u8 _which);
 const fude_zoom_product* fude_zoom_product_get(void);

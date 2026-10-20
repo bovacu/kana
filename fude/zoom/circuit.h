@@ -11,7 +11,7 @@
 struct fude_zoom_logic;
 
 // ===========================================================================
-// Circuits: Sketching's Electronics topic, circuits drawn as schematics and simulated as they are drawn.
+// Circuits: the Electronics topic, circuits drawn as schematics and simulated as they are drawn.
 //
 // PARTS are the diagram library's symbols (symbol.h's Electronics, Logic, Chips and modules, and Boards families).
 // Each has its PINS, where a wire meets it (in its own u, v from -1 to 1, as it is drawn), and what it does in the

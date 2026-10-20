@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/pdfview.h"
+#include "drawing/base/redraw.h"
 #include "zoom/rich.h"
 #include "zoom/formula.h"
 #include "zoom/fill.h"
@@ -10,7 +11,7 @@
 #include "drawing/base/draw.h"
 
 // ===========================================================================
-// See pdfview.h. Drawn as doc.c draws Kana's, by a PDF worker of its own (drawing/doc/worker.h): one piece at a time,
+// See pdfview.h. Drawn like doc.c's documents, by a PDF worker of its own (drawing/doc/worker.h): one piece at a time,
 // on a thread started for it; the view looks each frame whether it is done. Which whole pages are kept and drawn is the
 // worker's to choose (fude_doc_wholes), from what fude_zoom_pdfview_wholes sees of each page. A PDF let go while a
 // piece is being drawn leaves the piece to the worker to finish and free (and the PDF to close). A sharp piece's zoom
@@ -317,8 +318,13 @@ void fude_zoom_pdfview_update(fude_zoom_pdfview* _v, fude_zoom_sim _home, fude_z
         fude_zoom_pdfview_next(_v, _home, _half, _now - _v->moved_at >= FUDE_DOC_REST, _screen, _near);
     }
     fude_zoom_pdfview_let_go(_v, _home, _half);
-    // A search's matches as they come.
+    // Render on demand: the sharp pieces start once the view has rested; the worker's pieces wake the app themselves.
+    if(_now - _v->moved_at < FUDE_DOC_REST) {
+        fude_redraw_after(FUDE_DOC_REST - (_now - _v->moved_at));
+    }
+    // A search's matches as they come (render on demand: gathered each frame).
     if(_v->searching && !_v->search_done && _v->pdf != NULL) {
+        fude_redraw_changed();
         b8 _done = false;
         _v->match_count = fude_pdf_find_matches(_v->pdf, fude_zoom_pdfview_matches(_v), FUDE_PDF_MATCHES, &_done);
         _v->search_done = _done;

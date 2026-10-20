@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/page_parts.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // Page, drawing: the paper, the page drawn each frame (fude_zoom_page_render), the marks' arrows and their
@@ -110,14 +111,14 @@ RDE_INTERNAL void fude_zoom_page_render_pages(fude_zoom_page* _page, fude_zoom_v
             const f32 _nw = fude_draw_text_width(_page->renderer.font, _page->renderer.font_px, _num, _px);
             rde_color _soft = _t->text_soft;
             _soft.a = (u8)((u32)_soft.a * 70u / 100u);
-            rde_rendering_2d_draw_text_2(_page->renderer.font, _num, (rde_vec_3F){ (f32)((_lo.x + _hi.x) * 0.5) - _nw * 0.5f, (f32)_lo.y + _px * 0.9f, 0.0f },
-                                         (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px }, 0.0f, _soft);
+            fude_draw_text_placed(_page->renderer.font, _num, (rde_vec_3F){ (f32)((_lo.x + _hi.x) * 0.5) - _nw * 0.5f, (f32)_lo.y + _px * 0.9f, 0.0f },
+                                  (rde_vec_2F){ _px / _page->renderer.font_px, _px / _page->renderer.font_px }, 0.0f, _soft);
         }
         if(_paper == FUDE_PAPER_NONE || _fade <= 0.0 || _z * _s < 1e-9 || _z > 1e12) {
             continue;   // (blank; too far out to see; too deep for a millimetre's lines to be placed: the page alone)
         }
         if(_paper >= FUDE_PAPER_CORE) {
-            // Sketching's own (paper.h): a page's layout at its true size; a pattern round the page's middle (music's
+            // The page's own (paper.h): a page's layout at its true size; a pattern round the page's middle (music's
             // staves from under its top margin), its finer lines coming in as the view goes in, all fading far out.
             rde_arr*  _lines = fude_zoom_page_paper_lines(_page);
             rde_color _ink   = _t->page_dots;
@@ -246,7 +247,7 @@ RDE_INTERNAL void fude_zoom_page_render_paper(fude_zoom_page* _page, rde_window*
     const fude_zoom_box     _view    = { _c->at.x - _hw / _c->z, _c->at.y - _hh / _c->z, _c->at.x + _hw / _c->z, _c->at.y + _hh / _c->z };
     const rde_color         _ink     = fude_theme_active()->page_dots;
     if(_paper >= FUDE_PAPER_CORE) {
-        // Sketching's own (paper.h), round the camera frame's middle: its lattice as the squares', finer coming in.
+        // The page's own (paper.h), round the camera frame's middle: its lattice as the squares', finer coming in.
         rde_arr* _lines = fude_zoom_page_paper_lines(_page);
         fude_zoom_paper_lines(_paper, _view, _paper == FUDE_PAPER_MUSIC ? FUDE_ZOOM_PAGE_STAFF_ENDLESS : _s, rde_math_min_f64(rde_math_max_f64(_fade, 0.0), 1.0), _c->z, _lines);
         fude_zoom_page_draw_paper_lines(_lines, (fude_zoom_sim){ _c->z, 0.0, -_c->at.x * _c->z, -_c->at.y * _c->z }, _ink);
@@ -396,6 +397,7 @@ void fude_zoom_page_previews_draw(fude_zoom_page* _page, rde_window* _window, rd
         _s->camera = _was;
         _page->preview_ready[_k] = true;
         _page->preview_rev[_k]   = _s->revision;
+        fude_redraw_changed();   // (render on demand: the next, if any, in the next frame)
         return;   // (one a frame)
     }
 }
@@ -432,6 +434,8 @@ RDE_INTERNAL void fude_zoom_page_render_marks(fude_zoom_page* _page, fude_zoom_v
         _page->marks_for  = *_c;
         _page->marks_at   = _now;
         _page->mark_count = 0;
+    } else if(_page->mark_count == 0 && _now - _page->marks_at < FUDE_ZOOM_PAGE_MARK_REST && _page->marks_at > 0.0) {
+        fude_redraw_after(FUDE_ZOOM_PAGE_MARK_REST - (_now - _page->marks_at));   // (render on demand: found once at rest)
     } else if(_page->mark_count == 0 && _now - _page->marks_at >= FUDE_ZOOM_PAGE_MARK_REST && _page->marks_at > 0.0) {
         _page->mark_count = fude_zoom_nav_marks(&_page->scene, _half, FUDE_ZOOM_PAGE_MARK_INSET, _page->marks);
         _page->marks_at   = 0.0;   // found: until the camera moves again
@@ -496,6 +500,9 @@ RDE_INTERNAL void fude_zoom_page_render_brush(fude_zoom_page* _page) {
     const fude_theme* _t    = fude_theme_active();
     const FUDE_TOOL_  _tool = _app->ui->bar.tool;
     const b8 _quiet  = rde_engine_get_time_now() < _page->hover_quiet;   // the pen just lifted
+    if(_quiet) {
+        fude_redraw_after(_page->hover_quiet - rde_engine_get_time_now());   // (render on demand: the circle comes back then)
+    }
     const b8 _eraser = _page->erasing || ((_tool == FUDE_TOOL_ERASE || _page->hover_eraser) && _page->hover_on && !_quiet);
     rde_vec_2F _at;
     f32        _r;
@@ -736,8 +743,8 @@ RDE_INTERNAL void fude_zoom_page_anchor_length(const fude_zoom_page* _page, rde_
     const fude_theme* _t = fude_theme_active();
     const rde_vec_2F  _m = { (_a.x + _b.x) * 0.5f, (_a.y + _b.y) * 0.5f };
     rde_rendering_2d_draw_rounded_rectangle_with_border(_m, (rde_vec_2F){ _tw + 10.0f, 18.0f }, 1.0f, 6u, _t->page, 1.0f, _t->accent, NULL);
-    rde_rendering_2d_draw_text_2(_page->app->font, _v, (rde_vec_3F){ _m.x - _tw * 0.5f, _m.y - _px * 0.36f, 0.0f },
-                                 (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->accent);
+    fude_draw_text_placed(_page->app->font, _v, (rde_vec_3F){ _m.x - _tw * 0.5f, _m.y - _px * 0.36f, 0.0f },
+                          (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->accent);
 }
 
 // The offset pad up: the point the instrument snapped to, ringed, and the way
@@ -805,8 +812,8 @@ RDE_INTERNAL void fude_zoom_page_render_instruments(fude_zoom_page* _page) {
         const f32 _w  = fude_draw_text_width(_page->app->font, _page->app->font_px, _say, _px);
         const rde_vec_2F _c = { (f32)_tab.x, (f32)_tab.y + 30.0f };
         rde_rendering_2d_draw_rounded_rectangle_with_border(_c, (rde_vec_2F){ _w + 18.0f, 26.0f }, 1.0f, 8u, _t->surface, 1.0f, _t->accent, NULL);
-        rde_rendering_2d_draw_text_2(_page->app->font, _say, (rde_vec_3F){ _c.x - _w * 0.5f, _c.y - _px * 0.36f, 0.0f },
-                                     (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
+        fude_draw_text_placed(_page->app->font, _say, (rde_vec_3F){ _c.x - _w * 0.5f, _c.y - _px * 0.36f, 0.0f },
+                              (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
     }
     if(_page->drawing && _page->ruled && fude_zoom_instruments_ruled(&_page->instruments, &_along, &_degrees, &_at) && _page->app->font != NULL) {
         c8 _say[40];
@@ -818,8 +825,8 @@ RDE_INTERNAL void fude_zoom_page_render_instruments(fude_zoom_page* _page) {
         const f32 _px = 14.0f;
         const f32 _w  = fude_draw_text_width(_page->app->font, _page->app->font_px, _say, _px);
         rde_rendering_2d_draw_rounded_rectangle_with_border((rde_vec_2F){ (f32)_at.x, (f32)_at.y }, (rde_vec_2F){ _w + 18.0f, 26.0f }, 1.0f, 8u, _t->surface, 1.0f, _t->accent, NULL);
-        rde_rendering_2d_draw_text_2(_page->app->font, _say, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
-                                     (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
+        fude_draw_text_placed(_page->app->font, _say, (rde_vec_3F){ (f32)_at.x - _w * 0.5f, (f32)_at.y - _px * 0.36f, 0.0f },
+                              (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
     }
 }
 
@@ -837,8 +844,8 @@ RDE_INTERNAL void fude_zoom_page_render_turn(fude_zoom_page* _page) {
     const f32 _px = 14.0f;
     const f32 _w  = fude_draw_text_width(_page->app->font, _page->app->font_px, _say, _px);
     rde_rendering_2d_draw_rounded_rectangle_with_border(_at, (rde_vec_2F){ _w + 18.0f, 26.0f }, 1.0f, 8u, _t->surface, 1.0f, _t->accent, NULL);
-    rde_rendering_2d_draw_text_2(_page->app->font, _say, (rde_vec_3F){ _at.x - _w * 0.5f, _at.y - _px * 0.36f, 0.0f },
-                                 (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
+    fude_draw_text_placed(_page->app->font, _say, (rde_vec_3F){ _at.x - _w * 0.5f, _at.y - _px * 0.36f, 0.0f },
+                          (rde_vec_2F){ _px / _page->app->font_px, _px / _page->app->font_px }, 0.0f, _t->text);
 }
 
 // Declared ahead: fude_zoom_page_render times it.

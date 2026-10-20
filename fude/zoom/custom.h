@@ -6,7 +6,7 @@
 #include "rde.h"
 
 // ===========================================================================
-// Custom: what a person keeps and where they edit it (Sketching's library, its Custom tab). A piece kept from the
+// Custom: what a person keeps and where they edit it (the library's Custom tab). A piece kept from the
 // lasso (piece.h) and a custom part made from a circuit (logic.h) each have a canvas of their own, its TEMPLATE: what
 // is drawn on that canvas is what the piece is, or what is inside the part. This module keeps the map from each piece
 // or part to its template canvas.

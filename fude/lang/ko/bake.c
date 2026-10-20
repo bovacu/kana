@@ -8,16 +8,15 @@
 #include "study/chars/bake.h"
 
 // ===========================================================================
-// See lang.h (fude_bake_run). Hangul's data bake (study/chars/bake.h), a DESKTOP mode of the app itself:
+// See lang.h (fude_bake_run). Korean's data bake (study/chars/bake.h), a DESKTOP mode of the app itself:
 //
 //   <desktop build> --bake [--strokes=PATH] [--prepared=DIR] [--out=PATH]
 //
-// It is run from the project root after apps/hangul/tools/ (strokes/compose.py, then data/fetch.py and
+// It is run from the project root after the app's tools (strokes/compose.py, then data/fetch.py and
 // data/prepare.py). The defaults are data/raw/ko/koreanvg.xml (the jamo's and the syllables' strokes, which are
-// Hangul's own, and the hanja's, which are KanjiVG's), data/raw/ko/prepared/ and
-// apps/hangul/assets/data/characters.kana.
+// Hangul's own, and the hanja's, which are KanjiVG's), data/raw/ko/prepared/ and the app's out (fude_bake_app).
 //
-// Korean's sources are read by its tools (apps/hangul/tools/data/); this file only bakes what they prepared, through
+// Korean's sources are read by its tools (the app's); this file only bakes what they prepared, through
 // the study's bake (fude_bake_run_prepared). It is left out of phone and tablet builds.
 // ===========================================================================
 
@@ -50,16 +49,14 @@ static const c8* const FUDE_KO_LANGS[] = { "es", "pt", "fr", "ja" };   // prepar
 static const fude_bake_prepared_def FUDE_KO_BAKE = {
     .strokes        = "data/raw/ko/koreanvg.xml",
     .prepared       = "data/raw/ko/prepared",
-    .out            = "apps/hangul/assets/data/characters.kana",
-    .tools          = "apps/hangul/tools: strokes/compose.py, data/fetch.py, data/prepare.py",
     .languages      = FUDE_KO_LANGS,
     .language_count = (u32)(sizeof(FUDE_KO_LANGS) / sizeof(FUDE_KO_LANGS[0])),   // Counted, so a language added cannot be left out.
     .look           = &FUDE_KO_LOOK,
 };
 
-// Runs Hangul's bake with the app's command line. Returns 0 on success.
-i32 fude_bake_run(i32 _argc, c8** _argv) {
-    return fude_bake_run_prepared(&FUDE_KO_BAKE, _argc, _argv);
+// Runs Korean's bake with the app's command line. Returns 0 on success.
+i32 fude_bake_run(const fude_bake_app* _app, i32 _argc, c8** _argv) {
+    return fude_bake_run_prepared(&FUDE_KO_BAKE, _app, _argc, _argv);
 }
 
 #endif

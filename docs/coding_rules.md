@@ -32,8 +32,8 @@ Inside `fude/`, from the bottom up:
 
 Rules:
 - **Nothing includes upwards or sideways.** `zoom` never includes `study`; `drawing` never includes `zoom`.
-- **No app identity inside `fude`.** No app names in code or logs, and no `if this is InfiNote`. An app describes what it
-  has (capabilities, data, strings), and `fude` acts on that description.
+- **No app identity inside `fude`.** No app names in code, comments or logs, and no `if this is InfiNote`. An app
+  describes what it has (capabilities, data, strings, its bake's paths), and `fude` acts on that description.
 - **Nothing app-specific goes into RDE.** A thing goes into RDE only when any app or game could use it: a scalar
   maths function, a condition variable, a crash handler. A stroke codec does not.
 - **Anything two apps both do lives in `fude`**, in the lowest layer that can hold it.
@@ -159,7 +159,9 @@ The goal is none.
 - C library and POSIX headers and calls (`malloc` and `qsort` among them), in the platform files too (their
   frameworks' headers are allowed);
 - `void*`, where RDE writes `any`;
-- app names in `fude`;
+- app names in `fude`, in code, strings and comments (an example in a comment counts: it says whom the code serves).
+  The study apps' names that are also scripts' and languages' (Hangul, Thai, Hindi, Arabic; kana and hanzi in lower
+  case) and the KANA file format are allowed; rules.py's comment says exactly what is looked for;
 - includes against the layer table;
 - files and functions over the size limits;
 - public functions with no comment.

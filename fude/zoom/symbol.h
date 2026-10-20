@@ -7,7 +7,7 @@
 #include "zoom/zoom.h"
 
 // ===========================================================================
-// Symbol: the diagram library (Sketching's Insert, Diagram shapes), the shapes and icons diagrams are drawn with:
+// Symbol: the diagram library (Insert, Diagram shapes), the shapes and icons diagrams are drawn with:
 // flowcharts, UML, sequence and activity diagrams, data and ER, C4 and architecture, BPMN, planning boards, and the
 // parts of circuits, mechanisms, floor plans, maths, sewing, science and more.
 //

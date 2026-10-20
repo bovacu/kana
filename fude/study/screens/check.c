@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "study/widgets/header.h"
+#include "drawing/base/redraw.h"
 #include "lang/lang.h"
 #include "study/screens/check.h"
 #include "drawing/base/text.h"
@@ -199,6 +200,9 @@ RDE_INTERNAL void fude_check_read(fude_check* _check) {
 // Reads the selection when a reading is due and the screen has been drawn once (so "Reading…" shows first). With
 // nothing typed and ML Kit available, ML Kit is asked first and polled on the frames after.
 void fude_check_update(fude_check* _check) {
+    if(_check->open && _check->pending && !_check->_drawn) {
+        fude_redraw_after(0.0);   // (render on demand: it reads once "Reading…" has been drawn)
+    }
     if(!_check->open || !_check->pending || !_check->_drawn) {
         return;
     }

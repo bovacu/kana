@@ -18,7 +18,7 @@
 // ===========================================================================
 // See textscan.h. The iOS side: the system's photo library picker (PHPickerViewController, which needs no
 // permission, since only the photo picked reaches the app), and ML Kit Text Recognition with the language's model
-// (lang.h: fude_lang_text_options; Japanese's for Kana), for photos, camera frames (RDE's camera hands the app the
+// (lang.h: fude_lang_text_options; Japanese's, for one), for photos, camera frames (RDE's camera hands the app the
 // pixels) and a document's pages. The builder compiles Objective-C with ARC, so the statics below are what keeps
 // each object alive.
 //

@@ -14,7 +14,7 @@
 // the core's.
 //
 // Every field may be left out (zero): a plain drawing app is the core alone. The study layer fills most of them for a
-// study app (study/app/study.h: FUDE_STUDY_EXTENSION), and the app adds its own (Kana: its side panel).
+// study app (study/app/study.h: FUDE_STUDY_EXTENSION), and the app adds its own (its side panel, for one).
 //
 // Where it sits: drawing/app. The app gives a constant fude_extension in fude_app.ext; the core reads it through
 // fude_app_ext (app.h), which never returns NULL.
@@ -25,7 +25,7 @@
 struct fude_app;
 struct fude_ui;
 
-// The tools of the app's own on the toolbar, after Paper (Kana's camera): at most FUDE_EXTENSION_TOOLS (an app with
+// The tools of the app's own on the toolbar, after Paper (a camera, say): at most FUDE_EXTENSION_TOOLS (an app with
 // fewer keeps the bar as it was), each with at most FUDE_EXTENSION_CHOICES choices.
 #define FUDE_EXTENSION_TOOLS   12u
 #define FUDE_EXTENSION_CHOICES 24u
@@ -48,7 +48,7 @@ typedef struct {
     // NULL means always; false leaves it out of the bar (asked at each layout), rather than showing it greyed out.
     b8      (*available)(void);
     // Choices in a panel beside the bar, which the tool opens and closes like Paper's (press is not called then;
-    // NULL: no panel), as Sketching's shapes do. chosen says which of them show chosen, and selected whether the tool
+    // NULL: no panel), as the shapes tool does. chosen says which of them show chosen, and selected whether the tool
     // itself does: a tool of the app's own that the pen uses, while the bar's own tools (pen, eraser...) show not
     // chosen. Choosing one of the bar's tools counts in fude_toolbar.tool_taps, so the app can let go of its own.
     const fude_extension_choice* choices;
@@ -65,7 +65,7 @@ typedef struct {
     u32       text;                       // A FUDE_TEXT_ id.
     const c8* icon;                       // From icons.h, or a character.
     f32       icon_px;
-    // Called on a press, with the entry's own arg. Returning false keeps the panel open (Kana's Reviews with none due).
+    // Called on a press, with the entry's own arg. Returning false keeps the panel open (Reviews, with none due).
     b8      (*press)(struct fude_app* _app, u32 _arg);
     u32       arg;
     b8      (*enabled)(const struct fude_app* _app);   // NULL means always; asked as the panel is built.
@@ -116,7 +116,7 @@ typedef struct fude_extension_side_button {
     void    (*press)(struct fude_app* _app);
 } fude_extension_side_button;
 
-// A page of the app's own in place of the ink page (Sketching's deep-zoom canvas, zoom/page.h). The core keeps its
+// A page of the app's own in place of the ink page (the canvas apps' deep-zoom canvas, zoom/page.h). The core keeps its
 // ink as the brush's settings (the toolbar's colours and sizes, Settings' width), but what is drawn, undone, cleared
 // and saved is the app's: the toolbar's buttons and the session ask it. The shell hands it the pen, the fingers and
 // the frame itself. Every hook is required but back: the core calls them without asking whether they are set, since a
@@ -144,11 +144,11 @@ typedef struct fude_page_kind {
     b8   (*selection)(const struct fude_app* _app, rde_vec_2F* _min, rde_vec_2F* _max, b8* _busy);
     void (*command)(struct fude_app* _app, u32 _cmd, rde_vec_2F _at);
     b8   (*can_paste)(const struct fude_app* _app);
-    // Takes what the pickers brought (import.h: Files, Photos, the camera's scan) onto the page (Sketching's
+    // Takes what the pickers brought (import.h: Files, Photos, the camera's scan) onto the page (the canvas apps'
     // pictures), instead of making a canvas of its own. _kind is a FUDE_IMPORT_, and _paths the files, in order; the
     // pickers' copies are deleted after it returns.
     void (*imported)(struct fude_app* _app, u8 _kind, const c8* const* _paths, u32 _count);
-    // Back (Android's, or the desktop's Escape) for a mode of the page's own (Sketching's presenting, its map), asked
+    // Back (Android's, or the desktop's Escape) for a mode of the page's own (the canvas's presenting, its map), asked
     // before a selection is let go. It returns true when it closed one. Optional (NULL).
     b8   (*back)(struct fude_app* _app);
 } fude_page_kind;
@@ -184,8 +184,8 @@ typedef struct fude_extension {
     // calls context_faces for the context row's faces, after setting the core's own.
     const fude_row_def* selection_row;
     const fude_row_def* context_row;
-    // The app's text buttons over an area of a PDF's text the lasso took when it took no ink (lasso.h) (Kana: Copy as
-    // text, Translate, Save word). NULL: the lasso takes ink only.
+    // The app's text buttons over an area of a PDF's text the lasso took when it took no ink (lasso.h) (a study
+    // app: Copy as text, Translate, Save word). NULL: the lasso takes ink only.
     const fude_row_def* text_row;
     void (*menu_update)(struct fude_app* _app);
     void (*selection_faces)(struct fude_app* _app, const fude_row_def* _row, fude_row_face* _faces);
@@ -222,7 +222,7 @@ typedef struct fude_extension {
     void (*settings_apply)(struct fude_app* _app, const fude_settings* _settings);
     void (*first_launch)(struct fude_app* _app);
 
-    // Its library (doc.h): books in its assets to read and write on, which the Library screen lists (Kana: its
+    // Its library (doc.h): books in its assets to read and write on, which the Library screen lists (a study app: its
     // lectures). None: there are no books there.
     const struct fude_doc_book* library;
     u32                         library_count;
@@ -232,11 +232,11 @@ typedef struct fude_extension {
     // first), and returns false when it cannot now (it is then not asked again until the document opens again).
     // picture_lines is then asked once a frame: it returns true once the picture is read, with every line it read
     // added to _out (an rde_arr of fude_doc_line, which the document owns and empties before asking), their boxes in
-    // the picture's pixels from its top-left. NULL: pictures are not read (Kana: ML Kit's Japanese text recognition).
+    // the picture's pixels from its top-left. NULL: pictures are not read (a study app: ML Kit's, in its language).
     b8 (*picture_read)(const u8* _rgba, u32 _w, u32 _h);
     b8 (*picture_lines)(rde_arr* _out);
 
-    // Its own papers for the page (Sketching's isometric, hexagons…), offered after the core's four; none means just
+    // Its own papers for the page (a canvas app's isometric, hexagons…), offered after the core's four; none means just
     // those four. paper_offered says which of them the page open now takes (NULL: all): a page's layout is offered
     // only on a notebook's pages.
     const fude_extension_paper* papers;
