@@ -280,13 +280,18 @@ static void test_whole_size(void) {
     CHECK(w == 1100u && h == 2200u);   // (narrower than a point: a point wide)
     fude_doc_whole_size((rde_vec_2F){ 1000.0f, 0.0f }, 2000.0f, &level, &w, &h);
     CHECK(w == 1100u && h == 1u);
-    // A receipt eight times as long as it is wide (1100 x 8800 at full width, 39 MB, past many GPUs' limit): shrunk to
-    // FUDE_DOC_SHARP_MAX tall, its level kept, and in a still view never drawn again for being narrower than it.
+    // A receipt eight times as long as it is wide (1100 x 8800 at full width): drawn whole, the GPU's largest texture
+    // (FUDE_DOC_SHARP_MAX, rde_texture_get_max_size: 16384 here, with no GPU) taking it (before: shrunk to a fixed 4096).
     fude_doc_whole_size((rde_vec_2F){ 200.0f, 1600.0f }, 1600.0f, &level, &w, &h);
-    CHECK(level == 1100u && h == FUDE_DOC_SHARP_MAX && w == (u32)(1100.0f * 4096.0f / 8800.0f));
-    doc_points[0] = (rde_vec_2F){ 200.0f, 1600.0f };
+    CHECK(FUDE_DOC_SHARP_MAX == rde_texture_get_max_size());
+    CHECK(level == 1100u && w == 1100u && h == 8800u);
+    // One twenty times as long (1100 x 22000, past any GPU's limit): shrunk to FUDE_DOC_SHARP_MAX tall, its level kept,
+    // and in a still view never drawn again for being narrower than it.
+    fude_doc_whole_size((rde_vec_2F){ 100.0f, 2000.0f }, 2000.0f, &level, &w, &h);
+    CHECK(level == 1100u && h == FUDE_DOC_SHARP_MAX && w == (u32)(1100.0f * (f32)FUDE_DOC_SHARP_MAX / 22000.0f));
+    doc_points[0] = (rde_vec_2F){ 100.0f, 2000.0f };
     int reading = 0;
-    CHECK(doc_run(1u, 1600.0f, 0.0f, 2000.0f, 10, &reading) == 1 && doc_drawn[0] == 1 && doc_whole[0].h == FUDE_DOC_SHARP_MAX);
+    CHECK(doc_run(1u, 2000.0f, 0.0f, 2000.0f, 10, &reading) == 1 && doc_drawn[0] == 1 && doc_whole[0].h == FUDE_DOC_SHARP_MAX);
     doc_clear(1u);
 }
 
@@ -447,7 +452,7 @@ int main(void) {
     CHECK(fude_doc_worker_colours(&w) && !w.dark && w.paper.r == 255u && w.paper.g == 255u && w.paper.b == 255u);
     CHECK(!fude_doc_worker_colours(&w));   // (nothing changed)
 
-    // A whole page: drawn on its thread, busy until taken; turned over for a texture (its top row last in memory).
+    // A whole page: drawn on its thread, busy until taken; as drawn, the top row first (as RDE's textures hold rows).
     fude_doc_worker_start(&w, &pdf, 0u, FUDE_DOC_PIECE_WHOLE, (rde_vec_2F){ 0, 0 }, a4, 4u, 3u, 0.0f);
     CHECK(fude_doc_worker_busy(&w));
     CHECK(wait_for(&started, 1));
@@ -457,7 +462,7 @@ int main(void) {
     CHECK(p != NULL && !fude_doc_worker_busy(&w));
     if(p != NULL) {
         CHECK(p->ok && p->page == 0u && p->kind == FUDE_DOC_PIECE_WHOLE && p->w == 4u && p->h == 3u);
-        CHECK(pixel(p, 0, 2)[0] == 10u && pixel(p, 3, 2)[2] == 30u && pixel(p, 0, 0)[0] == 255u);   // top row at the bottom
+        CHECK(pixel(p, 0, 0)[0] == 10u && pixel(p, 3, 0)[2] == 30u && pixel(p, 0, 2)[0] == 255u);   // top row first
         // Onto the GPU as a whole page's tile: clamped, mipmapped, its part kept.
         fude_doc_tile tile = { 0 };
         fude_doc_tile_take(&tile, p);
@@ -506,7 +511,7 @@ int main(void) {
     p = take_when_done(&w);
     CHECK(p != NULL);
     if(p != NULL) {
-        CHECK(p->dark && pixel(p, 0, 0)[0] == paper.r && pixel(p, 0, 0)[1] == paper.g && pixel(p, 0, 0)[2] == paper.b && pixel(p, 0, 0)[3] == 255u);
+        CHECK(p->dark && pixel(p, 0, 1)[0] == paper.r && pixel(p, 0, 1)[1] == paper.g && pixel(p, 0, 1)[2] == paper.b && pixel(p, 0, 1)[3] == 255u);
         fude_doc_piece_free(p);
     }
 

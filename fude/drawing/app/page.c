@@ -403,6 +403,18 @@ RDE_INTERNAL void fude_page_touch_event(fude_page_input* _page, rde_event* _even
             fude_page_canvas_finger_up(_page, _touch->finger_id);
         } break;
 
+        // The system took the fingers away (a palm the pen rejects, an edge gesture): they will never come up. What
+        // they were doing is let go, as when a pen comes down — a finger's stroke ends, the page's gesture is dropped,
+        // and it is no tap — so the next finger starts afresh instead of pinching against one that is gone. Android
+        // cancels every finger of a gesture at once.
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_CANCELED: {
+            if(_event->data.mobile_event_data.from_pen) {
+                break;
+            }
+            fude_page_finger_forget(_page);
+            fude_canvas_release_fingers(_app->canvas);
+        } break;
+
         default: break;
     }
 }

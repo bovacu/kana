@@ -582,6 +582,16 @@ RDE_INTERNAL void fude_zoom_page_finger_up(fude_zoom_page* _page, u64 _id) {
 
 // --- events ----------------------------------------------------------------------------------
 
+// Lets go of what fingers were doing on the page: a finger's stroke ends (kept, as a lift keeps it) and the view's
+// fingers are dropped, with no tap or flick. When the pen comes down, and when the system takes the fingers away.
+RDE_INTERNAL void fude_zoom_page_fingers_let_go(fude_zoom_page* _page) {
+    if(_page->finger_drawing) {
+        fude_zoom_page_up(_page);
+        _page->finger_drawing = false;
+    }
+    rde_memset(_page->fingers, 0, sizeof(_page->fingers));
+}
+
 // A pen's press (fude_zoom_page_event's): the offset pad's grip, the UI, or the page, which a finger drawing or
 // moving it gives up to the pen.
 RDE_INTERNAL void fude_zoom_page_event_pen_down(fude_zoom_page* _page, rde_event* _event, fude_app* _app, fude_ui* _ui, fude_ink* _cap) {
@@ -600,12 +610,7 @@ RDE_INTERNAL void fude_zoom_page_event_pen_down(fude_zoom_page* _page, rde_event
         return;
     }
     fude_toolbar_close_panels(&_ui->bar);   // A press on the page closes the bar's panels.
-    // The pen takes over from a finger drawing or moving the page.
-    if(_page->finger_drawing) {
-        fude_zoom_page_up(_page);
-        _page->finger_drawing = false;
-    }
-    rde_memset(_page->fingers, 0, sizeof(_page->fingers));
+    fude_zoom_page_fingers_let_go(_page);   // The pen takes over from a finger drawing or moving the page.
     fude_zoom_page_down(_page, _screen, true, _pen->eraser);
 }
 
@@ -795,8 +800,9 @@ RDE_INTERNAL void fude_zoom_page_event_mouse_down(fude_zoom_page* _page, rde_eve
 
 // See page.h. The pen goes to the offset pad's grip, the UI, or the page (fude_zoom_page_down and the rest). A finger
 // goes to the grip, the UI, a part worked by hand while playing, an instrument, the press when fingers write (unless a
-// second finger soon after makes it a pinch), or else moves the view. The mouse's left button presses as the pen does
-// and its right button pans (a click without a drag opens the context menu). Key events are not handled here.
+// second finger soon after makes it a pinch), or else moves the view; fingers the system takes away let go of the page,
+// as when the pen comes down. The mouse's left button presses as the pen does and its right button pans (a click
+// without a drag opens the context menu). Key events are not handled here.
 // The longer kinds of event are steps of their own above (fude_zoom_page_event_*), handed the app, the UI and the
 // capture they use.
 void fude_zoom_page_event(fude_zoom_page* _page, rde_event* _event) {
@@ -847,6 +853,15 @@ void fude_zoom_page_event(fude_zoom_page* _page, rde_event* _event) {
 
         case RDE_EVENT_TYPE_MOBILE_TOUCH_UP: {
             fude_zoom_page_event_touch_up(_page, _event);
+        } break;
+
+        // The system took the fingers away (a palm the pen rejects, an edge gesture): they will never come up, so what
+        // they did on the page is let go, as when the pen comes down, and the next finger never pinches against one
+        // that is gone. Android cancels every finger of a gesture at once.
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_CANCELED: {
+            if(!_event->data.mobile_event_data.from_pen) {
+                fude_zoom_page_fingers_let_go(_page);
+            }
         } break;
 
 #if !defined(RDE_PLATFORM_MOBILE)

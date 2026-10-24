@@ -535,15 +535,15 @@ RDE_INTERNAL void fude_zoom_render_image(fude_zoom_renderer* _r, const fude_zoom
             return;
         }
     }
-    // Its own units → pixels, from its bottom-left (the engine's way for a
-    // texture's rectangles: Y up, as here).
+    // Its own units (Y up) → its pixels, from its top-left, y down (the
+    // engine's way for a texture's rectangles).
     const f64 _sx = (f64)_px.x / (2.0 * _hw), _sy = (f64)_px.y / (2.0 * _hh);
-    const rde_vec_2F _bl = { (f32)((_u0 + _hw) * _sx), (f32)((_v0 + _hh) * _sy) };
-    const rde_vec_2F _tr = { (f32)((_u1 + _hw) * _sx), (f32)((_v1 + _hh) * _sy) };
+    const rde_vec_2F _tl = { (f32)((_u0 + _hw) * _sx), (f32)((_hh - _v1) * _sy) };
+    const rde_vec_2F _br = { (f32)((_u1 + _hw) * _sx), (f32)((_hh - _v0) * _sy) };
     const fude_zoom_v2 _mid = fude_zoom_sim_apply(_all, (fude_zoom_v2){ (_u0 + _u1) * 0.5, (_v0 + _v1) * 0.5 });
     // The whole picture drawn at its pixels' size times this is its size on screen.
     const rde_vec_2F _scale = { (f32)(_k / _sx), (f32)(_k / _sy) };
-    rde_rendering_2d_draw_texture_partial_2(_t, (rde_vec_3F){ (f32)_mid.x, (f32)_mid.y, 0.0f }, _scale, (f32)(-_angle * (180.0 / RDE_PI)), (rde_color){ 255, 255, 255, 255 }, _bl, _tr);
+    rde_rendering_2d_draw_texture_partial_2(_t, (rde_vec_3F){ (f32)_mid.x, (f32)_mid.y, 0.0f }, _scale, (f32)(-_angle * (180.0 / RDE_PI)), (rde_color){ 255, 255, 255, 255 }, _tl, _br);
     _r->strokes_drawn++;
 }
 

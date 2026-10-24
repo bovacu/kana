@@ -7,7 +7,7 @@
 // ===========================================================================
 // See worker.h.
 //
-// In order: the piece's life (freeing it), what the thread does to its pixels (flip, darken) and the thread's body,
+// In order: the piece's life (freeing it), what the thread does to its pixels (darken) and the thread's body,
 // then the main thread's calls (init, colours, forget, start, take, wait, drop), the tiles, and the whole pages' plan.
 // A piece is on the engine's pool (rde_calloc), its pixels on the std allocator; its done and orphaned are read and
 // written under fude_doc_worker_mutex, everything else in it belongs to one thread at a time (the main thread until it
@@ -59,33 +59,15 @@ RDE_INTERNAL void fude_doc_worker_darken(fude_doc_piece* _piece) {
     }
 }
 
-// Turns the rows upside down, because pdf.h draws the top row first but a memory texture's first row is its bottom.
-RDE_INTERNAL void fude_doc_worker_flip(fude_doc_piece* _piece) {
-    const usize _row = (usize)_piece->w * 4u;
-    rde_arr     _tmp = rde_arr_new(sizeof(u8), rde_memory_allocator_get_default_std());
-    rde_arr_resize(&_tmp, _row);
-    for(u32 _y = 0; _y < _piece->h / 2u; _y++) {
-        u8* _a = _piece->pixels.memory + (usize)_y * _row;
-        u8* _b = _piece->pixels.memory + (usize)(_piece->h - 1u - _y) * _row;
-        rde_memcpy(_tmp.memory, _a, _row);
-        rde_memcpy(_a, _b, _row);
-        rde_memcpy(_b, _tmp.memory, _row);
-    }
-    rde_arr_free(&_tmp);
-}
-
-// The thread's body: draws the piece; a piece to show is turned the way a texture wants and, in a dark theme,
-// recoloured (a reader's picture stays as drawn: the top row first, in its own colours); then it is marked done. When
-// the main thread has let it go meanwhile, the thread frees it here, and closes its PDF with it.
+// The thread's body: draws the piece (the top row first, as pdf.h draws it and as RDE's textures hold their rows); a
+// piece to show is, in a dark theme, recoloured (a reader's picture stays in its own colours); then it is marked done.
+// When the main thread has let it go meanwhile, the thread frees it here, and closes its PDF with it.
 RDE_INTERNAL any fude_doc_worker_work(rde_thread* _thread, any _data) {
     RDE_UNUSED(_thread);
     fude_doc_piece* _piece = (fude_doc_piece*)_data;
     _piece->ok = fude_pdf_render(_piece->pdf, _piece->page, _piece->from, _piece->size, _piece->w, _piece->h, _piece->pixels.memory);
-    if(_piece->ok && _piece->kind != FUDE_DOC_PIECE_READ) {
-        fude_doc_worker_flip(_piece);
-        if(_piece->dark) {
-            fude_doc_worker_darken(_piece);
-        }
+    if(_piece->ok && _piece->kind != FUDE_DOC_PIECE_READ && _piece->dark) {
+        fude_doc_worker_darken(_piece);
     }
     rde_mutex_lock(fude_doc_worker_mutex);
     const b8 _orphaned = _piece->orphaned;

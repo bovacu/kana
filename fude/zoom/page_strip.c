@@ -223,7 +223,7 @@ RDE_INTERNAL void fude_zoom_page_strip_picture(fude_zoom_page* _page, const fude
         const f32 _pw = (f32)(_l->tw * FUDE_ZOOM_PAGE_STRIP_PX), _ph = (f32)(_l->th * FUDE_ZOOM_PAGE_STRIP_PX);
         const f32 _u0 = (f32)((_x0 - _b.min_x) / _l->tw) * _pw, _u1 = (f32)((_x1 - _b.min_x) / _l->tw) * _pw;
         if(_tex != NULL && _u1 > _u0) {
-            rde_rendering_2d_draw_texture_partial_2(_tex, (rde_vec_3F){ _c.x, _c.y, 0.0f }, (rde_vec_2F){ 1.0f / (f32)FUDE_ZOOM_PAGE_STRIP_PX, -1.0f / (f32)FUDE_ZOOM_PAGE_STRIP_PX },
+            rde_rendering_2d_draw_texture_partial_2(_tex, (rde_vec_3F){ _c.x, _c.y, 0.0f }, (rde_vec_2F){ 1.0f / (f32)FUDE_ZOOM_PAGE_STRIP_PX, 1.0f / (f32)FUDE_ZOOM_PAGE_STRIP_PX },
                                                     0.0f, (rde_color){ 255, 255, 255, 255 }, (rde_vec_2F){ _u0, 0.0f }, (rde_vec_2F){ _u1, _ph });
         }
     }

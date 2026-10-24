@@ -553,6 +553,9 @@ mouse), in `fude_app_screen_event`.
 - Presses on the UI (`fude_ui_hit`) are the UI's.
 - The page has its own input, with the finger-writing state machine
   (`drawing/app/page.c`; the canvas apps' page has its own, `zoom/page_input.c`).
+  Fingers the system cancels let go of the page as a pen coming down does: a
+  finger's stroke ends, the page's gesture is dropped, and the next finger never
+  pinches against one that is gone.
 
 **Right to left.** When the UI is right to left (its language's
 `@direction`, or `--rtl`), `fude_app` draws every screen mirrored and maps its

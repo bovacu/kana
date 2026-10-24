@@ -78,7 +78,7 @@ for. Each page has two: `whole` and `sharp`.
  fude_doc_worker_start   (only when not busy)
    piece filled: PDF, page, part, size, colours
    worker.job = piece ─────────────────────────► fude_pdf_render into piece->pixels (top row first)
-                                                  a page or sharp piece: rows flipped; darkened in a dark theme
+                                                  a page or sharp piece: darkened in a dark theme
                                                   lock: orphaned? done = true; broadcast; unlock
                                                   orphaned: frees the piece, and closes its PDF
  each frame: fude_doc_worker_take

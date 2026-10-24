@@ -68,6 +68,7 @@ A suite that crashes, or that a sanitizer stops, prints its backtrace and ends a
 | `docwork` | the PDF worker shared by the documents and the canvas's PDF view: a piece drawn and taken, turned and darkened, thrown away when stale, freed with its PDF when orphaned, failed, its tiles |
 | `kit` | the form kit the canvas's cards are built on: its keypad types as the value and limits cards' own keypads did, key for key |
 | `app` | the app's pointer hand-off to the screen on top: each touch with its own time, so a quick flick coasts at its speed and a drag held still before lifting does not; a finger the system cancels is let go, so the pen writes after it, and it is no tap |
+| `page` | the page's touches (the study apps' and the drawing app's canvas): a finger the system cancels is let go, so the next finger pans instead of pinching against it, and a finger writing (the toolbar's hand) ends |
 | `redraw` | render on demand's rule (`drawing/base/redraw.h`): the grace period after a change, a still screen never drawn again, timers kept until due, RDE's UI and other threads waking it, continuous runs; the developer's check (its reference, probes and pixel comparison); the scroller's, the canvas's and a notice's reports; and 20000 random frames against the rule |
 
 ## `support/`

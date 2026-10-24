@@ -33,7 +33,7 @@
 //   --word-translate=MEANING   the word card, with MEANING translated into the language taught (Translate with
 //                              Google, made up)
 //   --paste-text=TEXT [--save-selection] [--translate-selection]
-//   --scan-demo=PNG [--scan-demo-turn=DEG] [--scan-demo-top-first] [--scan-demo-translate] --scan-live
+//   --scan-demo=PNG [--scan-demo-turn=DEG] [--scan-demo-translate] --scan-live
 //   --read-demo   a document's scanned pages read with made-up lines
 //   --mlkit-samples=0-27,28-58  --translate-probe=xx
 //   --demo[=LANG]   six weeks of a learner's work, for the store's screenshots (demo.c)
@@ -54,7 +54,7 @@
 RDE_INTERNAL struct {
     i32       argc;
     c8**      argv;
-    b8        stats, vocab_sample, save_sel, translate_sel, scan_live, scan_rows, scan_translate;
+    b8        stats, vocab_sample, save_sel, translate_sel, scan_live, scan_translate;
     // --voice-card[=android]: the voice card at frame 12, with Android's steps when =android is given.
     b8        voice_card;   // the voice card at frame 12
     b8        voice_android;
@@ -105,7 +105,6 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if(fude_look_is(_a, "--save-selection"))      { fude_study_look.save_sel = true; }
         if(fude_look_is(_a, "--translate-demo"))      { fude_translate_demo(true); }
         if(fude_look_is(_a, "--read-demo"))           { fude_study_picture_demo(true); }   // made-up lines
-        if(fude_look_is(_a, "--scan-demo-top-first")) { fude_study_look.scan_rows = true; }
         if(fude_look_is(_a, "--scan-live"))           { fude_study_look.scan_live = true; }
         if(fude_look_is(_a, "--stats"))               { fude_study_look.stats = true; }
         if(fude_look_is(_a, "--vocab-sample"))        { fude_study_look.vocab_sample = true; }
@@ -236,7 +235,6 @@ RDE_INTERNAL void fude_study_look_scan_demo(fude_app* _app) {
     if(fude_study_look.scan_translate) {
         fude_scan_translate(_scan);
     }
-    _scan->shown_top_first = fude_study_look.scan_rows;
     if(fude_study_look.scan_turn != 0.0f) {
         // The file holds the picture turned the other way; it is shown as a camera frame is. A turn of about 90 degrees
         // swaps the picture's width and height.

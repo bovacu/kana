@@ -13438,8 +13438,8 @@ void rde_rendering_2d_draw_rectangle(const rde_vec_2F _center, const rde_vec_2F 
 void rde_rendering_2d_draw_polygon_border(const rde_vec_2F* _points, u32 _count, f32 _thickness, const rde_color _color, rde_shader* _shader) {
     (void)_points; (void)_count; (void)_thickness; (void)_color; (void)_shader;
 }
-void rde_rendering_2d_draw_texture_partial_2(const rde_texture* _texture, rde_vec_3F _position, rde_vec_2F _scale, f32 _rotation_deg, rde_color _color, rde_vec_2F _bl, rde_vec_2F _tr) {
-    (void)_texture; (void)_position; (void)_scale; (void)_rotation_deg; (void)_color; (void)_bl; (void)_tr;
+void rde_rendering_2d_draw_texture_partial_2(const rde_texture* _texture, rde_vec_3F _position, rde_vec_2F _scale, f32 _rotation_deg, rde_color _color, rde_vec_2F _tl, rde_vec_2F _br) {
+    (void)_texture; (void)_position; (void)_scale; (void)_rotation_deg; (void)_color; (void)_tl; (void)_br;
     rt_pictures++;
 }
 

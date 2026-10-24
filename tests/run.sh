@@ -84,6 +84,7 @@ geometry||tests/geometry/test.c fude/sim/body.c tests/support/engine.c
 docwork||tests/docwork/test.c fude/drawing/doc/worker.c fude/drawing/base/theme.c tests/support/engine.c fude/drawing/base/redraw.c
 kit||tests/kit/test.c fude/drawing/widgets/kit.c fude/drawing/base/draw.c fude/drawing/base/theme.c fude/drawing/base/utf8.c fude/drawing/base/text.c tests/support/text.c tests/support/engine.c
 app||tests/app/test.c fude/drawing/app/app.c fude/drawing/base/draw.c fude/drawing/base/theme.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/rich.c
+page|-include drawing/ink/pagefile.h -include drawing/app/settings.h|tests/page/test.c fude/drawing/app/page.c fude/drawing/base/utf8.c tests/support/engine.c fude/drawing/ink/ink.c fude/drawing/ink/lasso.c fude/drawing/ink/canvas.c fude/drawing/base/theme.c fude/drawing/base/draw.c fude/study/chars/kanji.c fude/drawing/base/kfile.c tests/support/rich.c fude/drawing/base/redraw.c
 redraw||tests/redraw/test.c fude/drawing/base/redraw.c fude/drawing/widgets/notice.c fude/drawing/base/clock.c fude/drawing/ink/canvas.c fude/drawing/base/theme.c fude/drawing/base/draw.c fude/drawing/base/utf8.c tests/support/engine.c tests/support/rich.c
 '
 

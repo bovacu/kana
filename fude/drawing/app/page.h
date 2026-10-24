@@ -19,7 +19,8 @@
 // selection, Esc deselects; right-click is the context menu, and the left button writes. In a developer's build:
 // M shows the raw samples, H the HUD.
 //
-// Presses on the UI (fude_ui_hit) are the UI's: nothing under them writes.
+// Presses on the UI (fude_ui_hit) are the UI's: nothing under them writes. Fingers the system takes away (a cancel: a
+// palm the pen rejects, an edge gesture) let go of what they were doing, as when the pen comes down, and are no tap.
 //
 // Where it sits: drawing/app. The shell owns one fude_page_input (fude_app.page) and calls it while no screen is on
 // top; it holds the open canvas's document (doc.h) and draws the ink (ink.h), the lasso (lasso.h) and the paper.

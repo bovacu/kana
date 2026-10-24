@@ -178,8 +178,8 @@ int main(void) {
     CHECK(s.picture_w == 1080 && s.picture_h == 1920);
     g_textures = 0; fude_scan_render(&s, NULL, NULL, 32.0f, top, bottom);
     // RDE turns clockwise for a positive angle (checked on screen); the camera's
-    // rows come top first, mirrored back by a negative height.
-    CHECK(g_textures == 1 && g_last_rotation == 90.0f && g_last_scale.y < 0.0f && g_last_scale.x > 0.0f);
+    // rows come top first, as every texture's, so it is drawn as it is.
+    CHECK(g_textures == 1 && g_last_rotation == 90.0f && g_last_scale.y > 0.0f && g_last_scale.x > 0.0f);
     CHECK(fude_scan_kept(&s) == 0);                        // live: nothing to write yet
     fude_scan_write(&s); CHECK(!fude_scan_take_text(&s, out, sizeof out));
     // Hold: the camera stops, the frame stays.

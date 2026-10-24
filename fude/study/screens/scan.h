@@ -100,7 +100,6 @@ RDE_STRUCT {
     rde_memory_texture*           frame;
     const rde_texture*            shown;
     f32                           shown_rotation;   // Degrees clockwise that stand what is shown upright.
-    b8                            shown_top_first;  // Rows top first (a camera frame); RDE's textures go bottom first.
     u32                           picture_w;
     u32                           picture_h;
     rde_arr TYPE(fude_scan_line)  lines;

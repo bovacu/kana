@@ -84,7 +84,9 @@ RDE_INTERNAL rde_str fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args
         }
         _next += rde_strlen(_next) + 1u;   // every argument has its slot in the buffer, a number's empty
     }
-    const c8* _rendered = rde_localization_render(&_binding);
+    // With no arguments, the string as written, a template's placeholders kept (for fude_text_fill): RDE reads it so
+    // through rde_localization_get_translation, without the warning per placeholder that a binding short of one gets.
+    const c8* _rendered = _count == 0 ? rde_localization_get_translation(FUDE_TEXT_NAMES[_id]) : rde_localization_render(&_binding);
     // Every number in a UI string is turned into the language's digits (its @digits, such as Arabic's ٠١٢٣٤٥٦٧٨٩),
     // because RDE leaves a number filled into a bare {0} as it is.
     const usize _n      = rde_strlen(_rendered != NULL ? _rendered : "");

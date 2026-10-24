@@ -213,6 +213,13 @@ const c8* rde_localization_render(const rde_localization_binding* _b) {
     return strdup(out);
 }
 void rde_localization_free_translation(const c8* _t) { free((any)_t); }
+// With nothing to fill in, as RDE's: the value with its escapes resolved and every placeholder as written.
+const c8* rde_localization_get_translation(const c8* _id) {
+    rde_localization_binding b = rde_localization_binding_new(_id);
+    const c8* t = rde_localization_render(&b);
+    rde_localization_binding_free(&b);
+    return t;
+}
 
 // The tests speak English: loaded before main.
 #include "drawing/base/text.h"

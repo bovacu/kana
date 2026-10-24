@@ -347,15 +347,15 @@ RDE_INTERNAL void fude_zoom_pdfview_draw_tile(const fude_zoom_pdfview_page* _p, 
     const rde_texture* _tex = rde_memory_texture_get_texture(_tile->texture);
     const rde_vec_2UI  _px  = rde_texture_get_size(_tex);
     const f64 _tw = _t.max_x - _t.min_x, _th = _t.max_y - _t.min_y;
-    // Its pixels there (the bottom row first), and that on the screen.
-    const rde_vec_2F _bl = { (f32)((_c.min_x - _t.min_x) / _tw * (f64)_px.x), (f32)((_c.min_y - _t.min_y) / _th * (f64)_px.y) };
-    const rde_vec_2F _tr = { (f32)((_c.max_x - _t.min_x) / _tw * (f64)_px.x), (f32)((_c.max_y - _t.min_y) / _th * (f64)_px.y) };
+    // Its pixels there (from the picture's top-left, y down, as a texture's), and that on the screen.
+    const rde_vec_2F _tl = { (f32)((_c.min_x - _t.min_x) / _tw * (f64)_px.x), (f32)((_t.max_y - _c.max_y) / _th * (f64)_px.y) };
+    const rde_vec_2F _br = { (f32)((_c.max_x - _t.min_x) / _tw * (f64)_px.x), (f32)((_t.max_y - _c.min_y) / _th * (f64)_px.y) };
     const f64          _s   = fude_zoom_sim_scale(_home);
     const fude_zoom_v2 _mid = fude_zoom_sim_apply(_home, (fude_zoom_v2){ (_c.min_x + _c.max_x) * 0.5, (_c.min_y + _c.max_y) * 0.5 });
-    const f32 _du = rde_math_max_f32(_tr.x - _bl.x, 1e-6f), _dv = rde_math_max_f32(_tr.y - _bl.y, 1e-6f);
+    const f32 _du = rde_math_max_f32(_br.x - _tl.x, 1e-6f), _dv = rde_math_max_f32(_br.y - _tl.y, 1e-6f);
     rde_rendering_2d_draw_texture_partial_2(_tex, (rde_vec_3F){ (f32)_mid.x, (f32)_mid.y, 0.0f },
                                             (rde_vec_2F){ (f32)((_c.max_x - _c.min_x) * _s) / _du, (f32)((_c.max_y - _c.min_y) * _s) / _dv }, 0.0f,
-                                            (rde_color){ 255, 255, 255, 255 }, _bl, _tr);
+                                            (rde_color){ 255, 255, 255, 255 }, _tl, _br);
 }
 
 // Draws a canvas box on the screen as a filled rectangle, clipped to _clip first and grown by _grow points each side.

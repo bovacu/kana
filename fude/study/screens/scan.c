@@ -16,8 +16,8 @@
 // ===========================================================================
 // See scan.h.
 //
-// What is shown is one texture, shown: a photo's own texture (rows bottom first, as RDE's textures are, already
-// upright) or the camera's latest frame (rows top first, turned by the camera's rotation). The lines' corners are in
+// What is shown is one texture, shown: a photo's own texture (already upright) or the camera's latest frame (turned
+// by the camera's rotation); both hold their rows top first, as RDE's textures do. The lines' corners are in
 // the upright picture's pixels, y down, and picture_tl and picture_scale (from the last frame) map them to the screen.
 // The scroller taps tells taps from drags everywhere and also scrolls the panel of translations.
 // ===========================================================================
@@ -83,7 +83,6 @@ RDE_INTERNAL void fude_scan_forget(fude_scan* _scan) {
     }
     _scan->shown           = NULL;
     _scan->shown_rotation  = 0.0f;
-    _scan->shown_top_first = false;
     _scan->picture_w       = _scan->picture_h = 0;
     rde_arr_clear(&_scan->lines);
 }
@@ -252,7 +251,6 @@ RDE_INTERNAL void fude_scan_update_camera(fude_scan* _scan) {
     _scan->frames_shown++;
     _scan->shown           = rde_memory_texture_get_texture(_scan->frame);
     _scan->shown_rotation  = rde_device_camera_get_rotation(_scan->camera);
-    _scan->shown_top_first = true;   // The camera's rows, as they came.
     const b8 _sideways    = rde_math_fmod_f32(rde_math_abs_f32(_scan->shown_rotation), 180.0f) > 45.0f;
     if(rde_arr_length(&_scan->lines) == 0 || _scan->picture_w == 0) {
         _scan->picture_w = _sideways ? _size.y : _size.x;   // Until a reading gives the size.
@@ -299,7 +297,6 @@ void fude_scan_show(fude_scan* _scan, const fude_textscan_result* _result) {
     }
     _scan->shown           = _scan->photo;
     _scan->shown_rotation  = 0.0f;
-    _scan->shown_top_first = false;
     fude_scan_take_lines(_scan, _result);
 }
 
@@ -741,10 +738,9 @@ void fude_scan_render(fude_scan* _scan, rde_window* _window, rde_font* _font, f3
     // The photo and the lines over it are never mirrored (a right-to-left screen only moves them to their place:
     // draw.h), and a tap on a line maps the same way.
     fude_draw_keep_begin((rde_vec_2F){ _scan->picture_tl.x, _scan->picture_tl.y - _ph }, (rde_vec_2F){ _scan->picture_tl.x + _pw, _scan->picture_tl.y }, true);
-    // A picture whose rows are top first (a camera frame) is flipped first, since RDE draws a texture's first row at
-    // the bottom; then it is turned upright.
+    // (turned upright: a camera frame by the camera's rotation)
     rde_rendering_2d_draw_texture_2(_scan->shown, (rde_vec_3F){ fude_draw_x(_scan->picture_tl.x + _pw * 0.5f), _scan->picture_tl.y - _ph * 0.5f, 0.0f },
-                                    (rde_vec_2F){ _scale, _scan->shown_top_first ? -_scale : _scale }, FUDE_SCAN_TURN * _scan->shown_rotation,
+                                    (rde_vec_2F){ _scale, _scale }, FUDE_SCAN_TURN * _scan->shown_rotation,
                                     (rde_color){ 255, 255, 255, 255 });
 
     const fude_scan_line* _lines = (const fude_scan_line*)_scan->lines.memory;

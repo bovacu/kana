@@ -43,10 +43,9 @@
 //
 // Design: a piece comes from the engine's allocator (rde_calloc), which is thread-safe, because the thread may be the
 // one to free it; its pixels are on the std allocator, as anything as big as a page is, and so is a tile's copy of
-// them (RDE's memory texture keeps its pixels after the upload: no call of RDE's lets them go). A piece to show is
-// turned the way a texture wants (the bottom row first) and, in a dark theme, recoloured, both on the thread, so the
-// main thread only copies it to the GPU. A picture for a reader is left as drawn: the top row first, in its own
-// colours.
+// them (RDE's memory texture keeps its pixels after the upload: no call of RDE's lets them go). A piece is drawn the
+// top row first, the way RDE's textures hold their rows; a piece to show is, in a dark theme, recoloured on the
+// thread, so the main thread only copies it to the GPU. A picture for a reader keeps its own colours.
 // Whole pages are bounded by bytes, not by a count, because their size varies: a page is drawn whole at about its
 // size on screen (fude_doc_whole_size), so zoomed out over many pages each costs little. The pages on screen are
 // always kept (each picture at most about twice its page's width on screen, so together a few screens' worth); the
@@ -62,9 +61,9 @@
 // so small shows, and a document zoomed out over thousands of pages does not draw thousands of dots.
 #define FUDE_DOC_SEEN_LEAST  8.0f
 // The longer side of any texture made here, in pixels, at most: a sharp piece's, and a whole page's (a long receipt is
-// drawn narrower to fit). It is the least Vulkan promises (maxImageDimension2D), which every Android GPU the apps draw
-// with gives; Apple's give 16384. RDE does not say the GPU's own limit.
-#define FUDE_DOC_SHARP_MAX   4096u
+// drawn narrower to fit). The GPU's own limit, as RDE says it (rde_texture_get_max_size: 16384 on Apple's GPUs and
+// without one; on Android what its Vulkan driver gives, 4096 at least); any thread may ask.
+#define FUDE_DOC_SHARP_MAX   (rde_texture_get_max_size())
 #define FUDE_DOC_SCALE       2.0f      // Screen pixels to a point (iPad and Mac are all 2x).
 // The whole pages' pictures kept, in bytes (4 a pixel) at most, but for those on screen, which are always kept: about
 // seven A4 pages at FUDE_DOC_WHOLE_PX (1100 x 1556), or many more pages seen small. Each byte is kept twice: on the GPU
@@ -102,7 +101,7 @@ typedef struct fude_doc_piece {
     f32        zoom;        // What it is drawn for (fude_doc_tile's zoom: a sharp piece's zoom, a whole page's level).
     b8         dark;        // Drawn in a dark theme's colours: white paper in paper, black print in print.
     rde_color  paper, print;
-    rde_arr TYPE(u8) pixels;   // w * h * 4 bytes, RGBA: the bottom row first once drawn, but for a reader's picture.
+    rde_arr TYPE(u8) pixels;   // w * h * 4 bytes, RGBA, the top row first.
     b8         ok;          // fude_pdf_render drew it.
     b8         done;        // The thread has finished (read and written under the mutex).
     b8         orphaned;    // The main thread let it go, so the thread frees it (under the mutex).

@@ -57,6 +57,9 @@ plist             = platform/ios/Info.plist
 asset_catalog     = platform/ios/Assets.xcassets
 launch_storyboard = platform/ios/LaunchScreen.storyboard
 bundles           = platform/ios/localized
+# ML Kit's frameworks are built for iOS 15.5, so the app is too: its MinimumOSVersion, and what its own code and link
+# are built for (RDE's library stays at 15.0). Without it every link warned that ML Kit is newer than the app.
+minimum_system_version = 15.5
 # The system's frameworks the .m files use, besides those RDE links itself.
 link_flags = -framework PhotosUI -framework ImageIO -framework VisionKit -framework PDFKit -framework CoreText
              -framework CoreImage -framework Accelerate -framework Network
