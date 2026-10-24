@@ -124,8 +124,9 @@ Why it is built this way:
   the GPU. The reader's picture is left top row first, in its own colours.
 - **Allocators a thread may free into.** The piece is `rde_calloc`'s (the engine's pool, made thread-safe by RDE), its
   pixels the std allocator's. A tile's memory texture, and the copy of the pixels it keeps, are on the std allocator
-  too (`fude_doc_tile_take`), as anything as big as a page is: the engine's pool is a fixed block (the app's
-  `config.rdef`), which a few pages and a sharp piece (up to 64 MB) would fill.
+  too (`fude_doc_tile_take`), as anything as big as a page is: the engine's pool grows by regions (of the size in the
+  app's `config.rdef`) and keeps them until the app ends, so a few pages and a sharp piece (up to 64 MB) would stay
+  in it.
 
 ### The two callers
 
@@ -353,7 +354,7 @@ threw. The report's header is made at start (`fude_crash_install`), because the 
    freed the moment `picture_read` returns, and `textscan` copies it first.
 7. **Memory a thread may free comes from an allocator safe on any thread**: `rde_calloc` (the engine's pool, made
    thread-safe) or the std allocator. Anything as big as a page (a piece's pixels, a tile's memory texture and its
-   copy) is on the std allocator, never the engine's fixed pool, which a few pages would fill.
+   copy) is on the std allocator, never the engine's pool, which would keep what a few pages grew it by.
 8. **Nothing on the main thread waits for a thread**, but for `fude_listen_shutdown`, the video encoder, and a PDF
    written out (`fude_doc_export`, `fude_zoom_pdfview_export`), which waits for the one piece being drawn
    (`fude_doc_worker_wait`) because it draws the PDF's pages on the main thread. Android's PDFBox calls that take

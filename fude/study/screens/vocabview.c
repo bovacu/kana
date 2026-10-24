@@ -33,6 +33,8 @@
 // Sets the screen up closed, on every word, with the words to be listed and the Review count to be worked out.
 void fude_vocabview_init(fude_vocabview* _view, const fude_kanji_db* _db) {
     rde_memset(_view, 0, sizeof(*_view));
+    fude_kit_scroller_init(&_view->scroller);
+    fude_kit_scroller_init(&_view->chips_scroller);
     _view->db         = _db;
     _view->ids        = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     _view->chips      = rde_arr_new(sizeof(fude_vocabview_chip), rde_memory_allocator_get_default_std());
@@ -62,9 +64,9 @@ void fude_vocabview_open(fude_vocabview* _view) {
     _view->_listed_at = UINT32_MAX;
     fude_vocabview_search(_view, "");   // Its field starts empty.
     _view->pressed    = -1;
-    fude_scroller_stop(&_view->scroller);
-    _view->scroller.offset = 0.0f;
-    fude_scroller_stop(&_view->chips_scroller);
+    rde_ui_scroller_stop(&_view->scroller);
+    _view->scroller.offset.y = 0.0f;
+    rde_ui_scroller_stop(&_view->chips_scroller);
     _view->in_chips     = false;
     _view->chips_reveal = true;   // The list shown's chip is in view.
 }
@@ -79,8 +81,8 @@ void fude_vocabview_show_list(fude_vocabview* _view, u32 _list) {
     _view->list         = _list;
     _view->_listed_at   = UINT32_MAX;
     _view->chips_reveal = true;   // Its chip is scrolled into view (a list just made may be past the rows shown).
-    fude_scroller_stop(&_view->scroller);
-    _view->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_view->scroller);
+    _view->scroller.offset.y = 0.0f;
     fude_wordcard_prefer_list(_list);   // + Word saves into it.
 }
 
@@ -140,8 +142,8 @@ void fude_vocabview_search(fude_vocabview* _view, const c8* _query) {
         _view->_query_kana[0] = 0;
     }
     _view->_listed_at = UINT32_MAX;
-    fude_scroller_stop(&_view->scroller);
-    _view->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_view->scroller);
+    _view->scroller.offset.y = 0.0f;
 }
 
 // Returns whether word _w has what is searched for: in its written form, its reading or its meaning (folded), or, for
@@ -282,7 +284,7 @@ RDE_INTERNAL i32 fude_vocabview_row_at(const fude_vocabview* _view, rde_vec_2F _
     if(!fude_vocabview_inside(_p, _view->rows_min, _view->rows_max)) {
         return -1;
     }
-    const i32 _i = (i32)rde_math_floor_f32((_view->rows_max.y - _p.y + _view->scroller.offset) / FUDE_VOCABVIEW_ROW);
+    const i32 _i = (i32)rde_math_floor_f32((_view->rows_max.y - _p.y + _view->scroller.offset.y) / FUDE_VOCABVIEW_ROW);
     return _i >= 0 && _i < (i32)rde_arr_length(&_view->ids) ? _i : -1;
 }
 
@@ -293,21 +295,21 @@ void fude_vocabview_pointer_down(fude_vocabview* _view, rde_vec_2F _screen, f64 
     if(_view->in_chips) {
         _view->in_rows = false;
         _view->pressed = -1;
-        fude_scroller_down(&_view->chips_scroller, _screen, _time);
+        rde_ui_scroller_pointer_down(&_view->chips_scroller, _screen, _time);
         return;
     }
     _view->in_rows = fude_vocabview_inside(_screen, _view->rows_min, _view->rows_max);
     _view->pressed = _view->in_rows ? fude_vocabview_row_at(_view, _screen) : -1;
-    fude_scroller_down(&_view->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_view->scroller, _screen, _time);
 }
 
 // Drags; once it is a drag, no row shows pressed.
 void fude_vocabview_pointer_moved(fude_vocabview* _view, rde_vec_2F _screen, f64 _time) {
     if(_view->in_chips) {
-        fude_scroller_moved(&_view->chips_scroller, _screen, _time);
+        rde_ui_scroller_pointer_moved(&_view->chips_scroller, _screen, _time);
         return;
     }
-    fude_scroller_moved(&_view->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_view->scroller, _screen, _time);
     if(_view->scroller.dragging) {
         _view->pressed = -1;
     }
@@ -316,10 +318,10 @@ void fude_vocabview_pointer_moved(fude_vocabview* _view, rde_vec_2F _screen, f64
 // Ends the press; a tap is taken in fude_vocabview_update.
 void fude_vocabview_pointer_up(fude_vocabview* _view, f64 _time) {
     if(_view->in_chips) {
-        fude_scroller_up(&_view->chips_scroller, _time);
+        rde_ui_scroller_pointer_up(&_view->chips_scroller, _time);
         _view->in_chips = false;
     } else {
-        fude_scroller_up(&_view->scroller, _time);
+        rde_ui_scroller_pointer_up(&_view->scroller, _time);
     }
     _view->pressed = -1;
 }
@@ -369,13 +371,13 @@ void fude_vocabview_update(fude_vocabview* _view, f32 _dt) {
     if(_made != 0u) {
         fude_vocabview_show_list(_view, _made);   // A list just made is shown.
     }
-    fude_scroller_update(&_view->scroller, _dt, _view->content_h, _view->rows_max.y - _view->rows_min.y);
-    fude_scroller_update(&_view->chips_scroller, _dt, _view->chips_h, _view->chips_max.y - _view->chips_min.y);
+    fude_kit_scroller_update(&_view->scroller, _dt, _view->content_h, _view->rows_max.y - _view->rows_min.y);
+    fude_kit_scroller_update(&_view->chips_scroller, _dt, _view->chips_h, _view->chips_max.y - _view->chips_min.y);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_view->scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_view->scroller, &_at)) {
         fude_vocabview_tap(_view, _at);
     }
-    if(fude_scroller_take_tap(&_view->chips_scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_view->chips_scroller, &_at)) {
         fude_vocabview_tap(_view, _at);
     }
 }
@@ -456,14 +458,14 @@ RDE_INTERNAL void fude_vocabview_reveal_chip(fude_vocabview* _view, f32 _area_to
             continue;
         }
         const f32 _from = _area_top - _chip->max.y;   // How far under the area's top it is, unscrolled.
-        f32       _at   = _view->chips_scroller.offset;
+        f32       _at   = _view->chips_scroller.offset.y;
         if(_from < _at) {
             _at = _from;
         } else if(_from + FUDE_VOCABVIEW_CHIP_H > _at + _area_h) {
             _at = _from + FUDE_VOCABVIEW_CHIP_H - _area_h;
         }
-        _view->chips_scroller.offset   = rde_math_max_f32(0.0f, rde_math_min_f32(_at, _view->chips_h - _area_h));
-        _view->chips_scroller.velocity = 0.0f;
+        _view->chips_scroller.offset.y   = rde_math_max_f32(0.0f, rde_math_min_f32(_at, _view->chips_h - _area_h));
+        _view->chips_scroller.velocity.y = 0.0f;
     }
     _view->chips_reveal = false;
 }
@@ -485,12 +487,12 @@ RDE_INTERNAL f32 fude_vocabview_draw_chips(fude_vocabview* _view, rde_window* _w
     f32 _offset = 0.0f;
     if(_view->chips_scroll) {
         fude_vocabview_reveal_chip(_view, _area_top, _area_top - _bottom);
-        _offset = _view->chips_scroller.offset;
+        _offset = _view->chips_scroller.offset.y;
         rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_area_top + _bottom) * 0.5f) },
                                           (rde_vec_2UI){ (u32)(_right - _left), (u32)(_area_top - _bottom) });
     } else {
-        fude_scroller_stop(&_view->chips_scroller);
-        _view->chips_scroller.offset = 0.0f;
+        rde_ui_scroller_stop(&_view->chips_scroller);
+        _view->chips_scroller.offset.y = 0.0f;
         _view->chips_reveal          = false;
     }
     for(u32 _c = 0; _c < (u32)rde_arr_length(&_view->chips); _c++) {
@@ -580,10 +582,10 @@ void fude_vocabview_render(fude_vocabview* _view, rde_window* _window, rde_font*
 
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)rde_math_max_f32(1.0f, _y - _bottom) });
-    const u32 _first = (u32)rde_math_max_f32(0.0f, rde_math_floor_f32(_view->scroller.offset / FUDE_VOCABVIEW_ROW));
+    const u32 _first = (u32)rde_math_max_f32(0.0f, rde_math_floor_f32(_view->scroller.offset.y / FUDE_VOCABVIEW_ROW));
     // A row's line is its bottom edge, below its words and above the next row's.
     for(u32 _i = _first; _i < _n; _i++) {
-        const f32 _row_top = _y - (f32)_i * FUDE_VOCABVIEW_ROW + _view->scroller.offset;
+        const f32 _row_top = _y - (f32)_i * FUDE_VOCABVIEW_ROW + _view->scroller.offset.y;
         if(_row_top < _bottom) {
             break;
         }

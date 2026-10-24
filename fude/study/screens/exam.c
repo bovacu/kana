@@ -85,6 +85,7 @@ RDE_INTERNAL void fude_exam_fresh_ink(fude_ink* _ink) {
 // Sets the exam up closed, 20 characters long, with an empty ink for every item.
 void fude_exam_init(fude_exam* _exam, const fude_kanji_db* _db, const fude_catalog* _catalog) {
     rde_memset(_exam, 0, sizeof(*_exam));
+    fude_kit_scroller_init(&_exam->scroller);
     _exam->db        = _db;
     _exam->catalog   = _catalog;
     _exam->length    = 1u;   // The second length: 20.
@@ -176,8 +177,8 @@ RDE_INTERNAL void fude_exam_set_items(fude_exam* _exam, const u32* _records, u32
     _exam->tapped  = -1;
     _exam->pen     = false;
     fude_recognize_forget(&_exam->recognition);
-    fude_scroller_stop(&_exam->scroller);
-    _exam->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_exam->scroller);
+    _exam->scroller.offset.y = 0.0f;
 }
 
 // Opens on the setup, keeping the source and length chosen last time. The shuffle is seeded from the clock.
@@ -345,8 +346,8 @@ void fude_exam_start(fude_exam* _exam) {
     _exam->current = 0;
     _exam->saved   = false;
     _exam->stage   = FUDE_EXAM_WRITING;
-    fude_scroller_stop(&_exam->scroller);
-    _exam->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_exam->scroller);
+    _exam->scroller.offset.y = 0.0f;
 }
 
 // --- Writing ---------------------------------------------------------------------------------------------------------
@@ -394,8 +395,8 @@ void fude_exam_next(fude_exam* _exam) {
         _exam->current++;
     } else {
         _exam->stage = FUDE_EXAM_RESULTS;   // Answers still being read show as such.
-        fude_scroller_stop(&_exam->scroller);
-        _exam->scroller.offset = 0.0f;
+        rde_ui_scroller_stop(&_exam->scroller);
+        _exam->scroller.offset.y = 0.0f;
     }
 }
 
@@ -632,7 +633,7 @@ void fude_exam_pointer_down(fude_exam* _exam, rde_vec_2F _screen, b8 _pen, f64 _
         }
         return;
     }
-    fude_scroller_down(&_exam->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_exam->scroller, _screen, _time);
 }
 
 // Extends the stroke, or drags.
@@ -642,7 +643,7 @@ void fude_exam_pointer_moved(fude_exam* _exam, rde_vec_2F _screen, f64 _time) {
         fude_ink_extend(&_it->ink, fude_exam_local(_exam, _screen));
         return;
     }
-    fude_scroller_moved(&_exam->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_exam->scroller, _screen, _time);
 }
 
 // Ends the stroke, or the drag; a tap is taken by fude_exam_update.
@@ -655,7 +656,16 @@ void fude_exam_pointer_up(fude_exam* _exam, f64 _time) {
         _exam->pen = false;
         return;
     }
-    fude_scroller_up(&_exam->scroller, _time);
+    rde_ui_scroller_pointer_up(&_exam->scroller, _time);
+}
+
+// Ends the stroke as a lift does; otherwise stops the grid, which drops the press, so it is no tap.
+void fude_exam_pointer_cancel(fude_exam* _exam, f64 _time) {
+    if(_exam->pen) {
+        fude_exam_pointer_up(_exam, _time);
+        return;
+    }
+    rde_ui_scroller_stop(&_exam->scroller);
 }
 
 // Returns the index of the grid cell under _p among _cells (the preview's items, or the results' asked ones), or -1
@@ -665,7 +675,7 @@ RDE_INTERNAL i32 fude_exam_cell_at(const fude_exam* _exam, rde_vec_2F _p, u32 _c
         return -1;
     }
     const u32 _col = (u32)((_p.x - _exam->grid_min.x) / _exam->cell);
-    const u32 _row = (u32)((_exam->grid_max.y - _p.y + _exam->scroller.offset) / _exam->cell);
+    const u32 _row = (u32)((_exam->grid_max.y - _p.y + _exam->scroller.offset.y) / _exam->cell);
     const u32 _i   = _row * _exam->columns + _col;
     return _col < _exam->columns && _i < _cells ? (i32)_i : -1;
 }
@@ -704,9 +714,9 @@ void fude_exam_update(fude_exam* _exam, f32 _dt) {
     if(!_exam->open) {
         return;
     }
-    fude_scroller_update(&_exam->scroller, _dt, _exam->content_h, _exam->grid_max.y - _exam->grid_min.y);
+    fude_kit_scroller_update(&_exam->scroller, _dt, _exam->content_h, _exam->grid_max.y - _exam->grid_min.y);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_exam->scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_exam->scroller, &_at)) {
         fude_exam_tap(_exam, _at);
     }
     fude_exam_grade(_exam);
@@ -837,7 +847,7 @@ RDE_INTERNAL void fude_exam_render_preview(fude_exam* _exam, rde_window* _window
     const f32 _glyph = _cell * 0.62f;
     for(u32 _i = 0; _i < _exam->count; _i++) {
         const f32 _x = _left + (f32)(_i % _exam->columns) * _cell;
-        const f32 _y = _grid_top - (f32)(_i / _exam->columns) * _cell + _exam->scroller.offset;
+        const f32 _y = _grid_top - (f32)(_i / _exam->columns) * _cell + _exam->scroller.offset.y;
         if(_y - _cell > _grid_top || _y < _bottom) {
             continue;
         }
@@ -1048,7 +1058,7 @@ RDE_INTERNAL void fude_exam_render_results(fude_exam* _exam, rde_window* _window
     const f32        _cell = _exam->cell;
     for(u32 _i = 0; _i < _exam->asked; _i++) {
         const f32 _x = _left + (f32)(_i % _exam->columns) * _cell;
-        const f32 _y = _grid_top - (f32)(_i / _exam->columns) * _cell + _exam->scroller.offset;
+        const f32 _y = _grid_top - (f32)(_i / _exam->columns) * _cell + _exam->scroller.offset.y;
         if(_y - _cell > _grid_top || _y < _bottom) {
             continue;
         }
@@ -1117,6 +1127,7 @@ void fude_exam_render(fude_exam* _exam, rde_window* _window, rde_font* _font, f3
 // The screen's is_open, close, pointer and render functions, which call the exam's own (screen.h); the pen writes.
 FUDE_SCREEN_ADAPTERS_PEN(fude_exam, fude_exam)
 FUDE_SCREEN_RENDER(fude_exam, fude_exam)
+RDE_INTERNAL void fude_exam_screen_cancel(any _self, f64 _now) { fude_exam_pointer_cancel((fude_exam*)_self, _now); }
 
 // Updates the exam, which reads its answers as it goes, then hands on a character tapped in the results: the viewer
 // opens on it, able to walk the exam's characters.
@@ -1224,6 +1235,7 @@ const fude_screen FUDE_EXAM_SCREEN = {
     .is_open = fude_exam_screen_is_open, .close = fude_exam_screen_close,
     .update = fude_exam_screen_update, .render = fude_exam_screen_render,
     .pointer_down = fude_exam_screen_down, .pointer_moved = fude_exam_screen_moved, .pointer_up = fude_exam_screen_up,
+    .pointer_cancel = fude_exam_screen_cancel,
     .rows = FUDE_EXAM_BUTTON_ROWS, .row_count = 4u, .row = fude_exam_screen_row, .faces = fude_exam_screen_faces,
     .field_hint = FUDE_TEXT_COUNT,
 };

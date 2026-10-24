@@ -733,6 +733,8 @@ RDE_INTERNAL void fude_practice_screen_update(fude_app* _app, any _self, f32 _dt
 RDE_INTERNAL void fude_practice_screen_down(any _self, rde_vec_2F _at, b8 _pen, f64 _now) { RDE_UNUSED(_pen); RDE_UNUSED(_now); fude_practice_pen_down((fude_practice*)_self, _at); }
 RDE_INTERNAL void fude_practice_screen_moved(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_now); fude_practice_pen_moved((fude_practice*)_self, _at); }
 RDE_INTERNAL void fude_practice_screen_up(any _self, rde_vec_2F _at, f64 _now) { RDE_UNUSED(_at); RDE_UNUSED(_now); fude_practice_pen_up((fude_practice*)_self); }
+// A finger the system took away ends its stroke as a lift does (Practice has no taps to hold back).
+RDE_INTERNAL void fude_practice_screen_cancel(any _self, f64 _now) { RDE_UNUSED(_now); fude_practice_pen_up((fude_practice*)_self); }
 
 // The buttons that call one of Practice's functions: Back and Done close it; Undo, Clear, Score, Next and Weakest
 // again do what they say.
@@ -824,6 +826,7 @@ const fude_screen FUDE_PRACTICE_SCREEN = {
     .is_open = fude_practice_screen_is_open, .close = fude_practice_screen_close,
     .update = fude_practice_screen_update, .render = fude_practice_screen_render,
     .pointer_down = fude_practice_screen_down, .pointer_moved = fude_practice_screen_moved, .pointer_up = fude_practice_screen_up,
+    .pointer_cancel = fude_practice_screen_cancel,
     .rows = FUDE_PRACTICE_BUTTON_ROWS, .row_count = 3u, .row = fude_practice_screen_row, .faces = fude_practice_screen_faces,
     .field_hint = FUDE_TEXT_COUNT,
 };

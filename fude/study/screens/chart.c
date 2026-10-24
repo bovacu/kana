@@ -68,6 +68,7 @@ RDE_INTERNAL void fude_chart_buttons_make(const fude_lang_chart_def* _def);
 // Builds the list from the language's table (see the top of this file); the layout waits for the first render.
 void fude_chart_init(fude_chart* _chart, const fude_kanji_db* _db) {
     rde_memset(_chart, 0, sizeof(*_chart));
+    fude_kit_scroller_init(&_chart->scroller);
     _chart->db     = _db;
     _chart->def    = fude_lang_chart();
     _chart->tapped = -1;
@@ -152,14 +153,14 @@ void fude_chart_open(fude_chart* _chart) {
 // Closes the chart and stops any scroll still gliding.
 void fude_chart_close(fude_chart* _chart) {
     _chart->open = false;
-    fude_scroller_stop(&_chart->scroller);
+    rde_ui_scroller_stop(&_chart->scroller);
 }
 
 // Scrolls straight to section _section's title (to the top for a section out of range); the scroller keeps the
 // offset within the chart on its next update.
 void fude_chart_jump(fude_chart* _chart, u32 _section) {
-    fude_scroller_stop(&_chart->scroller);
-    _chart->scroller.offset = _section < FUDE_LANG_CHART_SECTIONS ? _chart->section_at[_section] : 0.0f;
+    rde_ui_scroller_stop(&_chart->scroller);
+    _chart->scroller.offset.y = _section < FUDE_LANG_CHART_SECTIONS ? _chart->section_at[_section] : 0.0f;
 }
 
 // See the header: the list's records, owned by the chart.
@@ -190,7 +191,7 @@ u32 fude_chart_section_in_view(const fude_chart* _chart) {
     const u32 _count = _chart->def != NULL ? _chart->def->section_count : 0u;
     u32       _in    = 0;
     for(u32 _s = 1; _s < _count; _s++) {
-        if(_chart->section_at[_s] > 0.0f && _chart->scroller.offset + _view / 3.0f >= _chart->section_at[_s]) {
+        if(_chart->section_at[_s] > 0.0f && _chart->scroller.offset.y + _view / 3.0f >= _chart->section_at[_s]) {
             _in = _s;
         }
     }
@@ -295,25 +296,25 @@ RDE_INTERNAL void fude_chart_layout(fude_chart* _chart, f32 _left, f32 _width) {
 
 // Starts a drag of the scroller; whether it is a tap is known only when the pointer is lifted.
 void fude_chart_pointer_down(fude_chart* _chart, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_down(&_chart->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_chart->scroller, _screen, _time);
 }
 
 // Drags the scroller.
 void fude_chart_pointer_moved(fude_chart* _chart, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_moved(&_chart->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_chart->scroller, _screen, _time);
 }
 
 // Ends the drag. When the scroller saw a tap inside the view, the cell under it (if any) is kept in tapped for
 // fude_chart_take_tap.
 void fude_chart_pointer_up(fude_chart* _chart, f64 _time) {
-    fude_scroller_up(&_chart->scroller, _time);
+    rde_ui_scroller_pointer_up(&_chart->scroller, _time);
 
     rde_vec_2F _at;
-    if(!fude_scroller_take_tap(&_chart->scroller, &_at) || _at.y > _chart->view_top || _at.y < _chart->view_bottom) {
+    if(!rde_ui_scroller_take_tap(&_chart->scroller, &_at) || _at.y > _chart->view_top || _at.y < _chart->view_bottom) {
         return;
     }
 
-    const f32              _content_y = _chart->view_top - _at.y + _chart->scroller.offset;
+    const f32              _content_y = _chart->view_top - _at.y + _chart->scroller.offset.y;
     const fude_chart_cell* _cells     = (const fude_chart_cell*)_chart->cells.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_chart->cells); _i++) {
         const fude_chart_cell* _c = &_cells[_i];
@@ -327,7 +328,7 @@ void fude_chart_pointer_up(fude_chart* _chart, f64 _time) {
 // Moves the scroll on (its glide after a fling, and its bounce at the ends) while the chart is open.
 void fude_chart_update(fude_chart* _chart, f32 _dt) {
     if(_chart->open) {
-        fude_scroller_update(&_chart->scroller, _dt, _chart->content_height, _chart->view_top - _chart->view_bottom);
+        fude_kit_scroller_update(&_chart->scroller, _dt, _chart->content_height, _chart->view_top - _chart->view_bottom);
     }
 }
 
@@ -355,7 +356,7 @@ void fude_chart_render(fude_chart* _chart, rde_window* _window, rde_font* _font,
         return;
     }
 
-    const f32 _scroll = _chart->scroller.offset;
+    const f32 _scroll = _chart->scroller.offset.y;
     rde_rendering_begin_clipping_rect(_window,
                                       (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_top - _bottom) });

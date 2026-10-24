@@ -1169,12 +1169,10 @@ RDE_INTERNAL rde_ui_label* fude_wordcard_label(fude_ui* _ui, rde_ui_node* _paren
 // fude_wordcard_on_submit.
 RDE_INTERNAL rde_ui_text_editor* fude_wordcard_field(fude_ui* _ui, rde_ui_node* _parent, const c8* _placeholder, u32 _max) {
     rde_ui_text_editor* _f = rde_ui_text_editor_create(_ui->font, NULL);
-    rde_ui_text_editor_set_multiline(_f, false);
     rde_ui_text_editor_set_font_size(_f, FUDE_WORDCARD_FIELD_PX);
     rde_ui_text_editor_set_max_chars(_f, _max);
     rde_ui_text_editor_set_placeholder(_f, _placeholder);
     rde_ui_text_editor_set_content_insets(_f, 12.0f, 8.0f, 12.0f, 8.0f);
-    rde_ui_text_editor_add_plugin(_f, rde_ui_text_editor_plugin_ime_get());   // The keyboard's input method (Japanese).
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_f), _ui);
     rde_ui_text_editor_set_on_submit(_f, fude_wordcard_on_submit);
     fude_kit_field_box(_parent, _f);

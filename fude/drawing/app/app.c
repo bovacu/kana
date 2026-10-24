@@ -251,7 +251,8 @@ b8 fude_app_update(fude_app* _app, f32 _dt) {
     }
 
 #if !defined(RDE_PLATFORM_MOBILE)
-    // The desktop mouse is polled for its moves, as on the page, while its button is held.
+    // The desktop mouse is polled for its moves, as on the page, while its button is held: a polled move has no event,
+    // so it takes the frame's time, on the events' clock.
     if(_app->pointer == FUDE_POINTER_MOUSE && _top->vt->pointer_moved != NULL) {
         const rde_vec_2I _m = rde_input_mouse_get_position(_app->window);
         _app->pointer_last  = (rde_vec_2F){ (f32)_m.x, (f32)_m.y };
@@ -301,8 +302,9 @@ void fude_app_render_overlays(fude_app* _app) {
 // --- the pointer -----------------------------------------------------------------------------
 
 // Hands a pointer event to the screen on top. One pointer is followed at a time, pen, finger or (on a desktop) mouse,
-// whichever pressed first. Presses on the UI (its row, its bar) are left to the UI. A writing screen (Practice, for
-// example) takes a finger only with the hand on, and a pen coming down takes over from a writing finger.
+// whichever pressed first, until it lifts or the system cancels it. Presses on the UI (its row, its bar) are left to
+// the UI. A writing screen (Practice, for example) takes a finger only with the hand on, and a pen coming down takes
+// over from a writing finger.
 void fude_app_screen_event(fude_app* _app, rde_event* _event) {
     const fude_screen_slot* _top = fude_app_top(_app);
     if(_top == NULL || _top->vt->pointer_down == NULL) {
@@ -311,11 +313,13 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
     const fude_screen* _vt    = _top->vt;
     any                _self  = _top->self;
     const b8           _write = _vt->input == FUDE_SCREEN_INPUT_WRITE;
-    const f64          _now   = rde_engine_get_time_now();
+    // The event's own time, not the frame's: several moves can arrive in one frame, and a scroller's fling is read from
+    // their times (a finger that rested before lifting has none). It is on rde_engine_get_time_now's clock.
+    const f64          _now   = (f64)_event->time_stamp * 1e-9;
 
     switch(_event->type) {
         case RDE_EVENT_TYPE_PEN_DOWN: {
-            const rde_vec_2F _at = fude_app_window_to_screen(_app, _event->data.pen_event_data.position);
+            const rde_vec_2F _at = _event->data.pen_event_data.position;
             fude_page_pen_came(_app->page);
             if(_write && _app->pointer == FUDE_POINTER_FINGER) {
                 _vt->pointer_up(_self, fude_draw_pointer(_app->pointer_last, false), _now);   // The pen takes over.
@@ -330,7 +334,7 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
 
         case RDE_EVENT_TYPE_PEN_MOVED: {
             if(_app->pointer == FUDE_POINTER_PEN) {
-                _app->pointer_last = fude_app_window_to_screen(_app, _event->data.pen_event_data.position);
+                _app->pointer_last = _event->data.pen_event_data.position;
                 _vt->pointer_moved(_self, fude_draw_pointer(_app->pointer_last, false), _now);
             }
         } break;
@@ -369,6 +373,19 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
             }
         } break;
 
+        // The system took the finger away, and it will never come up: let go of it here, or no other press is taken
+        // until the screen closes. Android does this to a hand resting on the glass as the pen comes down, and on a
+        // screen where only the pen writes (an exam) every stroke after it was refused.
+        case RDE_EVENT_TYPE_MOBILE_TOUCH_CANCELED: {
+            const rde_event_mobile* _touch = &_event->data.mobile_event_data;
+            if(!_touch->from_pen && _app->pointer == FUDE_POINTER_FINGER && _touch->finger_id == _app->pointer_finger) {
+                if(_vt->pointer_cancel != NULL) {
+                    _vt->pointer_cancel(_self, _now);
+                }
+                _app->pointer = FUDE_POINTER_NONE;
+            }
+        } break;
+
 #if !defined(RDE_PLATFORM_MOBILE)
         // The mouse is read in centre-origin coordinates already, unlike pen and touch. It writes like the pen does,
         // because on a computer the mouse may be a drawing pad.
@@ -395,17 +412,15 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
     }
 }
 
-// Converts a pen position to screen space. Pen positions arrive WINDOW-RELATIVE: top-left origin, Y down. The app's
-// screen space is centre-origin with Y up. Every pen position has to make this trip, and getting it wrong shows as ink
-// mirrored about the middle of the screen rather than as anything subtle.
+// Converts a window position (top-left origin, Y down) to screen space, which is centre-origin with Y up.
 rde_vec_2F fude_app_window_to_screen(const fude_app* _app, rde_vec_2F _pixel) {
     const rde_vec_2I _size = rde_window_get_size(_app->window);
     return (rde_vec_2F){ _pixel.x - (f32)_size.x * 0.5f, (f32)_size.y * 0.5f - _pixel.y };
 }
 
-// Converts a touch position to screen space. Touch events report centre-origin with Y DOWN, so only Y is flipped.
+// A touch's position as the app's points: touch events report screen space (centre origin, Y up) in whole units.
 rde_vec_2F fude_app_touch_to_screen(rde_vec_2I _touch) {
-    return (rde_vec_2F){ (f32)_touch.x, -(f32)_touch.y };
+    return (rde_vec_2F){ (f32)_touch.x, (f32)_touch.y };
 }
 
 // Turns the hand on or off, refreshes the toolbar's hand button and says in a notice which it is now, whether the

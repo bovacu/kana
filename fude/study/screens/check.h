@@ -12,7 +12,7 @@
 #include "study/handwriting/score.h"
 #include "study/handwriting/segment.h"
 #include "study/handwriting/recognize.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 
 // ===========================================================================
 // Check: free writing, checked (section 4 of the Japanese study app's docs/design.md). It works without a trained
@@ -107,7 +107,7 @@ RDE_STRUCT {
     // A stroke's points on screen as it is drawn: scratch kept from frame to frame, so drawing allocates nothing once
     // it has grown to the longest stroke; every stroke is drawn whole, however many points it has.
     rde_arr TYPE(rde_vec_2F) _points;
-    fude_scroller        taps;          // Tells taps from drags the way the lists do (scroll.h).
+    rde_ui_scroller      taps;          // Tells taps from drags the way the lists do (rde_ui_scroller).
 } fude_check;
 
 // Makes Check over the character data and Browse's catalog (both borrowed); destroy frees it.

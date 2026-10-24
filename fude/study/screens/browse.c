@@ -80,6 +80,8 @@ RDE_INTERNAL void fude_browse_build_parts(fude_browse* _browse) {
 // Sets Browse up over the character data, listing everything with no search, and counts the parts it can offer.
 void fude_browse_init(fude_browse* _browse, const fude_kanji_db* _db) {
     rde_memset(_browse, 0, sizeof(*_browse));
+    fude_kit_scroller_init(&_browse->scroller);
+    fude_kit_scroller_init(&_browse->parts_scroller);
     _browse->db      = _db;
     _browse->filter  = FUDE_FILTER_ALL;
     _browse->sort    = FUDE_SORT_DEFAULT;
@@ -140,14 +142,14 @@ void fude_browse_open(fude_browse* _browse) {
 void fude_browse_close(fude_browse* _browse) {
     _browse->open   = false;
     _browse->on_pad = false;
-    fude_scroller_stop(&_browse->scroller);
+    rde_ui_scroller_stop(&_browse->scroller);
 }
 
 // What the grid lists has changed: works the list out again, and starts the grid from its top.
 RDE_INTERNAL void fude_browse_changed(fude_browse* _browse) {
     _browse->dirty           = true;
-    _browse->scroller.offset = 0.0f;
-    fude_scroller_stop(&_browse->scroller);
+    _browse->scroller.offset.y = 0.0f;
+    rde_ui_scroller_stop(&_browse->scroller);
 }
 
 // Sets the grid's filter.
@@ -209,8 +211,8 @@ void fude_browse_set_picking(fude_browse* _browse, b8 _picking) {
         _browse->drawing = false;
         fude_browse_clear_pad(_browse);
     }
-    fude_scroller_stop(&_browse->parts_scroller);
-    _browse->parts_scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_browse->parts_scroller);
+    _browse->parts_scroller.offset.y = 0.0f;
     fude_browse_changed(_browse);
 }
 
@@ -363,7 +365,7 @@ void fude_browse_pointer_down(fude_browse* _browse, rde_vec_2F _screen, b8 _pen,
     }
 
     _browse->on_parts = _browse->picking && fude_browse_inside(_screen, _browse->panel_min, _browse->panel_max);
-    fude_scroller_down(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
 }
 
 // Extends the stroke on the pad, or drags what the pointer went down on.
@@ -373,7 +375,7 @@ void fude_browse_pointer_moved(fude_browse* _browse, rde_vec_2F _screen, f64 _ti
         return;
     }
 
-    fude_scroller_moved(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(_browse->on_parts ? &_browse->parts_scroller : &_browse->scroller, _screen, _time);
 }
 
 // Ends what the pointer was doing. A stroke on the pad ranks the grid again and asks ML Kit to read the drawing. A tap
@@ -383,7 +385,7 @@ void fude_browse_pointer_up(fude_browse* _browse, f64 _time) {
         fude_ink_end(&_browse->pad);
         _browse->on_pad          = false;
         _browse->dirty           = true;   // Rank the grid again with the new stroke.
-        _browse->scroller.offset = 0.0f;
+        _browse->scroller.offset.y = 0.0f;
         fude_recognize_forget(&_browse->recognition);   // ML Kit's answer was about the drawing before this stroke.
         _browse->_recognize_wanted = true;
         return;
@@ -391,11 +393,11 @@ void fude_browse_pointer_up(fude_browse* _browse, f64 _time) {
 
     if(_browse->on_parts) {
         _browse->on_parts = false;
-        fude_scroller_up(&_browse->parts_scroller, _time);
+        rde_ui_scroller_pointer_up(&_browse->parts_scroller, _time);
 
         rde_vec_2F _at;
-        if(fude_scroller_take_tap(&_browse->parts_scroller, &_at) && fude_browse_inside(_at, _browse->panel_min, _browse->panel_max)) {
-            const f32                   _content_y = _browse->panel_max.y - _at.y + _browse->parts_scroller.offset;
+        if(rde_ui_scroller_take_tap(&_browse->parts_scroller, &_at) && fude_browse_inside(_at, _browse->panel_min, _browse->panel_max)) {
+            const f32                   _content_y = _browse->panel_max.y - _at.y + _browse->parts_scroller.offset.y;
             const fude_browse_part_hit* _hits      = (const fude_browse_part_hit*)_browse->part_hits.memory;
             for(u32 _i = 0; _i < (u32)rde_arr_length(&_browse->part_hits); _i++) {
                 if(_at.x >= _hits[_i].x && _at.x < _hits[_i].x + _hits[_i].size && _content_y >= _hits[_i].y && _content_y < _hits[_i].y + _hits[_i].size) {
@@ -407,13 +409,13 @@ void fude_browse_pointer_up(fude_browse* _browse, f64 _time) {
         return;
     }
 
-    fude_scroller_up(&_browse->scroller, _time);
+    rde_ui_scroller_pointer_up(&_browse->scroller, _time);
 
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_browse->scroller, &_at) &&
+    if(rde_ui_scroller_take_tap(&_browse->scroller, &_at) &&
        fude_browse_inside(_at, _browse->grid_min, _browse->grid_max) && _browse->cell > 0.0f) {
         const u32 _col = (u32)((_at.x - _browse->grid_min.x) / _browse->cell);
-        const u32 _row = (u32)((_browse->grid_max.y - _at.y + _browse->scroller.offset) / _browse->cell);
+        const u32 _row = (u32)((_browse->grid_max.y - _at.y + _browse->scroller.offset.y) / _browse->cell);
         const u32 _i   = _row * _browse->columns + _col;
         if(_col < _browse->columns && _i < fude_browse_count(_browse)) {
             _browse->tapped = (i32)_i;
@@ -449,9 +451,9 @@ void fude_browse_update(fude_browse* _browse, f32 _dt) {
     }
 
     const u32 _rows = _browse->columns > 0 ? (fude_browse_count(_browse) + _browse->columns - 1u) / _browse->columns : 0u;
-    fude_scroller_update(&_browse->scroller, _dt, (f32)_rows * _browse->cell, _browse->grid_max.y - _browse->grid_min.y);
+    fude_kit_scroller_update(&_browse->scroller, _dt, (f32)_rows * _browse->cell, _browse->grid_max.y - _browse->grid_min.y);
     if(_browse->picking) {
-        fude_scroller_update(&_browse->parts_scroller, _dt, _browse->parts_height, _browse->panel_max.y - _browse->panel_min.y);
+        fude_kit_scroller_update(&_browse->parts_scroller, _dt, _browse->parts_height, _browse->panel_max.y - _browse->panel_min.y);
     }
 }
 
@@ -486,7 +488,7 @@ RDE_INTERNAL void fude_browse_draw_parts(fude_browse* _browse, rde_window* _wind
     const f32 _cell   = FUDE_BROWSE_PART_CELL;
     const f32 _inner  = _left + 6.0f;
     const u32 _cols   = (u32)rde_math_max_f32(1.0f, rde_math_floor_f32((_right - _left - 12.0f) / _cell));
-    const f32 _scroll = _browse->parts_scroller.offset;
+    const f32 _scroll = _browse->parts_scroller.offset.y;
 
     rde_rendering_begin_clipping_rect(_window,
                                       (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)(_top - _height * 0.5f) },
@@ -670,7 +672,7 @@ void fude_browse_render(fude_browse* _browse, rde_window* _window, rde_font* _fo
                                       (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_grid_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width, (u32)_view });
 
-    const f32 _scroll    = _browse->scroller.offset;
+    const f32 _scroll    = _browse->scroller.offset.y;
     const u32 _first_row = (u32)rde_math_max_f32(0.0f, rde_math_floor_f32(_scroll / _cell));
     const u32 _last_row  = (u32)rde_math_ceil_f32((_scroll + _view) / _cell);
     const f32 _glyph     = _cell * 0.6f;

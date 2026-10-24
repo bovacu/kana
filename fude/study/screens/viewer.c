@@ -58,6 +58,7 @@
 // Sets the viewer up closed, with nothing listed yet.
 void fude_viewer_init(fude_viewer* _viewer, const fude_kanji_db* _db) {
     rde_memset(_viewer, 0, sizeof(*_viewer));
+    fude_kit_scroller_init(&_viewer->scroll);
     _viewer->db   = _db;
     _viewer->list     = rde_arr_new(sizeof(u32), rde_memory_allocator_get_default_std());
     _viewer->rows     = rde_arr_new(sizeof(fude_viewer_row), rde_memory_allocator_get_default_std());
@@ -142,8 +143,8 @@ RDE_INTERNAL void fude_viewer_list_rows(fude_viewer* _viewer, u32 _record, u32 _
     _viewer->rows_listed++;   // The columns' widths are measured again (fude_viewer_row_widths).
     rde_arr_clear(&_viewer->rows);
     if(_moved) {
-        fude_scroller_stop(&_viewer->scroll);
-        _viewer->scroll.offset = 0.0f;
+        rde_ui_scroller_stop(&_viewer->scroll);
+        _viewer->scroll.offset.y = 0.0f;
     }
     if(!fude_utf8_is_han(_codepoint) && !fude_viewer_has_words(_viewer, _record, _codepoint)) {
         return;
@@ -287,7 +288,7 @@ RDE_INTERNAL i32 fude_viewer_row_at(const fude_viewer* _viewer, rde_vec_2F _p) {
     if(!fude_viewer_inside(_p, _viewer->list_min, _viewer->list_max) || _viewer->row_h <= 0.0f) {
         return -1;
     }
-    const i32 _i = (i32)rde_math_floor_f32((_viewer->list_max.y - _p.y + _viewer->scroll.offset) / _viewer->row_h);
+    const i32 _i = (i32)rde_math_floor_f32((_viewer->list_max.y - _p.y + _viewer->scroll.offset.y) / _viewer->row_h);
     return _i >= 0 && _i < (i32)fude_viewer_row_count(_viewer) ? _i : -1;
 }
 
@@ -357,7 +358,7 @@ void fude_viewer_pointer_down(fude_viewer* _viewer, rde_vec_2F _screen, f64 _tim
     _viewer->add_pressed = fude_viewer_inside(_screen, _viewer->add_min, _viewer->add_max);
     _viewer->in_list     = !_viewer->add_pressed && fude_viewer_inside(_screen, _viewer->list_min, _viewer->list_max);
     if(_viewer->in_list) {
-        fude_scroller_down(&_viewer->scroll, _screen, _time);
+        rde_ui_scroller_pointer_down(&_viewer->scroll, _screen, _time);
         _viewer->pressed = fude_viewer_row_at(_viewer, _screen);
     }
 }
@@ -369,11 +370,11 @@ void fude_viewer_pointer_moved(fude_viewer* _viewer, rde_vec_2F _screen, f64 _ti
     _viewer->swipe_at = _screen;
     const f32 _dx = _screen.x - _viewer->swipe_from.x;
     const f32 _dy = _screen.y - _viewer->swipe_from.y;
-    if(_viewer->swipe == FUDE_VIEWER_SWIPE_UNKNOWN && _dx * _dx + _dy * _dy > FUDE_SCROLL_TAP_SLOP * FUDE_SCROLL_TAP_SLOP) {
+    if(_viewer->swipe == FUDE_VIEWER_SWIPE_UNKNOWN && _dx * _dx + _dy * _dy > _viewer->scroll.tap_slop * _viewer->scroll.tap_slop) {
         _viewer->swipe = rde_math_abs_f32(_dx) > 1.2f * rde_math_abs_f32(_dy) ? FUDE_VIEWER_SWIPE_YES : FUDE_VIEWER_SWIPE_NO;
         if(_viewer->swipe == FUDE_VIEWER_SWIPE_YES) {
             if(_viewer->in_list) {
-                fude_scroller_stop(&_viewer->scroll);
+                rde_ui_scroller_stop(&_viewer->scroll);
             }
             _viewer->in_list          = false;
             _viewer->pressed          = -1;
@@ -388,7 +389,7 @@ void fude_viewer_pointer_moved(fude_viewer* _viewer, rde_vec_2F _screen, f64 _ti
         return;
     }
     if(_viewer->in_list) {
-        fude_scroller_moved(&_viewer->scroll, _screen, _time);
+        rde_ui_scroller_pointer_moved(&_viewer->scroll, _screen, _time);
         if(_viewer->scroll.dragging) {
             _viewer->pressed = -1;
         }
@@ -428,7 +429,7 @@ void fude_viewer_pointer_up(fude_viewer* _viewer, f64 _time) {
     }
     _viewer->swipe = FUDE_VIEWER_SWIPE_UNKNOWN;
     if(_viewer->in_list) {
-        fude_scroller_up(&_viewer->scroll, _time);
+        rde_ui_scroller_pointer_up(&_viewer->scroll, _time);
     }
     if(_viewer->add_pressed) {
         fude_viewer_set_adding(_viewer, true);
@@ -484,9 +485,9 @@ void fude_viewer_update(fude_viewer* _viewer, f32 _dt) {
     if(!_viewer->open) {
         return;
     }
-    fude_scroller_update(&_viewer->scroll, _dt, (f32)fude_viewer_row_count(_viewer) * _viewer->row_h, _viewer->list_max.y - _viewer->list_min.y);
+    fude_kit_scroller_update(&_viewer->scroll, _dt, (f32)fude_viewer_row_count(_viewer) * _viewer->row_h, _viewer->list_max.y - _viewer->list_min.y);
     rde_vec_2F _at;
-    if(!fude_scroller_take_tap(&_viewer->scroll, &_at)) {
+    if(!rde_ui_scroller_take_tap(&_viewer->scroll, &_at)) {
         return;
     }
     const i32 _row = fude_viewer_row_at(_viewer, _at);
@@ -670,7 +671,7 @@ RDE_INTERNAL void fude_viewer_draw_rows(fude_viewer* _viewer, rde_window* _windo
                                       (rde_vec_2UI){ (u32)(_right - _x0), (u32)(_top - _bottom) });
     for(u32 _i = 0; _i < fude_viewer_row_count(_viewer); _i++) {
         const fude_viewer_row* _r        = fude_viewer_row_of(_viewer, _i);
-        const f32              _row_top  = _top - (f32)_i * _h + _viewer->scroll.offset;
+        const f32              _row_top  = _top - (f32)_i * _h + _viewer->scroll.offset.y;
         if(_row_top - _h > _top || _row_top < _bottom) {
             continue;
         }

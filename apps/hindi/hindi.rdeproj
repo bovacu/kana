@@ -56,6 +56,9 @@ plist             = platform/ios/Info.plist
 asset_catalog     = platform/ios/Assets.xcassets
 launch_storyboard = platform/ios/LaunchScreen.storyboard
 bundles           = platform/ios/localized
+# What the app asks for through RDE, the camera (Text from a photo): RDE's iOS code for it is built only when named
+# here, and the builder checks that the plist has its purpose string.
+permissions       = camera
 # The system's frameworks the .m files use, besides those RDE links itself.
 link_flags = -framework PhotosUI -framework ImageIO -framework VisionKit -framework PDFKit -framework CoreText
              -framework CoreImage -framework Accelerate -framework Network
@@ -107,7 +110,9 @@ frameworks  = ../../third_party/mlkit/frameworks/MLKitDigitalInkRecognition.fram
               ../../third_party/mlkit/frameworks/MLKitTextRecognitionDevanagari.framework
 bundles    += ../../third_party/mlkit/bundles ../../third_party/mlkit/ocr/hi
 include    += ../../third_party/mlkit/include
-link_flags += -L../../third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv
+# ML Kit's text recognition calls CLLocationCoordinate2DIsValid, so CoreLocation is linked for it: RDE links it for
+# no app (platform-14), and no location API is used, so the app needs no location purpose string.
+link_flags += -L../../third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -framework CoreLocation
 
 # The Simulator's: debug, for the look flags (the store's screenshots).
 [profile sim]

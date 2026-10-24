@@ -8,7 +8,7 @@
 #include "study/chars/kanji.h"
 #include "study/chars/catalog.h"
 #include "study/chars/glyph.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 
 // ===========================================================================
 // Statistics: how the learning is going, from everything the app keeps: every practice session (history.h: its
@@ -139,7 +139,7 @@ RDE_STRUCT {
     fude_glyph                    glyph;
     b8                            open;
     fude_stats_data               data;
-    fude_scroller                 scroller;
+    rde_ui_scroller               scroller;
     rde_arr TYPE(fude_stats_hit)  hits;
     f32                           content_height;
     f32                           view_top;

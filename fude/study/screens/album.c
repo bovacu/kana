@@ -44,6 +44,8 @@
 // Sets the album up empty, on the overview sorted weakest first; it reads the history when it is opened.
 void fude_album_init(fude_album* _album, const fude_kanji_db* _db) {
     rde_memset(_album, 0, sizeof(*_album));
+    fude_kit_scroller_init(&_album->scroller);
+    fude_kit_scroller_init(&_album->page_scroller);
     _album->db              = _db;
     _album->selected        = -1;
     _album->selected_answer = -1;
@@ -180,8 +182,8 @@ void fude_album_open(fude_album* _album) {
     _album->selected        = -1;
     _album->selected_answer = -1;
     _album->tapped_exam     = -1;
-    fude_scroller_stop(&_album->scroller);
-    _album->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_album->scroller);
+    _album->scroller.offset.y = 0.0f;
     fude_album_load(_album);
 }
 
@@ -191,8 +193,8 @@ void fude_album_close(fude_album* _album) {
     _album->page_open       = false;
     _album->selected        = -1;
     _album->selected_answer = -1;
-    fude_scroller_stop(&_album->scroller);
-    fude_scroller_stop(&_album->page_scroller);
+    rde_ui_scroller_stop(&_album->scroller);
+    rde_ui_scroller_stop(&_album->page_scroller);
 }
 
 // Sorts the overview in order _sort, shows it (leaving the exams view), and scrolls to the top.
@@ -200,8 +202,8 @@ void fude_album_set_sort(fude_album* _album, FUDE_ALBUM_SORT_ _sort) {
     _album->sort = _sort;
     _album->view = FUDE_ALBUM_VIEW_CHARACTERS;
     fude_album_sort(_album);
-    fude_scroller_stop(&_album->scroller);
-    _album->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_album->scroller);
+    _album->scroller.offset.y = 0.0f;
 }
 
 // Shows view _view, scrolled to the top; asking for the view already shown changes nothing.
@@ -211,8 +213,8 @@ void fude_album_set_view(fude_album* _album, FUDE_ALBUM_VIEW_ _view) {
     }
     _album->view        = _view;
     _album->tapped_exam = -1;
-    fude_scroller_stop(&_album->scroller);
-    _album->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_album->scroller);
+    _album->scroller.offset.y = 0.0f;
 }
 
 // Hands out the exam tapped once: tapped_exam goes back to -1, which means none is waiting.
@@ -248,8 +250,8 @@ void fude_album_open_page(fude_album* _album, u32 _codepoint) {
     _album->page_open       = true;
     _album->selected        = -1;
     _album->selected_answer = -1;
-    fude_scroller_stop(&_album->page_scroller);
-    _album->page_scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_album->page_scroller);
+    _album->page_scroller.offset.y = 0.0f;
 }
 
 // Goes back from a page to the view under it, ending any replay.
@@ -257,38 +259,38 @@ void fude_album_close_page(fude_album* _album) {
     _album->page_open       = false;
     _album->selected        = -1;
     _album->selected_answer = -1;
-    fude_scroller_stop(&_album->page_scroller);
+    rde_ui_scroller_stop(&_album->page_scroller);
 }
 
 // --- Input -----------------------------------------------------------------------------------------------------------
 
 // Returns the scroller of what is shown: the page's while a page is open, else the one the two views share.
-RDE_INTERNAL fude_scroller* fude_album_scroller(fude_album* _album) {
+RDE_INTERNAL rde_ui_scroller* fude_album_scroller(fude_album* _album) {
     return _album->page_open ? &_album->page_scroller : &_album->scroller;
 }
 
 // Starts a drag of what is shown; whether it is a tap is known only when the pointer is lifted.
 void fude_album_pointer_down(fude_album* _album, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_down(fude_album_scroller(_album), _screen, _time);
+    rde_ui_scroller_pointer_down(fude_album_scroller(_album), _screen, _time);
 }
 
 // Drags what is shown.
 void fude_album_pointer_moved(fude_album* _album, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_moved(fude_album_scroller(_album), _screen, _time);
+    rde_ui_scroller_pointer_moved(fude_album_scroller(_album), _screen, _time);
 }
 
 // Ends the drag. A tap inside the view acts on what the last frame laid out under it: on a page it replays an
 // attempt, in the exams view it keeps the exam for fude_album_take_exam, and on the overview it opens a page.
 void fude_album_pointer_up(fude_album* _album, f64 _time) {
-    fude_scroller* _scroller = fude_album_scroller(_album);
-    fude_scroller_up(_scroller, _time);
+    rde_ui_scroller* _scroller = fude_album_scroller(_album);
+    rde_ui_scroller_pointer_up(_scroller, _time);
 
     rde_vec_2F _at;
-    if(!fude_scroller_take_tap(_scroller, &_at) || _at.y > _album->view_top || _at.y < _album->view_bottom) {
+    if(!rde_ui_scroller_take_tap(_scroller, &_at) || _at.y > _album->view_top || _at.y < _album->view_bottom) {
         return;
     }
 
-    const f32             _content_y = _album->view_top - _at.y + _scroller->offset;
+    const f32             _content_y = _album->view_top - _at.y + _scroller->offset.y;
     const fude_album_hit* _hits      = (const fude_album_hit*)_album->hits.memory;
     for(u32 _i = 0; _i < (u32)rde_arr_length(&_album->hits); _i++) {
         const fude_album_hit* _h = &_hits[_i];
@@ -334,7 +336,7 @@ void fude_album_update(fude_album* _album, f32 _dt) {
         _album->selected_answer = -1;
     }
 
-    fude_scroller_update(fude_album_scroller(_album), _dt, _album->content_height, _album->view_top - _album->view_bottom);
+    fude_kit_scroller_update(fude_album_scroller(_album), _dt, _album->content_height, _album->view_top - _album->view_bottom);
 }
 
 // --- Drawing helpers -------------------------------------------------------------------------------------------------
@@ -445,7 +447,7 @@ RDE_INTERNAL void fude_album_trend(fude_album* _album, rde_vec_2F _tl, f32 _w, f
 // last average (in its grade's colour) and its number of sessions. Only the cells in view are drawn and made tappable.
 RDE_INTERNAL void fude_album_render_overview(fude_album* _album, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme* _theme  = fude_theme_active();
-    const f32         _scroll = _album->scroller.offset;
+    const f32         _scroll = _album->scroller.offset.y;
     const u32         _count  = (u32)rde_arr_length(&_album->entries);
     // Turns a content y (down from the top of the content) into a screen y.
     #define FUDE_ALBUM_SY(_content_y) (_top - ((_content_y) - _scroll))
@@ -502,7 +504,7 @@ RDE_INTERNAL void fude_album_render_overview(fude_album* _album, rde_font* _font
 // the exam's results (exam.h).
 RDE_INTERNAL void fude_album_render_exams(fude_album* _album, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme*        _theme  = fude_theme_active();
-    const f32                _scroll = _album->scroller.offset;
+    const f32                _scroll = _album->scroller.offset.y;
     const u32                _count  = fude_examlog_count();
     const fude_examlog_exam* _exams  = fude_examlog_exams();
     const fude_examlog_item* _items  = fude_examlog_items();
@@ -579,7 +581,7 @@ RDE_INTERNAL void fude_album_render_exams(fude_album* _album, rde_font* _font, f
 RDE_INTERNAL f32 fude_album_render_answer(fude_album* _album, rde_font* _font, f32 _font_px, u32 _index, f32 _left, f32 _top, f32 _bottom, f32 _y, f32 _thumb,
                                           f64 _now) {
     const fude_theme*           _theme  = fude_theme_active();
-    const f32                   _scroll = _album->page_scroller.offset;
+    const f32                   _scroll = _album->page_scroller.offset.y;
     const fude_examlog_writing* _answer = &((const fude_examlog_writing*)_album->page_exams.memory)[_index];
     const fude_examlog_exam*    _exam   = &fude_examlog_exams()[_answer->exam];
     const fude_examlog_item*    _item   = &fude_examlog_items()[_exam->first_item + _answer->item];
@@ -628,7 +630,7 @@ RDE_INTERNAL f32 fude_album_render_answer(fude_album* _album, rde_font* _font, f
 // with its score; the attempt being replayed is outlined and described under its rows.
 RDE_INTERNAL void fude_album_render_page(fude_album* _album, rde_font* _font, f32 _font_px, f32 _left, f32 _right, f32 _top, f32 _bottom) {
     const fude_theme*           _theme    = fude_theme_active();
-    const f32                   _scroll   = _album->page_scroller.offset;
+    const f32                   _scroll   = _album->page_scroller.offset.y;
     const fude_history_session* _sessions = (const fude_history_session*)_album->history.sessions.memory;
     const fude_history_square*  _squares  = (const fude_history_square*)_album->history.squares.memory;
     const u32                   _count    = (u32)rde_arr_length(&_album->history.sessions);

@@ -37,8 +37,7 @@ void fude_readcard_open(fude_readcard* _card, u32 _title, u32 _body, f32 _second
     _card->opened_at = rde_engine_get_time_now();
     _card->pressing  = false;
     _card->content_h = 0.0f;
-    fude_scroller_stop(&_card->scroller);
-    _card->scroller.offset = 0.0f;
+    fude_kit_scroller_init(&_card->scroller);   // (at rest at the top)
     _card->action          = FUDE_TEXT_COUNT;
     _card->on_action       = NULL;
     _card->pressing_action = false;
@@ -87,14 +86,14 @@ void fude_readcard_pointer_down(fude_readcard* _card, rde_vec_2F _screen, f64 _n
     } else if(fude_readcard_inside(_screen, _card->close_min, _card->close_max)) {
         _card->pressing = fude_readcard_ready(_card);
     } else if(fude_readcard_inside(_screen, _card->text_min, _card->text_max)) {
-        fude_scroller_down(&_card->scroller, _screen, _now);
+        rde_ui_scroller_pointer_down(&_card->scroller, _screen, _now);
     }
 }
 
 // Scrolls the text, when the press started on it.
 void fude_readcard_pointer_moved(fude_readcard* _card, rde_vec_2F _screen, f64 _now) {
     if(_card->scroller.pressing) {
-        fude_scroller_moved(&_card->scroller, _screen, _now);
+        rde_ui_scroller_pointer_moved(&_card->scroller, _screen, _now);
     }
 }
 
@@ -102,7 +101,7 @@ void fude_readcard_pointer_moved(fude_readcard* _card, rde_vec_2F _screen, f64 _
 // The second button's function is called after the card has closed, so it may open another screen.
 void fude_readcard_pointer_up(fude_readcard* _card, rde_vec_2F _screen, f64 _now) {
     if(_card->scroller.pressing) {
-        fude_scroller_up(&_card->scroller, _now);
+        rde_ui_scroller_pointer_up(&_card->scroller, _now);
     }
     const b8 _was        = _card->pressing;
     const b8 _was_action = _card->pressing_action;
@@ -124,9 +123,9 @@ void fude_readcard_update(fude_readcard* _card, f32 _dt) {
     if(!_card->open) {
         return;
     }
-    fude_scroller_update(&_card->scroller, _dt, _card->content_h, _card->text_max.y - _card->text_min.y);
+    fude_kit_scroller_update(&_card->scroller, _dt, _card->content_h, _card->text_max.y - _card->text_min.y);
     rde_vec_2F _tap;
-    fude_scroller_take_tap(&_card->scroller, &_tap);   // A tap on the text does nothing; it is taken and dropped.
+    rde_ui_scroller_take_tap(&_card->scroller, &_tap);   // A tap on the text does nothing; it is taken and dropped.
 }
 
 // --- drawn ----------------------------------------------------------------------------------
@@ -204,7 +203,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
         rde_rendering_2d_draw_rectangle((rde_vec_2F){ fude_draw_x(0.0f), _y - _view_h - 1.0f }, (rde_vec_2F){ _inner, 1.0f }, _t->outline);
     }
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x(0.0f), (i32)(_y - _view_h * 0.5f) }, (rde_vec_2UI){ (u32)_inner + 4u, (u32)rde_math_max_f32(1.0f, _view_h) });
-    fude_draw_text_wrap(_font, _font_px, _body, _card->text_min.x, _y - FUDE_READCARD_INSET - FUDE_READCARD_BODY * 0.8f + _card->scroller.offset, FUDE_READCARD_BODY, _text_w,
+    fude_draw_text_wrap(_font, _font_px, _body, _card->text_min.x, _y - FUDE_READCARD_INSET - FUDE_READCARD_BODY * 0.8f + _card->scroller.offset.y, FUDE_READCARD_BODY, _text_w,
                         FUDE_READCARD_LINE, _t->text_soft);
     rde_rendering_end_clipping_rect();
 
@@ -213,7 +212,7 @@ void fude_readcard_render(fude_readcard* _card, rde_window* _window, rde_font* _
         const f32 _track = _view_h - 8.0f;
         const f32 _thumb = rde_math_max_f32(28.0f, _track * _view_h / _card->content_h);
         const f32 _span  = rde_math_max_f32(1.0f, _card->content_h - _view_h);
-        const f32 _at    = rde_math_min_f32(1.0f, rde_math_max_f32(0.0f, _card->scroller.offset / _span));
+        const f32 _at    = rde_math_min_f32(1.0f, rde_math_max_f32(0.0f, _card->scroller.offset.y / _span));
         const f32 _x     = _l + _w - FUDE_READCARD_PAD - FUDE_READCARD_BAR * 0.5f;
         const f32 _ty    = _y - 4.0f - _thumb * 0.5f - (_track - _thumb) * _at;
         rde_color _bar   = _t->text_soft;

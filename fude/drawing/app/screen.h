@@ -67,11 +67,16 @@ typedef struct fude_screen {
 
     // One pointer at a time: the pen, a finger or the mouse, at _at in screen space. _pen says it writes where a pen
     // would (a pen, the mouse, or a finger with the hand on). NULL pointer_down: the screen takes no pointer. A screen
-    // that takes it gives all three, since a press is always followed by its moves and its release (the adapters
-    // below define them together).
+    // that takes it gives all three, since a press is always followed by its moves and its release, or its cancel
+    // (the adapters below define the three together).
     void (*pointer_down)(any _self, rde_vec_2F _at, b8 _pen, f64 _now);
     void (*pointer_moved)(any _self, rde_vec_2F _at, f64 _now);
     void (*pointer_up)(any _self, rde_vec_2F _at, f64 _now);
+    // The finger was taken away instead of lifted: the system cancelled the touch (a hand resting on the glass as a
+    // pen comes down, an edge gesture, a window over the app). What it was doing ends, a stroke as if lifted, and
+    // nothing it pressed acts, since the user chose nothing: a cancelled touch is no tap. NULL: the screen is told
+    // nothing, and its next pointer_down starts afresh (a list's press or drag just begins again).
+    void (*pointer_cancel)(any _self, f64 _now);
 
     // Its rows of buttons (row.h): the ones it has; which is up now (FUDE_ROW_NONE: none); and how each button of that
     // row shows, written into a zeroed array of FUDE_ROW_BUTTONS faces (NULL: as declared).

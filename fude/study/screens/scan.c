@@ -51,6 +51,7 @@
 // Sets the screen up closed and empty.
 void fude_scan_init(fude_scan* _scan) {
     rde_memset(_scan, 0, sizeof(*_scan));
+    fude_kit_scroller_init(&_scan->taps);
     _scan->lines = rde_arr_new(sizeof(fude_scan_line), rde_memory_allocator_get_default_std());
 }
 
@@ -108,15 +109,15 @@ void fude_scan_open(fude_scan* _scan, rde_window* _window, rde_vec_2F _canvas_at
     // Translate stays as the reader left it, but translations still on their way are not waited for.
     _scan->translate_asked    = 0;
     _scan->translate_prepared = false;
-    fude_scroller_stop(&_scan->taps);
-    _scan->taps.offset = 0.0f;
+    rde_ui_scroller_stop(&_scan->taps);
+    _scan->taps.offset.y = 0.0f;
 }
 
 // Closes the screen, letting go of the picture and the camera.
 void fude_scan_close(fude_scan* _scan) {
     _scan->open = false;
     fude_scan_forget(_scan);
-    fude_scroller_stop(&_scan->taps);
+    rde_ui_scroller_stop(&_scan->taps);
 }
 
 // The app goes to the background: a live camera is held, so it stops.
@@ -309,8 +310,8 @@ void fude_scan_translate(fude_scan* _scan) {
     _scan->translate          = !_scan->translate;
     // The next turn asks for the models again, so a failed download is tried again.
     _scan->translate_prepared = false;   // Ask for the models again.
-    fude_scroller_stop(&_scan->taps);
-    _scan->taps.offset = 0.0f;
+    rde_ui_scroller_stop(&_scan->taps);
+    _scan->taps.offset.y = 0.0f;
 }
 
 // Returns whether Translate with Google is on.
@@ -381,9 +382,9 @@ void fude_scan_update(fude_scan* _scan, f32 _dt) {
     }
     // A drag scrolls the panel of translations, when it is up and long.
     if(fude_scan_panel_shown(_scan)) {
-        fude_scroller_update(&_scan->taps, _dt, _scan->panel_content, _scan->panel_view);
+        fude_kit_scroller_update(&_scan->taps, _dt, _scan->panel_content, _scan->panel_view);
     } else {
-        fude_scroller_update(&_scan->taps, _dt, 0.0f, 1.0f);
+        fude_kit_scroller_update(&_scan->taps, _dt, 0.0f, 1.0f);
     }
     if(_scan->camera_granted) {
         _scan->camera_granted = false;
@@ -506,15 +507,15 @@ RDE_INTERNAL b8 fude_scan_inside(const rde_vec_2F _q[4], rde_vec_2F _p) {
 }
 
 // The pointer goes down and moves: the scroller tells a tap from a drag, and a drag scrolls the panel.
-void fude_scan_pointer_down(fude_scan* _scan, rde_vec_2F _screen, f64 _time)  { fude_scroller_down(&_scan->taps, _screen, _time); }
-void fude_scan_pointer_moved(fude_scan* _scan, rde_vec_2F _screen, f64 _time) { fude_scroller_moved(&_scan->taps, _screen, _time); }
+void fude_scan_pointer_down(fude_scan* _scan, rde_vec_2F _screen, f64 _time)  { rde_ui_scroller_pointer_down(&_scan->taps, _screen, _time); }
+void fude_scan_pointer_moved(fude_scan* _scan, rde_vec_2F _screen, f64 _time) { rde_ui_scroller_pointer_moved(&_scan->taps, _screen, _time); }
 
 // On a tap on a result: a word in the panel opens the word card, a row's speaker says its line, a row leaves its line
 // out or takes it back, and so does a line's box on the picture.
 void fude_scan_pointer_up(fude_scan* _scan, f64 _time) {
-    fude_scroller_up(&_scan->taps, _time);
+    rde_ui_scroller_pointer_up(&_scan->taps, _time);
     rde_vec_2F _at;
-    if(!fude_scroller_take_tap(&_scan->taps, &_at) || _scan->stage != FUDE_SCAN_RESULT) {
+    if(!rde_ui_scroller_take_tap(&_scan->taps, &_at) || _scan->stage != FUDE_SCAN_RESULT) {
         return;
     }
     // The line under the tap: its row in the panel of translations, or its box on the picture (the smallest box when
@@ -598,7 +599,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_view_t - _view_b) });
     fude_scan_line* _lines = (fude_scan_line*)_scan->lines.memory;
     const u32       _count = (u32)rde_arr_length(&_scan->lines);
-    f32             _y     = _view_t + _scan->taps.offset;   // The next row's top.
+    f32             _y     = _view_t + _scan->taps.offset.y;   // The next row's top.
     _scan->word_hit_count  = 0;
     for(u32 _i = 0; _i < _count; _i++) {
         fude_scan_line* _line = &_lines[_i];
@@ -663,7 +664,7 @@ RDE_INTERNAL void fude_scan_draw_panel(fude_scan* _scan, rde_window* _window, rd
         }
     }
     rde_rendering_end_clipping_rect();
-    _scan->panel_content = (_view_t + _scan->taps.offset) - _y - FUDE_SCAN_PANEL_ROW_GAP;
+    _scan->panel_content = (_view_t + _scan->taps.offset.y) - _y - FUDE_SCAN_PANEL_ROW_GAP;
 }
 
 // Draws the title and the status line, the panel of translations when it is up, and the picture with every line's box

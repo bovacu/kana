@@ -250,10 +250,9 @@ void fude_zoom_page_render_map(fude_zoom_page* _page) {
     rde_rendering_2d_draw_rectangle(_mc, _ms, _t->page);
     const rde_texture* _tex = _page->map_ready && _page->map_picture != NULL ? rde_render_texture_get_texture(_page->map_picture) : NULL;
     if(_tex != NULL) {
-        const rde_vec_2F _all = { (f32)_page->map_pw, (f32)_page->map_ph };
         // Its rows bottom up.
-        rde_rendering_2d_draw_texture_partial_2(_tex, (rde_vec_3F){ _mc.x, _mc.y, 0.0f }, (rde_vec_2F){ _ms.x / _all.x, -_ms.y / _all.y },
-                                                0.0f, (rde_color){ 255, 255, 255, 255 }, (rde_vec_2F){ 0.0f, 0.0f }, _all);
+        rde_rendering_2d_draw_texture_2(_tex, (rde_vec_3F){ _mc.x, _mc.y, 0.0f }, (rde_vec_2F){ _ms.x / (f32)_page->map_pw, -_ms.y / (f32)_page->map_ph },
+                                        0.0f, (rde_color){ 255, 255, 255, 255 });
     }
     rde_rendering_2d_draw_rectangle_border(_mc, _ms, 1.0f, _t->outline, NULL);
     if(fude_zoom_box_is_empty(_page->map_world)) {

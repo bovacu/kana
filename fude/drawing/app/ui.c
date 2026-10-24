@@ -62,12 +62,10 @@ RDE_INTERNAL rde_ui_text_editor* fude_ui_field_create(rde_ui_node* _root, fude_u
     rde_ui_text_editor* _field = rde_ui_text_editor_create(fude_kit_font(), NULL);
     _ref->field = _field;
     _ref->slot  = _slot;
-    rde_ui_text_editor_set_multiline(_field, false);
     rde_ui_text_editor_set_font_size(_field, FUDE_UI_FIELD_PX);
     rde_ui_text_editor_set_max_chars(_field, _slot->vt->field_max);
     rde_ui_text_editor_set_placeholder(_field, fude_text((FUDE_TEXT_)_slot->vt->field_hint));
     rde_ui_text_editor_set_content_insets(_field, 12.0f, 8.0f, 12.0f, 8.0f);
-    rde_ui_text_editor_add_plugin(_field, rde_ui_text_editor_plugin_ime_get());   // Input methods' composition.
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_field), _ref);
     rde_ui_text_editor_set_on_submit(_field, fude_ui_on_field_submit);
     if(_slot->vt->field_change != NULL) {

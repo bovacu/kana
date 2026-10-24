@@ -77,6 +77,9 @@ plist             = platform/ios/Info.plist
 asset_catalog     = platform/ios/Assets.xcassets
 launch_storyboard = platform/ios/LaunchScreen.storyboard
 bundles           = platform/ios/localized
+# What the app asks for through RDE, the microphone (audio synced to ink): RDE's iOS code for it is built only when
+# named here, and the builder checks that the plist has its purpose string.
+permissions       = microphone
 # The system's frameworks the .m files use, besides those RDE links itself. (No whisper on iOS yet: the app hides
 # its transcription there, fude/zoom/listen.h.)
 link_flags = -framework PhotosUI -framework ImageIO -framework VisionKit -framework PDFKit -framework CoreText

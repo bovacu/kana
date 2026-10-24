@@ -586,7 +586,7 @@ RDE_INTERNAL void fude_zoom_page_finger_up(fude_zoom_page* _page, u64 _id) {
 // moving it gives up to the pen.
 RDE_INTERNAL void fude_zoom_page_event_pen_down(fude_zoom_page* _page, rde_event* _event, fude_app* _app, fude_ui* _ui, fude_ink* _cap) {
     const rde_event_pen* _pen    = &_event->data.pen_event_data;
-    const rde_vec_2F     _screen = fude_app_window_to_screen(_app, _pen->position);
+    const rde_vec_2F     _screen = _pen->position;
     fude_page_pen_came(_app->page);
     _cap->pen_seen    = true;
     _cap->eraser      = _pen->eraser;
@@ -611,26 +611,26 @@ RDE_INTERNAL void fude_zoom_page_event_pen_down(fude_zoom_page* _page, rde_event
 
 // A pen's move (fude_zoom_page_event's): where it hovers, eased; then to the grip, or to the page unless it was
 // pressed on the UI.
-RDE_INTERNAL void fude_zoom_page_event_pen_moved(fude_zoom_page* _page, rde_event* _event, fude_app* _app, fude_ui* _ui, fude_ink* _cap) {
+RDE_INTERNAL void fude_zoom_page_event_pen_moved(fude_zoom_page* _page, rde_event* _event, fude_ui* _ui, fude_ink* _cap) {
     _cap->pen_seen = true;
     {
         // Eased toward the pen while it hovers near where it was (a pen leaving the glass reads unsteadily);
         // a jump of 30 points or more is followed at once.
-        const rde_vec_2F _at = fude_app_window_to_screen(_app, _event->data.pen_event_data.position);
+        const rde_vec_2F _at = _event->data.pen_event_data.position;
         const f32 _dx = _at.x - _page->hover_at.x, _dy = _at.y - _page->hover_at.y;
         const b8  _near = _page->hover_on && !_event->data.pen_event_data.down && _dx * _dx + _dy * _dy < 900.0f;
         _page->hover_at     = _near ? (rde_vec_2F){ _page->hover_at.x + _dx * 0.35f, _page->hover_at.y + _dy * 0.35f } : _at;
         _page->hover_eraser = _event->data.pen_event_data.eraser;
         _page->hover_on     = !_page->pen_on_ui && !fude_ui_hit(_ui, _at);
     }
-    if(fude_zoom_page_grip_moved(_page, fude_app_window_to_screen(_app, _event->data.pen_event_data.position), FUDE_ZOOM_PAGE_HAND_PEN)) {
+    if(fude_zoom_page_grip_moved(_page, _event->data.pen_event_data.position, FUDE_ZOOM_PAGE_HAND_PEN)) {
         return;
     }
     if(_page->pen_on_ui) {
         return;
     }
     _cap->sample_time = (f64)_event->time_stamp * 1e-9;
-    fude_zoom_page_moved(_page, fude_app_window_to_screen(_app, _event->data.pen_event_data.position));
+    fude_zoom_page_moved(_page, _event->data.pen_event_data.position);
 }
 
 // A finger down (fude_zoom_page_event's), to the first that takes it: the grip, the UI, a part worked by hand
@@ -814,7 +814,7 @@ void fude_zoom_page_event(fude_zoom_page* _page, rde_event* _event) {
         } break;
 
         case RDE_EVENT_TYPE_PEN_MOVED: {
-            fude_zoom_page_event_pen_moved(_page, _event, _app, _ui, _cap);
+            fude_zoom_page_event_pen_moved(_page, _event, _ui, _cap);
         } break;
 
         case RDE_EVENT_TYPE_PEN_UP: {

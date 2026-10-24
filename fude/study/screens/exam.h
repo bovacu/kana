@@ -9,7 +9,7 @@
 #include "study/chars/catalog.h"
 #include "study/chars/glyph.h"
 #include "drawing/ink/ink.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/handwriting/recognize.h"
 
 // ===========================================================================
@@ -127,7 +127,7 @@ RDE_STRUCT {
     rde_random           rng;         // The shuffle's generator (RDE's), seeded as the screen opens.
 
     // The layout of the last frame, and taps (screen space).
-    fude_scroller        scroller;    // The preview's and the results' grid; the setup's taps.
+    rde_ui_scroller      scroller;    // The preview's and the results' grid; the setup's taps.
     fude_exam_chip       chips[FUDE_EXAM_SOURCE_MAX + FUDE_EXAM_LENGTHS];
     u32                  chip_count;
     rde_vec_2F           grid_min;
@@ -193,6 +193,9 @@ u32  fude_exam_asked(const fude_exam* _exam, u32* _out, u32 _max);
 void fude_exam_pointer_down(fude_exam* _exam, rde_vec_2F _screen, b8 _pen, f64 _time);
 void fude_exam_pointer_moved(fude_exam* _exam, rde_vec_2F _screen, f64 _time);
 void fude_exam_pointer_up(fude_exam* _exam, f64 _time);
+// The finger was taken away by the system instead of lifted (screen.h: pointer_cancel): a stroke ends as if lifted,
+// and a press or drag of a grid stops where it is, with no tap.
+void fude_exam_pointer_cancel(fude_exam* _exam, f64 _time);
 
 // Once a frame while open: scrolls and takes taps, reads the answers, and keeps the finished exam (the log, the
 // marks, the reviews) once every answer is read. fude_exam_render draws the stage between _top and _bottom (screen

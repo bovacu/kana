@@ -8,7 +8,7 @@
 #include "study/chars/catalog.h"
 #include "study/chars/glyph.h"
 #include "drawing/ink/ink.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/handwriting/recognize.h"
 #include "study/models/vocab.h"
 
@@ -111,7 +111,7 @@ RDE_STRUCT {
     b8                   spoken;                    // By ear: the current word has been said once.
 
     // The layout of the last frame (screen space).
-    fude_scroller        scroller;
+    rde_ui_scroller      scroller;
     fude_wordexam_chip   chips[8];
     u32                  chip_count;
     rde_vec_2F           boxes_tl;
@@ -158,6 +158,9 @@ b8   fude_wordexam_take_tap(fude_wordexam* _exam, u32* _word);
 void fude_wordexam_pointer_down(fude_wordexam* _exam, rde_vec_2F _screen, b8 _pen, f64 _time);
 void fude_wordexam_pointer_moved(fude_wordexam* _exam, rde_vec_2F _screen, f64 _time);
 void fude_wordexam_pointer_up(fude_wordexam* _exam, f64 _time);
+// The finger was taken away by the system instead of lifted (screen.h: pointer_cancel): a stroke ends as if lifted,
+// and a press or drag of the list stops where it is, with no tap.
+void fude_wordexam_pointer_cancel(fude_wordexam* _exam, f64 _time);
 // Once a frame while open: takes taps, says each word as it comes up (by ear), reads the answers one box at a time,
 // and moves the reviews once all are read. fude_wordexam_render draws the stage between _top and _bottom (screen
 // y), inside a 2D drawing block.

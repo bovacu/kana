@@ -51,6 +51,7 @@ RDE_INTERNAL void fude_wordexam_fresh_ink(fude_ink* _ink) {
 // Sets the word exam up closed, 20 words long, with an empty ink for every box of every item.
 void fude_wordexam_init(fude_wordexam* _exam, const fude_kanji_db* _db, const fude_catalog* _catalog) {
     rde_memset(_exam, 0, sizeof(*_exam));
+    fude_kit_scroller_init(&_exam->scroller);
     _exam->db           = _db;
     _exam->catalog      = _catalog;
     _exam->length       = 1u;   // The second length: 20.
@@ -228,8 +229,8 @@ void fude_wordexam_open(fude_wordexam* _exam, const u32* _ids, u32 _count, const
     if(!fude_speech_available()) {
         _exam->by = FUDE_WORDEXAM_BY_MEANING;
     }
-    fude_scroller_stop(&_exam->scroller);
-    _exam->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_exam->scroller);
+    _exam->scroller.offset.y = 0.0f;
 }
 
 // Opens on the reviews due, by meaning and reading, straight to writing them in their order (when any can be asked).
@@ -319,8 +320,8 @@ void fude_wordexam_next(fude_wordexam* _exam) {
         _exam->current++;
     } else {
         _exam->stage = FUDE_WORDEXAM_RESULTS;
-        fude_scroller_stop(&_exam->scroller);
-        _exam->scroller.offset = 0.0f;
+        rde_ui_scroller_stop(&_exam->scroller);
+        _exam->scroller.offset.y = 0.0f;
     }
 }
 
@@ -596,7 +597,7 @@ void fude_wordexam_pointer_down(fude_wordexam* _exam, rde_vec_2F _screen, b8 _pe
         }
         return;
     }
-    fude_scroller_down(&_exam->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_exam->scroller, _screen, _time);
 }
 
 // Extends the stroke, or drags.
@@ -606,7 +607,7 @@ void fude_wordexam_pointer_moved(fude_wordexam* _exam, rde_vec_2F _screen, f64 _
         fude_ink_extend(&_it->ink[_exam->pen_box], fude_wordexam_local(_exam, _it, _exam->pen_box, _screen));
         return;
     }
-    fude_scroller_moved(&_exam->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_exam->scroller, _screen, _time);
 }
 
 // Ends the stroke, noting its box for Undo (every stroke of the word, however many), or ends the drag.
@@ -620,7 +621,16 @@ void fude_wordexam_pointer_up(fude_wordexam* _exam, f64 _time) {
         _exam->pen = false;
         return;
     }
-    fude_scroller_up(&_exam->scroller, _time);
+    rde_ui_scroller_pointer_up(&_exam->scroller, _time);
+}
+
+// Ends the stroke as a lift does; otherwise stops the list, which drops the press, so it is no tap.
+void fude_wordexam_pointer_cancel(fude_wordexam* _exam, f64 _time) {
+    if(_exam->pen) {
+        fude_wordexam_pointer_up(_exam, _time);
+        return;
+    }
+    rde_ui_scroller_stop(&_exam->scroller);
 }
 
 // Acts on a tap: a setup chip chooses its length or how words are asked, and a results row is kept (as its item) for
@@ -635,7 +645,7 @@ RDE_INTERNAL void fude_wordexam_tap(fude_wordexam* _exam, rde_vec_2F _at) {
             }
         }
     } else if(_exam->stage == FUDE_WORDEXAM_RESULTS && fude_wordexam_inside(_at, _exam->rows_min, _exam->rows_max)) {
-        const i32 _i = (i32)rde_math_floor_f32((_exam->rows_max.y - _at.y + _exam->scroller.offset) / FUDE_WORDEXAM_ROW);
+        const i32 _i = (i32)rde_math_floor_f32((_exam->rows_max.y - _at.y + _exam->scroller.offset.y) / FUDE_WORDEXAM_ROW);
         if(_i >= 0 && _i < (i32)_exam->count) {
             _exam->tapped = _i;
         }
@@ -648,9 +658,9 @@ void fude_wordexam_update(fude_wordexam* _exam, f32 _dt) {
     if(!_exam->open) {
         return;
     }
-    fude_scroller_update(&_exam->scroller, _dt, _exam->content_h, _exam->rows_max.y - _exam->rows_min.y);
+    fude_kit_scroller_update(&_exam->scroller, _dt, _exam->content_h, _exam->rows_max.y - _exam->rows_min.y);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_exam->scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_exam->scroller, &_at)) {
         fude_wordexam_tap(_exam, _at);
     }
     // By ear, each word is said once as it comes up.
@@ -870,7 +880,7 @@ RDE_INTERNAL void fude_wordexam_render_results(fude_wordexam* _exam, rde_window*
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_rows_top + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)(_right - _left), (u32)(_rows_top - _bottom) });
     for(u32 _i = 0; _i < _exam->count; _i++) {
-        const f32 _row_top = _rows_top - (f32)_i * FUDE_WORDEXAM_ROW + _exam->scroller.offset;
+        const f32 _row_top = _rows_top - (f32)_i * FUDE_WORDEXAM_ROW + _exam->scroller.offset.y;
         if(_row_top - FUDE_WORDEXAM_ROW > _rows_top || _row_top < _bottom) {
             continue;
         }
@@ -926,6 +936,7 @@ void fude_wordexam_render(fude_wordexam* _exam, rde_window* _window, rde_font* _
 // The screen's is_open, close, pointer and render functions, which call the word exam's own (screen.h); the pen writes.
 FUDE_SCREEN_ADAPTERS_PEN(fude_wordexam, fude_wordexam)
 FUDE_SCREEN_RENDER(fude_wordexam, fude_wordexam)
+RDE_INTERNAL void fude_wordexam_screen_cancel(any _self, f64 _now) { fude_wordexam_pointer_cancel((fude_wordexam*)_self, _now); }
 
 // Updates the exam, which reads its answers as it goes, then hands on a word tapped in the results: the word card
 // opens on it.
@@ -994,6 +1005,7 @@ const fude_screen FUDE_WORDEXAM_SCREEN = {
     .is_open = fude_wordexam_screen_is_open, .close = fude_wordexam_screen_close,
     .update = fude_wordexam_screen_update, .render = fude_wordexam_screen_render,
     .pointer_down = fude_wordexam_screen_down, .pointer_moved = fude_wordexam_screen_moved, .pointer_up = fude_wordexam_screen_up,
+    .pointer_cancel = fude_wordexam_screen_cancel,
     .rows = FUDE_WORDEXAM_BUTTON_ROWS, .row_count = 3u, .row = fude_wordexam_screen_row, .faces = fude_wordexam_screen_faces,
     .field_hint = FUDE_TEXT_COUNT,
 };

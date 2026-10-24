@@ -5,7 +5,7 @@
 
 #include "rde.h"
 #include "drawing/doc/doc.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 
 // ===========================================================================
 // Library: the screen of documents to read and write on (doc.h). It lists:
@@ -46,7 +46,7 @@ typedef struct {
 typedef struct {
     struct fude_app* app;
     b8               open;
-    fude_scroller    scroller;
+    rde_ui_scroller  scroller;
     rde_vec_2F       list_min, list_max;   // The list's area, last frame.
     f32              content_h;
     // Each book's cover once loaded (NULL: none), and whether loading was tried, so a missing one is not tried again.

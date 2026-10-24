@@ -7,7 +7,7 @@
 #include "study/chars/kanji.h"
 #include "study/chars/glyph.h"
 #include "study/services/translate.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/chars/wordsplit.h"
 
 // ===========================================================================
@@ -67,7 +67,7 @@ RDE_STRUCT {
     b8                   prepared;       // The models were asked for on this visit.
     const c8*            from;           // The language typed in ("en"...), as the visit began.
 
-    fude_scroller        scroller;
+    rde_ui_scroller      scroller;
     rde_vec_2F           list_min;       // The cards' area, last frame.
     rde_vec_2F           list_max;
     f32                  content_h;

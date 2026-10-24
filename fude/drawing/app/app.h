@@ -20,7 +20,7 @@
 // or an app's own) fills one fude_app and drives it; nearly everything in drawing/app takes it.
 //
 // THE LAYERS. Models keep what is written and know nothing of the screen (ink.h, lasso.h, notes.h...). Widgets are
-// pieces of UI that know no screen (kit.h, row.h, toolbar.h, side.h, filterbar.h, notice.h, draw.h, scroll.h).
+// pieces of UI that know no screen (kit.h, row.h, toolbar.h, side.h, filterbar.h, notice.h, draw.h).
 // Screens are what fills the screen (screen.h): each draws itself, takes the pointer, and declares its row of buttons
 // (what they say and what they do). The app owns them all, keeps the screens in order, and hands each event and frame
 // to the one on top.
@@ -129,14 +129,16 @@ b8   fude_app_update(fude_app* _app, f32 _dt);
 // caller then draws the page. fude_app_render_overlays then draws the open overlays (the welcome) over it.
 b8   fude_app_render(fude_app* _app);
 void fude_app_render_overlays(fude_app* _app);
-// Hands a pen, finger or mouse event to the screen on top, one pointer at a time. A press on the UI is the UI's.
+// Hands a pen, finger or mouse event to the screen on top, one pointer at a time, with the event's own time (seconds on
+// rde_engine_get_time_now's clock). A press on the UI is the UI's.
 void fude_app_screen_event(fude_app* _app, rde_event* _event);
 // Closes every screen, each by as many steps as it has (after an import replaced what they show).
 void fude_app_close_all(fude_app* _app);
 
-// Converts a pen position (window pixels: top-left origin, Y down), or a touch's (centre origin, Y down), to the
-// app's screen space (centre origin, Y up). Getting this wrong shows as ink mirrored about the middle of the screen.
+// Converts a window position (top-left origin, Y down) to the app's screen space (centre origin, Y up). Pen and touch
+// positions arrive in screen space already. Getting this wrong shows as ink mirrored about the middle of the screen.
 rde_vec_2F fude_app_window_to_screen(const fude_app* _app, rde_vec_2F _pixel);
+// A touch's position (screen space, whole units) as the app's points.
 rde_vec_2F fude_app_touch_to_screen(rde_vec_2I _touch);
 
 // Sets a tablet's hand on the toolbar: on, one finger writes; off, only the pen does. A notice on the page says which,

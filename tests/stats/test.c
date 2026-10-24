@@ -22,19 +22,24 @@ void rde_rendering_2d_draw_circle_border(const rde_vec_2F p, f32 r, f32 t, u32 s
 
 static void stroke(fude_ink* k, f32 x0, f32 y, u32 n) { fude_ink_begin(k, (rde_vec_2F){ x0, y }, true); for(u32 i = 1; i < n; i++) { k->sample_time += 0.05; fude_ink_extend(k, (rde_vec_2F){ x0 + 5.0f * (f32)i, y }); } fude_ink_end(k); }
 
-// A session of _cp, _days_ago, two squares scored _a and _b (one with the mistakes in _m: order,
+// A session of _cp at _t (Unix seconds), two squares scored _a and _b (one with the mistakes in _m: order,
 // direction, missing, extra).
-static void session(u32 cp, i32 days_ago, f32 a, f32 b, const u8 m[4], f32 shape) {
+static void session_at(u32 cp, u64 t, f32 a, f32 b, const u8 m[4], f32 shape) {
     fude_ink ink; fude_ink_init(&ink); stroke(&ink, 10, 100, 11);   // one stroke, ~0.5 s
     fude_score sc[2]; memset(sc, 0, sizeof sc);
     sc[0].score = a; sc[0].shape = shape; sc[0].misplaced = m[0]; sc[0].reversed = m[1]; sc[0].missing = m[2]; sc[0].extra = m[3];
     sc[1].score = b; sc[1].shape = 95.0f;
     const fude_ink* d[2] = { &ink, &ink };
-    CHECK(fude_history_save(cp, (u64)time(NULL) - (u64)days_ago * 86400u, 2, sc, d, 200.0f));
+    CHECK(fude_history_save(cp, t, 2, sc, d, 200.0f));
     fude_ink_destroy(&ink);
+}
+// The same, _days_ago.
+static void session(u32 cp, i32 days_ago, f32 a, f32 b, const u8 m[4], f32 shape) {
+    session_at(cp, (u64)time(NULL) - (u64)days_ago * 86400u, a, b, m, shape);
 }
 
 int main(int argc, char** argv) {
+    setenv("TZ", "Europe/Madrid", 1); tzset();   // a zone with daylight saving, whatever the computer's (the hours below)
     system("rm -rf saves");
     fude_kanji_db db; CHECK(fude_kanji_load(&db, argc > 1 ? argv[1] : "characters.kana"));
     fude_catalog cat; fude_catalog_init(&cat, &db);
@@ -110,21 +115,31 @@ int main(int argc, char** argv) {
     printf("portrait content %.0f, view %.0f\n", (f64)s.content_height, (f64)(s.view_top - s.view_bottom));
     CHECK(s.content_height > s.view_top - s.view_bottom);
     for(int i = 0; i < 5; i++) { fude_stats_update(&s, 0.016f); }
-    s.scroller.offset = s.content_height;   // to the end
+    s.scroller.offset.y = s.content_height;   // to the end
     fude_stats_update(&s, 0.016f);
     fude_stats_render(&s, NULL, NULL, 32.0f, top, bottom);
     CHECK(rde_arr_length(&s.hits) == 4);   // three weakest, one most improved
     const fude_stats_hit* h = &((const fude_stats_hit*)s.hits.memory)[1];
-    const rde_vec_2F at = { h->x + h->size * 0.5f, s.view_top - (h->y + h->size * 0.5f - s.scroller.offset) };
+    const rde_vec_2F at = { h->x + h->size * 0.5f, s.view_top - (h->y + h->size * 0.5f - s.scroller.offset.y) };
     fude_stats_pointer_down(&s, at, 10.0); fude_stats_pointer_up(&s, 10.05); fude_stats_update(&s, 0.016f);
     const u32* recs; u32 n, pos;
     CHECK(fude_stats_take_tap(&s, &recs, &n, &pos) && n == 3 && pos == 1 && recs[pos] == r_hi);
     CHECK(!fude_stats_take_tap(&s, &recs, &n, &pos));
-    g_window = (rde_vec_2I){ 1133, 744 }; s.scroller.offset = 0.0f;
+    g_window = (rde_vec_2I){ 1133, 744 }; s.scroller.offset.y = 0.0f;
     fude_stats_render(&s, NULL, NULL, 32.0f, 372.0f - 32.0f, -372.0f + 120.0f);
     printf("landscape content %.0f\n", (f64)s.content_height);
     CHECK(s.content_height > 0.0f);
     fude_stats_destroy(&s);
+
+    // A session's hour is read in the offset in force at it, not today's: practice at 23:30 in Madrid on a winter
+    // evening (22:30 UTC, 2026-01-15) and on a summer one (21:30 UTC, 2026-07-15) is at 23 o'clock both times. (It was
+    // read in today's offset: one of the two an hour off, whatever the season now.)
+    { const u32 at_23 = d.hours[23];
+      session_at(0x5C71, 1768516200u, 70, 70, none, 90);
+      session_at(0x5C71, 1784151000u, 70, 70, none, 90);
+      fude_stats_compute(&d, &db, &cat);
+      CHECK(d.hours[23] == at_23 + 4u);   // two squares each
+    }
 
     fude_catalog_destroy(&cat); fude_kanji_unload(&db); fude_marks_close(); fude_examlog_close();
     printf(fails ? "%d FAILURES\n" : "ALL PASSED\n", fails);

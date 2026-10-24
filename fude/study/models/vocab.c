@@ -104,7 +104,7 @@ RDE_INTERNAL void fude_vocab_words_touched(void) {
 // Word _w was just added at the end of the words: added to the map too when the map was right, so it stays right
 // (rde_hash_map_add keeps an earlier word with the same texts); else the map is made again when next needed.
 RDE_INTERNAL void fude_vocab_words_added(const fude_vocab_word* _w) {
-    const b8 _right = fude_vocab_by_text.memory != NULL && fude_vocab_by_text_at == fude_vocab_words_changed;
+    const b8 _right = rde_hash_map_is_inited(&fude_vocab_by_text) && fude_vocab_by_text_at == fude_vocab_words_changed;
     fude_vocab_words_changed++;
     fude_vocab_key _key;
     if(_right && fude_vocab_key_make(&_key, _w->written, _w->reading)) {
@@ -426,7 +426,7 @@ void fude_vocab_close(void) {
         rde_arr_free(&fude_vocab_lists);
         fude_vocab_ready = false;
     }
-    if(fude_vocab_by_text.memory != NULL) {
+    if(rde_hash_map_is_inited(&fude_vocab_by_text)) {
         rde_hash_map_free(&fude_vocab_by_text);
         rde_memset(&fude_vocab_by_text, 0, sizeof(fude_vocab_by_text));   // (made again on first use)
     }
@@ -459,7 +459,7 @@ u32 fude_vocab_find(const c8* _written, const c8* _reading) {
     if(_written == NULL || fude_vocab_count() == 0u || !fude_vocab_key_make(&_key, _written, _reading)) {
         return 0u;
     }
-    if(fude_vocab_by_text.memory == NULL) {
+    if(!rde_hash_map_is_inited(&fude_vocab_by_text)) {
         fude_vocab_by_text = rde_hash_map_new(sizeof(fude_vocab_key), sizeof(u32), fude_vocab_key_hash, fude_vocab_key_compare, NULL,
                                               rde_memory_allocator_get_default_std());
         fude_vocab_by_text_at = fude_vocab_words_changed - 1u;   // (not right yet)

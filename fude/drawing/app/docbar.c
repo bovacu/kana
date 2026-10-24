@@ -388,11 +388,9 @@ void fude_docbar_create(fude_docbar* _bar, rde_ui_node* _root, fude_app* _app) {
     rde_ui_node_add_child(_p, rde_ui_label_as_node(_bar->count));
 
     _bar->field = rde_ui_text_editor_create(fude_kit_font(), NULL);
-    rde_ui_text_editor_set_multiline(_bar->field, false);
     rde_ui_text_editor_set_font_size(_bar->field, FUDE_DOCBAR_PX);
     rde_ui_text_editor_set_max_chars(_bar->field, 64u);
     rde_ui_text_editor_set_content_insets(_bar->field, 12.0f, 6.0f, 12.0f, 6.0f);
-    rde_ui_text_editor_add_plugin(_bar->field, rde_ui_text_editor_plugin_ime_get());   // Input methods (Japanese...).
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_bar->field), _bar);
     rde_ui_text_editor_set_on_submit(_bar->field, fude_docbar_on_submit);
     fude_kit_field_box(_p, _bar->field);

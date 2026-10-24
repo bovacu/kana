@@ -474,10 +474,8 @@ RDE_INTERNAL void fude_zoom_page_render_marks(fude_zoom_page* _page, fude_zoom_v
             rde_rendering_2d_draw_rounded_rectangle_with_border(_pc, (rde_vec_2F){ FUDE_ZOOM_PAGE_PREVIEW_W + 8.0f, FUDE_ZOOM_PAGE_PREVIEW_H + 8.0f }, 0.2f, 8u,
                                                                 (rde_color){ 0, 0, 0, 0 }, 1.0f, _t->outline, NULL);
             if(_tex != NULL) {
-                // (the whole of it: a render texture's own corners are not set — drawn by its pixels)
-                const rde_vec_2F _all = { FUDE_ZOOM_PAGE_PREVIEW_W * FUDE_ZOOM_PAGE_PREVIEW_PX, FUDE_ZOOM_PAGE_PREVIEW_H * FUDE_ZOOM_PAGE_PREVIEW_PX };
-                rde_rendering_2d_draw_texture_partial_2(_tex, (rde_vec_3F){ _pc.x, _pc.y, 0.0f }, (rde_vec_2F){ 1.0f / FUDE_ZOOM_PAGE_PREVIEW_PX, -1.0f / FUDE_ZOOM_PAGE_PREVIEW_PX },   // (its rows bottom up)
-                                                        0.0f, (rde_color){ 255, 255, 255, 255 }, (rde_vec_2F){ 0.0f, 0.0f }, _all);
+                rde_rendering_2d_draw_texture_2(_tex, (rde_vec_3F){ _pc.x, _pc.y, 0.0f }, (rde_vec_2F){ 1.0f / FUDE_ZOOM_PAGE_PREVIEW_PX, -1.0f / FUDE_ZOOM_PAGE_PREVIEW_PX },   // (its rows bottom up)
+                                                0.0f, (rde_color){ 255, 255, 255, 255 });
             }
         }
         // A round card with a chevron pointing out.

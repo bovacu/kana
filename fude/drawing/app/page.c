@@ -289,7 +289,7 @@ RDE_INTERNAL void fude_page_pen_event(fude_page_input* _page, rde_event* _event)
 
         case RDE_EVENT_TYPE_PEN_DOWN: {
             const rde_event_pen* _pen    = &_event->data.pen_event_data;
-            const rde_vec_2F     _screen = fude_app_window_to_screen(_app, _pen->position);
+            const rde_vec_2F     _screen = _pen->position;
             fude_page_pen_came(_page);
             _ink->pen_seen    = true;
             _ink->eraser      = _pen->eraser;
@@ -315,7 +315,7 @@ RDE_INTERNAL void fude_page_pen_event(fude_page_input* _page, rde_event* _event)
             // This writes only while the tip is down (write_moved draws only then): a pen hovering in proximity still
             // reports motion, and inking on hover would be a mess.
             _ink->sample_time = (f64)_event->time_stamp * 1e-9;   // SDL's event time, in nanoseconds.
-            fude_page_write_moved(_page, fude_app_window_to_screen(_app, _event->data.pen_event_data.position));
+            fude_page_write_moved(_page, _event->data.pen_event_data.position);
         } break;
 
         case RDE_EVENT_TYPE_PEN_UP: {

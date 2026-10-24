@@ -75,7 +75,7 @@ b8 fude_look_is(const c8* _arg, const c8* _flag) {
     return _arg != NULL && rde_strcmp(_arg, _flag) == 0;
 }
 
-// Whether a screenshot is being taken, so the real mouse is ignored.
+// Whether a screenshot is being taken, so the real mouse is ignored (its events never reach RDE: fude_look_args).
 b8 fude_look_owns_pointer(void) {
     return fude_look.shot != NULL;
 }
@@ -130,7 +130,9 @@ void fude_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--theme")) != NULL)          { fude_look.theme = (i32)rde_strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--ui-size")) != NULL)        { fude_look.ui_size = (i32)rde_strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--note-card")) != NULL)      { fude_look.note_card = _v; }
-        if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; fude_clock_use_frames(); }   // Same picture every run (clock.h).
+        // The same picture every run: the clock counts frames (clock.h), and the real mouse is ignored, as where it rests
+        // over the window would hover what is under it.
+        if((_v = fude_look_value(_a, "--shot")) != NULL)           { fude_look.shot = _v; fude_clock_use_frames(); rde_input_set_mouse_ignored(true); }
         if((_v = fude_look_value(_a, "--shot-at")) != NULL)        { fude_look.shot_at = (u32)(i32)rde_strtol(_v, NULL, 10); }
         if((_v = fude_look_value(_a, "--data-export")) != NULL)    { fude_look.data_export = _v; }
         if((_v = fude_look_value(_a, "--data-import")) != NULL)    { fude_look.data_import = _v; }

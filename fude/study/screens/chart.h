@@ -6,7 +6,7 @@
 #include "rde.h"
 #include "study/chars/kanji.h"
 #include "study/chars/glyph.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/models/select.h"
 #include "lang/lang.h"
 
@@ -55,7 +55,7 @@ RDE_STRUCT {
     const fude_kanji_db*              db;
     const fude_lang_chart_def*            def;        // The language's table (NULL when it has none).
     fude_glyph                        glyph;
-    fude_scroller                     scroller;
+    rde_ui_scroller                   scroller;
     b8                                open;
 
     rde_arr TYPE(u32)                 list;       // Record indices, in the chart's order (the sections in turn).

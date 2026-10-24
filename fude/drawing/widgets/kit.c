@@ -41,179 +41,6 @@ rde_font* fude_kit_font(void) {
 
 // --- styles -------------------------------------------------------------------
 
-// Each icon's left bearing, in Phosphor's units (1024 to an em): where its ink starts. A centred label lands a glyph
-// its whole bearing right of centre: the text engine centres the line by its ink's right edge (half the bearing),
-// then justifies the row by its ink span (the other half). fude_kit_icon moves it back. Measured from
-// assets/fonts/Phosphor-Regular.ttf for the icons in icons.h, and sorted by code point, because it is binary-searched.
-// Fill draws the same shapes filled. An icon not in the table is left where it lands.
-static const struct { u32 codepoint; u16 bearing; } FUDE_KIT_ICON_BEARINGS[] = {
-    { 0xE010u, 128 },
-    { 0xE016u,  96 },
-    { 0xE036u, 128 },
-    { 0xE038u,  64 },
-    { 0xE058u, 128 },
-    { 0xE06Cu, 128 },
-    { 0xE094u, 128 },
-    { 0xE0E4u, 160 },
-    { 0xE0E6u,  64 },
-    { 0xE0EAu, 224 },
-    { 0xE0F8u,  96 },
-    { 0xE10Au, 128 },
-    { 0xE10Eu,  96 },
-    { 0xE136u, 160 },
-    { 0xE138u, 288 },
-    { 0xE13Au, 352 },
-    { 0xE13Cu, 160 },
-    { 0xE144u, 128 },
-    { 0xE146u, 128 },
-    { 0xE148u, 128 },
-    { 0xE150u,  96 },
-    { 0xE156u,  96 },
-    { 0xE182u, 128 },
-    { 0xE184u,  96 },
-    { 0xE18Au,  96 },
-    { 0xE18Cu,  96 },
-    { 0xE196u, 160 },
-    { 0xE198u, 160 },
-    { 0xE19Au,  96 },
-    { 0xE1CAu, 128 },
-    { 0xE1CCu, 128 },
-    { 0xE1D6u,  64 },
-    { 0xE1E6u, 160 },
-    { 0xE1FCu, 192 },
-    { 0xE1FEu, 192 },
-    { 0xE21Eu,  96 },
-    { 0xE220u,  32 },
-    { 0xE224u,  32 },
-    { 0xE230u, 160 },
-    { 0xE236u, 160 },
-    { 0xE242u, 160 },
-    { 0xE244u, 160 },
-    { 0xE24Au,  96 },
-    { 0xE256u,  96 },
-    { 0xE258u,  96 },
-    { 0xE266u,  96 },
-    { 0xE272u,  64 },
-    { 0xE296u, 160 },
-    { 0xE29Au, 128 },
-    { 0xE2A2u,  96 },
-    { 0xE2A6u,  96 },
-    { 0xE2C2u, 128 },
-    { 0xE2CAu,  96 },
-    { 0xE2CEu,  96 },
-    { 0xE2D8u,  64 },
-    { 0xE2DCu, 160 },
-    { 0xE2F0u, 128 },
-    { 0xE2F2u, 128 },
-    { 0xE2F6u, 127 },
-    { 0xE308u, 128 },
-    { 0xE30Cu,  95 },
-    { 0xE31Au,  96 },
-    { 0xE326u, 192 },
-    { 0xE32Au, 128 },
-    { 0xE34Cu, 128 },
-    { 0xE392u,  32 },
-    { 0xE398u,  32 },
-    { 0xE39Cu,  96 },
-    { 0xE39Eu, 160 },
-    { 0xE3ACu, 128 },
-    { 0xE3B4u, 128 },
-    { 0xE3D0u, 256 },
-    { 0xE3D4u, 128 },
-    { 0xE3DCu,  64 },
-    { 0xE3EEu,  96 },
-    { 0xE3F0u,  96 },
-    { 0xE3F6u,  96 },
-    { 0xE422u,  96 },
-    { 0xE432u,  96 },
-    { 0xE444u, 160 },
-    { 0xE44Au,  64 },
-    { 0xE45Eu, 128 },
-    { 0xE466u,  96 },
-    { 0xE468u,  32 },
-    { 0xE46Au,  64 },
-    { 0xE46Cu, 160 },
-    { 0xE47Cu,  95 },
-    { 0xE48Au, 192 },
-    { 0xE4A2u,  96 },
-    { 0xE4A6u, 128 },
-    { 0xE4ACu,  64 },
-    { 0xE4B0u,  64 },
-    { 0xE4B2u,  64 },
-    { 0xE4F6u, 192 },
-    { 0xE506u, 128 },
-    { 0xE50Au, 128 },
-    { 0xE50Cu,  96 },
-    { 0xE50Eu, 128 },
-    { 0xE510u,  96 },
-    { 0xE512u, 128 },
-    { 0xE538u, 160 },
-    { 0xE53Au,  32 },
-    { 0xE546u, 192 },
-    { 0xE5A2u, 128 },
-    { 0xE5ACu, 128 },
-    { 0xE5F4u,  32 },
-    { 0xE606u,  64 },
-    { 0xE626u,  96 },
-    { 0xE62Cu,   0 },
-    { 0xE654u,  96 },
-    { 0xE67Cu,  32 },
-    { 0xE67Eu,  32 },
-    { 0xE682u, 160 },
-    { 0xE69Au, 128 },
-    { 0xE69Eu, 128 },
-    { 0xE6B8u,  64 },
-    { 0xE6C8u,  96 },
-    { 0xE6CEu, 128 },
-    { 0xE6D2u, 128 },
-    { 0xE6ECu,  32 },
-    { 0xE6EEu,  32 },
-    { 0xE702u, 160 },
-    { 0xE742u,  96 },
-    { 0xE746u, 128 },
-    { 0xE74Eu,  32 },
-    { 0xE758u, 160 },
-    { 0xE792u,  96 },
-    { 0xE794u, 192 },
-    { 0xE7BCu,  96 },
-    { 0xE802u, 160 },
-    { 0xE806u, 132 },
-    { 0xEA0Eu, 224 },
-    { 0xEA38u, 160 },
-    { 0xEA9Au,  64 },
-    { 0xEADCu, 128 },
-    { 0xEAE0u,  96 },
-    { 0xEAE2u, 320 },
-    { 0xEAF0u, 160 },
-    { 0xEB06u,  64 },
-    { 0xEB58u,  95 },
-    { 0xEBB6u, 128 },
-    { 0xEC5Eu,  64 },
-    { 0xEC76u,  64 },
-    { 0xEDC6u,  64 },
-    { 0xEDF2u, 192 },
-};
-
-// Returns the icon's left bearing in ems, looked up in FUDE_KIT_ICON_BEARINGS by the glyph's first character; 0 for
-// anything not in the table (Phosphor's icons are in the Private Use Area, so a letter is never found).
-f32 fude_kit_icon_bearing(const c8* _glyph) {
-    u32       _len;
-    const u32 _cp = fude_utf8_decode(_glyph, &_len);
-    u32 _lo = 0, _hi = (u32)(sizeof(FUDE_KIT_ICON_BEARINGS) / sizeof(FUDE_KIT_ICON_BEARINGS[0]));
-    while(_lo < _hi) {
-        const u32 _mid = (_lo + _hi) / 2u;
-        if(FUDE_KIT_ICON_BEARINGS[_mid].codepoint < _cp) { _lo = _mid + 1u; }
-        else                                                 { _hi = _mid; }
-    }
-    return _lo < sizeof(FUDE_KIT_ICON_BEARINGS) / sizeof(FUDE_KIT_ICON_BEARINGS[0]) && FUDE_KIT_ICON_BEARINGS[_lo].codepoint == _cp
-         ? (f32)FUDE_KIT_ICON_BEARINGS[_lo].bearing / 1024.0f : 0.0f;
-}
-
-// Returns how far left to move an icon _px tall: its bearing times its em, negative in a right-to-left UI.
-f32 fude_kit_icon_back(const c8* _glyph, f32 _px) {
-    return fude_kit_icon_bearing(_glyph) * _px * FUDE_KIT_EM * (fude_draw_is_rtl() ? -1.0f : 1.0f);
-}
-
 // Returns RDE's default style with _tint and _radius.
 rde_ui_style fude_kit_style(rde_color _tint, f32 _radius) {
     rde_ui_style _s  = rde_ui_style_default();
@@ -468,8 +295,9 @@ RDE_INTERNAL b8 fude_kit_is_phosphor(const c8* _glyph) {
 
 // Gives _button an icon (from icons.h, or a character drawn in the UI font), _px tall, set out as _at says: alone,
 // over its label (a row's buttons), or before it (a list's rows, left-aligned). Calling it again on the same button
-// changes the icon. A Phosphor icon (fude_kit_is_phosphor) is moved back by its bearing; a character is raised so its
-// ink is centred. A directional Phosphor icon is turned in a right-to-left UI (fude_draw_icon_dir).
+// changes the icon. A character is raised so its ink is centred (a Phosphor icon is centred as it is drawn: its
+// advance box, which its design centres it in). A directional Phosphor icon is turned in a right-to-left UI
+// (fude_draw_icon_dir).
 void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _at, f32 _px) {
     const b8      _phosphor = fude_kit_is_phosphor(_glyph);
     rde_ui_label* _icon     = fude_kit_icon_of(_button);
@@ -491,18 +319,16 @@ void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _
     rde_ui_label_set_text(_icon, _phosphor ? fude_draw_icon_dir(_glyph) : _glyph);   // Turned right to left.
 
     rde_ui_label* _text = _button->internal_label;
-    // Move it back left by the icon's bearing (see FUDE_KIT_ICON_BEARINGS and fude_kit_icon_back).
-    const f32 _back = _phosphor ? fude_kit_icon_back(_glyph, _px) : 0.0f;
     // Raise a letter so it is centred on its ink (fude_kit_glyph_rise).
     const f32 _up = _phosphor ? 0.0f : fude_kit_glyph_rise(_font, _glyph, _px);
     if(_at == FUDE_KIT_ICON_ONLY) {
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, _up }, (rde_vec_2F){ _back, -_up });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ 0.0f, _up }, (rde_vec_2F){ 0.0f, -_up });
         if(_text != NULL) {
             rde_ui_node_set_active(rde_ui_label_as_node(_text), false);
         }
     } else if(_at == FUDE_KIT_ICON_ABOVE) {
         // The icon in the top of the button, and the label on a line under it, at caption size.
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ -_back, 20.0f + _up }, (rde_vec_2F){ _back, 3.0f - _up });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ 0.0f, 20.0f + _up }, (rde_vec_2F){ 0.0f, 3.0f - _up });
         if(_text != NULL) {
             fude_kit_pin(rde_ui_label_as_node(_text), (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 0.0f }, (rde_vec_2F){ 3.0f, 5.0f }, (rde_vec_2F){ 3.0f, -21.0f });
             rde_ui_label_set_font_scale(_text, FUDE_KIT_CAPTION_PX / (f32)FUDE_KIT_FONT_SIZE);
@@ -510,7 +336,7 @@ void fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_ICON_AT_ _
     } else {
         // The icon at the left, 10 units in, and the label left-aligned after it.
         const f32 _em = _px * FUDE_KIT_EM;
-        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 0.0f, 1.0f }, (rde_vec_2F){ 10.0f - _back, _up }, (rde_vec_2F){ -(10.0f + _em - _back), -_up });
+        fude_kit_pin(_n, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 0.0f, 1.0f }, (rde_vec_2F){ 10.0f, _up }, (rde_vec_2F){ -(10.0f + _em), -_up });
         if(_text != NULL) {
             fude_kit_pin(rde_ui_label_as_node(_text), (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ 20.0f + _em, 0.0f }, (rde_vec_2F){ 8.0f, 0.0f });
             rde_ui_label_set_alignment(_text, RDE_UI_LABEL_H_ALIGN_LEFT, RDE_UI_LABEL_V_ALIGN_MIDDLE);
@@ -814,8 +640,6 @@ rde_ui_label* fude_kit_form_label(const fude_kit_form* _form, rde_ui_node* _pare
 rde_ui_text_editor* fude_kit_form_field(const fude_kit_form* _form, rde_ui_node* _parent, u32 _max_chars, const c8* _placeholder, any _user_data,
                                         rde_ui_value_changed_callback _on_change, rde_ui_value_changed_callback _on_submit) {
     rde_ui_text_editor* _f = rde_ui_text_editor_create(_form->font, NULL);
-    rde_ui_text_editor_set_multiline(_f, false);
-    rde_ui_text_editor_set_allow_multicursor(_f, false);
     rde_ui_text_editor_set_font_size(_f, FUDE_KIT_FORM_FIELD_PX);
     rde_ui_text_editor_set_max_chars(_f, _max_chars);
     rde_ui_text_editor_set_content_insets(_f, 10.0f, 8.0f, 10.0f, 8.0f);

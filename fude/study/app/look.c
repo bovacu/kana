@@ -471,10 +471,10 @@ void fude_study_look_frame(fude_app* _app) {
         fude_wordcard_translate(_app->ui);
     }
     if(_frame == 30u && fude_study_look.scroll > 0.0f) {
-        _study->stats->scroller.offset      = fude_study_look.scroll;
-        _study->album->scroller.offset      = fude_study_look.scroll;
-        _study->album->page_scroller.offset = fude_study_look.scroll;
-        _study->scan->taps.offset           = fude_study_look.scroll;   // the panel of translations
+        _study->stats->scroller.offset.y      = fude_study_look.scroll;
+        _study->album->scroller.offset.y      = fude_study_look.scroll;
+        _study->album->page_scroller.offset.y = fude_study_look.scroll;
+        _study->scan->taps.offset.y           = fude_study_look.scroll;   // the panel of translations
         rde_ui_scroll_area_set_scroll(_app->ui->side.settings_body, (rde_vec_2F){ 0.0f, fude_study_look.scroll });   // Settings, on a phone
     }
     if(_frame == 10u && fude_study_look.welcome >= 0) {

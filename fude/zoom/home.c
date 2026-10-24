@@ -39,6 +39,7 @@
 // canvases' title and New, and no welcome.
 void fude_zoom_home_init(fude_zoom_home* _home, struct fude_app* _app) {
     rde_memset(_home, 0, sizeof(*_home));
+    fude_kit_scroller_init(&_home->scroller);
     _home->app           = _app;
     _home->cards         = rde_arr_new(sizeof(fude_zoom_home_card), rde_memory_allocator_get_default_std());
     _home->boxes         = rde_arr_new(sizeof(fude_zoom_home_box), rde_memory_allocator_get_default_std());
@@ -83,8 +84,8 @@ void fude_zoom_home_open(fude_zoom_home* _home) {
     if(_f == NULL || _f->kind != FUDE_NOTE_FOLDER) {
         _home->folder = 0u;   // The folder it showed gone since.
     }
-    fude_scroller_stop(&_home->scroller);
-    _home->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_home->scroller);
+    _home->scroller.offset.y = 0.0f;
 }
 
 // See the header. The covers are unloaded.
@@ -92,7 +93,7 @@ void fude_zoom_home_close(fude_zoom_home* _home) {
     _home->open    = false;
     _home->welcome = false;
     _home->held    = FUDE_ZOOM_HOME_NONE;
-    fude_scroller_stop(&_home->scroller);
+    rde_ui_scroller_stop(&_home->scroller);
     fude_zoom_home_drop_covers(_home);   // Pictures not needed on the canvas.
 }
 
@@ -197,8 +198,8 @@ RDE_INTERNAL void fude_zoom_home_tap(fude_zoom_home* _home, rde_vec_2F _at) {
     if(_cards[_i].kind == FUDE_NOTE_FOLDER) {
         _home->folder   = _cards[_i].note;
         _home->gathered = false;
-        fude_scroller_stop(&_home->scroller);
-        _home->scroller.offset = 0.0f;
+        rde_ui_scroller_stop(&_home->scroller);
+        _home->scroller.offset.y = 0.0f;
         return;
     }
     fude_notes_open(_app->notes, _cards[_i].note);   // The session opens it.
@@ -226,7 +227,7 @@ RDE_INTERNAL void fude_zoom_home_pointer_down(fude_zoom_home* _home, rde_vec_2F 
     _home->pressing    = true;
     _home->press_moved = false;
     if(!_home->welcome) {
-        fude_scroller_down(&_home->scroller, _at, _now);
+        rde_ui_scroller_pointer_down(&_home->scroller, _at, _now);
     }
 }
 
@@ -236,7 +237,7 @@ RDE_INTERNAL void fude_zoom_home_pointer_moved(fude_zoom_home* _home, rde_vec_2F
         _home->press_moved = true;
     }
     if(!_home->welcome) {
-        fude_scroller_moved(&_home->scroller, _at, _now);
+        rde_ui_scroller_pointer_moved(&_home->scroller, _at, _now);
     }
 }
 
@@ -261,7 +262,7 @@ RDE_INTERNAL void fude_zoom_home_pointer_up(fude_zoom_home* _home, f64 _now) {
         }
         return;
     }
-    fude_scroller_up(&_home->scroller, _now);
+    rde_ui_scroller_pointer_up(&_home->scroller, _now);
 }
 
 // Once a frame: the cards gathered again when the notes or the folder changed, the scroller moved, a card held still
@@ -278,7 +279,7 @@ RDE_INTERNAL void fude_zoom_home_update(fude_zoom_home* _home, f32 _dt) {
         _home->gathered_folder = _home->folder;
         _home->held            = FUDE_ZOOM_HOME_NONE;
     }
-    fude_scroller_update(&_home->scroller, _dt, _home->content_h, _home->list_max.y - _home->list_min.y);
+    fude_kit_scroller_update(&_home->scroller, _dt, _home->content_h, _home->list_max.y - _home->list_min.y);
     // A card held still: its buttons (the lift that follows makes no tap). Render on demand: a hand held still sends
     // nothing, so the hold's end is a timer.
     b8 _swallow = false;
@@ -296,7 +297,7 @@ RDE_INTERNAL void fude_zoom_home_update(fude_zoom_home* _home, f32 _dt) {
         }
     }
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_home->scroller, &_at) && !_swallow && !_home->welcome) {
+    if(rde_ui_scroller_take_tap(&_home->scroller, &_at) && !_swallow && !_home->welcome) {
         if(rde_engine_get_time_now() - _home->press_at < FUDE_ZOOM_HOME_HOLD || _home->held != FUDE_ZOOM_HOME_NONE) {
             fude_zoom_home_tap(_home, _at);
         }
@@ -425,7 +426,7 @@ RDE_INTERNAL void fude_zoom_home_render(fude_zoom_home* _home, rde_window* _wind
         const fude_zoom_home_card* _c = &_cards[_i];
         const u32 _row = _i / _cols, _col = _i % _cols;
         const f32 _x0  = _left + (f32)_col * (_cw + FUDE_ZOOM_HOME_GAP);
-        const f32 _top_y = _y - 6.0f + _home->scroller.offset - (f32)_row * (_ch + FUDE_ZOOM_HOME_GAP);
+        const f32 _top_y = _y - 6.0f + _home->scroller.offset.y - (f32)_row * (_ch + FUDE_ZOOM_HOME_GAP);
         _boxes[_i] = (fude_zoom_home_box){ { _x0, _top_y - _ch }, { _x0 + _cw, _top_y } };
         if(_top_y - _ch > _y || _top_y < _bottom) {
             continue;
@@ -537,8 +538,8 @@ RDE_INTERNAL void fude_zoom_home_back(fude_zoom_home* _home) {
     if(_f != NULL) {
         _home->folder   = _f->parent;
         _home->gathered = false;
-        fude_scroller_stop(&_home->scroller);
-        _home->scroller.offset = 0.0f;
+        rde_ui_scroller_stop(&_home->scroller);
+        _home->scroller.offset.y = 0.0f;
         return;
     }
     fude_zoom_home_close(_home);

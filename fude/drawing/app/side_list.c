@@ -291,8 +291,7 @@ void fude_side_build_notes(fude_ui* _ui) {
         rde_ui_label_set_font(_dots6, _ui->font_icons != NULL ? _ui->font_icons : _ui->font);
         rde_ui_label_set_alignment(_dots6, RDE_UI_LABEL_H_ALIGN_CENTER, RDE_UI_LABEL_V_ALIGN_MIDDLE);
         rde_ui_label_set_color(_dots6, _t->grip);
-        const f32 _back = fude_kit_icon_back(FUDE_ICON_GRIP_V, 14.0f);   // Centred.
-        fude_kit_place(rde_ui_label_as_node(_dots6), (rde_vec_2F){ FUDE_SIDE_HANDLE_W * 0.5f - _back, FUDE_SIDE_NOTE_H * 0.5f }, (rde_vec_2F){ FUDE_SIDE_HANDLE_W, FUDE_SIDE_NOTE_H });
+        fude_kit_place(rde_ui_label_as_node(_dots6), (rde_vec_2F){ FUDE_SIDE_HANDLE_W * 0.5f, FUDE_SIDE_NOTE_H * 0.5f }, (rde_vec_2F){ FUDE_SIDE_HANDLE_W, FUDE_SIDE_NOTE_H });
 
         c8 _label[FUDE_NOTE_NAME + 32];
         if(_folder) {

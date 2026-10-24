@@ -6,7 +6,7 @@
 #include "rde.h"
 #include "study/chars/kanji.h"
 #include "study/chars/glyph.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/models/vocab.h"
 
 // ===========================================================================
@@ -95,7 +95,7 @@ RDE_STRUCT {
     u32                  widths_text;     // The fude_text_revision then.
     const rde_font*      widths_font;     // The font and its pixel size then.
     f32                  widths_px;
-    fude_scroller        scroll;      // The words' scrolling and their taps.
+    rde_ui_scroller      scroll;      // The words' scrolling and their taps.
     // A swipe across the screen goes to the next character (a swipe to the left) or the one before. A press is taken
     // as a swipe when it first moves as far as a drag, mostly sideways; from then on it presses and scrolls nothing.
     u8                   swipe;       // A FUDE_VIEWER_SWIPE_.

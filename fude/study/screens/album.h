@@ -6,7 +6,7 @@
 #include "rde.h"
 #include "study/chars/kanji.h"
 #include "study/chars/glyph.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/models/history.h"
 #include "study/models/examlog.h"
 
@@ -76,14 +76,14 @@ RDE_STRUCT {
     u32                             sessions;       // Sessions over all entries.
     u32                             loaded_revision;
     b8                              loaded;
-    fude_scroller                   scroller;
+    rde_ui_scroller                 scroller;
 
     // A character's page (while page_open).
     b8                              page_open;
     u32                             page_codepoint;
     u32                             page_record;
     fude_history                    history;
-    fude_scroller                   page_scroller;
+    rde_ui_scroller                 page_scroller;
     i32                             selected;       // The square being replayed (in history.squares), or -1.
     i32                             selected_answer;// Or the exam answer being replayed (in page_exams), or -1.
     f64                             replay_start;

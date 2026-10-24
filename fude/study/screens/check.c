@@ -31,6 +31,7 @@
 // Sets Check up closed, over the character data and Browse's catalog, which it borrows.
 void fude_check_init(fude_check* _check, const fude_kanji_db* _db, const fude_catalog* _catalog) {
     rde_memset(_check, 0, sizeof(*_check));
+    fude_kit_scroller_init(&_check->taps);
     _check->db      = _db;
     _check->catalog = _catalog;
     fude_glyph_init(&_check->glyph, _db);
@@ -120,7 +121,7 @@ b8 fude_check_open(fude_check* _check, const fude_ink* _ink, const u32* _ids, u3
 // Closes Check, and drops any tap in progress.
 void fude_check_close(fude_check* _check) {
     _check->open = false;
-    fude_scroller_stop(&_check->taps);
+    rde_ui_scroller_stop(&_check->taps);
 }
 
 // Scores character _c's strokes against its chosen candidate. With no candidate chosen, its score stays empty.
@@ -333,20 +334,20 @@ u32 fude_check_records(const fude_check* _check, u32* _out, u32 _max, b8 _unique
 
 // The pointer goes to a scroller that scrolls nothing: it is used only to tell a tap from a drag, the way the lists do.
 void fude_check_pointer_down(fude_check* _check, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_down(&_check->taps, _screen, _time);
+    rde_ui_scroller_pointer_down(&_check->taps, _screen, _time);
 }
 
 // Follows the pointer, so that a drag is not taken for a tap.
 void fude_check_pointer_moved(fude_check* _check, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_moved(&_check->taps, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_check->taps, _screen, _time);
 }
 
 // On a tap: a candidate's cell chooses that candidate; else a character's box, in the writing or in the reading, looks
 // closer at that character. Taps are ignored while reading.
 void fude_check_pointer_up(fude_check* _check, f64 _time) {
-    fude_scroller_up(&_check->taps, _time);
+    rde_ui_scroller_pointer_up(&_check->taps, _time);
     rde_vec_2F _screen;
-    if(!fude_scroller_take_tap(&_check->taps, &_screen) || _check->pending) {
+    if(!rde_ui_scroller_take_tap(&_check->taps, &_screen) || _check->pending) {
         return;   // It was not a tap, or the reading is not ready.
     }
     const fude_check_char* _c = fude_check_at(_check, _check->selected);

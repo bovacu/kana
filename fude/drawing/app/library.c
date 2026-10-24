@@ -33,6 +33,7 @@
 // Sets the Library up, closed, for _app, with an empty list of the learner's documents.
 void fude_library_init(fude_library* _lib, fude_app* _app) {
     rde_memset(_lib, 0, sizeof(*_lib));
+    fude_kit_scroller_init(&_lib->scroller);
     _lib->app = _app;
     _lib->own = rde_arr_new(sizeof(fude_library_own), rde_memory_allocator_get_default_std());
 }
@@ -51,14 +52,14 @@ void fude_library_destroy(fude_library* _lib) {
 // Opens the Library scrolled to its top.
 void fude_library_open(fude_library* _lib) {
     _lib->open = true;
-    fude_scroller_stop(&_lib->scroller);
-    _lib->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_lib->scroller);
+    _lib->scroller.offset.y = 0.0f;
 }
 
 // Closes the Library, stopping any scroll still moving.
 void fude_library_close(fude_library* _lib) {
     _lib->open = false;
-    fude_scroller_stop(&_lib->scroller);
+    rde_ui_scroller_stop(&_lib->scroller);
 }
 
 // Returns how many of the app's books (extension.h) are listed: all of them, up to FUDE_LIBRARY_BOOKS.
@@ -146,17 +147,17 @@ RDE_INTERNAL void fude_library_tap(fude_library* _lib, rde_vec_2F _at) {
 
 // The pointer goes to the scroller; a tap is taken from it in the update.
 void fude_library_pointer_down(fude_library* _lib, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_down(&_lib->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_lib->scroller, _screen, _time);
 }
 
 // Scrolls the list with the pointer.
 void fude_library_pointer_moved(fude_library* _lib, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_moved(&_lib->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_lib->scroller, _screen, _time);
 }
 
 // Lets go of the list; it may keep gliding.
 void fude_library_pointer_up(fude_library* _lib, f64 _time) {
-    fude_scroller_up(&_lib->scroller, _time);
+    rde_ui_scroller_pointer_up(&_lib->scroller, _time);
 }
 
 // Takes an import that came in, moves the scroll on, and opens what was tapped.
@@ -168,9 +169,9 @@ void fude_library_update(fude_library* _lib, f32 _dt) {
         fude_app_close_all(_lib->app);   // What came in is on the page, so the screens close.
         return;
     }
-    fude_scroller_update(&_lib->scroller, _dt, _lib->content_h, _lib->list_max.y - _lib->list_min.y);
+    fude_kit_scroller_update(&_lib->scroller, _dt, _lib->content_h, _lib->list_max.y - _lib->list_min.y);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_lib->scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_lib->scroller, &_at)) {
         fude_library_tap(_lib, _at);
     }
 }
@@ -228,7 +229,7 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
     fude_library_gather(_lib);
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width + 8u, (u32)rde_math_max_f32(1.0f, _y - _bottom) });
-    f32 _at = _y + _lib->scroller.offset;   // The next thing's top.
+    f32 _at = _y + _lib->scroller.offset.y;   // The next thing's top.
 
     // The app's books.
     const u32 _books = fude_library_book_count(_lib);
@@ -307,7 +308,7 @@ void fude_library_render(fude_library* _lib, rde_window* _window, rde_font* _fon
         _at -= FUDE_LIBRARY_OWN_H + 8.0f;
     }
     rde_rendering_end_clipping_rect();
-    _lib->content_h = _y + _lib->scroller.offset - _at;
+    _lib->content_h = _y + _lib->scroller.offset.y - _at;
 }
 
 // --- the screen (screen.h): its row ------------------------------------------------------

@@ -11,7 +11,7 @@
 // scroller's fling, the canvas's flick and its long press, a notice. Last, 20000 random frames, each checked against the
 // whole rule written out again as its properties.
 #include "drawing/base/redraw.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "drawing/widgets/notice.h"
 #include "drawing/ink/canvas.h"
 #include <stdio.h>
@@ -276,28 +276,30 @@ static void test_check(void) {
 static void test_sources(void) {
     fude_redraw_set_continuous(false);
 
-    // The scroller's fling (drawing/widgets/scroll.c): drawn while it moves the list, still once it has stopped.
+    // A list's fling (RDE's rde_ui_scroller, moved by drawing/widgets/kit.h: fude_kit_scroller_update): drawn while it
+    // moves the list, still once it has stopped.
     settle();
     {
-        fude_scroller _s;
-        rde_memset(&_s, 0, sizeof(_s));
-        fude_scroller_down(&_s, (rde_vec_2F){ 0.0f, 0.0f }, now_s);
+        rde_ui_scroller _s;
+        fude_kit_scroller_init(&_s);
+        fude_kit_scroller_update(&_s, 1.0f / 64.0f, 1.0e6f, 100.0f);   // (its sizes, which a drag is kept within)
+        rde_ui_scroller_pointer_down(&_s, (rde_vec_2F){ 0.0f, 0.0f }, now_s);
         for(u32 _k = 1; _k <= 6u; _k++) {
-            fude_scroller_moved(&_s, (rde_vec_2F){ 0.0f, 20.0f * (f32)_k }, now_s + 0.01 * (f64)_k);
+            rde_ui_scroller_pointer_moved(&_s, (rde_vec_2F){ 0.0f, 20.0f * (f32)_k }, now_s + 0.01 * (f64)_k);
         }
-        fude_scroller_up(&_s, now_s + 0.07);
-        CHECK(rde_math_abs_f32(_s.velocity) > 1.0f);
+        rde_ui_scroller_pointer_up(&_s, now_s + 0.07);
+        CHECK(_s.velocity.y > 1000.0f);   // (100 over the last 0.05 s... 2,000 a second)
         settle();
         u32 _moving = 0;
-        for(u32 _k = 0; _k < 2000u && rde_math_abs_f32(_s.velocity) > 1.0f; _k++) {
-            fude_scroller_update(&_s, 1.0f / 64.0f, 1.0e6f, 100.0f);
-            const b8 _still = rde_math_abs_f32(_s.velocity) <= 1.0f;
+        b8  _moves  = true;
+        for(u32 _k = 0; _k < 2000u && _moves; _k++) {
+            _moves = fude_kit_scroller_update(&_s, 1.0f / 64.0f, 1.0e6f, 100.0f);
             CHECK(frame(1.0 / 64.0).draw);
-            _moving += _still ? 0u : 1u;
+            _moving += _moves ? 1u : 0u;
         }
         CHECK(_moving > 10u);
         CHECK(drawn_until_quiet(1.0 / 64.0, 1000u) <= 32u);   // then only its grace
-        fude_scroller_update(&_s, 1.0f / 64.0f, 1.0e6f, 100.0f);
+        CHECK(!fude_kit_scroller_update(&_s, 1.0f / 64.0f, 1.0e6f, 100.0f));
         CHECK(!frame(1.0 / 64.0).draw);
     }
 

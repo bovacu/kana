@@ -45,7 +45,7 @@ fude/drawing/            the drawing core: every app has it
                          Apple's, pdf_android.c) · worker (the PDF worker: a page's pieces drawn on a thread, for
                          doc and zoom's pdfview) · doc (pages, their textures, search)
   widgets/               UI pieces that know no app: kit (buttons, labels, fields, and a form: a card asking for
-                         something) row (a screen's buttons) filterbar notice scroll
+                         something) row (a screen's buttons) filterbar notice
   app/                   the app shell: app (the screens' table, the pointer) · ui (the retained UI) and its parts:
                          toolbar side (the side panel, Settings; side_list its canvases' list; side_parts.h what
                          the two share) pagemenu docbar crashcard readcard handwriting (Settings' Handwriting: ML
@@ -362,7 +362,7 @@ The table names them changed, after (after 0: the next frame), poll and request.
 | `study/app/shell.c: fude_hud_render` | the study HUD's numbers, every frame it shows | changed |
 | RDE's UI, read by `fude_redraw_frame_end` (`rde_ui_get_wake_after`) | its colour blends, scroll areas' flings and springs, toggles, toasts, spinners; a focused field's caret, a held finger, a tooltip | changed; timer |
 | `drawing/ink/canvas.c: fude_canvas_update`, `fude_canvas_long_press` | a safe area arriving after launch; the page's flick; a finger held still | changed; after |
-| `drawing/widgets/scroll.c: fude_scroller_update` | a list's fling | changed |
+| `drawing/widgets/kit.h: fude_kit_scroller_update` (RDE's `rde_ui_scroller`) | a list's fling | changed |
 | `drawing/widgets/notice.c: fude_notice_show`, `fude_notice_render` | a notice shown (often by a job's answer); held, then fading | changed; after, then changed |
 | `drawing/app/page.c: fude_page_finger_poll`, `fude_page_render_zoom` | a finger's wait before it writes, then its long press; the zoom pill, held then fading | after; after, then changed |
 | `drawing/app/pagemenu.c: fude_pagemenu_row_faces` | "Copied" on a button, going back | after |
@@ -547,6 +547,9 @@ back on top and its `resume` runs.
 mouse), in `fude_app_screen_event`.
 - A writing screen (`FUDE_SCREEN_INPUT_WRITE`, Practice) takes a finger only
   with the hand on, and a pen takes over from it.
+- A finger the system cancels (a hand resting on the glass as the pen comes
+  down, an edge gesture) is let go, and the screen's `pointer_cancel` ends
+  what it was doing without a tap. Until it is let go no other press is taken.
 - Presses on the UI (`fude_ui_hit`) are the UI's.
 - The page has its own input, with the finger-writing state machine
   (`drawing/app/page.c`; the canvas apps' page has its own, `zoom/page_input.c`).
@@ -900,7 +903,7 @@ oldest; an `rde_lru` would need a slot for every entry the budget could hold.
 | The catalog (`study/chars/catalog.c`) | every character's readings and meanings, copied as search keys | the meanings' language changes (`fude_browse_language_changed` makes it again) | reading them out of the character data at every search |
 | Whole characters (`study/chars/glyph.c`: `fude_glyph_kept_lru`, "Kept characters" below) | each character drawn whole (`fude_glyph_character`, and the ghost under one writing itself): the mesh of all its strokes on the GPU (RDE's `rde_rendering_2d_keep_stroke_mesh`), placed from its box's top-left; 512 (`FUDE_GLYPH_KEPT`), in an `rde_lru` keyed by the character data's pointer, the code point, the size on screen and a target pixel's size, whole | another size, a display of another density or a zoom makes another; past 512, the one drawn longest ago goes, never one drawn this frame (the rest are made each time they are drawn, as before); all at a trim and before the data is unloaded (`fude_glyph_forget`) | tessellating every character every frame and sending its triangles up again |
 | The word split's index (`study/chars/wordsplit.c`) | every word's written form, folded, in a hash map: 2 to 4 MB, made in a few ms | another character database is split (it is of one, known by its address) | searching the dictionary for every word of a line |
-| The matcher's prepared strokes (`study/handwriting/match.c`) | every character resampled and fitted the first time it is compared (about 80,000 strokes, 10 MB, on the std allocator, as everything that grows with the data is: the engine's pool is fixed, `coding_rules.md` §3), and the records sorted by stroke count (`by_count`), so a ranking walks only the counts it compares | another database (`fude_match_layout`, known by its records' address and count); `fude_match_release` at the end | about 80 ms (a debug build) every ranking; the counts, with a floor under the rough cost, make a ranking 1.8 times faster optimised (`docs/quality_plan.md` 4.7) |
+| The matcher's prepared strokes (`study/handwriting/match.c`) | every character resampled and fitted the first time it is compared (about 80,000 strokes, 10 MB, on the std allocator, as everything that grows with the data is: the engine's pool keeps what it grows by until the app ends, `coding_rules.md` §3), and the records sorted by stroke count (`by_count`), so a ranking walks only the counts it compares | another database (`fude_match_layout`, known by its records' address and count); `fude_match_release` at the end | about 80 ms (a debug build) every ranking; the counts, with a floor under the rough cost, make a ranking 1.8 times faster optimised (`docs/quality_plan.md` 4.7) |
 | A document's textures (`doc/doc.c`; a canvas app's PDF view, `zoom/pdfview.c`, the same) | each page whole, drawn at about its size on screen (`fude_doc_whole_size`: 1,100 pixels wide at most, no side past `FUDE_DOC_SHARP_MAX`, 4,096), and what is on screen at the screen's pixels. Bounded by bytes (`fude_doc_wholes`): the pages on screen always, the others nearest the view first while all fit `FUDE_DOC_KEEP_BYTES` (48 MB; each byte held twice, on the GPU and in the memory texture's copy on the std allocator, which RDE's upload does not let go) | the theme's colours change (all dropped, the running piece stale); a page turned (all dropped, laid out again, the running piece stale); a sharp piece off screen, or zoomed over 2% away; a whole page no longer kept, or zoomed until its picture is 15% too coarse or 2.3 times too fine. A page is drawn only when it is kept, so a still view draws each once and the worker rests | drawing PDF pages every frame |
 | A document's read lines (`<id>.lines`) | the text read in its pictures | a page turned (its lines dropped, the page read again) | reading a page's picture again |
 | The Library's covers (`app/library.c`) | each book's cover texture, loaded the first time it is drawn (a missing one is tried once) | never; freed with the Library | loading a PNG every frame |
@@ -999,6 +1002,11 @@ folder) have folders of their own, and the measuring release has one so that it 
   added by hand (without the BouncyCastle it would pull in), and the builder resolves a lock again, dropping them, when
   its `dependencies` do not match what the lock was made from. A version is changed by resolving by hand ("A dependency
   on Android", below).
+- `[ios] permissions` names what the app asks for through `rde_mobile_request_permission`: the camera for Text from a
+  photo (Kana, Hanzi, Hangul, Hindi), the microphone for the recordings (Sketching, InfiNote). RDE's iOS code for a
+  permission is built only when it is named, because Apple refuses an upload whose code reaches a privacy API without
+  that API's purpose string; the builder checks that the plist has the string of each one named. Thai, Arabic and
+  InfiniWorkshop ask for nothing through RDE (their document scanner asks for the camera itself) and have no line.
 - iOS's system frameworks are `link_flags` (`-framework PhotosUI`...), since the builder's `[ios] frameworks` takes
   framework folders. ML Kit's are such folders, in `[profile ios]`: a device's only, as ML Kit has no Simulator build
   (the app uses its stand-ins there).
@@ -1018,9 +1026,8 @@ folder) have folders of their own, and the measuring release has one so that it 
 - Android Studio's JDK, which the APKs have always been built with.
 
 **The engine** has no step of its own: a build checks the engine library it links and rebuilds it first, for its
-platform and configuration, when it is missing or older than the engine's sources (an engine change, or `shaders.h`
-made for another platform). Builds run one at a time: every platform's engine build writes the same files in RDE's
-folder (`engine/src/shaders.h` and the shaders' intermediates), so two at once break each other.
+platform and configuration, when it is missing or older than the engine's sources (an engine change, a shader
+included).
 
 **Android's signing key** is `apps/<app>/android_signing/com.rde.<app>.keystore`, where the builder keeps it (the
 folder ignores itself in git: the key is a secret). The first build with the project file copied it there from

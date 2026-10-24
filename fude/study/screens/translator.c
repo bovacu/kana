@@ -64,9 +64,9 @@ void fude_translator_ask(fude_translator* _tr, const c8* _text) {
     rde_memset(_card, 0, sizeof(*_card));
     rde_snprintf(_card->from, sizeof(_card->from), "%s", _text);
     _card->state           = FUDE_TRANSLATOR_WAITING;
-    _tr->chosen            = 0u;
-    _tr->scroller.offset   = 0.0f;
-    _tr->scroller.velocity = 0.0f;
+    _tr->chosen              = 0u;
+    _tr->scroller.offset.y   = 0.0f;
+    _tr->scroller.velocity.y = 0.0f;
 }
 
 // See the header: the card chosen, only once its translation is in and not empty.
@@ -150,9 +150,9 @@ void fude_translator_update(fude_translator* _tr, f32 _dt) {
         return;
     }
     fude_translator_translate(_tr);
-    fude_scroller_update(&_tr->scroller, _dt, _tr->content_h, _tr->list_max.y - _tr->list_min.y);
+    fude_kit_scroller_update(&_tr->scroller, _dt, _tr->content_h, _tr->list_max.y - _tr->list_min.y);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_tr->scroller, &_at)) {
+    if(rde_ui_scroller_take_tap(&_tr->scroller, &_at)) {
         fude_translator_tap(_tr, _at);
     }
 }
@@ -160,17 +160,17 @@ void fude_translator_update(fude_translator* _tr, f32 _dt) {
 // The pointer drives the scroller, which scrolls the cards and tells a tap from a drag; fude_translator_update takes
 // the tap.
 void fude_translator_pointer_down(fude_translator* _tr, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_down(&_tr->scroller, _screen, _time);
+    rde_ui_scroller_pointer_down(&_tr->scroller, _screen, _time);
 }
 
 // Drags the cards.
 void fude_translator_pointer_moved(fude_translator* _tr, rde_vec_2F _screen, f64 _time) {
-    fude_scroller_moved(&_tr->scroller, _screen, _time);
+    rde_ui_scroller_pointer_moved(&_tr->scroller, _screen, _time);
 }
 
 // Ends the drag, or the tap.
 void fude_translator_pointer_up(fude_translator* _tr, f64 _time) {
-    fude_scroller_up(&_tr->scroller, _time);
+    rde_ui_scroller_pointer_up(&_tr->scroller, _time);
 }
 
 // --- Drawing ---------------------------------------------------------------------------------------------------------
@@ -240,7 +240,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
     rde_rendering_begin_clipping_rect(_window, (rde_vec_2I){ (i32)fude_draw_x((_left + _right) * 0.5f), (i32)((_y + _bottom) * 0.5f) },
                                       (rde_vec_2UI){ (u32)_width + 8u, (u32)rde_math_max_f32(1.0f, _y - _bottom) });
     const b8 _speak = fude_speech_available();
-    f32      _at    = _y + _tr->scroller.offset;   // The next card's top.
+    f32      _at    = _y + _tr->scroller.offset.y;   // The next card's top.
     f32      _total = 0.0f;
     for(u32 _i = 0; _i < _tr->count; _i++) {
         fude_translator_card* _card = &_tr->cards[_i];
@@ -324,6 +324,7 @@ void fude_translator_render(fude_translator* _tr, rde_window* _window, rde_font*
 // Sets the translator up closed, with no cards.
 void fude_translator_init(fude_translator* _tr, const fude_kanji_db* _db) {
     rde_memset(_tr, 0, sizeof(*_tr));
+    fude_kit_scroller_init(&_tr->scroller);
     _tr->db = _db;
     fude_glyph_init(&_tr->glyph, _db);
 }
@@ -339,7 +340,7 @@ void fude_translator_open(fude_translator* _tr) {
     _tr->open     = true;
     _tr->prepared = false;
     _tr->from     = fude_translator_from();
-    fude_scroller_stop(&_tr->scroller);
+    rde_ui_scroller_stop(&_tr->scroller);
     // The cards whose models failed on the last visit wait again, so the models are asked for again.
     for(u32 _i = 0; _i < _tr->count; _i++) {
         if(_tr->cards[_i].state == FUDE_TRANSLATOR_FAILED) {
@@ -351,7 +352,7 @@ void fude_translator_open(fude_translator* _tr) {
 // Closes the translator; its cards stay.
 void fude_translator_close(fude_translator* _tr) {
     _tr->open = false;
-    fude_scroller_stop(&_tr->scroller);
+    rde_ui_scroller_stop(&_tr->scroller);
 }
 
 // --- The screen (screen.h): its row, and what it does ----------------------------------------------------------------

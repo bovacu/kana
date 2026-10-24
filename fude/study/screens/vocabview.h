@@ -6,7 +6,7 @@
 #include "rde.h"
 #include "study/chars/kanji.h"
 #include "study/chars/glyph.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/models/vocab.h"
 
 // ===========================================================================
@@ -67,7 +67,7 @@ RDE_STRUCT {
     u32                  _due_n;
 
     // The layout of the last frame, and taps (screen space).
-    fude_scroller        scroller;
+    rde_ui_scroller      scroller;
     rde_arr TYPE(fude_vocabview_chip) chips;   // All, every list, and + New list.
     rde_vec_2F           rows_min;
     rde_vec_2F           rows_max;
@@ -78,7 +78,7 @@ RDE_STRUCT {
     b8                   in_rows;        // The press began in the rows.
     // The chips' area. At most a few rows of chips show (vocabview.c: FUDE_VOCABVIEW_CHIP_ROWS); with more lists than
     // fit, the area scrolls on its own, so dozens of lists never push the words off the screen.
-    fude_scroller        chips_scroller;
+    rde_ui_scroller      chips_scroller;
     rde_vec_2F           chips_min;      // The area, as laid out last frame.
     rde_vec_2F           chips_max;
     f32                  chips_h;        // The height of all the chips' rows.

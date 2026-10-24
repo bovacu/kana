@@ -66,12 +66,10 @@ SIGN=()
 if [[ -n $FUDE_IOS_PROFILE ]]; then SIGN+=("--ios_provisioning_profile=$FUDE_IOS_PROFILE"); fi
 if [[ -n $FUDE_APPLE_TEAM ]]; then SIGN+=("--apple_development_name=$FUDE_APPLE_TEAM"); fi
 
-# Through build/jdk, a path with no space in it (Android Studio's has one).
+# Android Studio's JDK, by its own path: the builder quotes every argument, so the space in it is fine.
 JBR="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 if [[ -d $JBR ]]; then
-    mkdir -p $K/build
-    ln -sfn $JBR $K/build/jdk
-    export JAVA_HOME=$K/build/jdk
+    export JAVA_HOME=$JBR
     export PATH="$JAVA_HOME/bin:$PATH"
 fi
 

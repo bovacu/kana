@@ -24,15 +24,15 @@ static i32 part_index(fude_browse* b, u32 cp) { const fude_browse_part* p = b->p
 // Taps a part on the panel, scrolling the panel until it shows.
 static b8 tap_part(fude_browse* b, u32 cp) {
     const i32 want = part_index(b, cp); if(want < 0) return false;
-    b->parts_scroller.offset = 0.0f;
+    b->parts_scroller.offset.y = 0.0f;
     for(int tries = 0; tries < 60; tries++) {
         frame(b);
         const fude_browse_part_hit* h = b->part_hits.memory;
         for(u32 i = 0; i < b->part_hits.count; i++) if((i32)h[i].part == want) {
-            const rde_vec_2F at = { h[i].x + h[i].size * 0.5f, b->panel_max.y - (h[i].y + h[i].size * 0.5f - b->parts_scroller.offset) };
+            const rde_vec_2F at = { h[i].x + h[i].size * 0.5f, b->panel_max.y - (h[i].y + h[i].size * 0.5f - b->parts_scroller.offset.y) };
             fude_browse_pointer_down(b, at, false, g_now); fude_browse_pointer_up(b, g_now + 0.05); frame(b); return true;
         }
-        b->parts_scroller.offset += 150.0f;
+        b->parts_scroller.offset.y += 150.0f;
     }
     return false;
 }

@@ -4,7 +4,7 @@
 #define FUDE_READCARD
 
 #include "rde.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 
 // ===========================================================================
 // Read card: a card that has to be read. It has a title, its text (scrolled when it is long; "\n", the two
@@ -36,7 +36,7 @@ RDE_STRUCT {
     u8*           read;        // Where Close sets `bit` (fude_app.cards_read); NULL for nowhere.
     u8            bit;
     f64           opened_at;
-    fude_scroller scroller;    // The text's.
+    rde_ui_scroller scroller;    // The text's.
     // As laid out last frame (screen space), for the pointer.
     rde_vec_2F    text_min, text_max;
     rde_vec_2F    close_min, close_max;

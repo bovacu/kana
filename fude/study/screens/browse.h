@@ -9,7 +9,7 @@
 #include "study/chars/glyph.h"
 #include "drawing/ink/ink.h"
 #include "study/handwriting/match.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/handwriting/recognize.h"
 #include "study/models/select.h"
 
@@ -77,7 +77,7 @@ RDE_STRUCT {
     rde_arr TYPE(fude_browse_part)     parts;       // The parts offered, by stroke count, then by uses.
     u32                  picked[FUDE_BROWSE_MAX_PICKED];
     u32                  picked_count;
-    fude_scroller        parts_scroller;
+    rde_ui_scroller      parts_scroller;
     b8                   on_parts;      // The pointer is on the panel.
     rde_arr TYPE(fude_browse_part_hit) part_hits;
     f32                  parts_height;  // The panel's content height.
@@ -86,7 +86,7 @@ RDE_STRUCT {
     rde_arr TYPE(u32)    list;          // What the grid shows: record indices, in order.
     b8                   dirty;         // The list must be worked out again.
 
-    fude_scroller        scroller;      // The grid's scrolling and taps.
+    rde_ui_scroller      scroller;      // The grid's scrolling and taps.
     b8                   on_pad;        // The pointer is a pen stroke on the pad.
 
     // The layout of the last frame, for hit testing (screen space).

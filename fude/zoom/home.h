@@ -6,7 +6,7 @@
 #include "rde.h"
 #include "drawing/app/screen.h"
 #include "drawing/ink/notes.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "zoom/homelist.h"
 
 // ===========================================================================
@@ -63,7 +63,7 @@ typedef struct fude_zoom_home {
     void           (*on_first)(struct fude_app* _app);
     b8               welcome;     // the welcome is up now
 
-    fude_scroller    scroller;
+    rde_ui_scroller  scroller;
     f32              content_h;
     rde_vec_2F       list_min, list_max;
     rde_arr          cards;       // fude_zoom_home_card

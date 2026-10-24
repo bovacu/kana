@@ -52,16 +52,10 @@ RDE_INTERNAL i32 fude_stats_group_of(const fude_kanji_info* _info) {
     return -1;
 }
 
-// The local time's offset from UTC now, in seconds.
-RDE_INTERNAL i64 fude_stats_local_offset(void) {
-    return (i64)rde_date_local_tz_offset_minutes() * 60;
-}
-
-// Returns the day number of _time (Unix seconds) moved by _offset seconds: days since 1970-01-01, rounded down, so a
-// time before 1970 gets a negative day.
-RDE_INTERNAL i64 fude_stats_day(u64 _time, i64 _offset) {
-    const i64 _t = (i64)_time + _offset;
-    return _t >= 0 ? _t / 86400 : (_t - 86399) / 86400;
+// Returns the local day of _time (Unix seconds): days since 1970-01-01, in the offset in force at that time (a summer
+// evening's review stays on its day once the clocks change), negative before 1970.
+RDE_INTERNAL i64 fude_stats_day(u64 _time) {
+    return rde_date_local_day_number((i64)_time);
 }
 
 // Returns the weekday of a day number, from Monday 0 to Sunday 6 (day 0, 1970-01-01, was a Thursday).
@@ -109,14 +103,14 @@ typedef struct {
 } fude_stats_sums;
 
 // Adds one practice session (_session, of the history _h) into _d and _sums: its day, which also goes into _days, the
-// time spent writing, and each scored square's score, hour, weekday, calendar day and mistakes. _off is the local
-// time's offset from UTC in seconds, and _start the calendar's first day.
+// time spent writing, and each scored square's score, hour, weekday, calendar day and mistakes. _start is the
+// calendar's first day.
 RDE_INTERNAL void fude_stats_read_session(fude_stats_data* _d, fude_stats_sums* _sums, const fude_history* _h, const fude_history_session* _session,
-                                          i64 _off, i64 _start, rde_arr* _days) {
+                                          i64 _start, rde_arr* _days) {
     const fude_history_square* _squares = (const fude_history_square*)_h->squares.memory;
     const fude_history_stroke* _strokes = (const fude_history_stroke*)_h->strokes.memory;
     const fude_history_point*  _points  = (const fude_history_point*)_h->points.memory;
-    const i64 _day = fude_stats_day(_session->time, _off);
+    const i64 _day = fude_stats_day(_session->time);
     _d->sessions++;
     rde_arr_add(_days, &_day);
     if(_d->first_time == 0 || _session->time < _d->first_time) {
@@ -137,7 +131,7 @@ RDE_INTERNAL void fude_stats_read_session(fude_stats_data* _d, fude_stats_sums* 
         const f32 _score = _sq->score.score;
         _d->squares++;
         _sums->sum += _score;
-        const i64 _hour = (((i64)_session->time + _off) % 86400 + 86400) % 86400 / 3600;
+        const i64 _hour = rde_date_local_components((i64)_session->time).hour;
         _d->hours[_hour]++;
         _d->weekdays[fude_stats_weekday(_day)]++;
         if(_day >= _start && _day < _start + (i64)FUDE_STATS_DAYS) {
@@ -168,8 +162,8 @@ RDE_INTERNAL void fude_stats_read_session(fude_stats_data* _d, fude_stats_sums* 
 // Reads every character's practice history into _d: each session (fude_stats_read_session), then the averages worked
 // out from them. It fills _practised with the code points that have a history, sorted, adds each session's day to
 // _days, and adds each character's latest average to _weakest and how far it improved to _improved (both of
-// fude_stats_ranked). _off is the local time's offset from UTC in seconds, and _start the calendar's first day.
-RDE_INTERNAL void fude_stats_read_practice(fude_stats_data* _d, const fude_kanji_db* _db, i64 _off, i64 _start, rde_arr* _practised, rde_arr* _days,
+// fude_stats_ranked). _start is the calendar's first day.
+RDE_INTERNAL void fude_stats_read_practice(fude_stats_data* _d, const fude_kanji_db* _db, i64 _start, rde_arr* _practised, rde_arr* _days,
                                            rde_arr* _weakest, rde_arr* _improved) {
     fude_stats_sums _sums = { 0 };
     fude_history_list(_practised);
@@ -186,7 +180,7 @@ RDE_INTERNAL void fude_stats_read_practice(fude_stats_data* _d, const fude_kanji
         const u32                   _ns       = (u32)rde_arr_length(&_h.sessions);
         for(u32 _s = 0; _s < _ns; _s++) {
             const fude_history_session* _session = &_sessions[_s];
-            fude_stats_read_session(_d, &_sums, &_h, _session, _off, _start, _days);
+            fude_stats_read_session(_d, &_sums, &_h, _session, _start, _days);
         }
 
         // The character's latest session (for the weakest), and how far it came from its first (for the most
@@ -213,8 +207,8 @@ RDE_INTERNAL void fude_stats_read_practice(fude_stats_data* _d, const fude_kanji
 
 // Reads the exam log into _d: how many exams there were and how many were passed, their characters and right answers,
 // the average points, each day's exam characters on the calendar, and the last FUDE_STATS_EXAMS exams. Each exam's day
-// is added to _days. _off is the local time's offset from UTC in seconds, and _start the calendar's first day.
-RDE_INTERNAL void fude_stats_read_exams(fude_stats_data* _d, i64 _off, i64 _start, rde_arr* _days) {
+// is added to _days. _start is the calendar's first day.
+RDE_INTERNAL void fude_stats_read_exams(fude_stats_data* _d, i64 _start, rde_arr* _days) {
     const fude_examlog_exam* _exams = fude_examlog_exams();
     const u32                _ne    = fude_examlog_count();
     f64 _points = 0.0;
@@ -225,7 +219,7 @@ RDE_INTERNAL void fude_stats_read_exams(fude_stats_data* _d, i64 _off, i64 _star
         _d->exam_items   += _x->item_count;
         _d->exam_right   += _x->correct;
         _points          += (f64)_x->score * (f64)_x->item_count;
-        const i64 _day = fude_stats_day(_x->time, _off);
+        const i64 _day = fude_stats_day(_x->time);
         rde_arr_add(_days, &_day);
         if(_d->first_time == 0 || _x->time < _d->first_time) {
             _d->first_time = _x->time;
@@ -266,9 +260,9 @@ RDE_INTERNAL void fude_stats_count_days(fude_stats_data* _d, rde_arr* _days) {
 }
 
 // Replays the marks' history, oldest first, into _d: how many changes there were, the known and studying counts as
-// each calendar week ends, and the known count FUDE_STATS_RECENT days ago. _off is the local time's offset from UTC in
-// seconds, _start the calendar's first day, and _heap the allocator of the replay's own list, freed before it returns.
-RDE_INTERNAL void fude_stats_replay_marks(fude_stats_data* _d, i64 _off, i64 _start, rde_memory_allocator* _heap) {
+// each calendar week ends, and the known count FUDE_STATS_RECENT days ago. _start is the calendar's first day, and
+// _heap the allocator of the replay's own list, freed before it returns.
+RDE_INTERNAL void fude_stats_replay_marks(fude_stats_data* _d, i64 _start, rde_memory_allocator* _heap) {
     const fude_marks_change* _changes = fude_marks_history();
     const u32                _nc      = fude_marks_history_count();
     const u64                _recent  = (u64)rde_date_now_unix_seconds() - (u64)FUDE_STATS_RECENT * 86400u;
@@ -279,7 +273,7 @@ RDE_INTERNAL void fude_stats_replay_marks(fude_stats_data* _d, i64 _off, i64 _st
     _d->mark_changes = _nc;
     for(u32 _i = 0; _i <= _nc; _i++) {
         // The weeks (and the recent point in time) that end before this change.
-        const i64 _day = _i < _nc ? fude_stats_day(_changes[_i].time, _off) : INT64_MAX;
+        const i64 _day = _i < _nc ? fude_stats_day(_changes[_i].time) : INT64_MAX;
         while(_week < FUDE_STATS_WEEKS && _day >= _start + 7 * (i64)(_week + 1u)) {
             _d->week_known[_week]    = _count[FUDE_MARK_KNOWN];
             _d->week_studying[_week] = _count[FUDE_MARK_STUDYING];
@@ -361,8 +355,7 @@ void fude_stats_compute(fude_stats_data* _d, const fude_kanji_db* _db, const fud
     for(u32 _w = 0; _w < FUDE_STATS_WEEKS; _w++) {
         _d->week_average[_w] = -1.0f;
     }
-    const i64 _off   = fude_stats_local_offset();
-    _d->today        = fude_stats_day((u64)rde_date_now_unix_seconds(), _off);
+    _d->today        = fude_stats_day((u64)rde_date_now_unix_seconds());
     // The calendar's first day: it covers whole weeks, Monday first, the last week holding today.
     const i64 _start = _d->today - (i64)fude_stats_weekday(_d->today) - 7 * (i64)(FUDE_STATS_WEEKS - 1u);
 
@@ -373,10 +366,10 @@ void fude_stats_compute(fude_stats_data* _d, const fude_kanji_db* _db, const fud
     rde_arr _improved  = rde_arr_new(sizeof(fude_stats_ranked), _heap);
 
     // --- Practice: every character's history, sorted by code point so the coverage can search it ---
-    fude_stats_read_practice(_d, _db, _off, _start, &_practised, &_days, &_weakest, &_improved);
+    fude_stats_read_practice(_d, _db, _start, &_practised, &_days, &_weakest, &_improved);
 
     // --- Exams. The average points are weighted by each exam's number of characters ---
-    fude_stats_read_exams(_d, _off, _start, &_days);
+    fude_stats_read_exams(_d, _start, &_days);
 
     // --- Days: how many were active, and the streaks ---
     fude_stats_count_days(_d, &_days);
@@ -387,7 +380,7 @@ void fude_stats_compute(fude_stats_data* _d, const fude_kanji_db* _db, const fud
 
     // The marks over time: the changes are replayed, oldest first, and the counts are taken as each week ends (and at
     // FUDE_STATS_RECENT days ago).
-    fude_stats_replay_marks(_d, _off, _start, _heap);
+    fude_stats_replay_marks(_d, _start, _heap);
     _d->words_added = fude_vocab_count();
     fude_stats_count_coverage(_d, _db, _catalog, &_practised);
 
@@ -448,6 +441,7 @@ RDE_INTERNAL const c8* fude_stats_group_name(u32 _row) {
 // Sets the screen up closed, over the character data and Browse's catalog, which it borrows.
 void fude_stats_init(fude_stats* _stats, const fude_kanji_db* _db, const fude_catalog* _catalog) {
     rde_memset(_stats, 0, sizeof(*_stats));
+    fude_kit_scroller_init(&_stats->scroller);
     _stats->db          = _db;
     _stats->catalog     = _catalog;
     _stats->tapped_list = -1;
@@ -467,8 +461,8 @@ void fude_stats_destroy(fude_stats* _stats) {
 // Works the numbers out afresh and opens at the top.
 void fude_stats_open(fude_stats* _stats) {
     fude_stats_compute(&_stats->data, _stats->db, _stats->catalog);
-    fude_scroller_stop(&_stats->scroller);
-    _stats->scroller.offset = 0.0f;
+    rde_ui_scroller_stop(&_stats->scroller);
+    _stats->scroller.offset.y = 0.0f;
     _stats->tapped_list     = -1;
     _stats->open            = true;
 }
@@ -479,9 +473,9 @@ void fude_stats_close(fude_stats* _stats) {
 }
 
 // The pointer drives the scroller, which scrolls and tells a tap from a drag; fude_stats_update takes the tap.
-void fude_stats_pointer_down(fude_stats* _stats, rde_vec_2F _screen, f64 _time)  { fude_scroller_down(&_stats->scroller, _screen, _time); }
-void fude_stats_pointer_moved(fude_stats* _stats, rde_vec_2F _screen, f64 _time) { fude_scroller_moved(&_stats->scroller, _screen, _time); }
-void fude_stats_pointer_up(fude_stats* _stats, f64 _time)                         { fude_scroller_up(&_stats->scroller, _time); }
+void fude_stats_pointer_down(fude_stats* _stats, rde_vec_2F _screen, f64 _time)  { rde_ui_scroller_pointer_down(&_stats->scroller, _screen, _time); }
+void fude_stats_pointer_moved(fude_stats* _stats, rde_vec_2F _screen, f64 _time) { rde_ui_scroller_pointer_moved(&_stats->scroller, _screen, _time); }
+void fude_stats_pointer_up(fude_stats* _stats, f64 _time)                         { rde_ui_scroller_pointer_up(&_stats->scroller, _time); }
 
 // Hands out the character tapped once: tapped_list goes back to -1, which means none is waiting.
 b8 fude_stats_take_tap(fude_stats* _stats, const u32** _records, u32* _count, u32* _position) {
@@ -500,10 +494,10 @@ void fude_stats_update(fude_stats* _stats, f32 _dt) {
     if(!_stats->open) {
         return;
     }
-    fude_scroller_update(&_stats->scroller, _dt, _stats->content_height, _stats->view_top - _stats->view_bottom);
+    fude_kit_scroller_update(&_stats->scroller, _dt, _stats->content_height, _stats->view_top - _stats->view_bottom);
     rde_vec_2F _at;
-    if(fude_scroller_take_tap(&_stats->scroller, &_at)) {
-        const f32 _y = _stats->view_top - _at.y + _stats->scroller.offset;   // In content space.
+    if(rde_ui_scroller_take_tap(&_stats->scroller, &_at)) {
+        const f32 _y = _stats->view_top - _at.y + _stats->scroller.offset.y;   // In content space.
         for(u32 _i = 0; _i < (u32)rde_arr_length(&_stats->hits); _i++) {
             const fude_stats_hit* _hit = &((const fude_stats_hit*)_stats->hits.memory)[_i];
             if(_at.x >= _hit->x && _at.x <= _hit->x + _hit->size && _y >= _hit->y && _y <= _hit->y + _hit->size) {
@@ -1067,7 +1061,7 @@ void fude_stats_render(fude_stats* _stats, rde_window* _window, rde_font* _font,
         const f32 _x   = _left + (f32)_col * (_cw + FUDE_STATS_GAP);
         const f32 _cy  = _col_y[_col];   // The content y of its top.
         _col_y[_col]  += _h + FUDE_STATS_GAP;
-        const f32 _y   = _view_top - (_cy - _stats->scroller.offset);   // Its top on screen.
+        const f32 _y   = _view_top - (_cy - _stats->scroller.offset.y);   // Its top on screen.
         if(_y - _h > _view_top || _y < _bottom) {
             continue;
         }

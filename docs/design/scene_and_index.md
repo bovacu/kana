@@ -28,8 +28,8 @@ now, with where it went another way.
 `fude_zoom_scene_destroy` frees it all. **Nothing is ever taken out of the tables while a scene lives**: an object's
 index and a frame's slot never change, so the rest of the app holds them as plain numbers. A pointer from
 `fude_zoom_scene_object` or `fude_zoom_scene_frame` is good only until the next object or frame is added (the tables
-may move). Everything is on the std allocator: a canvas has no natural size limit, and running out the engine's fixed
-pool is fatal. Main thread only; nothing here locks.
+may move). Everything is on the std allocator: a canvas has no natural size limit, and the engine's pool keeps what it
+grows by until the app ends. Main thread only; nothing here locks.
 
 ## Frames
 

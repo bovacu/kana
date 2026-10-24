@@ -4,7 +4,7 @@
 #define FUDE_SCAN
 
 #include "rde.h"
-#include "drawing/widgets/scroll.h"
+#include "drawing/widgets/kit.h"
 #include "study/services/textscan.h"
 #include "study/services/translate.h"
 #include "study/chars/kanji.h"
@@ -136,7 +136,7 @@ RDE_STRUCT {
     // The layout of the last frame: where the picture is on screen.
     rde_vec_2F                    picture_tl;
     f32                           picture_scale;
-    fude_scroller                 taps;             // Tells taps from drags (scroll.h).
+    rde_ui_scroller               taps;             // Tells taps from drags (rde_ui_scroller).
 } fude_scan;
 
 // Makes the screen, empty; destroy frees it and whatever it shows.

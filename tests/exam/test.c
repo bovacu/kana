@@ -216,6 +216,27 @@ int main(int argc, char** argv) {
     CHECK(e.source != fude_exam_source_review() && e.stage == FUDE_EXAM_SETUP);
     fude_exam_close(&e);
 
+    // A finger the system takes away (screen.h: pointer_cancel). In the preview it is no tap: nothing is unticked, as
+    // a lift would. While writing, a stroke it was drawing ends as if lifted, and stays: Undo, refused while a stroke
+    // is down, takes it back.
+    { fude_exam_open_with(&e, keep, 3); frame(&e);
+      CHECK(e.stage == FUDE_EXAM_PREVIEW && fude_exam_included(&e) == 3);
+      const rde_vec_2F cell = { e.grid_min.x + e.cell * 0.5f, e.grid_max.y - e.cell * 0.5f };
+      fude_exam_pointer_down(&e, cell, false, g_now); fude_exam_pointer_cancel(&e, g_now + 0.05); frame(&e);
+      CHECK(fude_exam_included(&e) == 3);
+      fude_exam_pointer_down(&e, cell, false, g_now); fude_exam_pointer_up(&e, g_now + 0.05); frame(&e);
+      CHECK(fude_exam_included(&e) == 2);   // (the same touch, lifted: a tap)
+      fude_exam_start(&e); frame(&e);
+      CHECK(e.stage == FUDE_EXAM_WRITING);
+      fude_exam_item*  cur = &e.items[e.order[0]];
+      const rde_vec_2F mid = { e.square_tl.x + e.square_size * 0.5f, e.square_tl.y - e.square_size * 0.5f };
+      fude_exam_pointer_down(&e, mid, true, g_now); fude_exam_pointer_moved(&e, (rde_vec_2F){ mid.x + 40.0f, mid.y }, g_now + 0.01);
+      fude_exam_pointer_cancel(&e, g_now + 0.02);
+      CHECK(!e.pen && !cur->ink.drawing && fude_ink_alive_strokes(&cur->ink) == 1);
+      fude_exam_undo(&e);
+      CHECK(fude_ink_alive_strokes(&cur->ink) == 0);
+      fude_exam_close(&e); }
+
     // A kana exam: hiragana, prompt romaji; written right.
     fude_exam_open(&e); e.source = fude_exam_source_set(0u); e.length = 0; fude_exam_preview(&e);
     CHECK(e.count == 10);

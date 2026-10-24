@@ -68,7 +68,9 @@ b8        fude_look_is(const c8* _arg, const c8* _flag);
 // does what its flags ask at the frames they ask.
 u32       fude_look_shot_frame(void);
 // Whether the look harness owns the pointer: while a screenshot is taken (--shot) the real mouse is ignored, since
-// where it happens to sit over the window would change the picture (the canvas draws its brush under it).
+// where it happens to sit over the window would change the picture (a hover tint under it; the canvas's brush). Its
+// events never reach RDE then (rde_input_set_mouse_ignored), but a polled position stays where it was (the middle of
+// the window), so what polls the mouse asks this.
 b8        fude_look_owns_pointer(void);
 // Whether --rtl was given: the UI is laid out right to left whatever the language.
 b8        fude_look_rtl(void);

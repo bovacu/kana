@@ -1429,7 +1429,6 @@ RDE_INTERNAL void fude_side_create_note_card(fude_ui* _ui, rde_ui_node* _root) {
     _side->note_body  = fude_side_label(_ui, _note_card, "", FUDE_SIDE_BODY_PX);
     rde_ui_label_set_wrap(_side->note_body, true);
     _side->note_field = rde_ui_text_editor_create(_ui->font, NULL);
-    rde_ui_text_editor_set_multiline(_side->note_field, false);
     rde_ui_text_editor_set_font_size(_side->note_field, 14u);
     rde_ui_text_editor_set_max_chars(_side->note_field, FUDE_NOTE_NAME - 8);
     rde_ui_text_editor_set_content_insets(_side->note_field, 12.0f, 8.0f, 12.0f, 8.0f);

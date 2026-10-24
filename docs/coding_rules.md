@@ -73,8 +73,9 @@ platform's APIs, because that is their job. They still use RDE for everything th
 - A fixed-size array is allowed only when its bound is part of the design, and a comment says why the bound exists.
   For example, the crash handler's note ring cannot allocate inside a signal handler, and a file format's header has
   a fixed size. User data (documents, pages, files) never has a fixed cap.
-- **Which allocator.** `rde_malloc`, `rde_calloc` and `rde_free` take from the engine's pool, a fixed-size block
-  set in the app's `config.rdef`. That suits small objects: one struct, a job, a short string. Anything that grows
+- **Which allocator.** `rde_malloc`, `rde_calloc` and `rde_free` take from the engine's pool, which commits memory
+  in regions of the size set in the app's `config.rdef`, one more each time it is full, and gives none of them back
+  until the app ends. That suits small objects: one struct, a job, a short string. Anything that grows
   with the user's content goes on the std allocator (`rde_memory_allocator_get_default_std()`), as an `rde_arr`:
   pages, strokes, documents, a file read whole, audio, a table per character. Memory is always freed through the
   same allocator that gave it. A function that hands memory out says which, and gives a matching free when it is

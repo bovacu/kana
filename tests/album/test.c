@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
       const fude_examlog_writing* pw = (const fude_examlog_writing*)al.page_exams.memory;
       CHECK(pw[0].exam == 0 && pw[0].item == 0 && pw[0].stroke_count == 3 && pw[1].exam == 1 && pw[1].stroke_count == 2);
       // Tap the first exam's answer: it replays (a steady pace), the squares do not.
-      at = (rde_vec_2F){ ph[5].x + 10.0f, top - (ph[5].y + 10.0f) + al.page_scroller.offset };
+      at = (rde_vec_2F){ ph[5].x + 10.0f, top - (ph[5].y + 10.0f) + al.page_scroller.offset.y };
       fude_album_pointer_down(&al, at, g_now); fude_album_pointer_up(&al, g_now + 0.05);
       CHECK(al.selected_answer == 0 && al.selected == -1);
       g_now = al.replay_start + 0.05; g_points = 0; fude_album_render(&al, NULL, NULL, 32.0f, top, bottom); const u64 early = g_points;
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
     // Scrolling far past the end is held within the content.
     fude_album_pointer_down(&al, (rde_vec_2F){ 0, 0 }, g_now); fude_album_pointer_moved(&al, (rde_vec_2F){ 0, 3000 }, g_now + 0.1); fude_album_pointer_up(&al, g_now + 0.2);
     for(int i = 0; i < 200; i++) { fude_album_update(&al, 0.016f); fude_album_render(&al, NULL, NULL, 32.0f, top, bottom); }
-    CHECK(al.page_scroller.offset <= fmaxf(0.0f, al.content_height - (top - bottom)) + 0.5f);
+    CHECK(al.page_scroller.offset.y <= fmaxf(0.0f, al.content_height - (top - bottom)) + 0.5f);
 
     fude_album_close_page(&al); CHECK(!al.page_open);
 

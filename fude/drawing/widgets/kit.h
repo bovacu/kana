@@ -4,6 +4,7 @@
 #define FUDE_KIT
 
 #include "rde.h"
+#include "drawing/base/redraw.h"
 
 // ===========================================================================
 // UI kit: the helpers every piece of the app's retained UI is made with (the toolbar, the screens' rows, the side
@@ -24,12 +25,14 @@
 // Units: UI canvas units are window units (the canvas is CONSTANT_PIXEL), with the origin at the bottom-left and Y
 // up. The app's screen space uses the same units with the origin at the centre.
 //
-// Design: a Phosphor icon is moved back by its left bearing, because the text engine centres a line by its ink, which
-// lands the icon its whole bearing right of centre; kit.c keeps a table of the bearings (FUDE_KIT_ICON_BEARINGS). On
-// a touch screen buttons have no hover look, because a lifted finger leaves the pointer on what it tapped and a hover
-// tint there would look like the button was left on. A form is the cards' common part, written once: its card, title,
-// Cancel, the tap off it (ignored within FUDE_KIT_FORM_GRACE of opening), its layout's frame and its fields' handling;
-// each card keeps its own widgets, its own rows' layout and its presses.
+// Lists a screen draws itself (the Library, the grids, the study screens' lists) scroll with RDE's own scroller
+// (rde_ui_scroller, rde.h): fude_kit_scroller_init gives it the apps' feel, fude_kit_scroller_update moves it once a
+// frame and reports its fling to the redraw.
+//
+// Design: on a touch screen buttons have no hover look, because a lifted finger leaves the pointer on what it tapped
+// and a hover tint there would look like the button was left on. A form is the cards' common part, written once: its
+// card, title, Cancel, the tap off it (ignored within FUDE_KIT_FORM_GRACE of opening), its layout's frame and its
+// fields' handling; each card keeps its own widgets, its own rows' layout and its presses.
 // ===========================================================================
 
 // How an icon sits in its button (fude_kit_icon).
@@ -49,6 +52,30 @@ typedef enum {
 #define FUDE_KIT_TEXT_SCALE  (13.0f / 32.0f)
 // What floats (the bar, a row, a card) stays this far inside the safe area.
 #define FUDE_KIT_SCREEN_EDGE 8.0f
+
+// A list's fling coasts on with this decay rate (1/s): lower than RDE's default (6), the slower glide the apps' lists
+// have always had. The rest of the feel is RDE's: the tap slop (10) and time (0.6 s) are the ones the apps had, and a
+// release slower than 45 units a second, or a fling below 8, stops (the apps flung anything over 1 and ran it down to
+// 1: a lift's tremor glided, and the last second of a fling drew frames that moved nothing).
+#define FUDE_KIT_FLING_FRICTION 4.0f
+
+// Makes a list's scroller at rest at the top, with the apps' feel. Every rde_ui_scroller a screen keeps is made with
+// it before its first use (a zeroed one has no tap slop: every press would be a drag).
+static inline void fude_kit_scroller_init(rde_ui_scroller* _scroller) {
+    rde_ui_scroller_init(_scroller);
+    _scroller->inertia_friction = FUDE_KIT_FLING_FRICTION;
+}
+
+// Moves a vertical list's scroller on by a frame (_dt seconds): its fling and the offset kept within the content
+// (_content_h tall, in a view _view_h tall). While it moves it reports itself to the redraw (fude_redraw_changed), so
+// the fling is drawn. Returns true while it moves.
+static inline b8 fude_kit_scroller_update(rde_ui_scroller* _scroller, f32 _dt, f32 _content_h, f32 _view_h) {
+    const b8 _moving = rde_ui_scroller_update(_scroller, _dt, (rde_vec_2F){ 0.0f, _content_h }, (rde_vec_2F){ 0.0f, _view_h });
+    if(_moving) {
+        fude_redraw_changed();
+    }
+    return _moving;
+}
 
 // Sets the fonts the kit draws with: the UI font (for a button's label, and for a Japanese character used as an
 // icon), and Phosphor Regular and Fill (icons.h). With NULL for _icons the UI font is used for icons. Call it once
@@ -99,12 +126,6 @@ void           fude_kit_icon(rde_ui_button* _button, const c8* _glyph, FUDE_KIT_
 // Takes _button's icon away, and puts its label back as fude_kit_button made it (filling the button, centred). For a
 // button used again with no icon after it had one (a choice card's choices). A button with no icon is left as it is.
 void           fude_kit_icon_clear(rde_ui_button* _button);
-// A Phosphor icon's left bearing in ems (0 for anything else). A centred label puts an icon that far right of
-// centre, so an icon label placed by hand must move back by this times the icon's em (fude_kit_icon does it itself).
-f32            fude_kit_icon_bearing(const c8* _glyph);
-// How far left to lay out a Phosphor icon _px tall so its ink is centred: its bearing. Right to left it is the other
-// way round, because the placement there is mirrored (rde.h: RDE_UI_DIRECTION_) and that brings it back to the left.
-f32            fude_kit_icon_back(const c8* _glyph, f32 _px);
 // Colours the icon alone (a list's row: the icon in the accent). Call it after a look, which colours label and icon
 // alike. A disabled button is left as it is.
 void           fude_kit_icon_color(rde_ui_button* _button, rde_color _color);
