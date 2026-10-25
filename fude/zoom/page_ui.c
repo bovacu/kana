@@ -264,7 +264,7 @@ RDE_INTERNAL void fude_zoom_page_ui_build_text(fude_zoom_page* _page, rde_ui_nod
     rde_ui_text_editor_set_font_size(_page->text_field, 16u);
     rde_ui_text_editor_set_max_chars(_page->text_field, 4000u);
     rde_ui_text_editor_set_content_insets(_page->text_field, 12.0f, 10.0f, 12.0f, 10.0f);
-    fude_kit_field_box(_card, _page->text_field);
+    rde_ui_node_add_child(_card, rde_ui_text_editor_as_node(_page->text_field));
     _page->text_cancel = fude_kit_button(_card, fude_text(FUDE_TEXT_CANCEL), fude_zoom_page_on_text_cancel, NULL);
     _page->text_save   = fude_kit_button(_card, fude_text(FUDE_TEXT_SAVE), fude_zoom_page_on_text_save, NULL);
     _page->card_field  = _page->text_field;

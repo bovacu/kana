@@ -29,10 +29,11 @@
 // (rde_ui_scroller, rde.h): fude_kit_scroller_init gives it the apps' feel, fude_kit_scroller_update moves it once a
 // frame and reports its fling to the redraw.
 //
-// Design: on a touch screen buttons have no hover look, because a lifted finger leaves the pointer on what it tapped
-// and a hover tint there would look like the button was left on. A form is the cards' common part, written once: its
-// card, title, Cancel, the tap off it (ignored within FUDE_KIT_FORM_GRACE of opening), its layout's frame and its
-// fields' handling; each card keeps its own widgets, its own rows' layout and its presses.
+// Design: on a touch screen buttons have no hover look, because a lifted pen leaves the pointer on what it tapped (a
+// finger does not: RDE lets go of its hover) and a hover tint there would look like the button was left on. A form is
+// the cards' common part, written once: its card, title, Cancel, the tap off it (ignored within FUDE_KIT_FORM_GRACE of
+// opening), its layout's frame and its fields' handling; each card keeps its own widgets, its own rows' layout and its
+// presses.
 // ===========================================================================
 
 // How an icon sits in its button (fude_kit_icon).
@@ -129,11 +130,8 @@ void           fude_kit_icon_clear(rde_ui_button* _button);
 // Colours the icon alone (a list's row: the icon in the accent). Call it after a look, which colours label and icon
 // alike. A disabled button is left as it is.
 void           fude_kit_icon_color(rde_ui_button* _button, rde_color _color);
-// Puts a text field in a rounded box under _parent, instead of adding the field itself, because the field's own
-// background is a plain rectangle. The node to place and show is the box: fude_kit_field_node returns it (or the
-// field, when it has no box). fude_kit_style_field takes the colours (box, text, caret) from the theme.
-void           fude_kit_field_box(rde_ui_node* _parent, rde_ui_text_editor* _field);
-rde_ui_node*   fude_kit_field_node(rde_ui_text_editor* _field);
+// Styles a text field from the theme: its own rounded box with a hairline (the field's style, as RDE's editor draws it),
+// its placeholder, text and caret.
 void           fude_kit_style_field(rde_ui_text_editor* _field);
 // Makes _button pressable or not, greying its label and icon when not.
 void           fude_kit_set_enabled(rde_ui_button* _button, b8 _enabled);
@@ -216,8 +214,8 @@ RDE_UI_EVENT_RESULT_ fude_kit_form_on_cancel(rde_ui_node* _node, const rde_ui_ev
 // Makes a label under _parent in the form's font saying _text (NULL: nothing yet), _px points tall, left-aligned and
 // middled, shrinking to 0.6 of that to fit (never cut); taps go through it.
 rde_ui_label*       fude_kit_form_label(const fude_kit_form* _form, rde_ui_node* _parent, const c8* _text, f32 _px);
-// Makes a one-line text field of at most _max_chars characters, FUDE_KIT_FORM_FIELD_PX letters, in a rounded box under
-// _parent (fude_kit_field_box), its placeholder _placeholder (NULL: none), its node's user data _user_data, and its
+// Makes a one-line text field of at most _max_chars characters, FUDE_KIT_FORM_FIELD_PX letters, under _parent (its box
+// from fude_kit_style_field), its placeholder _placeholder (NULL: none), its node's user data _user_data, and its
 // changes and Enter calling _on_change and _on_submit (NULL: none).
 rde_ui_text_editor* fude_kit_form_field(const fude_kit_form* _form, rde_ui_node* _parent, u32 _max_chars, const c8* _placeholder, any _user_data,
                                         rde_ui_value_changed_callback _on_change, rde_ui_value_changed_callback _on_submit);

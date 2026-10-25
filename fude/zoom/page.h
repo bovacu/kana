@@ -1016,8 +1016,8 @@ void fude_zoom_page_context_faces(struct fude_app* _app, const fude_row_def* _ro
 // (page_topics.c's FUDE_ZOOM_BASE_TOOLS): Shapes, Insert, Smoothing, Fill, Arrange, Instruments, Layers, Export,
 // Circuit, Motion, Plan and Pages. The slots no topic fills are left off the bar.
 extern fude_extension_tool FUDE_ZOOM_TOOLS[FUDE_EXTENSION_TOOLS];   // Topic, then the topic's own
-// Fills the bar again for the canvas's topic when it has changed (rebuilt whole with fude_ui_rebuild_now). Call it once
-// a frame, before the UI is updated, and never from inside one of the UI's presses.
+// Fills the bar again for the canvas's topic when it has changed (rebuilt whole with fude_ui_rebuild_now): a topic
+// chosen, or a canvas opened in another. Call it once a frame, before the UI is updated.
 void fude_zoom_page_topic_follow(fude_zoom_page* _page, struct fude_ui* _ui);
 
 // The longest side, in pixels, a picture is brought down to as it comes in.

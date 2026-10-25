@@ -24,7 +24,6 @@ static int fails = 0;
 static const fude_extension NO_EXTENSION = { 0 };
 const fude_extension* fude_app_ext(const fude_app* _app) { (void)_app; return &NO_EXTENSION; }
 void       fude_app_set_finger_writes(fude_app* _app, b8 _on) { _app->finger_writes = _on; }
-rde_vec_2F fude_app_touch_to_screen(rde_vec_2I _touch) { return (rde_vec_2F){ (f32)_touch.x, (f32)_touch.y }; }
 void       fude_doc_destroy(fude_doc* _doc) { (void)_doc; }
 void       fude_doc_init(fude_doc* _doc) { (void)_doc; }
 void       fude_doc_render(fude_doc* _doc, const fude_canvas* _canvas, rde_window* _window) { (void)_doc; (void)_canvas; (void)_window; }

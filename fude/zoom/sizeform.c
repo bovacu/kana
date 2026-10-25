@@ -95,8 +95,8 @@ RDE_INTERNAL void fude_zoom_sizef_on_change(rde_ui_node* _node, any _user_data) 
     if(!_form->was.has_h || !fude_zoom_sizef_locked(_form) || !(_form->was.w_mm > 0.0) || !(_form->was.h_mm > 0.0)) {
         return;
     }
-    const b8 _w = _node == fude_kit_field_node(_form->fields[FUDE_ZOOM_SIZEF_W]) || _node == rde_ui_text_editor_as_node(_form->fields[FUDE_ZOOM_SIZEF_W]);
-    const b8 _h = _node == fude_kit_field_node(_form->fields[FUDE_ZOOM_SIZEF_H]) || _node == rde_ui_text_editor_as_node(_form->fields[FUDE_ZOOM_SIZEF_H]);
+    const b8 _w = _node == rde_ui_text_editor_as_node(_form->fields[FUDE_ZOOM_SIZEF_W]);
+    const b8 _h = _node == rde_ui_text_editor_as_node(_form->fields[FUDE_ZOOM_SIZEF_H]);
     f64 _v = 0.0;
     if(_w && fude_zoom_sizef_read(_form, FUDE_ZOOM_SIZEF_W, &_v)) {
         fude_zoom_sizef_set_length(_form, FUDE_ZOOM_SIZEF_H, _v * _form->was.h_mm / _form->was.w_mm);
@@ -236,7 +236,7 @@ RDE_INTERNAL void fude_zoom_sizef_layout(fude_zoom_size_form* _form) {
     for(u32 _i = 0; _i < FUDE_ZOOM_SIZE_FIELDS; _i++) {
         const b8 _on = fude_zoom_sizef_shows(_form, _i);
         rde_ui_node_set_active(rde_ui_label_as_node(_form->names[_i]), _on);
-        rde_ui_node_set_active(fude_kit_field_node(_form->fields[_i]), _on);
+        rde_ui_node_set_active(rde_ui_text_editor_as_node(_form->fields[_i]), _on);
         if(!_on) {
             continue;
         }

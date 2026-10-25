@@ -191,8 +191,8 @@ RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_theme(rde_ui_node* _node, const r
     return RDE_UI_EVENT_RESULT_CONSUME;
 }
 
-// A language was chosen: it is set now, and the UI is built again in it next frame, because it cannot be rebuilt
-// while its own button is being pressed (fude_ui_follow_language).
+// A language was chosen: it is set now, and the UI is built again in it next frame, where every change of language is
+// picked up (fude_ui_follow_language).
 RDE_INTERNAL RDE_UI_EVENT_RESULT_ fude_side_on_language(rde_ui_node* _node, const rde_ui_event_info* _info, any _user_data) {
     RDE_UNUSED(_node); RDE_UNUSED(_info);
     const fude_side_button_ref* _ref = (const fude_side_button_ref*)_user_data;
@@ -783,7 +783,7 @@ RDE_INTERNAL void fude_side_card_layout(fude_ui* _ui) {
     fude_kit_modal_place(&_side->note, _ui->window, (rde_vec_2F){ _screen.x * 0.5f, _screen.y * 0.6f }, _nc);
     fude_kit_place(rde_ui_label_as_node(_side->note_title), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 14.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 32.0f });
     fude_kit_place(rde_ui_label_as_node(_side->note_body), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 54.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
-    fude_kit_place(fude_kit_field_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 62.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
+    fude_kit_place(rde_ui_text_editor_as_node(_side->note_field), (rde_vec_2F){ _nc.x * 0.5f, _nc.y - FUDE_SIDE_CARD_PAD - 62.0f }, (rde_vec_2F){ _nc.x - 2.0f * FUDE_SIDE_CARD_PAD, 44.0f });
     for(u32 _part = 0; _part < 2u; _part++) {
         const u32 _from = _part == 0u ? 0u : _first;
         const u32 _to   = _part == 0u ? _first : _count;
@@ -804,7 +804,7 @@ RDE_INTERNAL void fude_side_card_layout(fude_ui* _ui) {
             _x -= _bw + FUDE_SIDE_GAP;
         }
     }
-    rde_ui_node_set_active(fude_kit_field_node(_side->note_field), _side->card_mode == FUDE_SIDE_CARD_RENAME);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_side->note_field), _side->card_mode == FUDE_SIDE_CARD_RENAME);
     rde_ui_node_set_active(rde_ui_label_as_node(_side->note_body), _side->card_mode != FUDE_SIDE_CARD_RENAME);
 }
 
@@ -1434,7 +1434,7 @@ RDE_INTERNAL void fude_side_create_note_card(fude_ui* _ui, rde_ui_node* _root) {
     rde_ui_text_editor_set_content_insets(_side->note_field, 12.0f, 8.0f, 12.0f, 8.0f);
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_side->note_field), _ui);
     rde_ui_text_editor_set_on_submit(_side->note_field, fude_side_on_field_submit);
-    fude_kit_field_box(_note_card, _side->note_field);
+    rde_ui_node_add_child(_note_card, rde_ui_text_editor_as_node(_side->note_field));
     c8 _with_icon[512];   // An icon and one word (Rename, Canvas, Folder, Delete): far under its room in any language.
     rde_snprintf(_with_icon, sizeof(_with_icon), FUDE_ICON_DRAW "  %s", fude_text(FUDE_TEXT_RENAME));
     _side->note_rename  = fude_kit_button(_note_card, _with_icon, fude_side_on_card_rename, _ui);

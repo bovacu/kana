@@ -649,7 +649,7 @@ RDE_INTERNAL void fude_zoom_page_event_touch_down(fude_zoom_page* _page, rde_eve
     if(_touch->from_pen || ((_page->drawing || _page->erasing || fude_zoom_select_busy(&_page->selection)) && !_page->finger_drawing)) {
         return;
     }
-    const rde_vec_2F _at = fude_app_touch_to_screen(_touch->init_touch_position);
+    const rde_vec_2F _at = { (f32)_touch->init_touch_position.x, (f32)_touch->init_touch_position.y };   // (screen space)
     if(fude_zoom_page_grip_down(_page, _at, FUDE_ZOOM_PAGE_HAND_FINGER + _touch->finger_id)) {
         return;
     }
@@ -711,7 +711,7 @@ RDE_INTERNAL void fude_zoom_page_event_touch_moved(fude_zoom_page* _page, rde_ev
     if(_touch->from_pen) {
         return;
     }
-    const rde_vec_2F _at = fude_app_touch_to_screen(_touch->moved_touch_position);
+    const rde_vec_2F _at = { (f32)_touch->moved_touch_position.x, (f32)_touch->moved_touch_position.y };
     if(_page->mech_hold != 0u && _page->mech_finger == _touch->finger_id + 1u) {
         fude_zoom_page_mech_hold_moved(_page, _at);
         return;

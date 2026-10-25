@@ -285,7 +285,7 @@ RDE_INTERNAL void fude_zoom_repeatf_layout(fude_zoom_repeat_form* _form) {
     for(u32 _i = 0; _i < FUDE_ZOOM_REPEAT_FIELDS; _i++) {
         const b8 _on = FUDE_ZOOM_REPEATF_MODE_OF[_i] == _mode;
         rde_ui_node_set_active(rde_ui_label_as_node(_form->names[_i]), _on);
-        rde_ui_node_set_active(fude_kit_field_node(_form->fields[_i]), _on);
+        rde_ui_node_set_active(rde_ui_text_editor_as_node(_form->fields[_i]), _on);
         if(!_on) {
             continue;
         }

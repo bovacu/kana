@@ -383,8 +383,8 @@ RDE_INTERNAL b8 fude_zoom_topic_export_choose(fude_app* _app, u32 _i) {
     return _i < _t->exports_count ? fude_zoom_export_choose(_app, _t->exports[_i]) : false;
 }
 
-// Topic: one chosen from the menu (_at, an index into the app's topics). The bar is filled for it the frame after
-// (fude_zoom_page_topic_follow), never from inside its own panel's press. Everything the last topic's tools left in
+// Topic: one chosen from the menu (_at, an index into the app's topics). The bar is filled for it the frame after, where
+// every change of topic is picked up (fude_zoom_page_topic_follow). Everything the last topic's tools left in
 // hand is put down: what the pen was set to do (wires, walls, rooms, a shape, the curve, fill, trim, a measure, text)
 // and the Saw, so the pen draws again; the parts' and My pieces' panels; and the instruments lying out that the new
 // topic does not have (Undo brings them back). The canvas keeps its topic. Returns false: the panel is not kept open.

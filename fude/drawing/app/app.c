@@ -348,7 +348,7 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
 
         case RDE_EVENT_TYPE_MOBILE_TOUCH_DOWN: {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
-            const rde_vec_2F        _at    = fude_app_touch_to_screen(_touch->init_touch_position);
+            const rde_vec_2F        _at    = { (f32)_touch->init_touch_position.x, (f32)_touch->init_touch_position.y };   // (screen space)
             if(!_touch->from_pen && _app->pointer == FUDE_POINTER_NONE && (!_write || _app->finger_writes) && !fude_ui_hit(_app->ui, _at)) {
                 _app->pointer        = FUDE_POINTER_FINGER;
                 _app->pointer_finger = _touch->finger_id;
@@ -360,7 +360,7 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
         case RDE_EVENT_TYPE_MOBILE_TOUCH_MOVED: {
             const rde_event_mobile* _touch = &_event->data.mobile_event_data;
             if(!_touch->from_pen && _app->pointer == FUDE_POINTER_FINGER && _touch->finger_id == _app->pointer_finger) {
-                _app->pointer_last = fude_app_touch_to_screen(_touch->moved_touch_position);
+                _app->pointer_last = (rde_vec_2F){ (f32)_touch->moved_touch_position.x, (f32)_touch->moved_touch_position.y };
                 _vt->pointer_moved(_self, fude_draw_pointer(_app->pointer_last, false), _now);
             }
         } break;
@@ -410,17 +410,6 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event) {
 
         default: break;
     }
-}
-
-// Converts a window position (top-left origin, Y down) to screen space, which is centre-origin with Y up.
-rde_vec_2F fude_app_window_to_screen(const fude_app* _app, rde_vec_2F _pixel) {
-    const rde_vec_2I _size = rde_window_get_size(_app->window);
-    return (rde_vec_2F){ _pixel.x - (f32)_size.x * 0.5f, (f32)_size.y * 0.5f - _pixel.y };
-}
-
-// A touch's position as the app's points: touch events report screen space (centre origin, Y up) in whole units.
-rde_vec_2F fude_app_touch_to_screen(rde_vec_2I _touch) {
-    return (rde_vec_2F){ (f32)_touch.x, (f32)_touch.y };
 }
 
 // Turns the hand on or off, refreshes the toolbar's hand button and says in a notice which it is now, whether the

@@ -228,7 +228,7 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->page), _idle);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->share), _idle && _writes);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->turn), _idle);
-    rde_ui_node_set_active(fude_kit_field_node(_bar->field), !_idle);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_bar->field), !_idle);
     rde_ui_node_set_active(rde_ui_label_as_node(_bar->count), !_idle);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->before), _search);
     rde_ui_node_set_active(rde_ui_button_as_node(_bar->next), _search);
@@ -249,7 +249,7 @@ RDE_INTERNAL void fude_docbar_layout(fude_docbar* _bar) {
         const f32 _rest  = (_search ? 3.0f : 1.0f) * (FUDE_DOCBAR_BUTTON + FUDE_DOCBAR_PAD) + FUDE_DOCBAR_COUNT_W + 3.0f * FUDE_DOCBAR_PAD;
         const f32 _room  = _screen.x - (f32)(_insets.x + _insets.z) - 2.0f * 72.0f - _rest;   // Clear of menu button.
         const f32 _field = _search ? rde_math_min_f32(FUDE_DOCBAR_FIELD_W, rde_math_max_f32(120.0f, _room)) : FUDE_DOCBAR_NUM_W;
-        _x = fude_docbar_put(fude_kit_field_node(_bar->field), _x, _field, FUDE_DOCBAR_H - 2.0f * FUDE_DOCBAR_PAD);
+        _x = fude_docbar_put(rde_ui_text_editor_as_node(_bar->field), _x, _field, FUDE_DOCBAR_H - 2.0f * FUDE_DOCBAR_PAD);
         _x = fude_docbar_put(rde_ui_label_as_node(_bar->count), _x, _search ? FUDE_DOCBAR_COUNT_W : 64.0f, FUDE_DOCBAR_BUTTON);
         if(_search) {
             _x = fude_docbar_put(rde_ui_button_as_node(_bar->before), _x, FUDE_DOCBAR_BUTTON, FUDE_DOCBAR_BUTTON);
@@ -393,7 +393,7 @@ void fude_docbar_create(fude_docbar* _bar, rde_ui_node* _root, fude_app* _app) {
     rde_ui_text_editor_set_content_insets(_bar->field, 12.0f, 6.0f, 12.0f, 6.0f);
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_bar->field), _bar);
     rde_ui_text_editor_set_on_submit(_bar->field, fude_docbar_on_submit);
-    fude_kit_field_box(_p, _bar->field);
+    rde_ui_node_add_child(_p, rde_ui_text_editor_as_node(_bar->field));
 
     rde_ui_node_set_active(_p, false);
     fude_docbar_restyle(_bar);

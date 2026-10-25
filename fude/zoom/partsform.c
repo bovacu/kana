@@ -289,16 +289,16 @@ RDE_INTERNAL void fude_zoom_parts_layout(fude_zoom_parts_form* _form) {
     for(u32 _i = 0; _i < FUDE_ZOOM_PARTS_ROWS; _i++) {
         const b8  _on = _i < _form->rows;
         const f32 _ry = _all - (f32)_i * (_rh + _gap) - _rh * 0.5f;
-        rde_ui_node_set_active(fude_kit_field_node(_form->widths[_i]), _on);
-        rde_ui_node_set_active(fude_kit_field_node(_form->heights[_i]), _on);
+        rde_ui_node_set_active(rde_ui_text_editor_as_node(_form->widths[_i]), _on);
+        rde_ui_node_set_active(rde_ui_text_editor_as_node(_form->heights[_i]), _on);
         rde_ui_node_set_active(rde_ui_label_as_node(_form->times[_i]), _on);
         rde_ui_node_set_active(rde_ui_button_as_node(_form->drops[_i]), _on);
         if(!_on) {
             continue;
         }
-        fude_kit_place(fude_kit_field_node(_form->widths[_i]), (rde_vec_2F){ _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, _rh });
+        fude_kit_place(rde_ui_text_editor_as_node(_form->widths[_i]), (rde_vec_2F){ _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, _rh });
         fude_kit_place(rde_ui_label_as_node(_form->times[_i]), (rde_vec_2F){ _fw + _gap + _xw * 0.5f, _ry }, (rde_vec_2F){ _xw, _rh });
-        fude_kit_place(fude_kit_field_node(_form->heights[_i]), (rde_vec_2F){ _fw + 2.0f * _gap + _xw + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, _rh });
+        fude_kit_place(rde_ui_text_editor_as_node(_form->heights[_i]), (rde_vec_2F){ _fw + 2.0f * _gap + _xw + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, _rh });
         fude_kit_place(rde_ui_button_as_node(_form->drops[_i]), (rde_vec_2F){ _iw - _dw * 0.5f, _ry }, (rde_vec_2F){ _dw, _rh });
     }
     _y -= _lh + _gap;

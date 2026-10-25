@@ -135,12 +135,6 @@ void fude_app_screen_event(fude_app* _app, rde_event* _event);
 // Closes every screen, each by as many steps as it has (after an import replaced what they show).
 void fude_app_close_all(fude_app* _app);
 
-// Converts a window position (top-left origin, Y down) to the app's screen space (centre origin, Y up). Pen and touch
-// positions arrive in screen space already. Getting this wrong shows as ink mirrored about the middle of the screen.
-rde_vec_2F fude_app_window_to_screen(const fude_app* _app, rde_vec_2F _pixel);
-// A touch's position (screen space, whole units) as the app's points.
-rde_vec_2F fude_app_touch_to_screen(rde_vec_2I _touch);
-
 // Sets a tablet's hand on the toolbar: on, one finger writes; off, only the pen does. A notice on the page says which,
 // whoever switched it.
 void fude_app_set_finger_writes(fude_app* _app, b8 _on);

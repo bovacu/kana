@@ -332,9 +332,9 @@ RDE_INTERNAL void fude_zoom_sheetf_layout(fude_zoom_sheet_form* _form) {
     }
     _y -= _sh + _gap;
     const f32 _xw = 28.0f, _fw = (_iw - _xw - 2.0f * _gap) * 0.5f, _ry = _y - FUDE_ZOOM_SHEETF_ROW_H * 0.5f;
-    fude_kit_place(fude_kit_field_node(_form->width), (rde_vec_2F){ _pad + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, FUDE_ZOOM_SHEETF_ROW_H });
+    fude_kit_place(rde_ui_text_editor_as_node(_form->width), (rde_vec_2F){ _pad + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, FUDE_ZOOM_SHEETF_ROW_H });
     fude_kit_place(rde_ui_label_as_node(_form->times), (rde_vec_2F){ _pad + _fw + _gap + _xw * 0.5f, _ry }, (rde_vec_2F){ _xw, FUDE_ZOOM_SHEETF_ROW_H });
-    fude_kit_place(fude_kit_field_node(_form->height), (rde_vec_2F){ _pad + _fw + 2.0f * _gap + _xw + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, FUDE_ZOOM_SHEETF_ROW_H });
+    fude_kit_place(rde_ui_text_editor_as_node(_form->height), (rde_vec_2F){ _pad + _fw + 2.0f * _gap + _xw + _fw * 0.5f, _ry }, (rde_vec_2F){ _fw, FUDE_ZOOM_SHEETF_ROW_H });
     _y -= FUDE_ZOOM_SHEETF_ROW_H + _gap;
     fude_kit_place(rde_ui_label_as_node(_form->hint), (rde_vec_2F){ _pad + _iw * 0.5f, _y - 11.0f }, (rde_vec_2F){ _iw, 22.0f });
     fude_kit_form_buttons(_form->cancel, _form->save, _w);

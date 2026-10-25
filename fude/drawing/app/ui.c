@@ -71,8 +71,8 @@ RDE_INTERNAL rde_ui_text_editor* fude_ui_field_create(rde_ui_node* _root, fude_u
     if(_slot->vt->field_change != NULL) {
         rde_ui_text_editor_set_on_change(_field, fude_ui_on_field_change);
     }
-    fude_kit_field_box(_root, _field);
-    rde_ui_node_set_active(fude_kit_field_node(_field), false);
+    rde_ui_node_add_child(_root, rde_ui_text_editor_as_node(_field));
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_field), false);
     return _field;
 }
 
@@ -178,10 +178,10 @@ void fude_ui_update(fude_ui* _ui) {
             const b8 _shows = _up && !_ui->_field_shown[_s];
             if(_up != _ui->_field_shown[_s]) {
                 _ui->_field_shown[_s] = _up;
-                rde_ui_node_set_active(fude_kit_field_node(_field), _up);
+                rde_ui_node_set_active(rde_ui_text_editor_as_node(_field), _up);
             }
             if(_up && (_replace || _shows)) {
-                fude_kit_place(fude_kit_field_node(_field), _field_c, _field_s);
+                fude_kit_place(rde_ui_text_editor_as_node(_field), _field_c, _field_s);
             }
         }
         _ui->_open_seen[_s] = _open;

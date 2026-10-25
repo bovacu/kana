@@ -711,9 +711,9 @@ void fude_zoom_page_text_card(fude_zoom_page* _page, b8 _show) {
         _page->text_card_size = _size;
         fude_kit_modal_place(&_page->text_card, _page->app->window, _at, _size);
         if(_board || _area) {
-            fude_kit_place(fude_kit_field_node(_page->text_field), (rde_vec_2F){ _size.x * 0.5f, _size.y - 16.0f - 26.0f }, (rde_vec_2F){ _size.x - 32.0f, 52.0f });
+            fude_kit_place(rde_ui_text_editor_as_node(_page->text_field), (rde_vec_2F){ _size.x * 0.5f, _size.y - 16.0f - 26.0f }, (rde_vec_2F){ _size.x - 32.0f, 52.0f });
         } else {
-            fude_kit_place(fude_kit_field_node(_page->text_field), (rde_vec_2F){ _size.x * 0.5f, _size.y - 16.0f - 72.0f }, (rde_vec_2F){ _size.x - 32.0f, 144.0f });
+            fude_kit_place(rde_ui_text_editor_as_node(_page->text_field), (rde_vec_2F){ _size.x * 0.5f, _size.y - 16.0f - 72.0f }, (rde_vec_2F){ _size.x - 32.0f, 144.0f });
         }
         {
             const f32 _gap = 6.0f, _side = rde_math_min_f32(44.0f, (_size.x - 32.0f - _gap * (f32)(FUDE_ZOOM_RICH_DOS - 1u)) / (f32)FUDE_ZOOM_RICH_DOS);
@@ -1014,7 +1014,7 @@ void fude_zoom_page_render_inline(fude_zoom_page* _page) {
     const f32 _keys = rde_keyboard_get_height();
     if(_keys > 0.0f) {
         const rde_vec_2I _win = rde_window_get_size(_page->app->window);
-        const f32 _top = fude_app_window_to_screen(_page->app, (rde_vec_2F){ 0.0f, (f32)_win.y - _keys }).y;
+        const f32 _top = _keys - (f32)_win.y * 0.5f;   // (the keyboard's top edge, in screen space: centre origin, Y up)
         const f32 _need = _top + (f32)FUDE_ZOOM_PAGE_INLINE_KEYS - _c0.y;
         if(_need > 0.5f && _s->camera.z > 0.0) {
             fude_redraw_changed();   // (render on demand: the keyboard rises with no event of the app's)

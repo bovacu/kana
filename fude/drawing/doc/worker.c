@@ -211,8 +211,9 @@ void fude_doc_tile_free(fude_doc_tile* _tile) {
 }
 
 // See the header. The memory texture is made on the std allocator, as anything as big as a page is: the engine's pool
-// is a fixed block (the app's config.rdef), which a few pages and a sharp piece (up to 64 MB) would fill. Its copy of
-// the pixels stays as long as the texture, since RDE's upload keeps it (it does not look at the parameters' free_data).
+// keeps every region it grows by until the app ends (coding_rules.md §3), and a few pages and a sharp piece (up to
+// 64 MB) would grow it for good. Its copy of the pixels stays as long as the texture: a memory texture keeps its pixels
+// after the upload (rde_memory_texture_gpu_upload).
 void fude_doc_tile_take(fude_doc_tile* _tile, const fude_doc_piece* _piece) {
     fude_doc_tile_free(_tile);
     _tile->texture = rde_memory_texture_create(_piece->w, _piece->h, 4u, rde_memory_allocator_get_default_std());

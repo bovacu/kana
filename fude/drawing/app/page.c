@@ -358,7 +358,7 @@ RDE_INTERNAL void fude_page_touch_event(fude_page_input* _page, rde_event* _even
                 break;
             }
             _page->touch_seen = true;
-            const rde_vec_2F _pos = fude_app_touch_to_screen(_touch->init_touch_position);
+            const rde_vec_2F _pos = { (f32)_touch->init_touch_position.x, (f32)_touch->init_touch_position.y };   // (screen space)
             // A finger on the UI is using it, not moving the page.
             if(!_ink->drawing && !_page->erasing) {
                 fude_page_press_app(_page, _pos);   // What the app drew over the page (the translation card's speaker).
@@ -382,12 +382,13 @@ RDE_INTERNAL void fude_page_touch_event(fude_page_input* _page, rde_event* _even
             if(_touch->from_pen) {
                 break;
             }
+            const rde_vec_2F _pos = { (f32)_touch->moved_touch_position.x, (f32)_touch->moved_touch_position.y };
             if(_page->finger_state != FUDE_PAGE_FINGER_NONE) {
-                fude_page_finger_moved(_page, _touch->finger_id, fude_app_touch_to_screen(_touch->moved_touch_position));
+                fude_page_finger_moved(_page, _touch->finger_id, _pos);
                 break;
             }
             if(!_ink->drawing) {
-                fude_canvas_finger_moved(_app->canvas, _touch->finger_id, fude_app_touch_to_screen(_touch->moved_touch_position));
+                fude_canvas_finger_moved(_app->canvas, _touch->finger_id, _pos);
             }
         } break;
 

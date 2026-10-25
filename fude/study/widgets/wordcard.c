@@ -438,7 +438,7 @@ RDE_INTERNAL f32 fude_wordcard_layout_chips(const fude_ui* _ui, const fude_wordc
     if(_card->naming && !_card->list_mode && !_card->note_mode) {   // the word form's, as fude_wordcard_show_parts shows it
         if(_place) {
             const f32 _ok = 96.0f;
-            fude_kit_place(fude_kit_field_node(_card->list_field), (rde_vec_2F){ _x0 + (_x1 - _x0 - _ok - FUDE_WORDCARD_GAP) * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
+            fude_kit_place(rde_ui_text_editor_as_node(_card->list_field), (rde_vec_2F){ _x0 + (_x1 - _x0 - _ok - FUDE_WORDCARD_GAP) * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
                                (rde_vec_2F){ _x1 - _x0 - _ok - FUDE_WORDCARD_GAP, FUDE_WORDCARD_FIELD_H });
             fude_kit_place(rde_ui_button_as_node(_card->list_ok), (rde_vec_2F){ _x1 - _ok * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
                                (rde_vec_2F){ _ok, FUDE_WORDCARD_FIELD_H - 4.0f });
@@ -458,8 +458,8 @@ RDE_INTERNAL void fude_wordcard_show_parts(fude_wordcard* _card, u32 _list_count
     rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_caption), _sentence);
     rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_label), _sentence && _card->sentence[0] != 0);
     rde_ui_node_set_active(rde_ui_label_as_node(_card->sentence_to_label), _sentence && _card->sentence_to[0] != 0);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_WRITTEN]), !_card->note_mode);
-    rde_ui_node_set_active(fude_kit_field_node(_card->note_field), _card->note_mode);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_WRITTEN]), !_card->note_mode);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_card->note_field), _card->note_mode);
     for(u32 _i = 0; _i < FUDE_WORDCARD_FOUND; _i++) {
         rde_ui_node_set_active(rde_ui_button_as_node(_card->found_chips[_i]), _word && _card->found_count > 1u && _i < _card->found_count);
     }
@@ -468,10 +468,10 @@ RDE_INTERNAL void fude_wordcard_show_parts(fude_wordcard* _card, u32 _list_count
         rde_ui_node_set_active(rde_ui_button_as_node(fude_wordcard_list_of(_card, _i)->chip), _word);
     }
     rde_ui_node_set_active(rde_ui_label_as_node(_card->lists_caption), _word);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_READING]), _word);
-    rde_ui_node_set_active(fude_kit_field_node(_card->fields[FUDE_WORDCARD_MEANING]), _word);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_READING]), _word);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_card->fields[FUDE_WORDCARD_MEANING]), _word);
     rde_ui_node_set_active(rde_ui_button_as_node(_card->new_list), _word && !_card->naming);
-    rde_ui_node_set_active(fude_kit_field_node(_card->list_field), _word && _card->naming);
+    rde_ui_node_set_active(rde_ui_text_editor_as_node(_card->list_field), _word && _card->naming);
     rde_ui_node_set_active(rde_ui_button_as_node(_card->list_ok), _word && _card->naming);
     rde_ui_node_set_active(rde_ui_button_as_node(_card->remove), _word ? _card->id != 0u : _card->list_mode ? _card->list_id != 0u : fude_charnote_get(_card->note_cp)[0] != 0);
 }
@@ -520,13 +520,13 @@ RDE_INTERNAL void fude_wordcard_layout(fude_ui* _ui) {
         _y += 32.0f + 10.0f;
         if(_card->note_mode) {
             if(_place) {
-                fude_kit_place(fude_kit_field_node(_card->note_field), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + 70.0f) }, (rde_vec_2F){ _x1 - _x0, 140.0f });
+                fude_kit_place(rde_ui_text_editor_as_node(_card->note_field), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + 70.0f) }, (rde_vec_2F){ _x1 - _x0, 140.0f });
             }
             _y += 140.0f + FUDE_WORDCARD_GAP;
         }
         for(u32 _f = 0; _f < (_card->note_mode ? 0u : _card->list_mode ? 1u : 3u); _f++) {
             if(_place) {
-                fude_kit_place(fude_kit_field_node(_card->fields[_f]), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
+                fude_kit_place(rde_ui_text_editor_as_node(_card->fields[_f]), (rde_vec_2F){ _w * 0.5f, FUDE_WORDCARD_TOP(_y + FUDE_WORDCARD_FIELD_H * 0.5f) },
                                    (rde_vec_2F){ _x1 - _x0, FUDE_WORDCARD_FIELD_H });
             }
             _y += FUDE_WORDCARD_FIELD_H + FUDE_WORDCARD_GAP;
@@ -1175,7 +1175,7 @@ RDE_INTERNAL rde_ui_text_editor* fude_wordcard_field(fude_ui* _ui, rde_ui_node* 
     rde_ui_text_editor_set_content_insets(_f, 12.0f, 8.0f, 12.0f, 8.0f);
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_f), _ui);
     rde_ui_text_editor_set_on_submit(_f, fude_wordcard_on_submit);
-    fude_kit_field_box(_parent, _f);
+    rde_ui_node_add_child(_parent, rde_ui_text_editor_as_node(_f));
     return _f;
 }
 

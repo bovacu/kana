@@ -133,8 +133,8 @@ void fude_study_look_args(i32 _argc, c8** _argv) {
         if((_v = fude_look_value(_a, "--sheet")) != NULL)          { fude_study_look.sheet = _v; }
         if((_v = fude_look_value(_a, "--translate-probe")) != NULL) { fude_study_look.translate_probe = _v; }
         if((_v = fude_look_value(_a, "--paste-text")) != NULL) {
-            // "\\n" in the argument stands for a line break, because RDE reads its arguments as config lines. The text
-            // is cut at 511 bytes.
+            // "\\n" in the argument stands for a line break, which a command line does not easily hold. The text is cut
+            // at 511 bytes.
             static c8 _pasted[512];
             usize     _n = 0;
             for(const c8* _p = _v; *_p != 0 && _n + 1u < sizeof(_pasted); _p++) {

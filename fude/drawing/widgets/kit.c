@@ -21,11 +21,9 @@ RDE_INTERNAL rde_font* fude_kit_text_font     = NULL;
 RDE_INTERNAL rde_font* fude_kit_icons_regular = NULL;
 RDE_INTERNAL rde_font* fude_kit_icons_fill    = NULL;
 // The tags an icon label's user data points at, telling it from the button's own label: a Phosphor icon (which turns
-// Fill when its button is chosen) or a character. A text field's box (fude_kit_field_box) is told apart the same way.
-// Only their addresses matter.
-RDE_INTERNAL const c8 fude_kit_tag_icon      = 1;
-RDE_INTERNAL const c8 fude_kit_tag_glyph     = 2;
-RDE_INTERNAL const c8 fude_kit_tag_field_box = 3;
+// Fill when its button is chosen) or a character. Only their addresses matter.
+RDE_INTERNAL const c8 fude_kit_tag_icon  = 1;
+RDE_INTERNAL const c8 fude_kit_tag_glyph = 2;
 
 // Keeps the fonts; with no icon font, icons are drawn in the UI font.
 void fude_kit_set_fonts(rde_font* _text, rde_font* _icons, rde_font* _icons_fill) {
@@ -110,8 +108,9 @@ void fude_kit_button_colors(rde_ui_button* _button, rde_color _base, f32 _border
     _s.border_color  = _border;
     rde_ui_button_set_style(_button, RDE_UI_STATE_NORMAL, _s);
 #if defined(RDE_PLATFORM_MOBILE)
-    // No hover look on a touch screen (the hovered style stays the normal one): a lifted finger leaves the pointer on
-    // what it tapped, and a hover tint there would look as if the button were left on.
+    // No hover look on a touch screen (the hovered style stays the normal one): a lifted pen leaves the pointer on what
+    // it tapped (RDE lets a lifted finger hover nothing, but not a pen), and a hover tint there would look as if the
+    // button were left on.
 #else
     _s.tint = _clear ? _t->button : fude_kit_press(_base, 8);
 #endif
@@ -371,42 +370,17 @@ void fude_kit_icon_color(rde_ui_button* _button, rde_color _color) {
     }
 }
 
-// Puts a text field in its box: a rounded frame in the field's colour with a hairline, which holds the field. The
-// field's own background is turned off (fude_kit_style_field), because the text editor's is a plain rectangle. The
-// box is what is placed and shown (fude_kit_field_node); the field fills it.
-void fude_kit_field_box(rde_ui_node* _parent, rde_ui_text_editor* _field) {
-    rde_ui_image* _frame = rde_ui_image_create(NULL);
-    rde_ui_node*  _n     = rde_ui_image_as_node(_frame);
-    rde_ui_node_set_raycast_target(_n, false);
-    rde_ui_node_set_user_data(_n, (any)&fude_kit_tag_field_box);   // How fude_kit_field_node knows it.
-    rde_ui_node_add_child(_parent, _n);
-    rde_ui_node* _f = rde_ui_text_editor_as_node(_field);
-    rde_ui_node_add_child(_n, _f);
-    fude_kit_pin(_f, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 1.0f, 1.0f }, (rde_vec_2F){ 0.0f, 0.0f }, (rde_vec_2F){ 0.0f, 0.0f });
-}
-
-// Returns the field's box when it has one, else the field itself.
-rde_ui_node* fude_kit_field_node(rde_ui_text_editor* _field) {
-    rde_ui_node* _f      = rde_ui_text_editor_as_node(_field);
-    rde_ui_node* _parent = rde_ui_node_get_parent(_f);
-    return _parent != NULL && _parent->user_data == (any)&fude_kit_tag_field_box ? _parent : _f;
-}
-
-// Styles a field in the theme's colours: no background of its own, its placeholder, text and caret (the accent), and
-// its box with a 1-unit border.
+// Styles a field in the theme's colours: its box (rounded, with a 1-unit border), its placeholder, text and caret (the
+// accent).
 void fude_kit_style_field(rde_ui_text_editor* _field) {
     const fude_theme* _t = fude_theme_active();
-    rde_ui_text_editor_set_background(_field, false, _t->field);
     rde_ui_text_editor_set_placeholder_color(_field, _t->field_placeholder);
     rde_ui_text_editor_set_text_color(_field, _t->text);
     rde_ui_text_editor_set_caret_color(_field, _t->accent);
-    rde_ui_node* _box = fude_kit_field_node(_field);
-    if(_box != rde_ui_text_editor_as_node(_field)) {
-        rde_ui_style _s = fude_kit_style(_t->field, 10.0f);
-        _s.border_width = 1.0f;
-        _s.border_color = _t->field_border;
-        rde_ui_image_set_style((rde_ui_image*)_box, RDE_UI_STATE_NORMAL, _s);
-    }
+    rde_ui_style _s = fude_kit_style(_t->field, 10.0f);
+    _s.border_width = 1.0f;
+    _s.border_color = _t->field_border;
+    rde_ui_text_editor_set_style(_field, RDE_UI_STATE_NORMAL, _s);
 }
 
 // Makes the button pressable or not, and colours its label and icon to match.
@@ -653,7 +627,7 @@ rde_ui_text_editor* fude_kit_form_field(const fude_kit_form* _form, rde_ui_node*
     if(_on_submit != NULL) {
         rde_ui_text_editor_set_on_submit(_f, _on_submit);
     }
-    fude_kit_field_box(_parent, _f);
+    rde_ui_node_add_child(_parent, rde_ui_text_editor_as_node(_f));
     return _f;
 }
 
@@ -687,7 +661,7 @@ void fude_kit_form_bad(rde_ui_label* _problem, rde_ui_text_editor* _field, u32 _
 // See the header.
 void fude_kit_form_named(rde_ui_label* _name, rde_ui_text_editor* _field, f32 _x, f32 _y, f32 _nw, f32 _fw, f32 _h) {
     fude_kit_place(rde_ui_label_as_node(_name), (rde_vec_2F){ _x + _nw * 0.5f, _y }, (rde_vec_2F){ _nw, _h });
-    fude_kit_place(fude_kit_field_node(_field), (rde_vec_2F){ _x + _nw + 4.0f + _fw * 0.5f, _y }, (rde_vec_2F){ _fw, _h });
+    fude_kit_place(rde_ui_text_editor_as_node(_field), (rde_vec_2F){ _x + _nw + 4.0f + _fw * 0.5f, _y }, (rde_vec_2F){ _fw, _h });
 }
 
 // See the header.

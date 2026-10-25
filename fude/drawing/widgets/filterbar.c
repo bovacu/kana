@@ -116,7 +116,7 @@ void fude_filterbar_create(fude_filterbar* _bar, rde_ui_node* _root, rde_window*
     rde_ui_text_editor_set_content_insets(_bar->field, 12.0f, 8.0f, 12.0f, 8.0f);
     rde_ui_node_set_user_data(rde_ui_text_editor_as_node(_bar->field), _bar);
     rde_ui_text_editor_set_on_change(_bar->field, fude_filterbar_on_search);
-    fude_kit_field_box(_node, _bar->field);
+    rde_ui_node_add_child(_node, rde_ui_text_editor_as_node(_bar->field));
 
     for(u32 _r = 0; _r < FUDE_FILTERBAR_CHIP_ROWS; _r++) {
         _bar->_chosen_shown[_r] = UINT32_MAX;
@@ -217,7 +217,7 @@ RDE_INTERNAL void fude_filterbar_layout(fude_filterbar* _bar) {
         }
     }
     _bar->_compact_for = _compact ? 1 : 0;
-    fude_kit_place(fude_kit_field_node(_bar->field), (rde_vec_2F){ _left + _field * 0.5f, _y }, (rde_vec_2F){ _field, FUDE_FILTERBAR_FIELD_H });
+    fude_kit_place(rde_ui_text_editor_as_node(_bar->field), (rde_vec_2F){ _left + _field * 0.5f, _y }, (rde_vec_2F){ _field, FUDE_FILTERBAR_FIELD_H });
     for(u32 _t = 0, _k = 0; _t < _n; _t++) {
         if(_bar->_hidden[_t]) {
             continue;

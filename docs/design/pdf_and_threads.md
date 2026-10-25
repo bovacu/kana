@@ -213,7 +213,7 @@ On the Mac, where ML Kit is not, `--read-demo` (study's look) reads every page w
 | What | Bound | Where it lives |
 |---|---|---|
 | Whole pages | by bytes: those on screen always (each at most about twice its width on screen, so together a few screens' worth); the others nearest the view first while all kept fit `FUDE_DOC_KEEP_BYTES` (48 MB, at 4 bytes a pixel): about seven A4 pages at 1100 × 1556, or many more seen small (`fude_doc_wholes`) | each byte twice: on the GPU (a third more for the mipmaps) and in the memory texture's copy, which is on the std allocator (`fude_doc_tile_take`). An A4 page at full width is 6.8 MB |
-| Sharp pieces | only pages on screen; freed as a page leaves the screen; at most `FUDE_DOC_SHARP_MAX` (4096) pixels on the longer side | as above, no mipmaps |
+| Sharp pieces | only pages on screen; freed as a page leaves the screen; at most `FUDE_DOC_SHARP_MAX` pixels on the longer side (the GPU's largest texture, `rde_texture_get_max_size()`: 16384 on Apple's GPUs, 4096 at least on Android) | as above, no mipmaps |
 | The piece being drawn | one per worker | its pixels on the std allocator, freed when taken |
 | A reader's picture | one at a time, 1600 × 2400 at most (15 MB) | copied by the reader, the piece freed |
 | Matches | 512 (`FUDE_PDF_MATCHES`) | one array per document, made on the first search |

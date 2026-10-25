@@ -336,8 +336,8 @@ screens in every --language=N), --chart, --stats, --exam,
 --exam-start, --side, --faq, --paper, --album, --album-exams, --album-page=HEX,
 --kept-exam=N, --viewer=HEX; --offline-note (why the app works offline: the
 must-read card shown once after the welcome, its Close counting down 5 seconds); --scan-demo=PNG the Text from a photo screen fed
-that image and some lines, --scan-demo-turn=DEG and --scan-demo-top-first to
-show it as a camera frame is, --scan-demo-translate with Translate with Google
+that image and some lines, --scan-demo-turn=DEG to show it as a camera frame
+is, --scan-demo-translate with Translate with Google
 on (translations made up: no ML Kit on the desktop); --paste-text=TEXT then
 --translate-selection the pasted selection translated (made up too), its card
 by it; --data Settings › Your data, --data-export=FILE everything exported
@@ -799,18 +799,15 @@ is kept in data/raw/phosphor-icons/, not in the repository nor the app.
 
 The two shipped fonts are cut down to the icons the apps use (fude/drawing/
 base/icons.h: ~37 KB each instead of ~470 KB; the outlines, metrics and glyph
-boxes are unchanged — each box is the icon's whole frame, as Phosphor has it — so
-FUDE_KIT_ICON_BEARINGS still holds). A NEW ICON means cutting them again from the
-whole fonts, into every app that ships them, with fontTools (pip install
-fonttools — a virtual environment is fine; a one-off tool, nothing in the app needs
-it). From the project root:
+boxes are unchanged — each box is the icon's whole frame, as Phosphor has it). A
+NEW ICON means cutting them again from the whole fonts, into every app that ships
+them, with fontTools (pip install fonttools — a virtual environment is fine; a
+one-off tool, nothing in the app needs it). From the project root:
 
   python3 tools/icons/phosphor_subset.py
 
 (It keeps each glyph's box as it is: recalculated tight, the boxes no longer match
-the left side bearings and every icon draws left of its place — 0.1.92.) Then the
-icons' bearings, measured from the new font (FUDE_KIT_ICON_BEARINGS in
-fude/drawing/widgets/kit.c is rewritten): python3 tools/icons/bearings.py.
+the left side bearings and every icon draws left of its place — 0.1.92.)
   curl -L -o apps/kana/assets/fonts/LICENSE-NotoSansJP.txt https://github.com/notofonts/noto-cjk/raw/main/Sans/LICENSE
 
 

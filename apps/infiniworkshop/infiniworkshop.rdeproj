@@ -57,6 +57,9 @@ plist             = platform/ios/Info.plist
 asset_catalog     = platform/ios/Assets.xcassets
 launch_storyboard = platform/ios/LaunchScreen.storyboard
 bundles           = platform/ios/localized
+# ML Kit's frameworks are built for iOS 15.5, so the app is too: its MinimumOSVersion, and what its own code and link
+# are built for (RDE's library stays at 15.0). Without it every link warned that ML Kit is newer than the app.
+minimum_system_version = 15.5
 # The system's frameworks the .m files use, besides those RDE links itself.
 link_flags = -framework PhotosUI -framework ImageIO -framework VisionKit -framework PDFKit -framework CoreText
              -framework AVFoundation -framework CoreMedia -framework CoreVideo
@@ -102,7 +105,9 @@ frameworks  = ../../third_party/mlkit/frameworks/MLKitDigitalInkRecognition.fram
               ../../third_party/mlkit/frameworks/MLKitMDD.framework
 bundles    += ../../third_party/mlkit/bundles
 include    += ../../third_party/mlkit/include
-link_flags += -L../../third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv
+# ML Kit's model manager (MLKitMDD) watches the connection with the Network framework's path monitor, so Network is
+# linked for it: without it the link fails on the nw_path_* symbols.
+link_flags += -L../../third_party/mlkit/lib -lmlkit_deps -lz -lsqlite3 -liconv -framework Network
 
 # The Simulator's: debug, for the look flags (the store's screenshots).
 [profile sim]

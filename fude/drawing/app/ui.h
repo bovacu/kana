@@ -102,11 +102,10 @@ b8         fude_ui_hit(const fude_ui* _ui, rde_vec_2F _screen);
 void       fude_ui_apply_theme(fude_ui* _ui);
 // Fills in where screen _screen (its place in the app's table) draws (screen.h): below its bar, above its row.
 void       fude_ui_frame(const fude_ui* _ui, u32 _screen, fude_screen_frame* _frame);
-// Rebuilds the whole UI when the language has changed. Call it once a frame, outside the UI's own events, because a
-// language chosen in Settings rebuilds everything, the button that chose it included.
+// Rebuilds the whole UI when the language has changed, whoever changed it (Settings, a session read, the look flags).
+// Call it once a frame, before the UI is updated.
 void       fude_ui_follow_language(fude_ui* _ui);
-// Builds every widget again now, as a language change does (when an app's tools changed: a canvas app's topics). Never
-// call it from inside a widget's own press; do it the frame after.
+// Builds every widget again now, as a language change does (when an app's tools changed: a canvas app's topics).
 void       fude_ui_rebuild_now(fude_ui* _ui);
 // Whether the UI is laid out right to left (a right-to-left language, or --rtl).
 b8         fude_ui_rtl(void);
