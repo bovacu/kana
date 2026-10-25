@@ -44,7 +44,7 @@
 //     order, stopping at the first bad one. So a kill at any moment loses at most what had not been appended yet. A
 //     torn end is cut off by compacting at once.
 //   - COMPACTING writes a fresh file (only what is alive or can be undone: one set of buckets, FRAM, HIST, INDX,
-//     FOOT) to <name>.tmp, syncs it, moves the old file to <name>.bak and the new one into place (kfile.h's rule). It
+//     FOOT) atomically, the old file kept as <name>.bak (kfile.h's rule: rde_file_write_atomic). It
 //     happens when the bytes no index points at (old copies, old journals) are more than the live ones and more than
 //     64 KB (zfile.c's FUDE_ZOOM_FILE_COMPACT_MIN), the first time a canvas is written, after a failed write, and when
 //     opening found a torn end or read the backup. Nothing compacts a file before it leaves the app: Your data

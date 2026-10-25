@@ -138,8 +138,8 @@ FUDE_LOAD_ fude_save_load(const c8* _path, fude_save_reader_fn _read, any _user)
     if(_main == FUDE_LOAD_OK) {
         return FUDE_LOAD_OK;
     }
-    // The main file is missing (the app was killed between a save's two renames) or damaged, so read the backup,
-    // which is the previous save.
+    // The main file is missing (the app was killed between a save's two renames, where the backup is made by renaming:
+    // rde_file_write_atomic) or damaged, so read the backup, which is the previous save.
     c8 _bak[RDE_MAX_PATH];
     rde_snprintf(_bak, sizeof(_bak), "%s.bak", _path);
     const FUDE_LOAD_ _backup = fude_save_load_file(_bak, _read, _user);

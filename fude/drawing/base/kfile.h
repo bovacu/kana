@@ -23,9 +23,9 @@
 // documented by its owner.
 // Design: readers SKIP chunk tags they do not know, and read only the fields a chunk has. So new data goes in new
 // chunks or at the END of a record, and old and new builds keep reading each other's files.
-// Writes are ATOMIC (fude_bytes_write_and_free): the bytes go to <name>.tmp, then the previous file is renamed to
-// <name>.bak, then the .tmp is renamed into place. A kill at any point leaves the old file or the new one, never half
-// of one.
+// Writes are ATOMIC (fude_bytes_write_and_free, through rde_file_write_atomic): the bytes go to <name>.tmp and down to
+// the disk, the previous file is kept as <name>.bak, then the .tmp is renamed into place. A kill at any point leaves
+// the old file or the new one, never half of one.
 // ===========================================================================
 
 // A chunk tag or a file kind, from its four characters in the order they appear in the file.

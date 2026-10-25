@@ -29,11 +29,11 @@
 // (rde_ui_scroller, rde.h): fude_kit_scroller_init gives it the apps' feel, fude_kit_scroller_update moves it once a
 // frame and reports its fling to the redraw.
 //
-// Design: on a touch screen buttons have no hover look, because a lifted pen leaves the pointer on what it tapped (a
-// finger does not: RDE lets go of its hover) and a hover tint there would look like the button was left on. A form is
-// the cards' common part, written once: its card, title, Cancel, the tap off it (ignored within FUDE_KIT_FORM_GRACE of
-// opening), its layout's frame and its fields' handling; each card keeps its own widgets, its own rows' layout and its
-// presses.
+// Design: buttons have a hover look on every device, a tablet's too: RDE hovers nothing once a finger lifts or a pen
+// leaves range, so a tapped button is never left looking lit, and a trackpad or a hovering pen still shows where it
+// points. A form is the cards' common part, written once: its card, title, Cancel, the tap off it (ignored within
+// FUDE_KIT_FORM_GRACE of opening), its layout's frame and its fields' handling; each card keeps its own widgets, its
+// own rows' layout and its presses.
 // ===========================================================================
 
 // How an icon sits in its button (fude_kit_icon).

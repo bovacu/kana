@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Borja Vazquez Cuesta. All rights reserved.
 
 #include "zoom/voice.h"
+#include "drawing/base/spoken.h"
 
 // ===========================================================================
 // See voice.h.
@@ -8,7 +9,9 @@
 // Recording first, then playing; the file's helpers and constants are fzv_ and FZV_. Samples are f32 from -1 to 1 at
 // the devices and i16 in the blocks. RDE's audio threads fill and drain the devices' rings, and everything here runs
 // on the main thread: the recorder empties the microphone's ring into ADPCM blocks, and the player decodes one block
-// at a time from the file (each block stands alone, adpcm.h) to keep the speaker's ring FZV_AHEAD seconds full.
+// at a time from the file (each block stands alone, adpcm.h) to keep the speaker's ring FZV_AHEAD seconds full. While
+// the player plays (its stream open), the app's audio is RDE's spoken category (drawing/base/spoken.h): set before the
+// stream opens and given back once it is closed, as RDE asks of a stream around a change into SPOKEN or out of it.
 // ===========================================================================
 
 #define FZV_AHEAD   0.3    // seconds kept queued ahead of the speaker
@@ -183,6 +186,7 @@ b8 fude_zoom_voice_is_open(const fude_zoom_voice_player* _p) {
 void fude_zoom_voice_close(fude_zoom_voice_player* _p) {
     if(_p->stream != NULL) {
         rde_audio_stream_close(_p->stream);
+        fude_spoken_end();
     }
     if(_p->file != NULL) {
         rde_file_close(_p->file);
@@ -216,6 +220,7 @@ void fude_zoom_voice_pause(fude_zoom_voice_player* _p) {
     if(_p->stream != NULL) {
         rde_audio_stream_close(_p->stream);   // (what was queued past where it is: let go)
         _p->stream = NULL;
+        fude_spoken_end();
     }
 }
 
@@ -228,8 +233,10 @@ void fude_zoom_voice_play(fude_zoom_voice_player* _p) {
     if(_p->at >= _p->frames) {
         _p->at = 0u;   // (at its end: from its start again)
     }
+    fude_spoken_start();
     _p->stream = rde_audio_stream_open(_p->rate, 1u, (u32)((f64)_p->rate * FZV_DEVICE), NULL);
     if(_p->stream == NULL) {
+        fude_spoken_end();
         return;
     }
     _p->next    = _p->at;
@@ -239,13 +246,18 @@ void fude_zoom_voice_play(fude_zoom_voice_player* _p) {
     rde_audio_stream_start(_p->stream);
 }
 
-// See voice.h. A seek past the end goes to the end.
+// See voice.h. A seek past the end goes to the end. While it plays, the spoken category is held across the pause and
+// the play, so the other apps' music is not let up between.
 void fude_zoom_voice_seek(fude_zoom_voice_player* _p, u32 _frame) {
     const b8 _was = _p->playing;
+    if(_was) {
+        fude_spoken_start();
+    }
     fude_zoom_voice_pause(_p);
     _p->at = _frame < _p->frames ? _frame : _p->frames;
     if(_was) {
         fude_zoom_voice_play(_p);
+        fude_spoken_end();
     }
 }
 
@@ -283,5 +295,6 @@ void fude_zoom_voice_pump(fude_zoom_voice_player* _p) {
         _p->playing = false;
         rde_audio_stream_close(_p->stream);
         _p->stream = NULL;
+        fude_spoken_end();
     }
 }

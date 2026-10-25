@@ -337,7 +337,7 @@ RDE_INTERNAL void fude_shell_update(f32 _dt) {
         fude_redraw_after(0.0);   // (render on demand: tried again on the next frame, event or not)
     }
 #endif
-    fude_study_update(app);   // Select mode's end, and a better voice offered
+    fude_study_update(app);   // Select mode's end, the voice's audio category, and a better voice offered
 
     fude_ink_frame_begin(&ink);
     // The frame time, smoothed for the HUD.

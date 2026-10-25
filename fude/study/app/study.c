@@ -63,6 +63,7 @@ void fude_study_update(fude_app* _app) {
         }
         _study->selection->active = _ticking;
     }
+    fude_speech_update();   // (Android: the app's audio category back once the voice has stopped)
     if(fude_speech_take_hint()) {
         // Once the basic voice has spoken, a notice says where better voices are found.
         fude_notice_show(fude_text(FUDE_TEXT_SPEECH_BETTER_VOICE));   // where to find better voices

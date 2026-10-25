@@ -23,7 +23,9 @@
 // Files: none.
 // Design: the voice is the language's (lang.h: fude_lang_voice, "ja-JP"). On iOS each reading picks the best voice
 // present, so one downloaded in Settings while the app is open counts at once; it reads a little slower than the
-// default, because a learner listens for each sound.
+// default, because a learner listens for each sound. While it reads, the app's audio is RDE's spoken category
+// (drawing/base/spoken.h): heard in Silent Mode, with the music of other apps lowered, not stopped, and the app's own
+// category back once it stops. iOS says when each reading ends; Android is asked once a frame (fude_speech_update).
 // ===========================================================================
 
 // Returns true when the device has a voice for the language taught.
@@ -53,6 +55,10 @@ b8   fude_speech_take_came_back(void);
 void fude_speak(const c8* _text);
 // Stops reading aloud at once.
 void fude_speech_stop(void);
+// Once a frame (the study shell's update): on Android, gives the app's audio category back once nothing is left to
+// read, and asks for the next frame until then. Nothing elsewhere: iOS says when a reading ends, and a computer reads
+// nothing.
+void fude_speech_update(void);
 // Returns true once a run, after the device's basic voice has spoken because no better one was downloaded: the
 // time to tell the learner where the better ones are. Only iOS has better voices to offer; elsewhere it is false.
 b8   fude_speech_take_hint(void);

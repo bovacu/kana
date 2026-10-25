@@ -18,8 +18,8 @@
 // renders the templates, so a translation can put its words in any order. Both are cached, because the screens ask
 // for the same strings every frame: every plain string is rendered once per language, and the last 256 templates
 // filled in are kept. Every number in a UI string comes out in the language's own digits (its @digits).
-// A language is a whole block of the file. Should one lack a string, the English one shows instead (English is read
-// first, then the language). Without the file (the tests' default) a string is its id's name.
+// A language is a whole block of the file. Should one lack a string, the English one shows instead (RDE's fallback
+// language). Without the file (the tests' default) a string is its id's name.
 // ===========================================================================
 
 #define FUDE_TEXT_FILE "assets/text/strings.rdel"
@@ -91,7 +91,7 @@ RDE_STRUCT {
 #define FUDE_TS(_v) ((fude_text_arg){ .kind = 1, .number = 0, .string = (_v) })
 
 // Fills _id's template with _args (_count of them) into _out (_size bytes, NUL-terminated, cut to fit). A template
-// the language lacks is filled in from English's, by English's plural rule.
+// the language lacks is filled in from English's, by the language's own rules (its plural forms, its digits).
 void fude_text_format(c8* _out, usize _size, FUDE_TEXT_ _id, const fude_text_arg* _args, u32 _count);
 
 // The same into a char array, whose size is taken with sizeof:

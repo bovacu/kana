@@ -8,9 +8,8 @@
 // RDE renders the strings (rde_localization_render), and this file keeps what it rendered, because the screens ask for
 // the same strings every frame. Every plain string is rendered once per language (fude_text_plain). Filled-in templates
 // are kept, FUDE_TEXT_RENDERS of them, in an rde_lru by the whole of what they are made from (the id and every
-// argument: fude_text_key), the one used longest ago making room (fude_text_renders). RDE holds one language at a
-// time, so English's strings are rendered first and
-// kept as written (fude_text_english); a template the language lacks is filled in here from English's (fude_text_fill).
+// argument: fude_text_key), the one used longest ago making room (fude_text_renders). English stands in for what a
+// language lacks as RDE's fallback language (rde_localization_set_fallback_language).
 // ===========================================================================
 
 // Each string id's name, as text_ids.h lists them: the key RDE looks strings up by, and what a string shows when there
@@ -34,8 +33,6 @@ fude_text_language_info FUDE_TEXT_LANGUAGE_LIST[FUDE_TEXT_LANGUAGES] = {
 #define FUDE_TEXT_RENDERS  256u   // How many filled-in templates are kept (the one used longest ago makes room).
 
 RDE_INTERNAL rde_str               fude_text_plain[FUDE_TEXT_COUNT];     // The plain strings, English's if missing.
-RDE_INTERNAL rde_str               fude_text_english[FUDE_TEXT_COUNT];   // English's as written: the stand-ins.
-RDE_INTERNAL b8                    fude_text_missing[FUDE_TEXT_COUNT];   // True when the language lacks the string.
 // The filled-in templates kept: the text RDE rendered for each slot of fude_text_renders_lru (made on first use, on
 // the std allocator, kept for the run), which knows what each was rendered from (fude_text_key) and which was used
 // longest ago. A text is not inited while its slot is empty. fude_text_key_bytes is where a key is built.
@@ -84,8 +81,8 @@ RDE_INTERNAL rde_str fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args
         }
         _next += rde_strlen(_next) + 1u;   // every argument has its slot in the buffer, a number's empty
     }
-    // With no arguments, the string as written, a template's placeholders kept (for fude_text_fill): RDE reads it so
-    // through rde_localization_get_translation, without the warning per placeholder that a binding short of one gets.
+    // With no arguments, the string as written, a template's placeholders kept: RDE reads it so through
+    // rde_localization_get_translation, without the warning per placeholder that a binding short of one gets.
     const c8* _rendered = _count == 0 ? rde_localization_get_translation(FUDE_TEXT_NAMES[_id]) : rde_localization_render(&_binding);
     // Every number in a UI string is turned into the language's digits (its @digits, such as Arabic's ٠١٢٣٤٥٦٧٨٩),
     // because RDE leaves a number filled into a bare {0} as it is.
@@ -111,51 +108,6 @@ RDE_INTERNAL rde_str fude_text_render(FUDE_TEXT_ _id, const fude_text_arg* _args
     rde_localization_free_translation(_rendered);
     rde_localization_binding_free(&_binding);
     return _copy;
-}
-
-// Fills in English's _template, standing in for a string the language lacks, into _out (_size bytes, cut to fit).
-// It knows {n} (n is one digit, 0 to 9) and {n,plural, one{..} other{..}}, where '#' is the count, by English's rule:
-// "one" for exactly 1. A filled-in value goes in whole (a number is at most 20 digits and its sign).
-RDE_INTERNAL void fude_text_fill(c8* _out, usize _size, const c8* _template, const fude_text_arg* _args, u32 _count) {
-    usize _n = 0;
-    #define FUDE_TEXT_PUT(_c) do { if(_n + 1u < _size) { _out[_n++] = (_c); } } while(0)
-    for(const c8* _p = _template; *_p != 0; _p++) {
-        if(*_p != '{' || _p[1] < '0' || _p[1] > '9') {
-            FUDE_TEXT_PUT(*_p);
-            continue;
-        }
-        const u32 _k = (u32)(_p[1] - '0');
-        c8        _number[24] = "";   // A number's digits; a string argument is used where it is, whole.
-        const c8* _value      = _number;
-        if(_k < _count) {
-            if(_args[_k].kind == 0) { rde_snprintf(_number, sizeof(_number), "%lld", (long long)_args[_k].number); }
-            else                    { _value = _args[_k].string != NULL ? _args[_k].string : ""; }
-        }
-        const c8* _close = _p + 2;
-        if(*_close == '}') {
-            for(const c8* _v = _value; *_v != 0; _v++) { FUDE_TEXT_PUT(*_v); }
-            _p = _close;
-            continue;
-        }
-        // A plural: write the branch for the count, with each '#' replaced by the count.
-        const b8  _one    = _k < _count && _args[_k].kind == 0 && _args[_k].number == 1;
-        const c8* _branch = rde_strstr(_close, _one ? "one{" : "other{");
-        i32       _depth  = 1;
-        const c8* _end    = _close;
-        for(; *_end != 0 && _depth > 0; _end++) {
-            if(*_end == '{') { _depth++; }
-            if(*_end == '}') { _depth--; }
-        }
-        if(_branch != NULL && _branch < _end) {
-            for(const c8* _b = _branch + (_one ? 4 : 6); *_b != 0 && *_b != '}'; _b++) {
-                if(*_b == '#') { for(const c8* _v = _value; *_v != 0; _v++) { FUDE_TEXT_PUT(*_v); } }
-                else           { FUDE_TEXT_PUT(*_b); }
-            }
-        }
-        _p = _end - 1;
-    }
-    _out[_n] = 0;
-    #undef FUDE_TEXT_PUT
 }
 
 // Frees and empties every kept template, as when the language changes.
@@ -200,32 +152,25 @@ RDE_INTERNAL usize fude_text_key(FUDE_TEXT_ _id, const fude_text_arg* _args, u32
     return rde_arr_length(&fude_text_key_bytes);
 }
 
-// Loads English and renders its strings, then loads _language (English again if the file lacks it) and renders each
-// of its plain strings, copying English's for any it lacks. See the header.
+// Loads _language (English if the file lacks it), English's strings standing in for any it lacks (RDE's fallback
+// language), and renders each of its plain strings. See the header.
 b8 fude_text_set_language(RDE_LANGUAGE_ _language) {
     const c8* _code = rde_localization_language_code(_language);
     if(_code[0] == 0) {
         return false;
     }
-    // English first, because it stands in for anything the language lacks.
-    if(!rde_localization_load(FUDE_TEXT_FILE, "EN-US", NULL)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "text: no strings (%s)", FUDE_TEXT_FILE);
-        return false;
-    }
-    for(u32 _i = 0; _i < FUDE_TEXT_COUNT; _i++) {
-        fude_text_drop(&fude_text_english[_i]);
-        fude_text_english[_i] = fude_text_render((FUDE_TEXT_)_i, NULL, 0);
-    }
-    if(_language != RDE_LANGUAGE_EN_US && !rde_localization_load(FUDE_TEXT_FILE, _code, NULL)) {
+    rde_localization_set_fallback_language("EN-US");
+    if(!rde_localization_load(FUDE_TEXT_FILE, _code, NULL)) {
+        if(_language == RDE_LANGUAGE_EN_US || !rde_localization_load(FUDE_TEXT_FILE, "EN-US", NULL)) {
+            rde_log_level(RDE_LOG_LEVEL_ERROR, "text: no strings (%s)", FUDE_TEXT_FILE);
+            return false;
+        }
         rde_log_level(RDE_LOG_LEVEL_WARNING, "text: no %s strings, English instead", _code);
         _language = RDE_LANGUAGE_EN_US;
-        rde_localization_load(FUDE_TEXT_FILE, "EN-US", NULL);
     }
     for(u32 _i = 0; _i < FUDE_TEXT_COUNT; _i++) {
         fude_text_drop(&fude_text_plain[_i]);
-        fude_text_missing[_i] = !rde_localization_string_id_exists(FUDE_TEXT_NAMES[_i]);
-        fude_text_plain[_i]   = fude_text_missing[_i] ? rde_str_new(rde_str_to_char_ptr(&fude_text_english[_i]), rde_memory_allocator_get_default_std())
-                                                      : fude_text_render((FUDE_TEXT_)_i, NULL, 0);
+        fude_text_plain[_i] = fude_text_render((FUDE_TEXT_)_i, NULL, 0);
     }
     fude_text_forget_renders();
     fude_text_active = _language;
@@ -301,9 +246,8 @@ const c8* fude_text(FUDE_TEXT_ _id) {
     return rde_str_is_inited(&fude_text_plain[_id]) ? rde_str_to_char_ptr(&fude_text_plain[_id]) : FUDE_TEXT_NAMES[_id];
 }
 
-// Fills _id's template with the arguments into _out: from English's template when the language lacks it, else from
-// the kept render for the same id and arguments, else rendered by RDE and kept. Before any language is loaded, it
-// writes the id's name. See the header.
+// Fills _id's template with the arguments into _out: from the kept render for the same id and arguments, else rendered
+// by RDE and kept. Before any language is loaded, it writes the id's name. See the header.
 void fude_text_format(c8* _out, usize _size, FUDE_TEXT_ _id, const fude_text_arg* _args, u32 _count) {
     if(_size == 0) {
         return;
@@ -312,11 +256,6 @@ void fude_text_format(c8* _out, usize _size, FUDE_TEXT_ _id, const fude_text_arg
         rde_snprintf(_out, _size, "%s", (u32)_id < FUDE_TEXT_COUNT ? FUDE_TEXT_NAMES[_id] : "");
         return;
     }
-    if(fude_text_missing[_id]) {
-        fude_text_fill(_out, _size, rde_str_to_char_ptr(&fude_text_english[_id]), _args, _count);
-        return;
-    }
-
     // The id and the arguments, whole, are the key a kept render is found by.
     if(!rde_lru_is_inited(&fude_text_renders_lru)) {
         fude_text_renders_lru = rde_lru_new(FUDE_TEXT_RENDERS, rde_memory_allocator_get_default_std());

@@ -10332,6 +10332,67 @@ static void test_voice_lost(void) {
     rde_file_delete(path);
 }
 
+// The speaker, a stand-in for RDE's audio stream: it takes what it is given, and what it holds has been heard once the
+// test says so. It notes the app's audio category as it opens and as it closes.
+struct rde_audio_stream { u32 queued; };
+static struct rde_audio_stream fake_speaker;
+static RDE_AUDIO_CATEGORY_     fake_speaker_opened_in, fake_speaker_closed_in;
+rde_audio_stream* rde_audio_stream_open(u32 _rate, u32 _channels, u32 _frames, rde_memory_allocator* _a) {
+    (void)_rate; (void)_channels; (void)_frames; (void)_a;
+    fake_speaker.queued    = 0u;
+    fake_speaker_opened_in = rde_audio_get_category();
+    return &fake_speaker;
+}
+void rde_audio_stream_close(rde_audio_stream* _s) { (void)_s; fake_speaker_closed_in = rde_audio_get_category(); }
+b8   rde_audio_stream_start(rde_audio_stream* _s) { (void)_s; return true; }
+u32  rde_audio_stream_push(rde_audio_stream* _s, const f32* _in, u32 _frames) { (void)_in; _s->queued += _frames; return _frames; }
+u32  rde_audio_stream_queued_frames(const rde_audio_stream* _s) { return _s->queued; }
+
+// A recording played under RDE's spoken audio category (spoken.h): set before its speaker opens and given back to the
+// app's own (PLAYBACK here, to tell it from RDE's default) after the speaker closes, whether it pauses, plays to its
+// end or is closed playing; a seek while it plays keeps SPOKEN throughout. Before the change (2026-10-25) a recording
+// played under the app's category: AMBIENT by default, which Silent Mode mutes on iOS.
+static void test_voice_spoken(void) {
+    printf("voice spoken\n");
+    const c8* path = "./voice_spoken.rec";
+    rde_file_delete(path);
+    memset(&fake_mic, 0, sizeof(fake_mic));
+    fude_zoom_voice_recorder r;
+    CHECK(fude_zoom_voice_record(&r, path, FUDE_ZOOM_AUDIO_RATE));
+    fake_mic_say(2000u, 0.25f);
+    fude_zoom_voice_record_pump(&r);
+    const u32 frames = fude_zoom_voice_record_stop(&r);
+    const RDE_AUDIO_CATEGORY_ app = rde_audio_get_category();
+    rde_audio_set_category(RDE_AUDIO_CATEGORY_PLAYBACK);
+
+    fude_zoom_voice_player p;
+    CHECK(fude_zoom_voice_open(&p, path, FUDE_ZOOM_AUDIO_RATE, frames));
+    CHECK(rde_audio_get_category() == RDE_AUDIO_CATEGORY_PLAYBACK);   // (open, not playing: the app's)
+    fude_zoom_voice_play(&p);
+    CHECK(p.playing && fake_speaker_opened_in == RDE_AUDIO_CATEGORY_SPOKEN && rde_audio_get_category() == RDE_AUDIO_CATEGORY_SPOKEN);
+    fude_zoom_voice_pause(&p);
+    CHECK(!p.playing && fake_speaker_closed_in == RDE_AUDIO_CATEGORY_SPOKEN && rde_audio_get_category() == RDE_AUDIO_CATEGORY_PLAYBACK);
+
+    fude_zoom_voice_play(&p);
+    fake_speaker_closed_in = RDE_AUDIO_CATEGORY_COUNT;
+    fude_zoom_voice_seek(&p, frames / 2u);   // (its speaker closed and opened again: SPOKEN all along)
+    CHECK(p.playing && fake_speaker_closed_in == RDE_AUDIO_CATEGORY_SPOKEN && fake_speaker_opened_in == RDE_AUDIO_CATEGORY_SPOKEN);
+    CHECK(rde_audio_get_category() == RDE_AUDIO_CATEGORY_SPOKEN);
+    while(p.playing) {
+        fake_speaker.queued = 0u;   // (all of it heard)
+        fude_zoom_voice_pump(&p);
+    }
+    CHECK(p.at == frames && rde_audio_get_category() == RDE_AUDIO_CATEGORY_PLAYBACK);   // (played to its end)
+
+    fude_zoom_voice_play(&p);
+    CHECK(rde_audio_get_category() == RDE_AUDIO_CATEGORY_SPOKEN);
+    fude_zoom_voice_close(&p);   // (closed while playing)
+    CHECK(rde_audio_get_category() == RDE_AUDIO_CATEGORY_PLAYBACK);
+
+    rde_audio_set_category(app);
+    rde_file_delete(path);
+}
+
 static void test_audio(void) {
     printf("audio\n");
     i16 in[FUDE_ZOOM_ADPCM_FRAMES * 4], out[FUDE_ZOOM_ADPCM_FRAMES];
@@ -14798,6 +14859,7 @@ int main(void) {
     test_inktest();
     test_audio();
     test_voice_lost();
+    test_voice_spoken();
     test_pdf_pictures_once();
     test_display_examples();
     test_examples_go_wrong();

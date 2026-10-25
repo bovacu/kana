@@ -8,6 +8,7 @@
 #endif
 
 #include "study/services/speech.h"
+#include "drawing/base/spoken.h"
 #include "lang/lang.h"
 
 // ===========================================================================
@@ -21,12 +22,38 @@
 // apps.
 //
 // It reads at 0.85 of the default rate, a little slower, because a learner listens for each sound.
+//
+// Each utterance plays under RDE's spoken category (drawing/base/spoken.h): it starts as it is handed to the
+// synthesizer and ends with the synthesizer's word that it finished or was cancelled (one or the other for each), so
+// the app's own category comes back once the last has ended.
 // ===========================================================================
 
 #if defined(RDE_PLATFORM_IOS)
 
-// Made the first time something is read, and kept for the app's life.
+// Ends each utterance's voice (spoken.h) once the synthesizer says it finished or was cancelled. On the main queue,
+// where everything else here runs.
+@interface FudeSpeechEnds : NSObject <AVSpeechSynthesizerDelegate>
+@end
+
+@implementation FudeSpeechEnds
+
+- (void)speechSynthesizer:(AVSpeechSynthesizer*)_synth didFinishSpeechUtterance:(AVSpeechUtterance*)_utterance {
+    RDE_UNUSED(_synth);
+    RDE_UNUSED(_utterance);
+    dispatch_async(dispatch_get_main_queue(), ^{ fude_spoken_end(); });
+}
+
+- (void)speechSynthesizer:(AVSpeechSynthesizer*)_synth didCancelSpeechUtterance:(AVSpeechUtterance*)_utterance {
+    RDE_UNUSED(_synth);
+    RDE_UNUSED(_utterance);
+    dispatch_async(dispatch_get_main_queue(), ^{ fude_spoken_end(); });
+}
+
+@end
+
+// Made the first time something is read, and kept for the app's life (the synthesizer holds its delegate weakly).
 static AVSpeechSynthesizer* fude_speech_synth;
+static FudeSpeechEnds*      fude_speech_ends;
 static b8                   fude_speech_hint_due  = false;   // A basic voice spoke: say where better ones are...
 static b8                   fude_speech_hint_said = false;   // ...but only once a run.
 
@@ -85,7 +112,9 @@ void fude_speak(const c8* _text) {
             fude_speech_hint_due = true;
         }
         if(fude_speech_synth == nil) {
-            fude_speech_synth = [[AVSpeechSynthesizer alloc] init];
+            fude_speech_synth          = [[AVSpeechSynthesizer alloc] init];
+            fude_speech_ends           = [[FudeSpeechEnds alloc] init];
+            fude_speech_synth.delegate = fude_speech_ends;
         }
         if(fude_speech_synth.isSpeaking) {
             [fude_speech_synth stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
@@ -93,6 +122,7 @@ void fude_speak(const c8* _text) {
         AVSpeechUtterance* _utterance = [AVSpeechUtterance speechUtteranceWithString:_string];
         _utterance.voice = _voice;
         _utterance.rate  = AVSpeechUtteranceDefaultSpeechRate * 0.85f;
+        fude_spoken_start();
         [fude_speech_synth speakUtterance:_utterance];
     }
 }
@@ -102,6 +132,10 @@ void fude_speech_stop(void) {
     if(fude_speech_synth != nil && fude_speech_synth.isSpeaking) {
         [fude_speech_synth stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
     }
+}
+
+// See the header. Nothing to ask: the synthesizer says when each reading ends (FudeSpeechEnds).
+void fude_speech_update(void) {
 }
 
 // See the header. True once a run, after a basic voice has spoken.

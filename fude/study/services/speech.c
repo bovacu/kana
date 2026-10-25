@@ -47,6 +47,10 @@ void fude_speak(const c8* _text) {
 void fude_speech_stop(void) {
 }
 
+// Nothing is ever being read, so no category is held.
+void fude_speech_update(void) {
+}
+
 // There are no better voices to point to here.
 b8 fude_speech_take_hint(void) {
     return false;

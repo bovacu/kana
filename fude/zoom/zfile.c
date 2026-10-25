@@ -80,12 +80,12 @@ RDE_INTERNAL void fude_zoom_chunk_end(fude_bytes* _b, u32 _at) {
 
 // --- writing --------------------------------------------------------------------------------
 
-// Writes _size bytes to _path, appended or replacing the file, and syncs them to disk. Returns false (and logs it)
-// when the file could not be opened, written or synced.
-RDE_INTERNAL b8 fude_zoom_file_write(const c8* _path, const u8* _data, u32 _size, b8 _append) {
+// Appends _size bytes to _path and syncs them to disk. Returns false (and logs it) when the file could not be opened,
+// written or synced.
+RDE_INTERNAL b8 fude_zoom_file_write(const c8* _path, const u8* _data, u32 _size) {
     b8 _ok = false;
     RDE_TRY({
-        rde_file* _file = rde_file_open(_path, _append ? RDE_FILE_MODE_APPEND_BYTES : RDE_FILE_MODE_WRITE_BYTES);
+        rde_file* _file = rde_file_open(_path, RDE_FILE_MODE_APPEND_BYTES);
         if(_file != NULL && !rde_failed()) {
             rde_file_write_bytes(_file, _data, _size);
             _ok = !rde_failed();
@@ -110,7 +110,7 @@ RDE_INTERNAL b8 fude_zoom_file_append(fude_zoom_file* _f, const fude_bytes* _b) 
     if(_size == 0) {
         return true;
     }
-    if(!fude_zoom_file_write(_f->path, (const u8*)_b->memory, _size, true)) {
+    if(!fude_zoom_file_write(_f->path, (const u8*)_b->memory, _size)) {
         _f->size = 0;
         return false;
     }
@@ -332,8 +332,8 @@ b8 fude_zoom_file_checkpoint(fude_zoom_file* _f, fude_zoom_scene* _s) {
 }
 
 // See the header. The objects dead for good are first taken out of each frame's arrival order, so the new buckets are
-// packed; the old bucket places are forgotten and every bucket is written. Should the new file fail to go into place,
-// the .bak is put back where the file was.
+// packed; the old bucket places are forgotten and every bucket is written, atomically (rde_file_write_atomic, the old
+// file kept as the .bak): should the new file fail to go into place, the old one is still there.
 b8 fude_zoom_file_compact(fude_zoom_file* _f, fude_zoom_scene* _s) {
     // Each kept frame's arrival order without the garbage: the new buckets.
     for(u32 _fi = 0; _fi < fude_zoom_scene_frame_count(_s); _fi++) {
@@ -361,20 +361,10 @@ b8 fude_zoom_file_compact(fude_zoom_file* _f, fude_zoom_scene* _s) {
     fude_zoom_file_put_checkpoint(_s, &_b, 0u, true, &_written, &_live);
     // put_checkpoint took the offsets from where _b began: the header is in it.
 
-    c8 _tmp[RDE_MAX_PATH];
     c8 _bak[RDE_MAX_PATH];
-    rde_snprintf(_tmp, sizeof(_tmp), "%s.tmp", _f->path);
     rde_snprintf(_bak, sizeof(_bak), "%s.bak", _f->path);
-    b8 _ok = fude_zoom_file_write(_tmp, (const u8*)_b.memory, fude_bytes_size(&_b), false);
-    if(_ok) {
-        if(rde_file_exists(_f->path)) {
-            rde_file_move(_f->path, _bak);
-        }
-        _ok = rde_file_move(_tmp, _f->path);
-        if(!_ok && !rde_file_exists(_f->path) && rde_file_exists(_bak)) {
-            rde_file_move(_bak, _f->path);
-        }
-    }
+    b8 _ok = false;
+    RDE_TRY({ _ok = rde_file_write_atomic(_f->path, (const u8*)_b.memory, fude_bytes_size(&_b), _bak); });
     if(_ok) {
         fude_zoom_file_written_apply(_s, &_written);
         _f->size          = fude_bytes_size(&_b);

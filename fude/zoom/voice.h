@@ -80,7 +80,8 @@ typedef struct {
 b8   fude_zoom_voice_open(fude_zoom_voice_player* _p, const c8* _path, u32 _rate, u32 _frames);
 // Stops playing, closes the file and clears the player.
 void fude_zoom_voice_close(fude_zoom_voice_player* _p);
-// Starts playing from where it is (from the start again when it is at the end).
+// Starts playing from where it is (from the start again when it is at the end). While it plays, the app's audio is
+// RDE's spoken category (drawing/base/spoken.h): it plays in Silent Mode, and other apps' music is lowered, not stopped.
 void fude_zoom_voice_play(fude_zoom_voice_player* _p);
 // Pauses where it is heard to be, dropping what was queued past that.
 void fude_zoom_voice_pause(fude_zoom_voice_player* _p);

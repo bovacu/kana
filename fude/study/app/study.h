@@ -97,8 +97,9 @@ typedef struct fude_study {
 // go of them at the end.
 void fude_study_init(fude_study* _study);
 void fude_study_destroy(fude_study* _study);
-// Once a frame, before the screens' update: ends Select mode when no screen that ticks is open, offers a better voice
-// when the basic one has spoken, and shows the voice card when it is due (welcome.h).
+// Once a frame, before the screens' update: ends Select mode when no screen that ticks is open, gives the app's audio
+// category back once the voice has stopped (speech.h: fude_speech_update), offers a better voice when the basic one
+// has spoken, and shows the voice card when it is due (welcome.h).
 void fude_study_update(struct fude_app* _app);
 
 // --- the verbs: from one study screen to another (verbs.c) ------------------------------

@@ -91,54 +91,17 @@ void fude_chunk_end(fude_bytes* _b, u32 _at) {
     _p[3] = (u8)(_size >> 24);
 }
 
-// Writes _size bytes to <_path>.tmp, renames the current file (if any) to <_path>.bak, then renames the .tmp to _path.
-// A kill before the last rename leaves the previous save as the .bak, which fude_save_load reads when the main file is
-// missing. Returns false, and logs it, when the .tmp could not be written or moved into place; in the second case the
-// .bak is moved back to _path if _path is gone.
-RDE_INTERNAL b8 fude_file_write_atomic(const c8* _path, const u8* _data, u32 _size) {
-    c8 _tmp[RDE_MAX_PATH];
-    c8 _bak[RDE_MAX_PATH];
-    rde_snprintf(_tmp, sizeof(_tmp), "%s.tmp", _path);
-    rde_snprintf(_bak, sizeof(_bak), "%s.bak", _path);
-
-    b8 _written = false;
-    RDE_TRY({
-        rde_file* _file = rde_file_open(_tmp, RDE_FILE_MODE_WRITE_BYTES);
-        if(_file != NULL && !rde_failed()) {
-            rde_file_write_bytes(_file, _data, _size);
-            // On the disk before the renames: otherwise a power cut just after them can leave the new name on a file
-            // whose bytes never reached the disk (an empty page), with the good copy already renamed to the .bak.
-            _written = !rde_failed() && rde_file_sync(_file);
-            rde_file_close(_file);
-        }
-    });
-
-    if(!_written) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "file: could not write %s", _tmp);
-        return false;
-    }
-
-    // The previous version becomes the backup, then the new one takes its name. Each rename is atomic, but between
-    // the two there is no file at _path; the load then reads the .bak (save.c).
-    if(rde_file_exists(_path)) {
-        rde_file_move(_path, _bak);
-    }
-
-    if(!rde_file_move(_tmp, _path)) {
-        rde_log_level(RDE_LOG_LEVEL_ERROR, "file: could not move %s into place", _tmp);
-        if(!rde_file_exists(_path) && rde_file_exists(_bak)) {
-            rde_file_move(_bak, _path);
-        }
-        return false;
-    }
-
-    return true;
-}
-
-// Writes the bytes atomically (fude_file_write_atomic) and frees them, whether or not the write worked.
+// Writes the bytes atomically (rde_file_write_atomic, the previous file kept as <_path>.bak, which fude_save_load reads
+// when the main file is missing or damaged) and frees them, whether or not the write worked. A failure is logged.
 b8 fude_bytes_write_and_free(fude_bytes* _b, const c8* _path, u32* _out_bytes) {
     const u32 _size = fude_bytes_size(_b);
-    const b8  _ok   = fude_file_write_atomic(_path, (const u8*)_b->memory, _size);
+    c8        _bak[RDE_MAX_PATH];
+    rde_snprintf(_bak, sizeof(_bak), "%s.bak", _path);
+    b8 _ok = false;
+    RDE_TRY({ _ok = rde_file_write_atomic(_path, (const u8*)_b->memory, _size, _bak); });
+    if(!_ok) {
+        rde_log_level(RDE_LOG_LEVEL_ERROR, "file: could not save %s: %s", _path, rde_error_what());
+    }
     if(_out_bytes != NULL) {
         *_out_bytes = _size;
     }

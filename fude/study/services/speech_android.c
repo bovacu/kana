@@ -2,6 +2,7 @@
 
 #include "study/services/speech.h"
 #include "drawing/base/redraw.h"
+#include "drawing/base/spoken.h"
 #include "lang/lang.h"
 
 // ===========================================================================
@@ -9,6 +10,10 @@
 // Java's com.rde.fude.FudeSpeech. The engine is started the first time a voice is asked about, and starts on
 // Android's own thread; FudeSpeech.state() then answers 0 (not started), 1 (starting), 2 (ready) or 3 (no voice for
 // the language).
+//
+// While it reads, the app's audio is RDE's spoken category (drawing/base/spoken.h): held from the first fude_speak
+// until FudeSpeech.speaking() says nothing is left to read, asked once a frame (fude_speech_update), since the engine
+// says so only on its own thread.
 // ===========================================================================
 
 #if defined(RDE_PLATFORM_ANDROID)
@@ -17,6 +22,8 @@
 
 // Whether FudeSpeech.start has been called. It is cleared to start the engine again after a recheck.
 static b8 fude_speech_started = false;
+// Whether the spoken category is held for what is being read (one fude_spoken_start, however many were read since).
+static b8 fude_speech_spoken  = false;
 
 // Starts the engine for the language's voice (lang.h: fude_lang_voice), the first time it is asked about.
 RDE_INTERNAL void fude_speech_start(JNIEnv* _env) {
@@ -58,10 +65,39 @@ void fude_speak(const c8* _text) {
     if(_env == NULL || _speak == NULL || _text == NULL) {
         return;
     }
+    if(!fude_speech_spoken) {
+        fude_speech_spoken = true;
+        fude_spoken_start();
+    }
     jbyteArray _bytes = fude_android_bytes(_env, _text);
     (*_env)->CallStaticVoidMethod(_env, fude_android_class(FUDE_JAVA_SPEECH), _speak, _bytes);
     fude_android_threw(_env, "FudeSpeech.speak");
     (*_env)->DeleteLocalRef(_env, _bytes);
+    fude_redraw_after(FUDE_REDRAW_POLL);   // (render on demand: the next frame asks whether it is still reading)
+}
+
+// FudeSpeech.speaking(): whether something is still being read, or waits to be. False when it cannot be asked.
+RDE_INTERNAL b8 fude_speech_speaking(void) {
+    JNIEnv*   _env      = fude_android_env();
+    jmethodID _speaking = fude_android_method(FUDE_JAVA_SPEECH, "speaking", "()Z");
+    if(_env == NULL || _speaking == NULL) {
+        return false;
+    }
+    const jboolean _yes = (*_env)->CallStaticBooleanMethod(_env, fude_android_class(FUDE_JAVA_SPEECH), _speaking);
+    return !fude_android_threw(_env, "FudeSpeech.speaking") && _yes == JNI_TRUE;
+}
+
+// See the header. The app's category back once nothing is left to read; asked again a moment later until then.
+void fude_speech_update(void) {
+    if(!fude_speech_spoken) {
+        return;
+    }
+    if(fude_speech_speaking()) {
+        fude_redraw_after(FUDE_REDRAW_POLL);
+        return;
+    }
+    fude_speech_spoken = false;
+    fude_spoken_end();
 }
 
 // See the header.

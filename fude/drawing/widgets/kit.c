@@ -107,13 +107,7 @@ void fude_kit_button_colors(rde_ui_button* _button, rde_color _base, f32 _border
     _s.border_width  = _border_width;
     _s.border_color  = _border;
     rde_ui_button_set_style(_button, RDE_UI_STATE_NORMAL, _s);
-#if defined(RDE_PLATFORM_MOBILE)
-    // No hover look on a touch screen (the hovered style stays the normal one): a lifted pen leaves the pointer on what
-    // it tapped (RDE lets a lifted finger hover nothing, but not a pen), and a hover tint there would look as if the
-    // button were left on.
-#else
     _s.tint = _clear ? _t->button : fude_kit_press(_base, 8);
-#endif
     rde_ui_button_set_style(_button, RDE_UI_STATE_HOVERED, _s);
     _s.tint = _clear ? fude_kit_press(_t->button, 14) : fude_kit_press(_base, 22);
     rde_ui_button_set_style(_button, RDE_UI_STATE_PRESSED, _s);
