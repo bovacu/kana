@@ -28,6 +28,8 @@ canvas | side      | --side
 canvas | settings  | --settings
 canvas | home      | --home=5 --shot-at=30
 canvas | topic     | --tool-panel=0 --shot-at=20
+# The toolbar with a tool chosen that is not the default (the eraser): every other icon drawn, the one above it too.
+canvas | eraser    | --bar-tool=1 --shot-at=20
 canvas | library   | --library=0@5 --shot-at=40
 canvas | torch     | --example=0@5 --shot-at=40
 canvas | counter   | --example=5@5 --shot-at=40
