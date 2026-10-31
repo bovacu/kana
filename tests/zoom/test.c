@@ -6630,8 +6630,10 @@ static void test_child_at(void) {
     fude_zoom_scene_destroy(&s0);
 }
 
-// A piece renamed while its file cannot be written (a full disk: g_sync_fails): said so (false; it was not), its new
-// name kept until the app closes and its old one in its file; written again, true, and the file has the new name.
+// A piece renamed while its file cannot be written (its folder made read-only: the save cannot make its .tmp, as on a
+// full disk): said so (false; it was not), its new name kept until the app closes and its old one in its file; written
+// again, true, and the file has the new name. (Not g_sync_fails: a save goes through RDE's rde_file_write_atomic, whose
+// own sync the suite's replacement does not reach.)
 static void test_piece_rename_failed(void) {
     printf("piece renamed, its file not written\n");
     fude_zoom_scene s; fude_zoom_scene_init(&s, 7);
@@ -6645,9 +6647,9 @@ static void test_piece_rename_failed(void) {
     memset(&lib, 0, sizeof(lib));
     fude_zoom_pieces_load(&lib, dir);
     CHECK(fude_zoom_pieces_add(&lib, dir, "Before", (const fude_zoom_clip*)clips.memory, 1u, fude_zoom_scene_object(&s, st)->box) == 0u);
-    g_sync_fails = true;
+    chmod("./pieces_rename_test", 0555);
     CHECK(!fude_zoom_pieces_rename(&lib, dir, 0u, "After"));
-    g_sync_fails = false;
+    chmod("./pieces_rename_test", 0755);
     CHECK(strcmp(lib.list[0].name, "After") == 0);
     fude_zoom_pieces back;
     memset(&back, 0, sizeof(back));
